@@ -901,9 +901,6 @@ private fun TailscaleLoginDialog(
                     loadUrl(loginUrl)
                 }
             },
-            update = { webView ->
-                if (webView.url == null) webView.loadUrl(loginUrl)
-            },
         )
     }
 }

@@ -112,7 +112,7 @@ class UpdateChecker @Inject constructor(
     }
 
     private companion object {
-        const val REPO = "sorsama/deepseek-harness-mobile"
+        const val REPO = "chliny/dsh-mobile-mesh"
         const val LATEST_RELEASE_API = "https://api.github.com/repos/$REPO/releases/latest"
         const val RELEASES_URL = "https://github.com/$REPO/releases/latest"
     }

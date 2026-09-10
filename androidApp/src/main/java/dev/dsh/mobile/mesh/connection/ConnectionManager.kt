@@ -180,7 +180,13 @@ class ConnectionManager @Inject constructor(
         // and the transport manager reuses it when the user retries after approval.
         if (activeHost != config || _state.value.authorizationPending == null) disconnect()
         activeHost = config
-        _state.value = ConnectionUiState(
+        val pending = _state.value.takeIf {
+            activeHost == config && it.authorizationPending != null
+        }
+        _state.value = pending?.copy(
+            phase = ConnectionPhase.CONNECTING,
+            stage = ConnectStage.OpeningStreams,
+        ) ?: ConnectionUiState(
             phase = ConnectionPhase.CONNECTING,
             host = config,
             stage = ConnectStage.OpeningStreams,

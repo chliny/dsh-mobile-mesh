@@ -1,4 +1,4 @@
-module github.com/sorsama/deepseek-harness-mobile/tailscale
+module github.com/chliny/dsh-mobile-mesh/tailscale
 
 go 1.27.0
 
