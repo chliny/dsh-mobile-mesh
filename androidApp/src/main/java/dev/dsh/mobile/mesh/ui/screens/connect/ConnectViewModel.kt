@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.dsh.mobile.mesh.connection.ConnectStage
 import dev.dsh.mobile.mesh.connection.ConnectionManager
+import dev.dsh.mobile.mesh.connection.ConnectionDraft
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.connection.DiscoveredHost
 import dev.dsh.mobile.mesh.connection.DiscoveryEngine
@@ -77,6 +78,8 @@ data class ConnectUiState(
     val stage: ConnectStage = ConnectStage.Idle,
     /** Why the last attempt failed, or null. */
     val failure: ConnectFailure? = null,
+    /** An embedded private-network node needs approval before it can receive an address. */
+    val authorizationPending: String? = null,
     /** The authority actually attempted, e.g. `192.168.1.20:3080` — never the live field text. */
     val attempted: String? = null,
     /** The loop is still retrying in the background, so a cancel is worth offering. */
@@ -129,6 +132,11 @@ class ConnectViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(ConnectUiState())
     val state: StateFlow<ConnectUiState> = _state.asStateFlow()
+    val draft = hostsStore.connectionDraft
+
+    fun saveDraft(draft: ConnectionDraft) {
+        viewModelScope.launch { hostsStore.saveConnectionDraft(draft) }
+    }
 
     /**
      * Non-null while this ViewModel owns the outcome rather than the manager.
@@ -200,6 +208,7 @@ class ConnectViewModel @Inject constructor(
                             owned -> current.failure
                             else -> conn.failure
                         },
+                        authorizationPending = conn.authorizationPending,
                         // Whoever started the attempt owns this normally, but pairing connects
                         // through the manager directly — so a failure after pairing arrived with
                         // no address at all, and the message read "Something answered at , but…".
@@ -553,6 +562,10 @@ class ConnectViewModel @Inject constructor(
 
     suspend fun importZeroTierPlanet(uri: Uri): Result<String> = runCatching {
         zeroTierPlanets.import(uri)
+    }
+
+    suspend fun importZeroTierPlanetBase64(encoded: String): Result<String> = runCatching {
+        zeroTierPlanets.importBase64(encoded)
     }
 
     /** Stop a connect attempt that the loop would otherwise keep retrying every few seconds. */

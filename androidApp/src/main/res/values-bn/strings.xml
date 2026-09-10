@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_long_name">DeepSeek Harness রিমোট</string>
+    <string name="app_long_name" translatable="false">DSH Mobile Mesh</string>
     <string name="common_cancel">বাতিল</string>
     <string name="common_ok">ঠিক আছে</string>
     <string name="common_save">সংরক্ষণ</string>
@@ -25,7 +25,7 @@
     <string name="common_no">না</string>
     <string name="common_none">কিছুই নয়</string>
     <string name="connect_title">Harness-এ সংযুক্ত হোন</string>
-    <string name="connect_subtitle">DSH Mobile আপনার কম্পিউটারে চলমান DeepSeek Harness-কে মিরর করে।</string>
+    <string name="connect_subtitle">DSH Mobile Mesh আপনার কম্পিউটারে চলমান DeepSeek Harness-কে মিরর করে।</string>
     <string name="connect_manual_title">ম্যানুয়ালি সংযুক্ত হোন</string>
     <string name="connect_host_label">হোস্ট ঠিকানা</string>
     <string name="connect_host_hint">192.168.1.20</string>
@@ -428,7 +428,7 @@
     <string name="pair_key_first_use">টাইপ করা ঠিকানায় কোনো কী থাকে না, তাই প্রথমবার যে উত্তর দেয় তাকেই বিশ্বাস করা হয়। QR কোড স্ক্যান করলে কী-টি যাচাই করা যায়।</string>
     <string name="pair_key_plaintext">এই ঠিকানা এনক্রিপ্টেড নয়, তাই টোকেন এবং আপনার পাঠানো সবকিছু খোলা অবস্থায় যায়।</string>
     <string name="pair_fail_not_a_code">এটি রিলে পেয়ারিং কোড নয়।</string>
-    <string name="pair_fail_too_new">এই কোডটি এই অ্যাপের বোঝার চেয়ে নতুন একটি রিলের (সংস্করণ %1$d)। DSH Mobile আপডেট করুন।</string>
+    <string name="pair_fail_too_new">এই কোডটি এই অ্যাপের বোঝার চেয়ে নতুন একটি রিলের (সংস্করণ %1$d)। DSH Mobile Mesh আপডেট করুন।</string>
     <string name="pair_fail_expired">এই কোডের মেয়াদ শেষ। নতুন কোড পেতে রিলের পেয়ারিং পৃষ্ঠা আবার লোড করুন।</string>
     <string name="pair_fail_rejected">রিলে এই কোডটি ফিরিয়ে দিয়েছে। কোড একবারই কাজ করে এবং কয়েক মিনিটে মেয়াদ শেষ হয় — পেয়ারিং পৃষ্ঠা আবার লোড করে নতুনটি দিন।</string>
     <string name="pair_fail_rate_limited">অনেকবার চেষ্টা হয়েছে। %1$d সেকেন্ড অপেক্ষা করে আবার চেষ্টা করুন।</string>

@@ -44,7 +44,7 @@ fun EmptyHero(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        WhaleMark(Modifier.size(64.dp))
+        MeshMark(Modifier.size(64.dp))
         Text(
             headline,
             style = DsType.hero26,
@@ -82,10 +82,9 @@ fun EmptyHero(
     }
 }
 
-/** 64dp accentTertiary disc with the DeepSeek Mobile logo mark. */
 /** The product mark on a tinted disc. Shared so a screen can use it without the whole hero. */
 @Composable
-internal fun WhaleMark(modifier: Modifier = Modifier) {
+internal fun MeshMark(modifier: Modifier = Modifier) {
     val colors = DsTheme.colors
     Box(modifier.clip(CircleShape).background(colors.accentTertiary), contentAlignment = Alignment.Center) {
         // The launcher vector keeps the mark inside the adaptive-icon safe zone

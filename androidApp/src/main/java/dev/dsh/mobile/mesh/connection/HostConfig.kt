@@ -65,6 +65,28 @@ data class HostConfig(
 enum class SshAuthentication { PASSWORD, PRIVATE_KEY }
 
 /**
+ * The unfinished connection form. Authentication secrets are intentionally excluded: they remain
+ * in memory until the user connects, then are encrypted separately by [SshSecretStore].
+ */
+@Serializable
+data class ConnectionDraft(
+    val host: String = "",
+    val port: String = "3080",
+    val meshTransport: String = "direct",
+    val zeroTierNetworkId: String = "",
+    val zeroTierPlanetId: String? = null,
+    /** Custom planet Base64 draft. It is not a credential and is capped by [ZeroTierPlanetStore]. */
+    val zeroTierPlanetBase64: String = "",
+    val tailscaleHostname: String = "",
+    val sshEnabled: Boolean = true,
+    val sshPort: String = "22",
+    val sshUsername: String = "",
+    val sshAuthentication: SshAuthentication = SshAuthentication.PASSWORD,
+    val sshHostKeyFingerprint: String = "",
+    val sshDshHost: String = "127.0.0.1",
+)
+
+/**
  * A harness found by the active LAN scan.
  *
  * Carries the whole probe answer rather than two fields of it: the sweep already paid for the round

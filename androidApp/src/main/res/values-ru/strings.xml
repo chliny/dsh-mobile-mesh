@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_long_name">Удалённое управление DeepSeek Harness</string>
+    <string name="app_long_name" translatable="false">DSH Mobile Mesh</string>
     <string name="common_cancel">Отмена</string>
     <string name="common_ok">ОК</string>
     <string name="common_save">Сохранить</string>
@@ -25,7 +25,7 @@
     <string name="common_no">Нет</string>
     <string name="common_none">Ничего</string>
     <string name="connect_title">Подключиться к Harness</string>
-    <string name="connect_subtitle">DSH Mobile отражает DeepSeek Harness, работающий на вашем компьютере.</string>
+    <string name="connect_subtitle">DSH Mobile Mesh отражает DeepSeek Harness, работающий на вашем компьютере.</string>
     <string name="connect_manual_title">Подключиться вручную</string>
     <string name="connect_host_label">Адрес хоста</string>
     <string name="connect_host_hint">192.168.1.20</string>
@@ -428,7 +428,7 @@
     <string name="pair_key_first_use">Введённый вручную адрес не содержит ключа, поэтому принимается тот, что ответит первым. Сканирование QR-кода позволяет ключ проверить.</string>
     <string name="pair_key_plaintext">Этот адрес не шифруется, поэтому токен и всё отправляемое передаются открытым текстом.</string>
     <string name="pair_fail_not_a_code">Это не код сопряжения с реле.</string>
-    <string name="pair_fail_too_new">Этот код от более нового реле (версия %1$d), чем понимает приложение. Обновите DSH Mobile.</string>
+    <string name="pair_fail_too_new">Этот код от более нового реле (версия %1$d), чем понимает приложение. Обновите DSH Mobile Mesh.</string>
     <string name="pair_fail_expired">Срок действия кода истёк. Обновите страницу сопряжения реле, чтобы получить новый.</string>
     <string name="pair_fail_rejected">Реле отклонило этот код. Коды одноразовые и действуют несколько минут — обновите страницу сопряжения и введите новый.</string>
     <string name="pair_fail_rate_limited">Слишком много попыток. Подождите %1$d с и повторите.</string>

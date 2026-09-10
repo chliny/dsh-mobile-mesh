@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_long_name">التحكم عن بُعد في DeepSeek Harness</string>
+    <string name="app_long_name" translatable="false">DSH Mobile Mesh</string>
     <string name="common_cancel">إلغاء</string>
     <string name="common_ok">موافق</string>
     <string name="common_save">حفظ</string>
@@ -25,7 +25,7 @@
     <string name="common_no">لا</string>
     <string name="common_none">لا شيء</string>
     <string name="connect_title">الاتصال بـ Harness</string>
-    <string name="connect_subtitle">يعكس DSH Mobile تطبيق DeepSeek Harness الذي يعمل على جهاز الكمبيوتر الخاص بك.</string>
+    <string name="connect_subtitle">يعكس DSH Mobile Mesh تطبيق DeepSeek Harness الذي يعمل على جهاز الكمبيوتر الخاص بك.</string>
     <string name="connect_manual_title">الاتصال يدويًا</string>
     <string name="connect_host_label">عنوان المضيف</string>
     <string name="connect_host_hint">192.168.1.20</string>
@@ -428,7 +428,7 @@
     <string name="pair_key_first_use">العنوان المكتوب يدويًا لا يحمل أي مفتاح، لذا يُوثَق بما يستجيب أول مرة. مسح رمز QR هو ما يتيح التحقق منه.</string>
     <string name="pair_key_plaintext">هذا العنوان غير مُشفَّر، لذا ينتقل الرمز وكل ما ترسله بنص واضح.</string>
     <string name="pair_fail_not_a_code">هذا ليس رمز اقتران مُرحِّل.</string>
-    <string name="pair_fail_too_new">هذا الرمز صادر عن مُرحِّل أحدث (الإصدار %1$d) مما يفهمه هذا التطبيق. حدّث DSH Mobile.</string>
+    <string name="pair_fail_too_new">هذا الرمز صادر عن مُرحِّل أحدث (الإصدار %1$d) مما يفهمه هذا التطبيق. حدّث DSH Mobile Mesh.</string>
     <string name="pair_fail_expired">انتهت صلاحية هذا الرمز. أعد تحميل صفحة اقتران المُرحِّل للحصول على رمز جديد.</string>
     <string name="pair_fail_rejected">رفض المُرحِّل هذا الرمز. تُستخدم الرموز مرة واحدة وتنتهي خلال دقائق — أعد تحميل صفحة الاقتران وجرّب الرمز الجديد.</string>
     <string name="pair_fail_rate_limited">محاولات كثيرة جدًا. انتظر %1$d ثانية ثم أعد المحاولة.</string>

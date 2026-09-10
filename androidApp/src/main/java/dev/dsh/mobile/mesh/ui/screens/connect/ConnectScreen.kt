@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +43,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.connection.ConnectStage
+import dev.dsh.mobile.mesh.connection.ConnectionDraft
 import dev.dsh.mobile.mesh.connection.DiscoveredHost
 import dev.dsh.mobile.mesh.connection.HostConfig
 import dev.dsh.mobile.mesh.connection.MeshTransport
@@ -55,7 +57,7 @@ import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.DsSegment
 import dev.dsh.mobile.mesh.ui.components.DsSegmented
 import dev.dsh.mobile.mesh.ui.components.ToggleRow
-import dev.dsh.mobile.mesh.ui.components.WhaleMark
+import dev.dsh.mobile.mesh.ui.components.MeshMark
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import dev.dsh.mobile.mesh.ui.components.SectionHeader
 import dev.dsh.mobile.mesh.ui.components.DsDialog
@@ -77,6 +79,7 @@ fun ConnectScreen(
     viewModel: ConnectViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val persistedDraft by viewModel.draft.collectAsStateWithLifecycle(initialValue = null)
     val colors = DsTheme.colors
     // Saveable: a rotation mid-connect used to wipe a hand-typed address.
     var host by rememberSaveable { mutableStateOf("") }
@@ -85,6 +88,7 @@ fun ConnectScreen(
     val meshTransport = MeshTransport.of(meshTransportKey)
     var zeroTierNetworkId by rememberSaveable { mutableStateOf("") }
     var zeroTierPlanetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var zeroTierPlanetBase64 by rememberSaveable { mutableStateOf("") }
     var zeroTierPlanetError by rememberSaveable { mutableStateOf<String?>(null) }
     var tailscaleHostname by rememberSaveable { mutableStateOf("") }
     var sshEnabled by rememberSaveable { mutableStateOf(true) }
@@ -97,6 +101,51 @@ fun ConnectScreen(
     var sshPrivateKeyPassphrase by rememberSaveable { mutableStateOf("") }
     var sshHostKeyFingerprint by rememberSaveable { mutableStateOf("") }
     var sshDshHost by rememberSaveable { mutableStateOf("127.0.0.1") }
+    var restoredDraft by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(persistedDraft, restoredDraft) {
+        val draft = persistedDraft ?: return@LaunchedEffect
+        if (!restoredDraft) {
+            host = draft.host
+            port = draft.port
+            meshTransportKey = draft.meshTransport
+            zeroTierNetworkId = draft.zeroTierNetworkId
+            zeroTierPlanetId = draft.zeroTierPlanetId
+            zeroTierPlanetBase64 = draft.zeroTierPlanetBase64
+            tailscaleHostname = draft.tailscaleHostname
+            sshEnabled = draft.sshEnabled
+            sshPort = draft.sshPort
+            sshUsername = draft.sshUsername
+            sshAuthenticationKey = if (draft.sshAuthentication == SshAuthentication.PRIVATE_KEY) "key" else "password"
+            sshHostKeyFingerprint = draft.sshHostKeyFingerprint
+            sshDshHost = draft.sshDshHost
+            restoredDraft = true
+        }
+    }
+
+    LaunchedEffect(
+        restoredDraft, host, port, meshTransportKey, zeroTierNetworkId, zeroTierPlanetId, zeroTierPlanetBase64,
+        tailscaleHostname, sshEnabled, sshPort, sshUsername, sshAuthentication,
+        sshHostKeyFingerprint, sshDshHost,
+    ) {
+        if (restoredDraft) viewModel.saveDraft(
+            ConnectionDraft(
+                host = host,
+                port = port,
+                meshTransport = meshTransportKey,
+                zeroTierNetworkId = zeroTierNetworkId,
+                zeroTierPlanetId = zeroTierPlanetId,
+                zeroTierPlanetBase64 = zeroTierPlanetBase64,
+                tailscaleHostname = tailscaleHostname,
+                sshEnabled = sshEnabled,
+                sshPort = sshPort,
+                sshUsername = sshUsername,
+                sshAuthentication = sshAuthentication,
+                sshHostKeyFingerprint = sshHostKeyFingerprint,
+                sshDshHost = sshDshHost,
+            ),
+        )
+    }
     val scope = rememberCoroutineScope()
     val planetPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
@@ -226,10 +275,35 @@ fun ConnectScreen(
                                 singleLine = true,
                                 colors = connectFieldColors(),
                             )
+                             DsButton(
+                                 text = if (zeroTierPlanetId == null) stringResource(R.string.connect_zerotier_planet_import)
+                                 else stringResource(R.string.connect_zerotier_planet_replace),
+                                 onClick = { planetPicker.launch(arrayOf("*/*")) },
+                                 variant = DsButtonVariant.Info,
+                             )
+                            TextField(
+                                value = zeroTierPlanetBase64,
+                                onValueChange = { zeroTierPlanetBase64 = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text(stringResource(R.string.connect_zerotier_planet_base64)) },
+                                minLines = 3,
+                                maxLines = 5,
+                                colors = connectFieldColors(),
+                            )
                             DsButton(
-                                text = if (zeroTierPlanetId == null) stringResource(R.string.connect_zerotier_planet_import)
-                                else stringResource(R.string.connect_zerotier_planet_replace),
-                                onClick = { planetPicker.launch(arrayOf("*/*")) },
+                                text = stringResource(R.string.connect_zerotier_planet_base64_import),
+                                onClick = {
+                                    scope.launch {
+                                        viewModel.importZeroTierPlanetBase64(zeroTierPlanetBase64).fold(
+                                            onSuccess = {
+                                                zeroTierPlanetId = it
+                                                zeroTierPlanetError = null
+                                            },
+                                            onFailure = { zeroTierPlanetError = it.message },
+                                        )
+                                    }
+                                },
+                                enabled = zeroTierPlanetBase64.isNotBlank(),
                                 variant = DsButtonVariant.Info,
                             )
                             zeroTierPlanetId?.let {
@@ -368,6 +442,7 @@ fun ConnectScreen(
             // Progress and failure are shared: an attempt reports the same way whichever mode
             // started it, and duplicating the block per mode is how the two drift apart.
             if (state.connecting) ConnectProgressRow(state.stage, state.attempted)
+            state.authorizationPending?.let { message -> ConnectAuthorizationPendingBlock(message) }
             state.failure?.let { failure ->
                 ConnectFailureBlock(
                     failure = failure,
@@ -424,7 +499,7 @@ private fun ConnectHeader() {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(DsSpacing.medium),
     ) {
-        WhaleMark(Modifier.size(40.dp))
+        MeshMark(Modifier.size(40.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 stringResource(R.string.app_long_name),
@@ -716,6 +791,25 @@ private fun ConnectFailureBlock(
                     size = DsButtonSize.Small,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ConnectAuthorizationPendingBlock(message: String) {
+    val colors = DsTheme.colors
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = colors.warnTertiary,
+    ) {
+        Row(
+            modifier = Modifier.padding(DsSpacing.medium),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall),
+        ) {
+            StateDot(StateDotState.Warning, size = 8.dp)
+            Text(message, style = DsType.small13, color = colors.warnLabel)
         }
     }
 }

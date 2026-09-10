@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">DSH Mobile</string>
-    <string name="app_long_name">DeepSeek Harness Remote</string>
+    <string name="app_name" translatable="false">DSH Mobile Mesh</string>
+    <string name="app_long_name" translatable="false">DSH Mobile Mesh</string>
     <string name="common_cancel">Cancel</string>
     <string name="common_ok">OK</string>
     <string name="common_save">Save</string>
@@ -34,7 +34,7 @@
     <string name="time_months">%1$dmo</string>
     <string name="time_years">%1$dy</string>
     <string name="connect_title">Connect to Harness</string>
-    <string name="connect_subtitle">DSH Mobile mirrors the DeepSeek Harness running on your computer.</string>
+    <string name="connect_subtitle">DSH Mobile Mesh mirrors the DeepSeek Harness running on your computer.</string>
     <string name="connect_manual_title">Connect manually</string>
     <string name="connect_host_label">Host address</string>
     <string name="connect_host_hint">192.168.1.20</string>
@@ -47,6 +47,8 @@
     <string name="connect_zerotier_network_id">ZeroTier network ID</string>
     <string name="connect_zerotier_planet_import" translatable="false">Import custom planet</string>
     <string name="connect_zerotier_planet_replace" translatable="false">Replace custom planet</string>
+    <string name="connect_zerotier_planet_base64" translatable="false">Custom planet Base64</string>
+    <string name="connect_zerotier_planet_base64_import" translatable="false">Import Base64 planet</string>
     <string name="connect_zerotier_planet_id" translatable="false">Custom planet SHA-256: %1$s…</string>
     <string name="connect_tailscale_hostname">Tailscale device name (optional)</string>
     <string name="connect_mesh_hint">Uses an app-private encrypted relay. It does not create a system VPN or change other apps\' traffic.</string>
@@ -444,7 +446,7 @@
     <string name="pair_key_first_use"></string>
     <string name="pair_key_plaintext"></string>
     <string name="pair_fail_not_a_code"></string>
-    <string name="pair_fail_too_new"></string>
+    <string name="pair_fail_too_new">This pairing code came from a newer relay (version %1$d) than DSH Mobile Mesh understands. Update the app.</string>
     <string name="pair_fail_expired"></string>
     <string name="pair_fail_rejected"></string>
     <string name="pair_fail_rate_limited"></string>

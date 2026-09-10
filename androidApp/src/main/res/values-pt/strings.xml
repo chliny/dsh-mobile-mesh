@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_long_name">Controle remoto do DeepSeek Harness</string>
+    <string name="app_long_name" translatable="false">DSH Mobile Mesh</string>
     <string name="common_cancel">Cancelar</string>
     <string name="common_ok">OK</string>
     <string name="common_save">Salvar</string>
@@ -25,7 +25,7 @@
     <string name="common_no">Não</string>
     <string name="common_none">Nenhum</string>
     <string name="connect_title">Conectar ao Harness</string>
-    <string name="connect_subtitle">O DSH Mobile espelha o DeepSeek Harness em execução no seu computador.</string>
+    <string name="connect_subtitle">O DSH Mobile Mesh espelha o DeepSeek Harness em execução no seu computador.</string>
     <string name="connect_manual_title">Conectar manualmente</string>
     <string name="connect_host_label">Endereço do host</string>
     <string name="connect_host_hint">192.168.1.20</string>
@@ -428,7 +428,7 @@
     <string name="pair_key_first_use">Um endereço digitado não traz chave alguma, então o que responder primeiro é aceito como está. Escanear o QR code confere a chave.</string>
     <string name="pair_key_plaintext">Este endereço não usa criptografia, então o token e tudo o que você enviar trafegam abertos.</string>
     <string name="pair_fail_not_a_code">Isso não é um código de pareamento de relay.</string>
-    <string name="pair_fail_too_new">Esse código vem de um relay mais novo (versão %1$d) do que este app entende. Atualize o DSH Mobile.</string>
+    <string name="pair_fail_too_new">Esse código vem de um relay mais novo (versão %1$d) do que este app entende. Atualize o DSH Mobile Mesh.</string>
     <string name="pair_fail_expired">Esse código expirou. Recarregue a página de pareamento do relay para obter um novo.</string>
     <string name="pair_fail_rejected">O relay recusou esse código. Os códigos valem uma vez só e expiram em alguns minutos — recarregue a página de pareamento e use o novo.</string>
     <string name="pair_fail_rate_limited">Tentativas demais. Espere %1$d segundos e tente de novo.</string>

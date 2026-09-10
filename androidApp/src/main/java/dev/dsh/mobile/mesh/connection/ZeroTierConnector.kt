@@ -20,6 +20,7 @@ import kotlinx.coroutines.withContext
 private object ZeroTierNativeBridge {
     init { System.loadLibrary("zt") }
     @JvmStatic external fun safeNodeStop(): Int
+    @JvmStatic external fun isServiceOffline(): Boolean
 }
 
 /**
@@ -35,6 +36,7 @@ class ZeroTierConnector @Inject constructor(
     private val lock = Any()
     private var node: ZeroTierNode? = null
     private var relay: ZeroTierRelay? = null
+    private var nodeNetworkId: String? = null
 
     override suspend fun start(config: HostConfig): MeshRelay = withContext(Dispatchers.IO) {
         require(config.meshTransport == MeshTransport.ZERO_TIER) { "Not a ZeroTier host" }
@@ -44,9 +46,16 @@ class ZeroTierConnector @Inject constructor(
             "ZeroTier network ID must contain exactly 16 hexadecimal characters"
         }
         synchronized(lock) {
-            stopLocked()
             val networkId = java.lang.Long.parseUnsignedLong(networkIdText, 16)
-            val storage = java.io.File(context.noBackupFilesDir, "zerotier/${config.id}").apply { mkdirs() }
+            val pendingNode = node
+            if (pendingNode != null && nodeNetworkId == networkIdText) {
+                waitForAddress(pendingNode, networkId)
+                return@synchronized relayFor(config)
+            }
+            stopLocked()
+            // A ZeroTier identity belongs to the network, not a particular DSH host. Sharing this
+            // storage lets several saved hosts on one network appear as one controller member.
+            val storage = java.io.File(context.noBackupFilesDir, "zerotier/networks/$networkIdText").apply { mkdirs() }
             val roots = java.io.File(storage, "roots")
             val planet = config.zeroTierPlanetId?.let(planets::resolve)
             if (config.zeroTierPlanetId != null && planet == null) {
@@ -58,15 +67,11 @@ class ZeroTierConnector @Inject constructor(
             checkResult(nextNode.initAllowRootsCache(planet == null), "configure ZeroTier")
             checkResult(nextNode.start(), "start ZeroTier")
             node = nextNode
+            nodeNetworkId = networkIdText
             waitForOnline(nextNode)
             checkResult(nextNode.join(networkId), "join ZeroTier network")
             waitForAddress(nextNode, networkId)
-            val addresses = InetAddress.getAllByName(config.host).mapNotNull { it.hostAddress }.distinct()
-            require(addresses.isNotEmpty()) { "ZeroTier server name did not resolve" }
-            val remotePort = if (config.sshEnabled) config.sshPort else config.port
-            val nextRelay = ZeroTierRelay(addresses, remotePort, executor).also { it.start() }
-            relay = nextRelay
-            MeshRelay("127.0.0.1", nextRelay.localPort)
+            relayFor(config)
         }
     }
 
@@ -77,7 +82,17 @@ class ZeroTierConnector @Inject constructor(
         relay = null
         // libzt is process-global, including after a failed initialization.
         runCatching { ZeroTierNativeBridge.safeNodeStop() }
+        waitForServiceOffline()
         node = null
+        nodeNetworkId = null
+    }
+
+    private fun waitForServiceOffline() {
+        // zts_node_stop() begins termination but returns before the global service becomes offline.
+        // initFromStorage() returns ZTS_ERR_SERVICE (-2) until that state transition completes.
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(STOP_TIMEOUT_SECONDS)
+        while (!ZeroTierNativeBridge.isServiceOffline() && System.nanoTime() < deadline) Thread.sleep(50)
+        check(ZeroTierNativeBridge.isServiceOffline()) { "ZeroTier did not stop before retrying" }
     }
 
     private fun waitForOnline(current: ZeroTierNode) {
@@ -94,11 +109,26 @@ class ZeroTierConnector @Inject constructor(
             Thread.sleep(150)
         }
         val nodeId = java.lang.Long.toUnsignedString(current.id, 16).padStart(10, '0')
-        throw IOException("ZeroTier node $nodeId is awaiting network authorization or an assigned IP")
+        throw MeshAuthorizationPending(
+            "Authorize ZeroTier node $nodeId in the network controller, then tap Connect again.",
+        )
+    }
+
+    private fun relayFor(config: HostConfig): MeshRelay {
+        val addresses = InetAddress.getAllByName(config.host).mapNotNull { it.hostAddress }.distinct()
+        require(addresses.isNotEmpty()) { "ZeroTier server name did not resolve" }
+        val remotePort = if (config.sshEnabled) config.sshPort else config.port
+        val nextRelay = ZeroTierRelay(addresses, remotePort, executor).also { it.start() }
+        relay = nextRelay
+        return MeshRelay("127.0.0.1", nextRelay.localPort)
     }
 
     private fun checkResult(code: Int, operation: String) {
         if (code < 0) throw IOException("Unable to $operation (libzt error $code)")
+    }
+
+    private companion object {
+        const val STOP_TIMEOUT_SECONDS = 10L
     }
 }
 

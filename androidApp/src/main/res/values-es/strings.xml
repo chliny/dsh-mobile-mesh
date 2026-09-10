@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_long_name">Control remoto de DeepSeek Harness</string>
+    <string name="app_long_name" translatable="false">DSH Mobile Mesh</string>
     <string name="common_cancel">Cancelar</string>
     <string name="common_ok">Aceptar</string>
     <string name="common_save">Guardar</string>
@@ -25,7 +25,7 @@
     <string name="common_no">No</string>
     <string name="common_none">Ninguno</string>
     <string name="connect_title">Conectar con Harness</string>
-    <string name="connect_subtitle">DSH Mobile refleja el DeepSeek Harness que se ejecuta en tu ordenador.</string>
+    <string name="connect_subtitle">DSH Mobile Mesh refleja el DeepSeek Harness que se ejecuta en tu ordenador.</string>
     <string name="connect_manual_title">Conectar manualmente</string>
     <string name="connect_host_label">Dirección del host</string>
     <string name="connect_host_hint">192.168.1.20</string>
@@ -428,7 +428,7 @@
     <string name="pair_key_first_use">Una dirección escrita no incluye ninguna clave, así que se confía en lo que responda la primera vez. Escanear el código QR sí la comprueba.</string>
     <string name="pair_key_plaintext">Esta dirección no va cifrada, así que el token y todo lo que envíes viajan en claro.</string>
     <string name="pair_fail_not_a_code">Ese no es un código de emparejamiento de relé.</string>
-    <string name="pair_fail_too_new">Ese código procede de un relé más reciente (versión %1$d) de lo que entiende esta app. Actualiza DSH Mobile.</string>
+    <string name="pair_fail_too_new">Ese código procede de un relé más reciente (versión %1$d) de lo que entiende esta app. Actualiza DSH Mobile Mesh.</string>
     <string name="pair_fail_expired">Ese código ha caducado. Recarga la página de emparejamiento del relé para obtener uno nuevo.</string>
     <string name="pair_fail_rejected">El relé rechazó ese código. Los códigos sirven una sola vez y caducan en unos minutos: recarga la página de emparejamiento y prueba con el nuevo.</string>
     <string name="pair_fail_rate_limited">Demasiados intentos. Espera %1$d segundos y vuelve a intentarlo.</string>

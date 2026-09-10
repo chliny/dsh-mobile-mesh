@@ -42,10 +42,21 @@ class HostsStore @Inject constructor(
         val SESSION_SORT = stringPreferencesKey("session_sort")
         val UPDATE_CHECK = booleanPreferencesKey("update_check")
         val DISMISSED_UPDATE = stringPreferencesKey("dismissed_update")
+        val CONNECTION_DRAFT = stringPreferencesKey("connection_draft_json")
     }
 
     private val hostsSerializer = ListSerializer(HostConfig.serializer())
     private val lastSessionsSerializer = MapSerializer(String.serializer(), String.serializer())
+
+    val connectionDraft: Flow<ConnectionDraft> = dataStore.data.map { prefs ->
+        prefs[Keys.CONNECTION_DRAFT]?.let {
+            runCatching { WireJson.decodeFromString(ConnectionDraft.serializer(), it) }.getOrNull()
+        } ?: ConnectionDraft()
+    }
+
+    suspend fun saveConnectionDraft(draft: ConnectionDraft) {
+        dataStore.edit { it[Keys.CONNECTION_DRAFT] = WireJson.encodeToString(ConnectionDraft.serializer(), draft) }
+    }
 
     val hosts: Flow<List<HostConfig>> = dataStore.data.map { prefs ->
         val raw = prefs[Keys.HOSTS] ?: return@map emptyList()

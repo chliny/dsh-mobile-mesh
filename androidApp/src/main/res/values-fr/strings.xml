@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_long_name">Télécommande DeepSeek Harness</string>
+    <string name="app_long_name" translatable="false">DSH Mobile Mesh</string>
     <string name="common_cancel">Annuler</string>
     <string name="common_ok">OK</string>
     <string name="common_save">Enregistrer</string>
@@ -25,7 +25,7 @@
     <string name="common_no">Non</string>
     <string name="common_none">Aucun</string>
     <string name="connect_title">Se connecter à Harness</string>
-    <string name="connect_subtitle">DSH Mobile reflète le DeepSeek Harness qui s’exécute sur votre ordinateur.</string>
+    <string name="connect_subtitle">DSH Mobile Mesh reflète le DeepSeek Harness qui s’exécute sur votre ordinateur.</string>
     <string name="connect_manual_title">Connexion manuelle</string>
     <string name="connect_host_label">Adresse de l’hôte</string>
     <string name="connect_host_hint">192.168.1.20</string>
@@ -428,7 +428,7 @@
     <string name="pair_key_first_use">Une adresse saisie ne contient aucune clé : ce qui répond la première fois est accepté tel quel. Scanner le QR code permet de la vérifier.</string>
     <string name="pair_key_plaintext">Cette adresse n\'est pas chiffrée : le jeton et tout ce que vous envoyez circulent en clair.</string>
     <string name="pair_fail_not_a_code">Ce n\'est pas un code d\'appairage de relais.</string>
-    <string name="pair_fail_too_new">Ce code provient d\'un relais plus récent (version %1$d) que ce que comprend cette application. Mettez DSH Mobile à jour.</string>
+    <string name="pair_fail_too_new">Ce code provient d\'un relais plus récent (version %1$d) que ce que comprend cette application. Mettez DSH Mobile Mesh à jour.</string>
     <string name="pair_fail_expired">Ce code a expiré. Rechargez la page d\'appairage du relais pour en obtenir un nouveau.</string>
     <string name="pair_fail_rejected">Le relais a refusé ce code. Les codes ne servent qu\'une fois et expirent après quelques minutes — rechargez la page d\'appairage et essayez le nouveau.</string>
     <string name="pair_fail_rate_limited">Trop de tentatives. Attendez %1$d secondes et réessayez.</string>

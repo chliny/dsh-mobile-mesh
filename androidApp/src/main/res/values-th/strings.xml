@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_long_name">รีโมต DeepSeek Harness</string>
+    <string name="app_long_name" translatable="false">DSH Mobile Mesh</string>
     <string name="common_cancel">ยกเลิก</string>
     <string name="common_ok">ตกลง</string>
     <string name="common_save">บันทึก</string>
@@ -25,7 +25,7 @@
     <string name="common_no">ไม่</string>
     <string name="common_none">ไม่มี</string>
     <string name="connect_title">เชื่อมต่อกับ Harness</string>
-    <string name="connect_subtitle">DSH Mobile สะท้อน DeepSeek Harness ที่ทำงานบนคอมพิวเตอร์ของคุณ</string>
+    <string name="connect_subtitle">DSH Mobile Mesh สะท้อน DeepSeek Harness ที่ทำงานบนคอมพิวเตอร์ของคุณ</string>
     <string name="connect_manual_title">เชื่อมต่อด้วยตนเอง</string>
     <string name="connect_host_label">ที่อยู่โฮสต์</string>
     <string name="connect_host_hint">192.168.1.20</string>
@@ -428,7 +428,7 @@
     <string name="pair_key_first_use">ที่อยู่ที่พิมพ์เองไม่มีกุญแจติดมา จึงเชื่อสิ่งที่ตอบกลับมาครั้งแรกไปก่อน การสแกนคิวอาร์โค้ดคือสิ่งที่ทำให้ตรวจสอบกุญแจได้</string>
     <string name="pair_key_plaintext">ที่อยู่นี้ไม่ได้เข้ารหัส โทเคนและทุกอย่างที่คุณส่งจึงเดินทางแบบเปิดเผย</string>
     <string name="pair_fail_not_a_code">นี่ไม่ใช่รหัสจับคู่รีเลย์</string>
-    <string name="pair_fail_too_new">รหัสนี้มาจากรีเลย์รุ่นใหม่กว่า (เวอร์ชัน %1$d) ที่แอปนี้เข้าใจ กรุณาอัปเดต DSH Mobile</string>
+    <string name="pair_fail_too_new">รหัสนี้มาจากรีเลย์รุ่นใหม่กว่า (เวอร์ชัน %1$d) ที่แอปนี้เข้าใจ กรุณาอัปเดต DSH Mobile Mesh</string>
     <string name="pair_fail_expired">รหัสนี้หมดอายุแล้ว โหลดหน้าจับคู่ของรีเลย์ใหม่เพื่อรับรหัสใหม่</string>
     <string name="pair_fail_rejected">รีเลย์ปฏิเสธรหัสนี้ รหัสใช้ได้ครั้งเดียวและหมดอายุภายในไม่กี่นาที — โหลดหน้าจับคู่ใหม่แล้วลองรหัสใหม่</string>
     <string name="pair_fail_rate_limited">พยายามมากเกินไป รอ %1$d วินาทีแล้วลองอีกครั้ง</string>

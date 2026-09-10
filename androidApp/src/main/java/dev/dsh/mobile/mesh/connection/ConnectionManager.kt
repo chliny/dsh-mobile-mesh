@@ -52,6 +52,8 @@ data class ConnectionUiState(
      * this on every state change would blank the only explanation the user gets.
      */
     val failure: ConnectFailure? = null,
+    /** The private-network node is waiting for approval outside the app. */
+    val authorizationPending: String? = null,
     /** Consecutive failed handshake attempts; 0 while none has failed. */
     val attempts: Int = 0,
     /** True once at least one generation completed the readiness handshake. */
@@ -172,7 +174,9 @@ class ConnectionManager @Inject constructor(
      * is both sooner and specific.
      */
     suspend fun connect(config: HostConfig) {
-        disconnect()
+        // Keep a pending mesh node alive: ZeroTier authorization is attached to that node identity,
+        // and the transport manager reuses it when the user retries after approval.
+        if (activeHost != config || _state.value.authorizationPending == null) disconnect()
         activeHost = config
         _state.value = ConnectionUiState(
             phase = ConnectionPhase.CONNECTING,
@@ -187,7 +191,17 @@ class ConnectionManager @Inject constructor(
             loop.start()
         } catch (error: Throwable) {
             sshTunnel.stop()
-            if (error !is MeshAuthorizationPending) meshTransport.stop()
+            if (error is MeshAuthorizationPending) {
+                hostsStore.upsertHost(config)
+                _state.value = ConnectionUiState(
+                    phase = ConnectionPhase.DISCONNECTED,
+                    host = config,
+                    stage = ConnectStage.Idle,
+                    authorizationPending = error.message.orEmpty(),
+                )
+                return
+            }
+            meshTransport.stop()
             activeBaseUrl = null
             activeHost = null
             _state.value = ConnectionUiState(
@@ -226,7 +240,16 @@ class ConnectionManager @Inject constructor(
                 loop = ConnectionLoop(muxFactory(host, activeBaseUrl!!), sinks, LoopConfig()).also { it.start() }
             } catch (error: Throwable) {
                 sshTunnel.stop()
-                if (error !is MeshAuthorizationPending) meshTransport.stop()
+                if (error is MeshAuthorizationPending) {
+                    hostsStore.upsertHost(host)
+                    _state.value = _state.value.copy(
+                        phase = ConnectionPhase.DISCONNECTED,
+                        stage = ConnectStage.Idle,
+                        authorizationPending = error.message.orEmpty(),
+                    )
+                    return@launch
+                }
+                meshTransport.stop()
                 activeBaseUrl = null
                 _state.value = _state.value.copy(
                     phase = ConnectionPhase.DISCONNECTED,

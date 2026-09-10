@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_long_name">DeepSeek Harness ریموٹ</string>
+    <string name="app_long_name" translatable="false">DSH Mobile Mesh</string>
     <string name="common_cancel">منسوخ کریں</string>
     <string name="common_ok">ٹھیک ہے</string>
     <string name="common_save">محفوظ کریں</string>
@@ -25,7 +25,7 @@
     <string name="common_no">نہیں</string>
     <string name="common_none">کوئی نہیں</string>
     <string name="connect_title">Harness سے منسلک ہوں</string>
-    <string name="connect_subtitle">DSH Mobile آپ کے کمپیوٹر پر چلنے والے DeepSeek Harness کی عکاسی کرتا ہے۔</string>
+    <string name="connect_subtitle">DSH Mobile Mesh آپ کے کمپیوٹر پر چلنے والے DeepSeek Harness کی عکاسی کرتا ہے۔</string>
     <string name="connect_manual_title">دستی طور پر منسلک ہوں</string>
     <string name="connect_host_label">میزبان کا پتہ</string>
     <string name="connect_host_hint">192.168.1.20</string>
@@ -428,7 +428,7 @@
     <string name="pair_key_first_use">ہاتھ سے لکھے پتے میں کوئی کلید نہیں ہوتی، اس لیے پہلی بار جو جواب دے اُسی پر بھروسا کیا جاتا ہے۔ QR کوڈ اسکین کرنے سے کلید کی جانچ ہو جاتی ہے۔</string>
     <string name="pair_key_plaintext">یہ پتہ مشفّر نہیں ہے، اس لیے ٹوکن اور آپ کی بھیجی ہوئی ہر چیز کھلی حالت میں سفر کرتی ہے۔</string>
     <string name="pair_fail_not_a_code">یہ ریلے کا جوڑا کوڈ نہیں ہے۔</string>
-    <string name="pair_fail_too_new">یہ کوڈ ایک ایسے نئے ریلے (ورژن ‎%1$d‎) کا ہے جسے یہ ایپ نہیں سمجھتی۔ DSH Mobile اپ ڈیٹ کریں۔</string>
+    <string name="pair_fail_too_new">یہ کوڈ ایک ایسے نئے ریلے (ورژن ‎%1$d‎) کا ہے جسے یہ ایپ نہیں سمجھتی۔ DSH Mobile Mesh اپ ڈیٹ کریں۔</string>
     <string name="pair_fail_expired">اس کوڈ کی میعاد ختم ہو چکی ہے۔ نیا کوڈ لینے کے لیے ریلے کا جوڑا صفحہ دوبارہ لوڈ کریں۔</string>
     <string name="pair_fail_rejected">ریلے نے یہ کوڈ مسترد کر دیا۔ کوڈ ایک ہی بار چلتے ہیں اور چند منٹ میں ختم ہو جاتے ہیں — جوڑا صفحہ دوبارہ لوڈ کر کے نیا کوڈ آزمائیں۔</string>
     <string name="pair_fail_rate_limited">بہت زیادہ کوششیں۔ ‎%1$d‎ سیکنڈ انتظار کر کے دوبارہ کوشش کریں۔</string>
