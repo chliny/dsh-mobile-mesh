@@ -72,14 +72,6 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true; buildConfig = true }
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
-            isUniversalApk = false
-        }
-    }
     externalNativeBuild { cmake { path = file("CMakeLists.txt"); version = "3.30.5" } }
     sourceSets {
         getByName("main").java.srcDir("../third_party/libzt/src/bindings/java")
