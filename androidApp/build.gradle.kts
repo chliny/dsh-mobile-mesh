@@ -20,6 +20,17 @@ val dshVersionCode = dshVersionName.substringBefore('-').split('.').mapNotNull(S
     parts.getOrElse(0) { 0 } * 10_000 + parts.getOrElse(1) { 0 } * 100 + parts.getOrElse(2) { 0 }
 }.coerceAtLeast(1)
 
+val releaseKeystoreFile = System.getenv("DSH_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
+val releaseKeystorePassword = System.getenv("DSH_KEYSTORE_PASSWORD")
+val releaseKeyAlias = System.getenv("DSH_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("DSH_KEY_PASSWORD")
+val hasReleaseSigning = listOf(
+    releaseKeystoreFile,
+    releaseKeystorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "dev.dsh.mobile.mesh"
     compileSdk = 35
@@ -39,6 +50,17 @@ android {
     buildTypes {
         debug { applicationIdSuffix = ".debug" }
         release {
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.create("environmentRelease") {
+                    storeFile = file(requireNotNull(releaseKeystoreFile))
+                    storePassword = releaseKeystorePassword
+                    keyAlias = releaseKeyAlias
+                    keyPassword = releaseKeyPassword
+                }
+            } else {
+                // Keep local/review builds installable without putting a private key in Git.
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -50,6 +72,14 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true; buildConfig = true }
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+            isUniversalApk = false
+        }
+    }
     externalNativeBuild { cmake { path = file("CMakeLists.txt"); version = "3.30.5" } }
     sourceSets {
         getByName("main").java.srcDir("../third_party/libzt/src/bindings/java")

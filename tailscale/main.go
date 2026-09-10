@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -101,6 +103,9 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 		return encode(result{State: "needs_login", LoginURL: entry.loginURL})
 	}
 	stopLocked()
+	if err := configureLogs(stateDirectory); err != nil {
+		return encode(result{State: "error", Error: err.Error()})
+	}
 	server := &tsnet.Server{Dir: stateDirectory, Hostname: deviceHostname}
 	netmon.RegisterInterfaceGetter(func() ([]netmon.Interface, error) {
 		interfaces.RLock()
@@ -134,6 +139,16 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 		return encode(result{State: "needs_login", LoginURL: login})
 	}
 	return encode(startRelayLocked(server, targetHost, targetPort))
+}
+
+// Android does not provide the Unix cache/current-directory fallbacks used by tsnet's log policy.
+// Keep all Tailscale runtime files inside the app-owned connection directory instead.
+func configureLogs(stateDirectory string) error {
+	logsDirectory := filepath.Join(stateDirectory, "logs")
+	if err := os.MkdirAll(logsDirectory, 0700); err != nil {
+		return err
+	}
+	return os.Setenv("TS_LOGS_DIR", logsDirectory)
 }
 
 //export TailscaleStop

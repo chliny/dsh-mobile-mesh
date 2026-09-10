@@ -16,7 +16,11 @@ data class MeshRelay(val host: String, val port: Int) {
 }
 
 /** The connector must remain running while the user completes authorization outside the app. */
-class MeshAuthorizationPending(message: String) : IllegalStateException(message)
+open class MeshAuthorizationPending(message: String) : IllegalStateException(message)
+
+class TailscaleLoginRequired(val loginUrl: String) : MeshAuthorizationPending(
+    "Finish Tailscale sign-in to continue connecting automatically.",
+)
 
 /** Starts only the transport selected for the active harness. */
 interface MeshConnector {

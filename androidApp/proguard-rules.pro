@@ -14,3 +14,7 @@
 # OkHttp
 -dontwarn okhttp3.**
 -dontwarn okio.**
+
+# sshj's optional EdDSA implementation references a JDK-only class that is not
+# present on Android. The implementation is not used by the Android runtime.
+-dontwarn sun.security.x509.X509Key

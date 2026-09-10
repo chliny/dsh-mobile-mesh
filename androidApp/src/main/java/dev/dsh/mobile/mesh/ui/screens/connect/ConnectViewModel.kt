@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import java.net.InetAddress
@@ -80,6 +81,8 @@ data class ConnectUiState(
     val failure: ConnectFailure? = null,
     /** An embedded private-network node needs approval before it can receive an address. */
     val authorizationPending: String? = null,
+    /** Tailscale's in-app authorization page, or null for other pending mesh approvals. */
+    val tailscaleLoginUrl: String? = null,
     /** The authority actually attempted, e.g. `192.168.1.20:3080` — never the live field text. */
     val attempted: String? = null,
     /** The loop is still retrying in the background, so a cancel is worth offering. */
@@ -151,6 +154,9 @@ class ConnectViewModel @Inject constructor(
     /** The sweep in flight, so a second tap cannot start a rival one and Cancel has something to stop. */
     private var scanJob: Job? = null
 
+    /** One status poll at a time while tsnet waits for the embedded browser authorization. */
+    private var tailscaleLoginJob: Job? = null
+
     /**
      * Exchange a harness launch token for a browser session, then retry the connection.
      *
@@ -209,6 +215,7 @@ class ConnectViewModel @Inject constructor(
                             else -> conn.failure
                         },
                         authorizationPending = conn.authorizationPending,
+                        tailscaleLoginUrl = conn.tailscaleLoginUrl,
                         // Whoever started the attempt owns this normally, but pairing connects
                         // through the manager directly — so a failure after pairing arrived with
                         // no address at all, and the message read "Something answered at , but…".
@@ -221,6 +228,14 @@ class ConnectViewModel @Inject constructor(
                             ?.let { current.recentStatus + (it to HostProbe.Unreachable) }
                             ?: current.recentStatus,
                     )
+                }
+                if (conn.tailscaleLoginUrl != null) startTailscaleLoginPolling()
+                else if (
+                    conn.phase == ConnectionPhase.CONNECTED || conn.failure != null ||
+                    (conn.phase == ConnectionPhase.DISCONNECTED && conn.authorizationPending == null)
+                ) {
+                    tailscaleLoginJob?.cancel()
+                    tailscaleLoginJob = null
                 }
             }
         }
@@ -575,6 +590,27 @@ class ConnectViewModel @Inject constructor(
         localStage = ConnectStage.Idle
         connectionManager.disconnect()
         _state.update { it.copy(stage = ConnectStage.Idle, failure = null, retrying = false) }
+    }
+
+    fun resumeTailscaleLogin() = startTailscaleLoginPolling()
+
+    fun cancelTailscaleLogin() {
+        tailscaleLoginJob?.cancel()
+        tailscaleLoginJob = null
+        cancelConnect()
+    }
+
+    private fun startTailscaleLoginPolling() {
+        if (tailscaleLoginJob?.isActive == true) return
+        tailscaleLoginJob = viewModelScope.launch {
+            while (true) {
+                delay(1_000)
+                connectionManager.resumeAuthorization()
+                val state = _state.value
+                if (state.stage == ConnectStage.Connected || state.failure != null ||
+                    (state.stage == ConnectStage.Idle && state.authorizationPending == null)) break
+            }
+        }
     }
 
     /**

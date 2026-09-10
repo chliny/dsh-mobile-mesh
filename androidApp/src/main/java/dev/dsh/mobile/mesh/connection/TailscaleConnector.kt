@@ -1,7 +1,6 @@
 package dev.dsh.mobile.mesh.connection
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.Network
@@ -57,13 +56,10 @@ class TailscaleConnector @Inject constructor(
             val parsed = Uri.parse(baseUrl)
             MeshRelay(parsed.host ?: "127.0.0.1", parsed.port.takeIf { it > 0 } ?: 80)
         } ?: run {
-            result.loginUrl?.let { loginUrl ->
-                // tsnet retains the pending node state. A subsequent Connect polls it rather than
-                // creating a second device identity after browser authorization.
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(loginUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            }
             if (result.loginUrl != null) {
-                throw MeshAuthorizationPending("Finish Tailscale sign-in in your browser, then tap Connect again.")
+                // tsnet retains the pending node state. The connection manager polls that same
+                // identity after the embedded sign-in completes rather than minting another node.
+                throw TailscaleLoginRequired(result.loginUrl)
             }
             throw IllegalStateException(result.error ?: "Tailscale is not ready")
         }

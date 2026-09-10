@@ -39,8 +39,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.connection.ConnectStage
 import dev.dsh.mobile.mesh.connection.ConnectionDraft
@@ -443,6 +446,12 @@ fun ConnectScreen(
             // started it, and duplicating the block per mode is how the two drift apart.
             if (state.connecting) ConnectProgressRow(state.stage, state.attempted)
             state.authorizationPending?.let { message -> ConnectAuthorizationPendingBlock(message) }
+            state.tailscaleLoginUrl?.let { loginUrl ->
+                TailscaleLoginDialog(
+                    loginUrl = loginUrl,
+                    onDismiss = viewModel::cancelTailscaleLogin,
+                )
+            }
             state.failure?.let { failure ->
                 ConnectFailureBlock(
                     failure = failure,
@@ -861,6 +870,40 @@ private fun LaunchTokenDialog(
             enabled = !signingIn && input.isNotBlank(),
             variant = DsButtonVariant.Info,
             modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+/**
+ * tsnet keeps the device identity alive while this page authenticates it. Polling the retained
+ * node lets us close this dialog and continue the original connection as soon as it is running.
+ */
+@Composable
+private fun TailscaleLoginDialog(
+    loginUrl: String,
+    onDismiss: () -> Unit,
+) {
+    DsDialog(title = "Sign in to Tailscale", onDismiss = onDismiss) {
+        Text(
+            "Complete Tailscale sign-in to finish connecting automatically.",
+            style = DsType.small13,
+            color = DsTheme.colors.labelSecondary,
+        )
+        AndroidView(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(520.dp),
+            factory = { context ->
+                WebView(context).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    webViewClient = WebViewClient()
+                    loadUrl(loginUrl)
+                }
+            },
+            update = { webView ->
+                if (webView.url == null) webView.loadUrl(loginUrl)
+            },
         )
     }
 }

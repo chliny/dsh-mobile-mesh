@@ -54,6 +54,8 @@ data class ConnectionUiState(
     val failure: ConnectFailure? = null,
     /** The private-network node is waiting for approval outside the app. */
     val authorizationPending: String? = null,
+    /** The embedded Tailscale sign-in page, when this pending authorization needs one. */
+    val tailscaleLoginUrl: String? = null,
     /** Consecutive failed handshake attempts; 0 while none has failed. */
     val attempts: Int = 0,
     /** True once at least one generation completed the readiness handshake. */
@@ -198,6 +200,7 @@ class ConnectionManager @Inject constructor(
                     host = config,
                     stage = ConnectStage.Idle,
                     authorizationPending = error.message.orEmpty(),
+                    tailscaleLoginUrl = (error as? TailscaleLoginRequired)?.loginUrl,
                 )
                 return
             }
@@ -258,6 +261,12 @@ class ConnectionManager @Inject constructor(
                 )
             }
         }
+    }
+
+    /** Retry the retained mesh identity after an embedded authorization page completes. */
+    suspend fun resumeAuthorization() {
+        val host = activeHost ?: return
+        connect(host)
     }
 
     /**
