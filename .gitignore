@@ -15,4 +15,5 @@ captures/
 /tmp/
 .tmp/
 /.plan/
+/AGENTS.md
 local.properties
