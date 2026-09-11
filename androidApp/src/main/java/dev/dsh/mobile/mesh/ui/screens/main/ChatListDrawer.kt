@@ -28,6 +28,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapVert
@@ -227,6 +229,10 @@ fun ChatListDrawer(
             SortChip(sortByRecency) { next ->
                 scope.launch { hostsStore.setSessionSort(if (next) SORT_UPDATED else SORT_MANUAL) }
             }
+            AddMenu(
+                onNewSession = { newSessionOpen = true },
+                onNewWorkspace = { newWorkspaceOpen = true },
+            )
             DsIconButton(
                 icon = Icons.Filled.Settings,
                 contentDescription = stringResource(R.string.settings_title),
@@ -234,14 +240,6 @@ fun ChatListDrawer(
                 tint = colors.labelTertiary,
             )
         }
-
-        DsButton(
-            text = stringResource(R.string.chatlist_new_session),
-            icon = Icons.Filled.Add,
-            onClick = { newSessionOpen = true },
-            variant = DsButtonVariant.Info,
-            modifier = Modifier.fillMaxWidth(),
-        )
 
         // The search field folds away rather than permanently occupying a row of a phone-height
         // drawer, which is otherwise pure overhead for the common case.
@@ -475,6 +473,32 @@ fun ChatListDrawer(
     }
 }
 
+@Composable
+private fun AddMenu(onNewSession: () -> Unit, onNewWorkspace: () -> Unit) {
+    DsMenu(
+        anchor = {
+            Icon(
+                Icons.Filled.Add,
+                contentDescription = stringResource(R.string.chatlist_new_session),
+                tint = DsTheme.colors.labelTertiary,
+                modifier = Modifier.size(20.dp),
+            )
+        },
+        items = listOf(
+            MenuItem(
+                text = stringResource(R.string.chatlist_new_session),
+                icon = Icons.Filled.ChatBubbleOutline,
+                onClick = onNewSession,
+            ),
+            MenuItem(
+                text = stringResource(R.string.chatlist_new_workspace),
+                icon = Icons.Filled.CreateNewFolder,
+                onClick = onNewWorkspace,
+            ),
+        ),
+    )
+}
+
 /**
  * The session-order control.
  *
@@ -501,20 +525,13 @@ private fun SortChip(byRecency: Boolean, onPick: (byRecency: Boolean) -> Unit) {
                     Icons.Filled.SwapVert,
                     contentDescription = stringResource(R.string.chatlist_sort_title),
                     tint = colors.labelTertiary,
-                    modifier = Modifier.size(16.dp),
-                )
-                Text(
-                    if (byRecency) updated else manual,
-                    style = DsType.small13,
-                    color = colors.labelSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         },
         items = listOf(
-            MenuItem(text = manual) { onPick(false) },
-            MenuItem(text = updated) { onPick(true) },
+            MenuItem(text = manual, selected = !byRecency) { onPick(false) },
+            MenuItem(text = updated, selected = byRecency) { onPick(true) },
         ),
     )
 }
@@ -677,10 +694,10 @@ private fun SessionRowItem(
                 .background(if (isCurrent) colors.sidebarNavActive else androidx.compose.ui.graphics.Color.Transparent)
                 .combinedClickable(
                     onClick = {
-                        scope.launch {
-                            store.openSession(session.sessionId)
-                            onClose()
-                        }
+                        // Close the drawer first. The store publishes a cached snapshot immediately
+                        // and refreshes the live follow stream in the background.
+                        onClose()
+                        scope.launch { store.openSession(session.sessionId) }
                     },
                     onLongClick = { menuOpen = true },
                 )
@@ -831,10 +848,8 @@ private fun SearchResultRow(
             .fillMaxWidth()
             .clip(DsShapes.row)
             .clickable {
-                scope.launch {
-                    store.openSession(hit.session.sessionId)
-                    onClose()
-                }
+                onClose()
+                scope.launch { store.openSession(hit.session.sessionId) }
             }
             .padding(horizontal = DsSpacing.tiny, vertical = DsSpacing.xsmall),
     ) {

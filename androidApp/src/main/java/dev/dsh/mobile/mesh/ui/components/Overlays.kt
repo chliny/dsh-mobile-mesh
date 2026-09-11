@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -121,6 +122,7 @@ fun DsToastHost(state: Pair<State<String?>, (String) -> Unit>, modifier: Modifie
 data class MenuItem(
     val text: String,
     val icon: ImageVector? = null,
+    val selected: Boolean = false,
     val danger: Boolean = false,
     val onClick: () -> Unit,
 )
@@ -152,6 +154,9 @@ fun DsMenu(anchor: @Composable () -> Unit, items: List<MenuItem>) {
                             color = if (item.danger) colors.error else colors.labelPrimary,
                         )
                     },
+                    trailingIcon = if (item.selected) {
+                        { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                    } else null,
                     leadingIcon = item.icon?.let { icon ->
                         {
                             Icon(
