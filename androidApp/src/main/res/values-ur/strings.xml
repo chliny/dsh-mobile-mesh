@@ -141,6 +141,7 @@
     <string name="chat_context_system">سسٹم</string>
     <string name="chat_context_tools">ٹولز</string>
     <string name="chat_context_messages">پیغامات</string>
+    <string name="chat_context_injection">انجیکٹ کردہ سیاق</string>
     <string name="chat_compaction">مختصر کیا گیا</string>
     <string name="chat_compaction_summary">خلاصہ</string>
     <string name="chat_details_title">تفصیلات</string>

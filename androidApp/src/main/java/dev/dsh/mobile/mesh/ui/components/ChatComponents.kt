@@ -116,14 +116,18 @@ fun ThinkingRow(
     }
 }
 
-/** Full-width top strip announcing a connection problem. */
+/** Compact red strip announcing a transport reconnect; tapping it retries immediately. */
 @Composable
-fun ConnectionBanner(message: String) {
+fun ConnectionBanner(
+    message: String,
+    onRetry: (() -> Unit)? = null,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(DsTheme.colors.error)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .clickable(enabled = onRetry != null, onClick = { onRetry?.invoke() })
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -135,7 +139,7 @@ fun ConnectionBanner(message: String) {
         Spacer(Modifier.width(8.dp))
         Text(
             message,
-            style = DsType.small13,
+            style = DsType.caption11,
             color = Color.White,
             modifier = Modifier.weight(1f),
         )

@@ -1846,11 +1846,19 @@ class SessionStore @Inject constructor(
         }
     }
 
-    suspend fun createWorkspace(path: String) {
-        val api = apiOrNull() ?: return
-        when (val r = api.workspaceCreate(WorkspaceCreateRequest(path))) {
-            is RpcResult.Ok -> upsertWorkspace(r.value.workspace)
-            is RpcResult.Err -> setConnectionError(r.error.message)
+    suspend fun createWorkspace(path: String): Boolean {
+        val api = apiOrNull() ?: return false
+        return when (val r = api.workspaceCreate(WorkspaceCreateRequest(path))) {
+            is RpcResult.Ok -> {
+                // workspace/create is the same mutation used by the web client. Apply its value
+                // immediately; workspace/follow remains authoritative and will reconcile the row.
+                upsertWorkspace(r.value.workspace)
+                true
+            }
+            is RpcResult.Err -> {
+                setConnectionError(r.error.message)
+                false
+            }
         }
     }
 

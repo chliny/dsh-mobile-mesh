@@ -18,11 +18,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dsh.mobile.mesh.BuildConfig
 import dev.dsh.mobile.mesh.R
-import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
 import dev.dsh.mobile.mesh.ui.components.DsDialog
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectScreen
+import dev.dsh.mobile.mesh.ui.screens.main.ChatListDrawer
 import dev.dsh.mobile.mesh.ui.screens.main.MainScreen
 import dev.dsh.mobile.mesh.ui.screens.settings.SettingsScreen
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
@@ -47,13 +47,21 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
 
     DshTheme(preference = themePreference) {
         var showSettings by rememberSaveable { mutableStateOf(false) }
-        val showMain = connection.phase == ConnectionPhase.CONNECTED ||
-            (connection.phase == ConnectionPhase.RECONNECTING && connection.hasConnected)
+        var showSessionList by rememberSaveable { mutableStateOf(true) }
+        val showMain = connection.hasConnected
+        val showConnect = !connection.hasConnected
         when {
             showSettings -> SettingsScreen(onClose = { showSettings = false })
+            showConnect -> ConnectScreen(onOpenSettings = { showSettings = true })
+            showSessionList -> ChatListDrawer(
+                onClose = { showSessionList = false },
+                onOpenSettings = { showSettings = true },
+            )
             showMain -> MainScreen(
                 connectionPhase = connection.phase,
-                onOpenSettings = { showSettings = true },
+                reconnectAttempt = connection.attempts,
+                onReconnect = viewModel::reconnect,
+                onOpenSessionList = { showSessionList = true },
             )
             else -> ConnectScreen(onOpenSettings = { showSettings = true })
         }

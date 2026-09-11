@@ -35,15 +35,30 @@ private data class TailscaleStartResult(val state: String, val baseUrl: String? 
 class TailscaleConnector @Inject constructor(
     @ApplicationContext private val context: Context,
 ) : MeshConnector {
+    private val connectivity = context.getSystemService(ConnectivityManager::class.java)
+    private val lock = Any()
+    private var observingNetwork = false
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = refreshNetworkBinding(network)
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: android.net.LinkProperties) =
+            refreshNetworkBinding(network)
+        override fun onLost(network: Network) {
+            if (connectivity.activeNetwork == null) {
+                TailscaleNative.setNetworkNative(null)
+                TailscaleNative.setInterfacesNative("[]")
+            }
+        }
+    }
+
     override suspend fun start(config: HostConfig): MeshRelay = withContext(Dispatchers.IO) {
         require(config.meshTransport == MeshTransport.TAILSCALE) { "Not a Tailscale host" }
         val hostname = config.tailscaleHostname?.takeIf { it.matches(Regex("[A-Za-z0-9-]{1,63}")) }
             ?: "dsh-${config.id.take(12)}"
         val stateDirectory = File(context.noBackupFilesDir, "tailscale/${config.id}").apply { mkdirs() }
-        val network = (context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).activeNetwork
+        val network = connectivity.activeNetwork
             ?: throw IllegalStateException("No active internet connection for Tailscale")
-        TailscaleNative.setNetworkNative(network)
-        TailscaleNative.setInterfacesNative(networkInterfaces())
+        refreshNetworkBinding(network)
+        registerNetworkCallback()
         val result = Json.decodeFromString<TailscaleStartResult>(
             TailscaleNative.startNative(
                 stateDirectory.absolutePath,
@@ -66,7 +81,30 @@ class TailscaleConnector @Inject constructor(
     }
 
     override suspend fun stop() {
-        withContext(Dispatchers.IO) { TailscaleNative.stopNative() }
+        withContext(Dispatchers.IO) {
+            unregisterNetworkCallback()
+            TailscaleNative.setNetworkNative(null)
+            TailscaleNative.setInterfacesNative("[]")
+            TailscaleNative.stopNative()
+        }
+    }
+
+    private fun registerNetworkCallback() = synchronized(lock) {
+        if (observingNetwork) return
+        connectivity.registerDefaultNetworkCallback(networkCallback)
+        observingNetwork = true
+    }
+
+    private fun unregisterNetworkCallback() = synchronized(lock) {
+        if (!observingNetwork) return
+        runCatching { connectivity.unregisterNetworkCallback(networkCallback) }
+        observingNetwork = false
+    }
+
+    /** Rebind new tsnet sockets whenever Android changes its validated/default transport. */
+    private fun refreshNetworkBinding(network: Network) {
+        TailscaleNative.setNetworkNative(network)
+        TailscaleNative.setInterfacesNative(networkInterfaces())
     }
 
     private fun networkInterfaces(): String {

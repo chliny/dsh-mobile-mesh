@@ -141,6 +141,7 @@
     <string name="chat_context_system">सिस्टम</string>
     <string name="chat_context_tools">टूल</string>
     <string name="chat_context_messages">संदेश</string>
+    <string name="chat_context_injection">डाला गया संदर्भ</string>
     <string name="chat_compaction">संक्षिप्त किया गया</string>
     <string name="chat_compaction_summary">सारांश</string>
     <string name="chat_details_title">विवरण</string>

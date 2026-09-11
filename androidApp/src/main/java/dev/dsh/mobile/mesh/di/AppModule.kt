@@ -32,7 +32,9 @@ object AppModule {
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
-        .pingInterval(20, TimeUnit.SECONDS)
+        // A shorter heartbeat bounds detection of a carrier Android suspended while backgrounded.
+        // Foreground recovery bypasses retry backoff once this reports a dead connection.
+        .pingInterval(10, TimeUnit.SECONDS)
         .build()
 
     @Provides

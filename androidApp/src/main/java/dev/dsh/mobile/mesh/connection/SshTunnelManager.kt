@@ -57,6 +57,10 @@ class SshTunnelManager @Inject constructor(
         var keyFile: File? = null
         try {
             client.connect(sshHost, sshPort)
+            // NATs commonly discard an idle SSH TCP mapping long before the app's next RPC. SSHJ's
+            // transport-level keepalive both refreshes that mapping and makes a dead forward fail
+            // promptly, so ConnectionLoop can rebuild the mesh + SSH path.
+            client.connection.keepAlive.keepAliveInterval = KEEP_ALIVE_INTERVAL_SECONDS
             when (config.sshAuthentication) {
                 SshAuthentication.PASSWORD -> client.authPassword(
                     username,
@@ -114,6 +118,8 @@ class SshTunnelManager @Inject constructor(
     }
 
     private companion object {
+        /** Below typical mobile NAT idle expiry without needlessly waking the radio. */
+        const val KEEP_ALIVE_INTERVAL_SECONDS = 20
         const val TAG = "SshTunnelManager"
     }
 }

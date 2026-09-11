@@ -141,6 +141,7 @@
     <string name="chat_context_system">ระบบ</string>
     <string name="chat_context_tools">เครื่องมือ</string>
     <string name="chat_context_messages">ข้อความ</string>
+    <string name="chat_context_injection">บริบทที่แทรก</string>
     <string name="chat_compaction">บีบอัดแล้ว</string>
     <string name="chat_compaction_summary">สรุป</string>
     <string name="chat_details_title">รายละเอียด</string>

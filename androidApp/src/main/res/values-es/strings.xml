@@ -141,6 +141,7 @@
     <string name="chat_context_system">Sistema</string>
     <string name="chat_context_tools">Herramientas</string>
     <string name="chat_context_messages">Mensajes</string>
+    <string name="chat_context_injection">Contexto inyectado</string>
     <string name="chat_compaction">Compactado</string>
     <string name="chat_compaction_summary">Resumen</string>
     <string name="chat_details_title">Detalles</string>

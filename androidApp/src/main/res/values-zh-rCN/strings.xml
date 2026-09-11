@@ -103,6 +103,7 @@
     <string name="chatlist_new_workspace">新建工作区</string>
     <string name="chatlist_workspace_name">工作区名称</string>
     <string name="chatlist_workspace_path">文件夹路径</string>
+    <string name="chatlist_workspace_search">搜索文件夹</string>
     <string name="chatlist_session_rename">重命名会话</string>
     <string name="chatlist_session_fork">分叉会话</string>
     <string name="chatlist_session_archive">归档会话</string>
@@ -141,6 +142,7 @@
     <string name="chat_context_system">系统</string>
     <string name="chat_context_tools">工具</string>
     <string name="chat_context_messages">消息</string>
+    <string name="chat_context_injection">注入上下文</string>
     <string name="chat_compaction">已压缩</string>
     <string name="chat_compaction_summary">摘要</string>
     <string name="chat_details_title">详情</string>

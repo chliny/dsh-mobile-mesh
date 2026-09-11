@@ -141,6 +141,7 @@
     <string name="chat_context_system">Система</string>
     <string name="chat_context_tools">Инструменты</string>
     <string name="chat_context_messages">Сообщения</string>
+    <string name="chat_context_injection">Внедрённый контекст</string>
     <string name="chat_compaction">Сжато</string>
     <string name="chat_compaction_summary">Сводка</string>
     <string name="chat_details_title">Сведения</string>

@@ -14,6 +14,7 @@
     <string name="common_loading">Loading…</string>
     <string name="common_connected">Connected</string>
     <string name="common_reconnecting">Reconnecting…</string>
+    <string name="common_reconnecting_attempt">Reconnecting · attempt %1$d</string>
     <string name="common_offline">Offline</string>
     <string name="common_error">Something went wrong</string>
     <string name="common_close">Close</string>
@@ -130,6 +131,7 @@
     <string name="chatlist_new_workspace">New workspace</string>
     <string name="chatlist_workspace_name">Workspace name</string>
     <string name="chatlist_workspace_path">Folder path</string>
+    <string name="chatlist_workspace_search">Search folders</string>
     <string name="chatlist_session_rename">Rename session</string>
     <string name="chatlist_session_fork">Fork session</string>
     <string name="chatlist_session_archive">Archive session</string>
@@ -201,6 +203,7 @@
     <string name="chat_context_system">System</string>
     <string name="chat_context_tools">Tools</string>
     <string name="chat_context_messages">Messages</string>
+    <string name="chat_context_injection">Context injection</string>
     <string name="chat_compaction">Compacted</string>
     <string name="chat_compaction_summary">Summary</string>
     <string name="chat_details_title">Details</string>

@@ -141,6 +141,7 @@
     <string name="chat_context_system">النظام</string>
     <string name="chat_context_tools">الأدوات</string>
     <string name="chat_context_messages">الرسائل</string>
+    <string name="chat_context_injection">سياق مُحقن</string>
     <string name="chat_compaction">مضغوط</string>
     <string name="chat_compaction_summary">الملخص</string>
     <string name="chat_details_title">التفاصيل</string>

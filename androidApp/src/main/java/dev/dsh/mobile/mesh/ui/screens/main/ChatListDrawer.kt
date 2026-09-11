@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -56,6 +57,7 @@ import dev.dsh.mobile.mesh.data.WorkspaceRow
 import dev.dsh.mobile.mesh.core.wire.dto.DirectoryListing
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
 import dev.dsh.mobile.mesh.ui.components.DsButton
+import dev.dsh.mobile.mesh.ui.components.DsButtonSize
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
 import dev.dsh.mobile.mesh.ui.components.DsDialog
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
@@ -883,39 +885,61 @@ private fun NewWorkspaceDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit
     val scope = rememberCoroutineScope()
     var listing by remember { mutableStateOf<DirectoryListing?>(null) }
     var selectedPath by remember { mutableStateOf<String?>(null) }
+    var search by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
 
     fun load(path: String? = null) {
         loading = true
         scope.launch {
             listing = store.listDirectory(path)
+            selectedPath = path ?: listing?.path
             loading = false
         }
     }
     LaunchedEffect(Unit) { load() }
 
+    val current = listing
+    val query = search.trim().lowercase()
+    val entries = current?.entries.orEmpty().filter {
+        query.isBlank() || it.name.lowercase().contains(query) || it.path.lowercase().contains(query)
+    }
+
     DsDialog(title = stringResource(R.string.chatlist_new_workspace), onDismiss = onDismiss) {
-        listing?.let { current ->
+        TextField(
+            value = search,
+            onValueChange = { search = it },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text(stringResource(R.string.chatlist_workspace_search), style = DsType.std14) },
+            singleLine = true,
+            colors = dialogTextFieldColors(),
+        )
+        current?.let { directory ->
             Text(
-                text = current.path,
-                style = DsType.caption11,
-                color = DsTheme.colors.labelCaption,
+                text = selectedPath ?: directory.path,
+                style = DsType.std14Strong.copy(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline),
+                color = DsTheme.colors.accent,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable { selectedPath = directory.path },
             )
-            current.crumbs.forEach { crumb ->
-                SheetRow(
-                    title = crumb.name,
-                    subtitle = crumb.path,
-                    onClick = { selectedPath = crumb.path; load(crumb.path) },
-                )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DsSpacing.tiny)) {
+                directory.crumbs.forEach { crumb ->
+                    DsButton(
+                        text = crumb.name,
+                        onClick = { selectedPath = crumb.path; load(crumb.path) },
+                        variant = if (crumb.path == directory.path) DsButtonVariant.Info else DsButtonVariant.Ghost,
+                        size = DsButtonSize.Small,
+                    )
+                }
             }
-            current.entries.forEach { entry ->
-                SheetRow(
-                    title = entry.name,
-                    subtitle = entry.path,
-                    onClick = { selectedPath = entry.path; load(entry.path) },
-                )
+            LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                items(entries, key = { it.path }) { entry ->
+                    SheetRow(
+                        title = entry.name,
+                        subtitle = entry.path,
+                        onClick = { selectedPath = entry.path; load(entry.path) },
+                    )
+                }
             }
         }
         if (loading) Text(stringResource(R.string.common_loading), style = DsType.std14, color = DsTheme.colors.labelSecondary)

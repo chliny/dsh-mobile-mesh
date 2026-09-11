@@ -18,7 +18,7 @@ import javax.inject.Inject
 @HiltViewModel
 class AppViewModel @Inject constructor(
     hostsStore: HostsStore,
-    connectionManager: ConnectionManager,
+    private val connectionManager: ConnectionManager,
     private val updateChecker: UpdateChecker,
 ) : ViewModel() {
 
@@ -39,5 +39,9 @@ class AppViewModel @Inject constructor(
 
     fun dismissUpdate(version: String) {
         viewModelScope.launch { updateChecker.dismiss(version) }
+    }
+
+    fun reconnect() {
+        connectionManager.reconnectIfNeeded()
     }
 }

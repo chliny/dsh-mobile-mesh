@@ -10,6 +10,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
+import dev.dsh.mobile.mesh.connection.ConnectionManager
 import dev.dsh.mobile.mesh.connection.HostsStore
 import dev.dsh.mobile.mesh.notify.DshNotifications
 import dev.dsh.mobile.mesh.ui.AppRoot
@@ -21,6 +22,7 @@ import javax.inject.Inject
 class MainActivity : AppCompatActivity() {
 
     @Inject lateinit var hostsStore: HostsStore
+    @Inject lateinit var connectionManager: ConnectionManager
     @Inject lateinit var notifications: DshNotifications
 
     private val notificationPermission = registerForActivityResult(
@@ -66,6 +68,13 @@ class MainActivity : AppCompatActivity() {
         setContent {
             AppRoot()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Android may defer network delivery while backgrounded. Ask the manager to bypass the
+        // reconnect loop's next backoff slot as soon as the user returns to the app.
+        connectionManager.recoverForForeground()
     }
 
     /**

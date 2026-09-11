@@ -73,6 +73,8 @@ fun ChatScreen(
     onOpenDrawer: () -> Unit,
     detailsOpen: Boolean,
     connectionPhase: ConnectionPhase,
+    reconnectAttempt: Int,
+    onReconnect: () -> Unit,
 ) {
     val store = rememberSessionStore()
     val scope = rememberCoroutineScope()
@@ -346,9 +348,12 @@ fun ChatScreen(
                 onTabChange = { tab = it },
             )
 
-            connectionError?.let { ConnectionBanner(it) }
-            if (conversation?.gap == true) {
-                ConnectionBanner(stringResource(R.string.common_reconnecting))
+            connectionError?.let { ConnectionBanner(it, onRetry = onReconnect) }
+            if (connectionPhase == ConnectionPhase.RECONNECTING || conversation?.gap == true) {
+                ConnectionBanner(
+                    stringResource(R.string.common_reconnecting_attempt, reconnectAttempt.coerceAtLeast(1)),
+                    onRetry = onReconnect,
+                )
             }
 
             val nodeContext = ChatNodeContext(

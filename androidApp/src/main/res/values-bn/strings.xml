@@ -141,6 +141,7 @@
     <string name="chat_context_system">সিস্টেম</string>
     <string name="chat_context_tools">টুল</string>
     <string name="chat_context_messages">বার্তা</string>
+    <string name="chat_context_injection">ইনজেক্ট করা প্রসঙ্গ</string>
     <string name="chat_compaction">সংক্ষিপ্ত করা হয়েছে</string>
     <string name="chat_compaction_summary">সারাংশ</string>
     <string name="chat_details_title">বিবরণ</string>

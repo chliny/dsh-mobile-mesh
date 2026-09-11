@@ -92,7 +92,23 @@ class ConnectionManager @Inject constructor(
     private val authorizationResumeMutex = Mutex()
     private val lifecycleMutex = Mutex()
     private var teardownJob: Job? = null
+    @Volatile private var transportRecoveryInFlight = false
     @Volatile private var lifecycleEpoch = 0L
+    @Volatile private var lastForegroundRecoveryAtMs = 0L
+
+    init {
+        // Apply the background-retention toggle immediately instead of waiting for a later
+        // handshake. This also tears down the foreground-service notification when it is disabled.
+        scope.launch {
+            hostsStore.settings.collect { settings ->
+                if (settings.keepConnectedInBackground && _state.value.phase == ConnectionPhase.CONNECTED) {
+                    startService()
+                } else if (!settings.keepConnectedInBackground) {
+                    stopService()
+                }
+            }
+        }
+    }
 
     /**
      * The current generation, or null while disconnected.
@@ -142,10 +158,13 @@ class ConnectionManager @Inject constructor(
             // Keep the unary client: it is an HTTP client, not the retired WebSocket generation, and
             // clearing it here makes the UI report "not connected" forever after the next successful
             // reconnect because the loop does not need to rebuild this stateless client.
+            val current = _state.value
             if (state == ConnectionState.RECONNECTING) {
                 generation = null
+                // Only an established carrier moving from CONNECTED to RECONNECTING can be a
+                // dead relay. A new loop also announces RECONNECTING as its first state.
+                if (current.phase == ConnectionPhase.CONNECTED) recoverTransportAfterCarrierLoss()
             }
-            val current = _state.value
             val phase = when {
                 state == ConnectionState.CONNECTED -> ConnectionPhase.CONNECTED
                 // The loop opens every generation the same way, but the first one is not a
@@ -283,41 +302,79 @@ class ConnectionManager @Inject constructor(
         _state.value = ConnectionUiState()
     }
 
-    fun reconnectIfNeeded() {
-        val host = activeHost ?: return
+    /**
+     * Recreate mesh and SSH layers after an established carrier dies.
+     *
+     * ConnectionLoop deliberately owns WebSocket retry, but it cannot make a stale loopback relay
+     * usable again. Serialize one full renewal per outage so its own retries never race teardown.
+     */
+    private fun recoverTransportAfterCarrierLoss() {
+        if (transportRecoveryInFlight) return
+        transportRecoveryInFlight = true
+        reconnectIfNeeded(onFinished = { transportRecoveryInFlight = false })
+    }
+
+    fun reconnectIfNeeded(onFinished: () -> Unit = {}) {
+        val host = activeHost ?: run {
+            onFinished()
+            return
+        }
         val epoch = lifecycleEpoch
         loop?.stop()
         scope.launch {
-            teardownJob?.join()
-            lifecycleMutex.withLock {
-                if (epoch != lifecycleEpoch || activeHost?.id != host.id) return@withLock
-                try {
-                    activeBaseUrl = startTransports(host)
-                    if (epoch != lifecycleEpoch) return@withLock
-                    api = clientFactory.clientFor(host, baseUrl = activeBaseUrl!!)
-                    loop = ConnectionLoop(muxFactory(host, activeBaseUrl!!), sinks, LoopConfig()).also { it.start() }
-                } catch (error: Throwable) {
-                    if (epoch != lifecycleEpoch) return@withLock
-                    sshTunnel.stop()
-                    if (error is MeshAuthorizationPending) {
-                        hostsStore.upsertHost(host)
+            try {
+                teardownJob?.join()
+                lifecycleMutex.withLock {
+                    if (epoch != lifecycleEpoch || activeHost?.id != host.id) return@withLock
+                    try {
+                        // The old relay may still own a stale TCP/network binding. A full renewal
+                        // is required before starting its replacement, especially for tsnet.
+                        sshTunnel.stop()
+                        meshTransport.stop()
+                        activeBaseUrl = startTransports(host)
+                        if (epoch != lifecycleEpoch) return@withLock
+                        api = clientFactory.clientFor(host, baseUrl = activeBaseUrl!!)
+                        loop = ConnectionLoop(muxFactory(host, activeBaseUrl!!), sinks, LoopConfig()).also { it.start() }
+                    } catch (error: Throwable) {
+                        if (epoch != lifecycleEpoch) return@withLock
+                        sshTunnel.stop()
+                        if (error is MeshAuthorizationPending) {
+                            hostsStore.upsertHost(host)
+                            _state.value = _state.value.copy(
+                                phase = ConnectionPhase.DISCONNECTED,
+                                stage = ConnectStage.Idle,
+                                authorizationPending = error.message.orEmpty(),
+                            )
+                            return@withLock
+                        }
+                        meshTransport.stop()
+                        activeBaseUrl = null
                         _state.value = _state.value.copy(
                             phase = ConnectionPhase.DISCONNECTED,
                             stage = ConnectStage.Idle,
-                            authorizationPending = error.message.orEmpty(),
+                            failure = ConnectFailure.Other(error.message ?: "Unable to restart private-network transport"),
                         )
-                        return@withLock
                     }
-                    meshTransport.stop()
-                    activeBaseUrl = null
-                    _state.value = _state.value.copy(
-                        phase = ConnectionPhase.DISCONNECTED,
-                        stage = ConnectStage.Idle,
-                        failure = ConnectFailure.Other(error.message ?: "Unable to restart private-network transport"),
-                    )
                 }
+            } finally {
+                onFinished()
             }
         }
+    }
+
+    /**
+     * Called as the activity returns to the foreground. It skips the normal reconnect-loop delay:
+     * if the carrier was suspended or the underlying mobile network changed while backgrounded,
+     * immediately rebuild the stale relay path. The cooldown absorbs duplicate activity resumes.
+     */
+    fun recoverForForeground() {
+        val current = _state.value
+        if (activeHost == null || current.phase == ConnectionPhase.CONNECTED ||
+            current.phase == ConnectionPhase.CONNECTING || transportRecoveryInFlight) return
+        val now = System.currentTimeMillis()
+        if (now - lastForegroundRecoveryAtMs < FOREGROUND_RECOVERY_COOLDOWN_MS) return
+        lastForegroundRecoveryAtMs = now
+        recoverTransportAfterCarrierLoss()
     }
 
     /** Retry the retained mesh identity after an embedded authorization page completes. */
@@ -368,4 +425,8 @@ class ConnectionManager @Inject constructor(
 
     private fun <T> runBlockingRead(block: suspend () -> T): T =
         kotlinx.coroutines.runBlocking { block() }
+
+    private companion object {
+        const val FOREGROUND_RECOVERY_COOLDOWN_MS = 1_000L
+    }
 }
