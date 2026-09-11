@@ -24,6 +24,7 @@ import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.unit.dp
+import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
 import kotlinx.coroutines.launch
 
@@ -43,7 +44,10 @@ import kotlinx.coroutines.launch
  * never conflict.
  */
 @Composable
-fun MainScreen(onOpenSettings: () -> Unit) {
+fun MainScreen(
+    connectionPhase: ConnectionPhase,
+    onOpenSettings: () -> Unit,
+) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var detailsOpen by remember { mutableStateOf(false) }
@@ -114,6 +118,7 @@ fun MainScreen(onOpenSettings: () -> Unit) {
                 onOpenDetails = { detailsOpen = true },
                 onOpenDrawer = { scope.launch { drawerState.open() } },
                 detailsOpen = detailsOpen,
+                connectionPhase = connectionPhase,
             )
 
             AnimatedVisibility(

@@ -33,6 +33,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
+import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.components.DsSegment
@@ -65,7 +66,7 @@ internal enum class ChatTab { Chat, Trajectory }
 @Composable
 internal fun ChatTopBar(
     title: String,
-    running: Boolean,
+    connectionPhase: ConnectionPhase,
     models: SessionModelsValue?,
     agentPresetLabel: String?,
     subagentCount: Int,
@@ -97,7 +98,7 @@ internal fun ChatTopBar(
             )
             ModelChip(models = models, onClick = onOpenModels, modifier = Modifier.weight(1f, fill = false))
             Spacer(Modifier.weight(1f))
-            StateDot(if (running) StateDotState.Running else StateDotState.Idle)
+            ConnectionStatusDot(connectionPhase)
             if (!detailsOpen) {
                 DsIconButton(
                     icon = FeatherIcons.Info,
@@ -145,6 +146,17 @@ internal fun ChatTopBar(
 
         ChatTabRow(tab = tab, onTabChange = onTabChange)
     }
+}
+
+@Composable
+private fun ConnectionStatusDot(phase: ConnectionPhase) {
+    val state = when (phase) {
+        ConnectionPhase.CONNECTED -> StateDotState.Done
+        ConnectionPhase.RECONNECTING -> StateDotState.Warning
+        ConnectionPhase.CONNECTING -> StateDotState.Running
+        ConnectionPhase.DISCONNECTED -> StateDotState.Error
+    }
+    StateDot(state, size = 8.dp)
 }
 
 /**

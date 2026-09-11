@@ -51,7 +51,10 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
             (connection.phase == ConnectionPhase.RECONNECTING && connection.hasConnected)
         when {
             showSettings -> SettingsScreen(onClose = { showSettings = false })
-            showMain -> MainScreen(onOpenSettings = { showSettings = true })
+            showMain -> MainScreen(
+                connectionPhase = connection.phase,
+                onOpenSettings = { showSettings = true },
+            )
             else -> ConnectScreen(onOpenSettings = { showSettings = true })
         }
 

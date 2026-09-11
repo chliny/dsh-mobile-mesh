@@ -43,6 +43,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.ImageLimitsView
 import dev.dsh.mobile.mesh.data.CommandOutcome
 import dev.dsh.mobile.mesh.data.PromptOutcome
 import dev.dsh.mobile.mesh.data.QuestionOutcome
+import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.data.SessionStore
 import dev.dsh.mobile.mesh.ui.components.ApprovalPanel
 import dev.dsh.mobile.mesh.ui.components.ConnectionBanner
@@ -71,6 +72,7 @@ fun ChatScreen(
     onOpenDetails: () -> Unit,
     onOpenDrawer: () -> Unit,
     detailsOpen: Boolean,
+    connectionPhase: ConnectionPhase,
 ) {
     val store = rememberSessionStore()
     val scope = rememberCoroutineScope()
@@ -327,7 +329,7 @@ fun ChatScreen(
         Column(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
             ChatTopBar(
                 title = title,
-                running = conversation?.running == true,
+                connectionPhase = connectionPhase,
                 models = models,
                 agentPresetLabel = currentSession?.agentPreset?.let { agentPresetLabel(it, agentPresets) },
                 subagentCount = subagents.size,
