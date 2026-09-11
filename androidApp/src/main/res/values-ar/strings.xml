@@ -249,6 +249,7 @@
     <string name="notif_connected_title">متصل بـ Harness</string>
     <string name="notif_connected_text">الحفاظ على الاتصال بـ %1$s.</string>
     <string name="notif_turn_complete">اكتملت الجولة — %1$s</string>
+    <string name="notif_turn_interrupted">تم إيقاف الجولة — %1$s</string>
     <string name="notif_goal_complete">اكتمل الهدف — %1$s</string>
     <string name="notif_goal_blocked">تم حظر الهدف — %1$s</string>
     <string name="notif_review_requested">تم طلب مراجعة — %1$s</string>

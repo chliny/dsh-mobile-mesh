@@ -249,6 +249,7 @@
     <string name="notif_connected_title">Подключено к Harness</string>
     <string name="notif_connected_text">Поддерживаем соединение с %1$s.</string>
     <string name="notif_turn_complete">Ход завершён — %1$s</string>
+    <string name="notif_turn_interrupted">Ход остановлен — %1$s</string>
     <string name="notif_goal_complete">Цель завершена — %1$s</string>
     <string name="notif_goal_blocked">Цель заблокирована — %1$s</string>
     <string name="notif_review_requested">Запрошено рассмотрение — %1$s</string>

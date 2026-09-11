@@ -249,6 +249,7 @@
     <string name="notif_connected_title">เชื่อมต่อกับ Harness แล้ว</string>
     <string name="notif_connected_text">คงการเชื่อมต่อกับ %1$s ไว้</string>
     <string name="notif_turn_complete">เทิร์นเสร็จสมบูรณ์ — %1$s</string>
+    <string name="notif_turn_interrupted">หยุดเทิร์นแล้ว — %1$s</string>
     <string name="notif_goal_complete">เป้าหมายเสร็จสมบูรณ์ — %1$s</string>
     <string name="notif_goal_blocked">เป้าหมายถูกบล็อก — %1$s</string>
     <string name="notif_review_requested">ขอตรวจสอบแล้ว — %1$s</string>

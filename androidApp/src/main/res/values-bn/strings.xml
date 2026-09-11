@@ -249,6 +249,7 @@
     <string name="notif_connected_title">Harness-এ সংযুক্ত</string>
     <string name="notif_connected_text">%1$s-এর সাথে সংযোগ বজায় রাখা হচ্ছে।</string>
     <string name="notif_turn_complete">টার্ন সম্পন্ন — %1$s</string>
+    <string name="notif_turn_interrupted">টার্ন থামানো হয়েছে — %1$s</string>
     <string name="notif_goal_complete">লক্ষ্য সম্পন্ন — %1$s</string>
     <string name="notif_goal_blocked">লক্ষ্য অবরুদ্ধ — %1$s</string>
     <string name="notif_review_requested">পর্যালোচনা চাওয়া হয়েছে — %1$s</string>

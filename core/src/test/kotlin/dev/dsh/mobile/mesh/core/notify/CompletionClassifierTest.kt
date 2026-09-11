@@ -29,12 +29,22 @@ class CompletionClassifierTest {
     }
 
     @Test
-    fun abortedTurnDoesNotFire() {
+    fun interruptedTurnFires() {
+        val result = classifier.classifyEvent("s1", event("turn/end", 4, buildJsonObject {
+            put("turn", 1)
+            putJsonObject("reason") { put("kind", "interrupted") }
+        }))
+        assertTrue(result is CompletionEvent.TurnInterrupted)
+        assertEquals("turn:s1:4", result!!.dedupKey)
+    }
+
+    @Test
+    fun abortedTurnFiresAsInterrupted() {
         val result = classifier.classifyEvent("s1", event("turn/end", 4, buildJsonObject {
             put("turn", 1)
             putJsonObject("reason") { put("kind", "aborted") }
         }))
-        assertNull(result)
+        assertTrue(result is CompletionEvent.TurnInterrupted)
     }
 
     @Test

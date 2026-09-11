@@ -18,6 +18,11 @@ sealed interface CompletionEvent {
         override val dedupKey: String get() = "turn:$sessionId:$seq"
     }
 
+    /** A running turn was stopped by cancellation or interruption. */
+    data class TurnInterrupted(override val sessionId: String, override val seq: Long, val turn: Int) : CompletionEvent {
+        override val dedupKey: String get() = "turn:$sessionId:$seq"
+    }
+
     /** The goal moved to phase `complete`. */
     data class GoalComplete(override val sessionId: String, override val seq: Long, val objective: String?) : CompletionEvent {
         override val dedupKey: String get() = "goal:$sessionId:$seq"
@@ -67,10 +72,13 @@ class CompletionClassifier {
         return when (event.type) {
             "turn/end" -> {
                 val kind = data?.get("reason")?.jsonObject?.get("kind")?.jsonPrimitive?.contentOrNull
-                if (kind == "completed") {
-                    val turn = data["turn"]?.jsonPrimitive?.let { runCatching { it.content.toInt() }.getOrNull() } ?: 0
-                    CompletionEvent.TurnComplete(sessionId, event.seq, turn)
-                } else null
+                val turn = data?.get("turn")?.jsonPrimitive?.let { runCatching { it.content.toInt() }.getOrNull() } ?: 0
+                when (kind) {
+                    "completed" -> CompletionEvent.TurnComplete(sessionId, event.seq, turn)
+                    // Both forms represent a stopped task in the session transcript.
+                    "aborted", "interrupted" -> CompletionEvent.TurnInterrupted(sessionId, event.seq, turn)
+                    else -> null
+                }
             }
 
             "goal/change" -> {

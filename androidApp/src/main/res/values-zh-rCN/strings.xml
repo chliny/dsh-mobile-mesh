@@ -250,6 +250,7 @@
     <string name="notif_connected_title">已连接到 Harness</string>
     <string name="notif_connected_text">保持与 %1$s 的连接。</string>
     <string name="notif_turn_complete">回合完成 — %1$s</string>
+    <string name="notif_turn_interrupted">回合已中断 — %1$s</string>
     <string name="notif_goal_complete">目标完成 — %1$s</string>
     <string name="notif_goal_blocked">目标受阻 — %1$s</string>
     <string name="notif_review_requested">已请求审阅 — %1$s</string>

@@ -338,6 +338,7 @@
     <string name="notif_connected_title">Connected to harness</string>
     <string name="notif_connected_text">Keeping the connection to %1$s alive.</string>
     <string name="notif_turn_complete">Turn complete — %1$s</string>
+    <string name="notif_turn_interrupted">Turn stopped — %1$s</string>
     <string name="notif_goal_complete">Goal complete — %1$s</string>
     <string name="notif_goal_blocked">Goal blocked — %1$s</string>
     <string name="notif_review_requested">Review requested — %1$s</string>

@@ -57,6 +57,10 @@ class NotificationObserver @Inject constructor(
         if (started) return
         started = true
         notifications.ensureChannels()
+        // Session events are delivered only through the per-session follow stream. SessionStore
+        // owns that stream and forwards terminal events here, avoiding a second follower that could
+        // resume sessions the user never opened.
+        store.notificationSink = ::onSessionEvent
         scope.launch {
             hostsStore.settings.collect { settings = it }
         }
@@ -109,6 +113,13 @@ class NotificationObserver @Inject constructor(
                 Spec(
                     channel = DshNotifications.CHANNEL_COMPLETIONS,
                     title = context.getString(R.string.notif_turn_complete, sessionTitle(event.sessionId).orEmpty()),
+                )
+            }
+            is CompletionEvent.TurnInterrupted -> {
+                if (!settings.notifyTurnComplete) return
+                Spec(
+                    channel = DshNotifications.CHANNEL_COMPLETIONS,
+                    title = context.getString(R.string.notif_turn_interrupted, sessionTitle(event.sessionId).orEmpty()),
                 )
             }
             is CompletionEvent.GoalComplete -> {

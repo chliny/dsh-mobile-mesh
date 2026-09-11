@@ -249,6 +249,7 @@
     <string name="notif_connected_title">Harness سے منسلک</string>
     <string name="notif_connected_text">%1$s سے کنکشن برقرار رکھا جا رہا ہے۔</string>
     <string name="notif_turn_complete">ٹرن مکمل — %1$s</string>
+    <string name="notif_turn_interrupted">ٹرن روک دیا گیا — %1$s</string>
     <string name="notif_goal_complete">ہدف مکمل — %1$s</string>
     <string name="notif_goal_blocked">ہدف مسدود — %1$s</string>
     <string name="notif_review_requested">جائزہ طلب کیا گیا — %1$s</string>

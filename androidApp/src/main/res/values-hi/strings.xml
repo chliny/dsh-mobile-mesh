@@ -249,6 +249,7 @@
     <string name="notif_connected_title">Harness से कनेक्टेड</string>
     <string name="notif_connected_text">%1$s से कनेक्शन बनाए रखना।</string>
     <string name="notif_turn_complete">टर्न पूर्ण — %1$s</string>
+    <string name="notif_turn_interrupted">टर्न रोका गया — %1$s</string>
     <string name="notif_goal_complete">लक्ष्य पूर्ण — %1$s</string>
     <string name="notif_goal_blocked">लक्ष्य अवरुद्ध — %1$s</string>
     <string name="notif_review_requested">समीक्षा अनुरोधित — %1$s</string>
