@@ -210,34 +210,6 @@ fun ConnectScreen(
                 }
             }
 
-            // ---- Discovered --------------------------------------------------
-            Column(verticalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
-                SectionHeader(
-                    title = stringResource(R.string.connect_discovered),
-                    action = stringResource(R.string.connect_scan),
-                    onAction = { viewModel.scan() },
-                )
-                val unknown = state.unknownDiscovered
-                // Results and progress coexist: the sweep streams, so a host found in the first
-                // batch belongs on screen while the rest of the subnet is still being knocked.
-                if (state.scanning) {
-                    ScanProgressRow(state.scanProgress) { viewModel.cancelScan() }
-                }
-                if (unknown.isEmpty()) {
-                    if (!state.scanning) {
-                        Text(
-                            stringResource(R.string.connect_discovered_hint),
-                            style = DsType.std14,
-                            color = colors.labelCaption,
-                        )
-                    }
-                } else {
-                    unknown.forEach { found ->
-                        DiscoveredHarnessCard(found) { viewModel.connectDiscovered(found) }
-                    }
-                }
-            }
-
             // ---- Manual --------------------------------------------------
             Column(verticalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
                     SectionHeader(stringResource(R.string.connect_manual_title))
@@ -481,10 +453,6 @@ fun ConnectScreen(
                     checked = state.autoConnectLast,
                 ) { viewModel.setAuto("last", !state.autoConnectLast) }
                 ToggleRow(
-                    label = stringResource(R.string.connect_auto_lan),
-                    checked = state.autoConnectLan,
-                ) { viewModel.setAuto("lan", !state.autoConnectLan) }
-                ToggleRow(
                     label = stringResource(R.string.connect_auto_loopback),
                     checked = state.autoConnectLoopback,
                 ) { viewModel.setAuto("loopback", !state.autoConnectLoopback) }
@@ -624,63 +592,6 @@ private fun statusLine(probe: HostProbe?, home: String?): String = when {
     home != null -> stringResource(R.string.connect_harness_home, home)
     probe is HostProbe.Reachable -> stringResource(R.string.connect_reachable)
     else -> stringResource(R.string.common_loading)
-}
-
-/**
- * One sweep result.
- *
- * A harness whose trust fence refused us is still shown. It is the single most recoverable outcome
- * the scan can produce — the harness is running, on the right port, one `--trusted-host` away — and
- * reporting it as "nothing found" sends people looking for a fault that is not there.
- */
-@Composable
-private fun DiscoveredHarnessCard(found: DiscoveredHost, onConnect: () -> Unit) {
-    val colors = DsTheme.colors
-    val description = found.description
-    DsCard(onClick = if (description != null) onConnect else null) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                FeatherIcons.Globe,
-                contentDescription = null,
-                tint = if (description != null) colors.accent else colors.warn,
-                modifier = Modifier.width(14.dp),
-            )
-            Spacer(Modifier.width(DsSpacing.compact))
-            Text(
-                found.authority,
-                style = DsType.std14Strong,
-                color = colors.labelPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            if (description != null) {
-                DsButton(
-                    text = stringResource(R.string.connect_button),
-                    onClick = onConnect,
-                    variant = DsButtonVariant.Info,
-                    size = DsButtonSize.Small,
-                )
-            } else {
-                DsPill(text = stringResource(R.string.connect_found_untrusted), warn = true)
-            }
-        }
-        if (description != null) {
-            Text(
-                basename(description.home).takeIf { it.isNotBlank() }.orEmpty(),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        } else {
-            Text(
-                stringResource(R.string.connect_found_untrusted_hint),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
-            )
-        }
-    }
 }
 
 /**

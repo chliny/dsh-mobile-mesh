@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,6 +53,7 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.data.SessionRow
 import dev.dsh.mobile.mesh.data.SessionStore
 import dev.dsh.mobile.mesh.data.WorkspaceRow
+import dev.dsh.mobile.mesh.core.wire.dto.DirectoryListing
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
@@ -877,16 +879,46 @@ private fun NewSessionDialog(
 
 @Composable
 private fun NewWorkspaceDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
-    var pathText by remember { mutableStateOf("") }
+    val store = rememberSessionStore()
+    val scope = rememberCoroutineScope()
+    var listing by remember { mutableStateOf<DirectoryListing?>(null) }
+    var selectedPath by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(true) }
+
+    fun load(path: String? = null) {
+        loading = true
+        scope.launch {
+            listing = store.listDirectory(path)
+            loading = false
+        }
+    }
+    LaunchedEffect(Unit) { load() }
+
     DsDialog(title = stringResource(R.string.chatlist_new_workspace), onDismiss = onDismiss) {
-        TextField(
-            value = pathText,
-            onValueChange = { pathText = it },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text(stringResource(R.string.chatlist_workspace_path), style = DsType.std14) },
-            singleLine = true,
-            colors = dialogTextFieldColors(),
-        )
+        listing?.let { current ->
+            Text(
+                text = current.path,
+                style = DsType.caption11,
+                color = DsTheme.colors.labelCaption,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            current.crumbs.forEach { crumb ->
+                SheetRow(
+                    title = crumb.name,
+                    subtitle = crumb.path,
+                    onClick = { selectedPath = crumb.path; load(crumb.path) },
+                )
+            }
+            current.entries.forEach { entry ->
+                SheetRow(
+                    title = entry.name,
+                    subtitle = entry.path,
+                    onClick = { selectedPath = entry.path; load(entry.path) },
+                )
+            }
+        }
+        if (loading) Text(stringResource(R.string.common_loading), style = DsType.std14, color = DsTheme.colors.labelSecondary)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             DsButton(
                 text = stringResource(R.string.common_cancel),
@@ -896,9 +928,9 @@ private fun NewWorkspaceDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit
             Spacer(Modifier.width(DsSpacing.small))
             DsButton(
                 text = stringResource(R.string.common_save),
-                onClick = { onCreate(pathText.trim()) },
+                onClick = { selectedPath?.let(onCreate) },
                 variant = DsButtonVariant.Info,
-                enabled = pathText.isNotBlank(),
+                enabled = selectedPath != null && !loading,
             )
         }
     }
