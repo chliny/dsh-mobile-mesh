@@ -174,8 +174,24 @@ private class FoldState(private val sessionId: String) {
                 blank = false
                 val messageId = data.jsonObject["id"]?.jsonPrimitive?.contentOrNull
                 val sourceKind = (data.jsonObject["source"] as? JsonObject)?.get("kind")?.jsonPrimitive?.contentOrNull
-                nodes.add(UserMessageNode(event.seq, messageId, parseBlocks(data.jsonObject["content"]), sourceKind))
+                val blocks = parseBlocks(data.jsonObject["content"])
+                // The harness gives injected model context the `user/message` event type and the
+                // model-facing `user` role, but its source preserves who authored it. Keep source
+                // `user` messages on the user-bubble path; absent provenance remains backward-
+                // compatible with older host logs.
+                nodes.add(
+                    if (sourceKind == null || sourceKind == "user") {
+                        UserMessageNode(event.seq, messageId, blocks, sourceKind)
+                    } else {
+                        ContextMessageNode(event.seq, messageId, blocks, sourceKind)
+                    },
+                )
             }
+
+            // System prompts are model context, not user transcript content. The web client owns
+            // them with a dedicated prompt presentation, so do not let the generic fallback turn
+            // them into a user message here.
+            "system/message" -> Unit
 
             // Durable through harness 0.1.2; a live-only transient row since 0.1.3. Either way it
             // is merged into the open attempt for its (turn, step) and shown as provisional text.

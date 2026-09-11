@@ -1,9 +1,11 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
+import dev.dsh.mobile.mesh.core.session.ChatBlock
 import dev.dsh.mobile.mesh.core.session.ChatNode
 import dev.dsh.mobile.mesh.core.session.CommandNode
 import dev.dsh.mobile.mesh.core.session.CompactionNode
+import dev.dsh.mobile.mesh.core.session.ContextMessageNode
 import dev.dsh.mobile.mesh.core.session.GoalNode
 import dev.dsh.mobile.mesh.core.session.OtherNode
 import dev.dsh.mobile.mesh.core.session.PlanModeNode
@@ -42,10 +44,15 @@ import kotlinx.serialization.json.JsonObject
  * `"unknown"` blocks carrying text count: a harness build that labels a block something this client
  * has not seen should still put the user's words on screen rather than drop them.
  */
-internal fun UserMessageNode.displayText(): String = blocks
+internal fun UserMessageNode.displayText(): String = blocks.displayText(previewText)
+
+/** Text suitable for a user or injected-context disclosure without promoting unknown blocks to UI. */
+internal fun List<ChatBlock>.displayText(previewText: String): String = this
     .filter { it.kind == "text" || (it.kind == "unknown" && it.text != null) }
     .joinToString("\n") { it.text.orEmpty() }
     .ifBlank { previewText }
+
+internal fun ContextMessageNode.displayText(): String = blocks.displayText(previewText)
 
 internal fun ChatNode.rendersContent(): Boolean = when (this) {
     // Structure, not content.
@@ -59,6 +66,7 @@ internal fun ChatNode.rendersContent(): Boolean = when (this) {
 
     // Content that can still fold to nothing.
     is UserMessageNode -> blocks.any { it.kind == "image" } || displayText().isNotBlank()
+    is ContextMessageNode -> displayText().isNotBlank()
     is AssistantMessageNode -> interrupted || blocks.any { block ->
         when (block.kind) {
             // Tool calls arrive as their own nodes; the inline block is a duplicate reference.

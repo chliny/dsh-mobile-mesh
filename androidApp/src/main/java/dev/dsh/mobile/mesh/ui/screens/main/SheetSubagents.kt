@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ChatNode
+import dev.dsh.mobile.mesh.core.session.ContextMessageNode
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
 import dev.dsh.mobile.mesh.core.session.UserMessageNode
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentListEntry
@@ -204,6 +205,7 @@ private fun SubagentRow(entry: SubagentListEntry, selected: Boolean, onClick: ()
 private fun SubagentTranscriptRow(node: ChatNode) {
     when (node) {
         is UserMessageNode -> UserBubble(node.previewText)
+        is ContextMessageNode -> Unit
         is AssistantMessageNode -> if (node.plainText.isNotBlank()) MarkdownText(node.plainText)
         else -> Unit
     }

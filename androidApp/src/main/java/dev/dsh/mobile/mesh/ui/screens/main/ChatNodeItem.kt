@@ -42,6 +42,7 @@ import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ChatNode
 import dev.dsh.mobile.mesh.core.session.CommandNode
 import dev.dsh.mobile.mesh.core.session.CompactionNode
+import dev.dsh.mobile.mesh.core.session.ContextMessageNode
 import dev.dsh.mobile.mesh.core.session.GoalNode
 import dev.dsh.mobile.mesh.core.session.OtherNode
 import dev.dsh.mobile.mesh.core.session.PlanModeNode
@@ -122,6 +123,8 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
             if (text.isNotBlank()) UserBubble(text)
         }
 
+        is ContextMessageNode -> ContextInjectionRow(node)
+
         is AssistantMessageNode -> AssistantMessage(node, context)
 
         is ToolCallNode -> ToolCallRow(node, context)
@@ -201,6 +204,22 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
         is OtherNode -> if (node.type !in STRUCTURAL_EVENT_TYPES) {
             Text(node.type, style = DsType.caption11, color = colors.labelCaption)
         }
+    }
+}
+
+/** A collapsed model-context disclosure, deliberately separate from the right-aligned user bubble. */
+@Composable
+private fun ContextInjectionRow(node: ContextMessageNode) {
+    val text = node.displayText()
+    var expanded by remember(node.seq) { mutableStateOf(false) }
+    DisclosureRow(
+        title = stringResource(R.string.chat_context_injection),
+        summary = node.sourceKind,
+        icon = FeatherIcons.Info,
+        expanded = expanded,
+        onToggle = { expanded = !expanded },
+    ) {
+        MarkdownText(text)
     }
 }
 

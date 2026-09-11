@@ -209,6 +209,7 @@ class EventFoldTest {
             event("user/message", 1, buildJsonObject {
                 put("id", "m1")
                 put("content", "just a string")
+                putJsonObject("source") { put("kind", "user") }
             }),
         )
         val snapshot = EventFold("s1").fold(events)
@@ -220,11 +221,49 @@ class EventFoldTest {
     }
 
     @Test
+    fun classifiesInjectedUserMessagesAsContext() {
+        val events = listOf(
+            event("user/message", 1, buildJsonObject {
+                put("id", "context-1")
+                putJsonArray("content") {
+                    add(buildJsonObject { put("type", "text"); put("text", "runtime instructions") })
+                }
+                putJsonObject("source") { put("kind", "plugin"); put("plugin", "runtime-context") }
+            }),
+            event("user/message", 2, buildJsonObject {
+                put("id", "user-1")
+                putJsonArray("content") {
+                    add(buildJsonObject { put("type", "text"); put("text", "my request") })
+                }
+                putJsonObject("source") { put("kind", "user") }
+            }),
+            event("system/message", 3, buildJsonObject {
+                put("turn", 1); put("step", 1)
+                putJsonObject("message") {
+                    put("id", "system-1")
+                    putJsonArray("content") {
+                        add(buildJsonObject { put("type", "text"); put("text", "system prompt") })
+                    }
+                    putJsonObject("source") { put("kind", "plugin"); put("plugin", "system-prompt") }
+                }
+            }),
+        )
+
+        val nodes = EventFold("s1").fold(events).nodes
+        val context = nodes[0] as ContextMessageNode
+        assertEquals("plugin", context.sourceKind)
+        assertEquals("runtime instructions", context.previewText)
+        assertTrue(nodes[1] is UserMessageNode)
+        assertTrue(nodes.none { it is OtherNode })
+    }
+
+    @Test
     fun ignoresBlankStringUserContent() {
         val events = listOf(
             event("user/message", 1, buildJsonObject {
                 put("id", "m1")
                 put("content", "   ")
+                putJsonObject("source") { put("kind", "user") }
             }),
         )
         val user = EventFold("s1").fold(events).nodes.single() as UserMessageNode
@@ -364,6 +403,7 @@ class EventFoldTest {
                         putJsonObject("attachment") { put("attachmentId", "sha256:abc"); put("name", "notes.txt"); put("bytes", 42) }
                     })
                 }
+                putJsonObject("source") { put("kind", "user") }
             }),
         )
         val user = EventFold("s1").fold(events).nodes.single() as UserMessageNode

@@ -44,6 +44,17 @@ data class UserMessageNode(
         get() = blocks.firstOrNull { it.kind == "text" }?.text?.take(120) ?: ""
 }
 
+/** Model-visible context injected by the harness, rather than text authored by the user. */
+data class ContextMessageNode(
+    override val seq: Long,
+    val messageId: String?,
+    val blocks: List<ChatBlock>,
+    val sourceKind: String?,
+) : ChatNode {
+    val previewText: String
+        get() = blocks.firstOrNull { it.kind == "text" }?.text?.take(120) ?: ""
+}
+
 data class AssistantMessageNode(
     override val seq: Long,
     val messageId: String?,

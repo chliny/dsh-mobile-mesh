@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ChatNode
+import dev.dsh.mobile.mesh.core.session.ContextMessageNode
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
 import dev.dsh.mobile.mesh.core.session.ToolCallNode
 import dev.dsh.mobile.mesh.core.session.ToolResultNode
@@ -109,6 +110,9 @@ private fun TrajectoryRow(node: ChatNode, siblings: List<ChatNode>, cwd: String?
                 Text("> $preview", style = DsType.caption11, color = colors.labelSecondary)
             }
         }
+        // Model context has a model-facing user role but was not typed by the user; omit it from
+        // the trajectory's user-input ledger just as the main transcript avoids a user bubble.
+        is ContextMessageNode -> Unit
         is AssistantMessageNode -> {
             val snippet = node.plainText.trim().take(160)
             if (snippet.isNotEmpty()) {

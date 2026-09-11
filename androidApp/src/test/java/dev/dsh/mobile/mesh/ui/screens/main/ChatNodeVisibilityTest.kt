@@ -2,6 +2,7 @@ package dev.dsh.mobile.mesh.ui.screens.main
 
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ChatBlock
+import dev.dsh.mobile.mesh.core.session.ContextMessageNode
 import dev.dsh.mobile.mesh.core.session.OtherNode
 import dev.dsh.mobile.mesh.core.session.ToolCallNode
 import dev.dsh.mobile.mesh.core.session.ToolResultNode
@@ -77,6 +78,18 @@ class ChatNodeVisibilityTest {
      * about it — a node judged renderable that then draws nothing costs a gap, and one judged empty
      * that holds text loses the message.
      */
+    @Test
+    fun `injected context is renderable without becoming a user message`() {
+        val node = ContextMessageNode(
+            seq = 9,
+            messageId = null,
+            blocks = listOf(ChatBlock("text", text = "runtime instructions")),
+            sourceKind = "plugin",
+        )
+        assertTrue(node.rendersContent())
+        assertEquals("runtime instructions", node.displayText())
+    }
+
     @Test
     fun `an unknown block carrying text still counts as a user message`() {
         val node = UserMessageNode(
