@@ -79,6 +79,7 @@ class QuestionResponseEncodingTest {
         val payload = envelope["payload"]!!.jsonObject
         assertEquals("client-1", payload["clientId"]!!.jsonPrimitive.content)
         assertEquals("evt-1", payload["eventId"]!!.jsonPrimitive.content)
+        assertEquals(setOf("clientId", "eventId", "outcome"), payload.keys)
         val outcome = payload["outcome"]!!.jsonObject
         assertEquals("result", outcome["kind"]!!.jsonPrimitive.content)
         val answers = outcome["value"]!!.jsonObject["answers"]!!.jsonArray

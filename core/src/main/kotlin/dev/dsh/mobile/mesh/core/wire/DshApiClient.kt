@@ -822,12 +822,13 @@ class DshApiClient(
         clientId: String,
         eventId: String,
         outcome: RemoteEventOutcome,
-    ): RpcResult<JsonElement> = unary(
+    ): RpcResult<JsonElement> = call(
         REMOTE_EVENT_RESULT_ENDPOINT,
-        encodeToJsonElement(
-            RemoteEventResult.serializer(),
-            RemoteEventResult(clientId = clientId, eventId = eventId, outcome = outcome),
-        ),
+        buildJsonObject {
+            put("clientId", JsonPrimitive(clientId))
+            put("eventId", JsonPrimitive(eventId))
+            put("outcome", encodeToJsonElement(RemoteEventOutcome.serializer(), outcome))
+        },
         JsonElement.serializer(),
     )
 
