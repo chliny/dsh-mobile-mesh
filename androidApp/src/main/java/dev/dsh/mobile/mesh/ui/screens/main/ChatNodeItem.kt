@@ -82,6 +82,7 @@ internal data class ChatNodeContext(
     val cwd: String?,
     /** Host account home, used only to abbreviate a leftover home-rooted path as `~`. */
     val home: String? = null,
+    val onOpenFile: ((String, String) -> Unit)? = null,
     val onOpenSubagent: (String) -> Unit,
     val onBranchFrom: (Long) -> Unit,
     val onFeedback: (Long, Boolean) -> Unit,
@@ -115,7 +116,13 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
             node.blocks.filter { it.kind == "file" }.forEach { block ->
                 parseFileRef(block)?.let { ref ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        FileChip(name = ref.name, bytes = ref.bytes)
+                        FileChip(
+                            name = ref.name,
+                            bytes = ref.bytes,
+                            modifier = Modifier.clickable(enabled = context.onOpenFile != null) {
+                                context.onOpenFile?.invoke(parseWorkspaceFilePath(block) ?: ref.name, ref.name)
+                            },
+                        )
                     }
                 }
             }
@@ -323,7 +330,13 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
                         contentDescription = ref.name,
                     )
                 }
-                "file" -> parseFileRef(block)?.let { ref -> FileChip(name = ref.name, bytes = ref.bytes) }
+                "file" -> parseFileRef(block)?.let { ref -> FileChip(
+                            name = ref.name,
+                            bytes = ref.bytes,
+                            modifier = Modifier.clickable(enabled = context.onOpenFile != null) {
+                                context.onOpenFile?.invoke(parseWorkspaceFilePath(block) ?: ref.name, ref.name)
+                            },
+                        ) }
                 else -> block.text?.let {
                     Text(it, style = DsType.caption11, color = colors.labelTertiary)
                 }

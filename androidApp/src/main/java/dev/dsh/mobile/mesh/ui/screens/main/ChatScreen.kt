@@ -75,6 +75,8 @@ fun ChatScreen(
     connectionPhase: ConnectionPhase,
     reconnectAttempt: Int,
     onReconnect: () -> Unit,
+    onOpenFiles: () -> Unit = {},
+    onOpenFile: (String, String) -> Unit = { _, _ -> },
 ) {
     val store = rememberSessionStore()
     val scope = rememberCoroutineScope()
@@ -345,6 +347,7 @@ fun ChatScreen(
                 },
                 onOpenSubagents = { sheet = ChatSheet.Subagents },
                 onOpenDetails = onOpenDetails,
+                onOpenFiles = onOpenFiles,
                 onTabChange = { tab = it },
             )
 
@@ -358,6 +361,7 @@ fun ChatScreen(
 
             val nodeContext = ChatNodeContext(
                 nodes = conversation?.nodes ?: emptyList(),
+                onOpenFile = onOpenFile,
                 running = conversation?.running == true,
                 cwd = currentSession?.cwd,
                 onOpenSubagent = { childId ->

@@ -14,7 +14,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
@@ -23,6 +25,12 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
+
+private sealed interface MainPage {
+    data object Chat : MainPage
+    data object Files : MainPage
+    data class Preview(val path: String, val title: String) : MainPage
+}
 
 /**
  * Session conversation shell:
@@ -41,9 +49,36 @@ fun MainScreen(
     reconnectAttempt: Int,
     onReconnect: () -> Unit,
 ) {
+    var page by remember { mutableStateOf<MainPage>(MainPage.Chat) }
+
     var detailsOpen by remember { mutableStateOf(false) }
     val detailsWidth = 300.dp
 
+    val store = dev.dsh.mobile.mesh.ui.rememberSessionStore()
+    val sessionId by store.currentSessionId.collectAsStateWithLifecycle()
+    if (page != MainPage.Chat) {
+        val sid = sessionId
+        if (sid == null) {
+            page = MainPage.Chat
+        } else {
+            when (val current = page) {
+                MainPage.Files -> WorkspaceFilesScreen(
+                    sessionId = sid,
+                    onBack = { page = MainPage.Chat },
+                    onOpenFile = { path, title -> page = MainPage.Preview(path, title) },
+                )
+                is MainPage.Preview -> FilePreviewScreen(
+                    sessionId = sid,
+                    path = current.path,
+                    title = current.title,
+                    onBack = { page = MainPage.Files },
+                )
+                MainPage.Chat -> Unit
+            }
+            BackHandler { page = if (page is MainPage.Preview) MainPage.Files else MainPage.Chat }
+            return
+        }
+    }
     BackHandler { onOpenSessionList() }
     Box(
         modifier = Modifier
@@ -102,6 +137,8 @@ fun MainScreen(
                 connectionPhase = connectionPhase,
                 reconnectAttempt = reconnectAttempt,
                 onReconnect = onReconnect,
+                onOpenFiles = { page = MainPage.Files },
+                onOpenFile = { path, title -> page = MainPage.Preview(path, title) },
             )
 
             AnimatedVisibility(

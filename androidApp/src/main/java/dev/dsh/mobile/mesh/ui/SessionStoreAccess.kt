@@ -5,6 +5,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import dev.dsh.mobile.mesh.connection.HostsStore
 import dev.dsh.mobile.mesh.data.SessionStore
+import dev.dsh.mobile.mesh.data.WorkspaceFilesStore
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -22,10 +23,19 @@ import dagger.hilt.components.SingletonComponent
 @InstallIn(SingletonComponent::class)
 interface SessionStoreEntryPoint {
     fun sessionStore(): SessionStore
+    fun workspaceFilesStore(): WorkspaceFilesStore
     fun hostsStore(): HostsStore
 }
 
 /** Resolves the process-scoped [SessionStore] once per composition. */
+@Composable
+internal fun rememberWorkspaceFilesStore(): WorkspaceFilesStore {
+    val context = LocalContext.current.applicationContext
+    return remember {
+        EntryPointAccessors.fromApplication(context, SessionStoreEntryPoint::class.java).workspaceFilesStore()
+    }
+}
+
 @Composable
 internal fun rememberSessionStore(): SessionStore {
     val context = LocalContext.current.applicationContext

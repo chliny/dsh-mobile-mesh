@@ -12,6 +12,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Defensive readers over the loosely-typed slots of a [dev.dsh.mobile.mesh.core.session
@@ -75,6 +76,10 @@ internal fun parseFileRef(block: ChatBlock): FileAttachmentRef? {
     val attachment = raw["attachment"] ?: raw
     return runCatching { decodeFromJsonElement(FileAttachmentRef.serializer(), attachment) }.getOrNull()
 }
+
+/** Optional workspace path carried by newer file blocks; durable uploads do not have one. */
+internal fun parseWorkspaceFilePath(block: ChatBlock): String? =
+    ((block.raw as? JsonObject)?.get("path") as? JsonPrimitive)?.contentOrNull
 
 /**
  * A file size for a chip: bytes below a kilobyte, then KB, then MB with one decimal.

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Dashboard
@@ -80,6 +81,7 @@ internal fun ChatTopBar(
     onOpenPresets: () -> Unit,
     onOpenSubagents: () -> Unit,
     onOpenDetails: () -> Unit,
+    onOpenFiles: () -> Unit,
     onTabChange: (ChatTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -111,6 +113,13 @@ internal fun ChatTopBar(
             }
             ConnectionStatusDot(connectionPhase)
             ContextMeterCircle(contextPressure)
+            DsIconButton(
+                icon = Icons.Filled.Folder,
+                contentDescription = stringResource(R.string.workspace_files_title),
+                onClick = onOpenFiles,
+                tint = colors.labelTertiary,
+                iconSize = 18.dp,
+            )
             if (!detailsOpen) {
                 DsIconButton(
                     icon = FeatherIcons.Info,
