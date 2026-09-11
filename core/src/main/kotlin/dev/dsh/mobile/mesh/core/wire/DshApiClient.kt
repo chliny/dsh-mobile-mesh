@@ -4,6 +4,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.AgentPresetDocument
 import dev.dsh.mobile.mesh.core.wire.dto.AgentPresetListValue
 import dev.dsh.mobile.mesh.core.wire.dto.CommandDescriptor
 import dev.dsh.mobile.mesh.core.wire.dto.CommandSubmitAttachment
+import dev.dsh.mobile.mesh.core.wire.dto.EncodedImageAttachment
 import dev.dsh.mobile.mesh.core.wire.dto.CredentialInfo
 import dev.dsh.mobile.mesh.core.wire.dto.DirectoryListing
 import dev.dsh.mobile.mesh.core.wire.dto.EncodedFileUploadRequest
@@ -657,15 +658,43 @@ class DshApiClient(
         sessionId: String,
         line: String,
         attachments: List<CommandSubmitAttachment> = emptyList(),
+        /** Compatibility with harnesses whose descriptor still calls this field `images`. */
+        legacyImagesField: Boolean = false,
+    ): RpcResult<JsonElement> {
+        val result = commandsExecuteWithField(sessionId, line, attachments, legacyImagesField)
+        if (!legacyImagesField && result is RpcResult.Err &&
+            result.error.message.contains("missing \"images\"") &&
+            result.error.message.contains("unexpected \"submittedAttachments\"")) {
+            return commandsExecuteWithField(sessionId, line, attachments, legacyImagesField = true)
+        }
+        return result
+    }
+
+    private suspend fun commandsExecuteWithField(
+        sessionId: String,
+        line: String,
+        attachments: List<CommandSubmitAttachment>,
+        legacyImagesField: Boolean,
     ): RpcResult<JsonElement> = call(
         "commands/execute",
         args {
             put("agentId", JsonPrimitive(sessionId))
             put("line", JsonPrimitive(line))
-            put(
-                "submittedAttachments",
-                encodeToJsonElement(ListSerializer(CommandSubmitAttachment.serializer()), attachments),
-            )
+            if (legacyImagesField) {
+                put(
+                    "images",
+                    encodeToJsonElement(
+                        ListSerializer(EncodedImageAttachment.serializer()),
+                        attachments.mapNotNull { it as? CommandSubmitAttachment.Image }
+                            .map { EncodedImageAttachment(it.mediaType, it.data, it.name) },
+                    ),
+                )
+            } else {
+                put(
+                    "submittedAttachments",
+                    encodeToJsonElement(ListSerializer(CommandSubmitAttachment.serializer()), attachments),
+                )
+            }
         },
     )
 

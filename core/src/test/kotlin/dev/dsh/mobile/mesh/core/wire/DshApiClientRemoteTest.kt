@@ -143,6 +143,30 @@ class DshApiClientRemoteTest {
     }
 
     @Test
+    fun `an older gateway descriptor using images is retried with its legacy field`() = runTest {
+        var calls = 0
+        val transport = RecordingTransport { _, body ->
+            calls++
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            if (calls == 1) {
+                RpcHttpResponse(
+                    200,
+                    """{"type":"server-response","rpcId":"$rpcId","result":{"ok":false,"error":{"code":"bad-request","message":"args fields do not match the descriptor: missing \\\"images\\\"; unexpected \\\"submittedAttachments\\\""}}}""",
+                )
+            } else {
+                ok(rpcId, "{}")
+            }
+        }
+        client(transport).commandsExecute("session-2", "/permission full-access")
+
+        assertEquals(2, calls)
+        val args = Json.parseToJsonElement(transport.lastBody!!)
+            .jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject
+        assertEquals(setOf("agentId", "line", "images"), args.keys)
+        assertEquals(0, args["images"]!!.jsonArray.size)
+    }
+
+    @Test
     fun `a command carries the composer's images and files with their discriminators`() = runTest {
         val transport = RecordingTransport { _, body ->
             val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
