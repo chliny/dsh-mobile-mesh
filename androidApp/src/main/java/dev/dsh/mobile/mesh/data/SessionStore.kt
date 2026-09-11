@@ -32,6 +32,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.EncodedImageAttachment
 import dev.dsh.mobile.mesh.core.wire.dto.FileUploadValue
 import dev.dsh.mobile.mesh.core.wire.dto.GoalRef
 import dev.dsh.mobile.mesh.core.wire.dto.GoalSnapshot
+import dev.dsh.mobile.mesh.core.wire.dto.DirectoryListing
 import dev.dsh.mobile.mesh.core.wire.dto.HostDescription
 import dev.dsh.mobile.mesh.core.wire.dto.ImageLimitsView
 import dev.dsh.mobile.mesh.core.wire.dto.ImageRejection
@@ -111,6 +112,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -513,6 +515,17 @@ class SessionStore @Inject constructor(
                     state.phase == ConnectionPhase.CONNECTED
                 prev = state
                 if (initialConnect || reconnect) triggerBaseline()
+                if (state.phase == ConnectionPhase.RECONNECTING || state.phase == ConnectionPhase.DISCONNECTED) {
+                    // Cancel generation-bound stream collectors immediately. A dead mux may not
+                    // deliver another frame until OkHttp's carrier timeout, leaving stale collectors
+                    // and loading state looking like a frozen page.
+                    followJob?.cancel()
+                    controlJob?.cancel()
+                    workspaceJob?.cancel()
+                    _loadingOlder.value = false
+                    _loadOlderFailed.value = true
+                }
+                if (state.phase == ConnectionPhase.CONNECTED) clearConnectionError()
             }
         }
     }
@@ -1339,7 +1352,7 @@ class SessionStore @Inject constructor(
                 beforeSeq = oldestSeq?.toInt(),
                 maxMessages = HISTORY_PAGE_SIZE,
             )
-            when (val r = api.sessionPage(request)) {
+            when (val r = withTimeoutOrNull(RPC_TIMEOUT_MS) { api.sessionPage(request) }) {
                 is RpcResult.Ok -> {
                     clearConnectionError()
                     _loadOlderFailed.value = false
@@ -1363,6 +1376,10 @@ class SessionStore @Inject constructor(
                 // Not a connection fault: the session is healthy and the tail still streams, so this
                 // offers a retry in the transcript rather than raising a connection banner over it.
                 is RpcResult.Err -> _loadOlderFailed.value = true
+                null -> {
+                    _loadOlderFailed.value = true
+                    setConnectionError("request timed out")
+                }
             }
         } finally {
             _loadingOlder.value = false
@@ -1818,6 +1835,17 @@ class SessionStore @Inject constructor(
         }
     }
 
+    suspend fun listDirectory(path: String? = null): DirectoryListing? {
+        val api = apiOrNull() ?: return null
+        return when (val result = api.hostListDirectory(path)) {
+            is RpcResult.Ok -> result.value
+            is RpcResult.Err -> {
+                setConnectionError(result.error.message)
+                null
+            }
+        }
+    }
+
     suspend fun createWorkspace(path: String) {
         val api = apiOrNull() ?: return
         when (val r = api.workspaceCreate(WorkspaceCreateRequest(path))) {
@@ -1929,7 +1957,7 @@ class SessionStore @Inject constructor(
         attachments: List<CommandSubmitAttachment> = emptyList(),
     ): CommandOutcome {
         val sid = currentSessionId.value ?: return CommandOutcome.Failed("no open session")
-        val api = apiOrNull() ?: return CommandOutcome.Failed("not connected")
+        val api = awaitConnectedApi() ?: return CommandOutcome.Failed("not connected")
         return when (val r = api.commandsExecute(sid, line, attachments)) {
             is RpcResult.Ok -> {
                 val execution = r.value as? JsonObject
@@ -1973,6 +2001,9 @@ class SessionStore @Inject constructor(
     suspend fun setPermissionPreset(value: String): CommandOutcome {
         if (value == CUSTOM_PRESET) {
             return CommandOutcome.Failed("`$CUSTOM_PRESET` is a derived state, not a preset")
+        }
+        if (connectionManager.state.value.phase != ConnectionPhase.CONNECTED || connectionManager.connectedApi == null) {
+            return CommandOutcome.Failed("harness connection is recovering; please try again")
         }
         _pendingPermission.value = value
         val outcome = runCommand("/permission $value")
@@ -2129,6 +2160,19 @@ class SessionStore @Inject constructor(
      */
     val commandAttachmentsSupported: Boolean get() = connectionManager.connectedApi != null
 
+    private suspend fun awaitConnectedApi(timeoutMs: Long = 2_000L): DshApiClient? {
+        val current = connectionManager.connectedApi
+        if (current != null && connectionManager.state.value.phase == ConnectionPhase.CONNECTED) return current
+        val deadline = System.nanoTime() + timeoutMs * 1_000_000L
+        while (System.nanoTime() < deadline) {
+            kotlinx.coroutines.delay(100L)
+            val candidate = connectionManager.connectedApi
+            if (candidate != null && connectionManager.state.value.phase == ConnectionPhase.CONNECTED) return candidate
+        }
+        log("not connected — ignoring request")
+        return null
+    }
+
     private fun apiOrNull(): DshApiClient? {
         val api = connectionManager.connectedApi
         if (api == null) log("not connected — ignoring request")
@@ -2158,6 +2202,7 @@ class SessionStore @Inject constructor(
         /** Largest file the base64 Remote fallback will carry; anything bigger needs the route. */
         const val MAX_ENCODED_UPLOAD_BYTES = 20L * 1024 * 1024
         const val HISTORY_PAGE_SIZE = 60
+        const val RPC_TIMEOUT_MS = 8_000L
 
         /** Ceiling on events folded per page, whatever the host sends. */
         const val MAX_PAGE_EVENTS = 4_000

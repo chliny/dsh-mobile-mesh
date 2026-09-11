@@ -138,6 +138,13 @@ class ConnectionManager @Inject constructor(
         }
 
         override fun onStateChange(state: ConnectionState) {
+            // The mux generation is no longer usable as soon as the carrier starts reconnecting.
+            // Keep the unary client: it is an HTTP client, not the retired WebSocket generation, and
+            // clearing it here makes the UI report "not connected" forever after the next successful
+            // reconnect because the loop does not need to rebuild this stateless client.
+            if (state == ConnectionState.RECONNECTING) {
+                generation = null
+            }
             val current = _state.value
             val phase = when {
                 state == ConnectionState.CONNECTED -> ConnectionPhase.CONNECTED
