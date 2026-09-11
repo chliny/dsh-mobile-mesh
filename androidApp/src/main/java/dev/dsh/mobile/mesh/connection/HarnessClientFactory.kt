@@ -47,6 +47,7 @@ class HarnessClientFactory @Inject constructor(
                 connectTimeoutMs = timeouts?.connectMs ?: DEFAULT_TIMEOUT_MS,
                 readTimeoutMs = timeouts?.readMs ?: DEFAULT_TIMEOUT_MS,
                 cookie = cookieFor(config),
+                hostHeader = config.harnessAuthority,
             ),
         )
     }
@@ -61,7 +62,7 @@ class HarnessClientFactory @Inject constructor(
     suspend fun muxFor(config: HostConfig, baseUrl: String = config.baseUrl): RemoteStreamMux {
         val cookie = cookieFor(config)
         return RemoteStreamMux { sink ->
-            WsChannel("$baseUrl$REMOTE_STREAM_MUX_PATH", okHttpClient, sink, cookie)
+            WsChannel("$baseUrl$REMOTE_STREAM_MUX_PATH", okHttpClient, sink, cookie, config.harnessAuthority)
         }
     }
 

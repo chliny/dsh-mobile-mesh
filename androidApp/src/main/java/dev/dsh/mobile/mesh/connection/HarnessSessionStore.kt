@@ -41,10 +41,15 @@ class HarnessSessionStore @Inject constructor(
      * [tokenInput] may be the bare token, the whole `?token=…` URL, or the entire startup line the
      * harness printed — see [HarnessSession.tokenFrom].
      */
-    suspend fun pair(hostId: String, baseUrl: String, tokenInput: String): SessionExchange {
+    suspend fun pair(
+        hostId: String,
+        baseUrl: String,
+        tokenInput: String,
+        hostHeader: String? = null,
+    ): SessionExchange {
         val token = HarnessSession.tokenFrom(tokenInput)
             ?: return SessionExchange.Refused(0)
-        val outcome = HarnessSession.exchange(baseUrl, token, okHttpClient)
+        val outcome = HarnessSession.exchange(baseUrl, token, okHttpClient, hostHeader = hostHeader)
         if (outcome is SessionExchange.Granted) {
             write(sessions() + (hostId to outcome.cookie))
         }

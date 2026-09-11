@@ -10,7 +10,6 @@ class MeshTransportManager @Inject constructor(
     private val tailscale: TailscaleConnector,
 ) {
     private var active: MeshConnector? = null
-    private var authorizationPending = false
 
     suspend fun start(config: HostConfig): MeshRelay? {
         val next = when (config.meshTransport) {
@@ -18,7 +17,7 @@ class MeshTransportManager @Inject constructor(
             MeshTransport.TAILSCALE -> tailscale
             null -> null
         }
-        if (active != null && (active !== next || !authorizationPending)) {
+        if (active != null && active !== next) {
             active?.stop()
             active = null
         }
@@ -26,17 +25,14 @@ class MeshTransportManager @Inject constructor(
         return try {
             next.start(config).also {
                 active = next
-                authorizationPending = false
             }
         } catch (error: Throwable) {
             if (error is MeshAuthorizationPending) {
                 active = next
-                authorizationPending = true
                 throw error
             }
             runCatching { next.stop() }
             active = null
-            authorizationPending = false
             throw error
         }
     }
@@ -44,7 +40,6 @@ class MeshTransportManager @Inject constructor(
     suspend fun stop() {
         val connector = active ?: return
         active = null
-        authorizationPending = false
         connector.stop()
     }
 }

@@ -54,6 +54,7 @@ object HarnessSession {
         token: String,
         client: OkHttpClient,
         timeoutMs: Long = 10_000,
+        hostHeader: String? = null,
     ): SessionExchange = withContext(Dispatchers.IO) {
         val exchanger = client.newBuilder()
             .followRedirects(false)
@@ -62,7 +63,9 @@ object HarnessSession {
             .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
             .build()
         val url = baseUrl.trimEnd('/') + "/?token=" + java.net.URLEncoder.encode(token, "UTF-8")
-        val request = Request.Builder().url(url).get().build()
+        val request = Request.Builder().url(url).get().apply {
+            hostHeader?.let { header("Host", it) }
+        }.build()
         try {
             exchanger.newCall(request).execute().use { response ->
                 val cookie = response.headers("Set-Cookie")

@@ -1,6 +1,7 @@
 package dev.dsh.mobile.mesh.connection
 
 import android.content.Context
+import android.util.Log
 import com.zerotier.sockets.ZeroTierNative
 import com.zerotier.sockets.ZeroTierNode
 import com.zerotier.sockets.ZeroTierSocket
@@ -115,9 +116,11 @@ class ZeroTierConnector @Inject constructor(
     }
 
     private fun relayFor(config: HostConfig): MeshRelay {
+        relay?.close()
         val addresses = InetAddress.getAllByName(config.host).mapNotNull { it.hostAddress }.distinct()
         require(addresses.isNotEmpty()) { "ZeroTier server name did not resolve" }
         val remotePort = if (config.sshEnabled) config.sshPort else config.port
+        Log.d(TAG, "Opening ZeroTier relay to ${addresses.joinToString()}:$remotePort")
         val nextRelay = ZeroTierRelay(addresses, remotePort, executor).also { it.start() }
         relay = nextRelay
         return MeshRelay("127.0.0.1", nextRelay.localPort)
@@ -129,6 +132,7 @@ class ZeroTierConnector @Inject constructor(
 
     private companion object {
         const val STOP_TIMEOUT_SECONDS = 10L
+        const val TAG = "ZeroTierConnector"
     }
 }
 
@@ -169,11 +173,19 @@ private class ZeroTierRelay(
             val socket = runCatching { ZeroTierSocket(family, ZeroTierNative.ZTS_SOCK_STREAM, 0) }.getOrNull() ?: return@forEach
             try {
                 socket.connect(address, remotePort)
+                Log.d(TAG, "ZeroTier relay connected to $address:$remotePort")
                 return socket
-            } catch (_: IOException) { runCatching { socket.close() } }
+            } catch (error: IOException) {
+                Log.w(TAG, "ZeroTier relay failed to connect to $address:$remotePort", error)
+                runCatching { socket.close() }
+            }
         }
         return null
     }
 
     override fun close() { running = false; runCatching { server.close() } }
+
+    private companion object {
+        const val TAG = "ZeroTierRelay"
+    }
 }

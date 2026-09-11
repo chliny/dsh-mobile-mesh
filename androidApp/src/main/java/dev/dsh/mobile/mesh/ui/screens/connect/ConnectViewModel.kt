@@ -183,7 +183,10 @@ class ConnectViewModel @Inject constructor(
         // transport and exchange the token from `connectTo`'s transport-ready callback instead
         // of trying to reuse a stale local endpoint.
         _state.update { it.copy(signInOpen = false, signInError = null) }
-        connectTo(host, input)
+        viewModelScope.launch {
+            hostsStore.saveLaunchToken(input.trim())
+            connectTo(host, input)
+        }
     }
 
     /** Open or close the launch-token prompt. */
@@ -653,7 +656,7 @@ class ConnectViewModel @Inject constructor(
                 val tokenToPair = token ?: return@connect
                 pendingLaunchToken = null
                 _state.update { it.copy(signingIn = true, signInError = null) }
-                when (val outcome = harnessSessions.pair(host.id, baseUrl, tokenToPair)) {
+                when (val outcome = harnessSessions.pair(host.id, baseUrl, tokenToPair, host.harnessAuthority)) {
                     is SessionExchange.Granted -> _state.update { it.copy(signingIn = false) }
                     is SessionExchange.Refused -> {
                         _state.update {
@@ -676,7 +679,9 @@ class ConnectViewModel @Inject constructor(
         pendingLaunchToken = null
         tokenPairingJob = viewModelScope.launch {
             _state.update { it.copy(signingIn = true, signInError = null) }
-            when (val outcome = harnessSessions.pair(host.id, connectionManager.pairingBaseUrl(host), token)) {
+            when (val outcome = harnessSessions.pair(
+                host.id, connectionManager.pairingBaseUrl(host), token, host.harnessAuthority,
+            )) {
                 is SessionExchange.Granted -> {
                     _state.update { it.copy(signingIn = false) }
                     connectTo(host)

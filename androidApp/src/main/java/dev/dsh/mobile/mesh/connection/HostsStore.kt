@@ -58,6 +58,19 @@ class HostsStore @Inject constructor(
         dataStore.edit { it[Keys.CONNECTION_DRAFT] = WireJson.encodeToString(ConnectionDraft.serializer(), draft) }
     }
 
+    /** Keep the latest launch token when it was entered from the authentication prompt. */
+    suspend fun saveLaunchToken(token: String) {
+        dataStore.edit { prefs ->
+            val current = prefs[Keys.CONNECTION_DRAFT]?.let {
+                runCatching { WireJson.decodeFromString(ConnectionDraft.serializer(), it) }.getOrNull()
+            } ?: ConnectionDraft()
+            prefs[Keys.CONNECTION_DRAFT] = WireJson.encodeToString(
+                ConnectionDraft.serializer(),
+                current.copy(launchToken = token),
+            )
+        }
+    }
+
     val hosts: Flow<List<HostConfig>> = dataStore.data.map { prefs ->
         val raw = prefs[Keys.HOSTS] ?: return@map emptyList()
         runCatching {

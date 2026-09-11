@@ -102,10 +102,11 @@ class OkHttpRpcTransport(
     readTimeoutMs: Long = 30_000,
     writeTimeoutMs: Long = 30_000,
     private val cookie: String? = null,
+    hostHeader: String? = null,
 ) : RpcTransport {
 
     private val base: HttpUrl = baseUrl.toHttpUrl()
-    private val hostHeader: String = run {
+    private val hostHeader: String = hostHeader ?: run {
         val defaultPort = when (base.scheme) {
             "http" -> 80
             "https" -> 443
@@ -321,6 +322,7 @@ open class WsChannel(
     private val client: OkHttpClient,
     private val sink: WsChannelSink,
     private val cookie: String? = null,
+    private val hostHeader: String? = null,
 ) {
     @Volatile
     private var webSocket: WebSocket? = null
@@ -364,6 +366,7 @@ open class WsChannel(
         val request = Request.Builder()
             .url(url)
             .cookied(cookie)
+            .apply { hostHeader?.let { header("Host", it) } }
             .build()
         webSocket = client.newWebSocket(request, listener)
     }

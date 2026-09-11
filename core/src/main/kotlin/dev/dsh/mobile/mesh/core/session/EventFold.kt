@@ -81,7 +81,6 @@ private class FoldState(private val sessionId: String) {
     var running = false
     var hasMore = false
     var lastSeq = -1L
-    var gap = false
 
     /** Open assistant per (turn, step), built from chunk deltas. */
     private data class OpenAssistant(
@@ -108,7 +107,7 @@ private class FoldState(private val sessionId: String) {
         blank = blank,
         hasMore = hasMore,
         lastSeq = lastSeq,
-        gap = gap,
+        gap = false,
     )
 
     /**
@@ -151,7 +150,6 @@ private class FoldState(private val sessionId: String) {
     }
 
     fun apply(event: SessionEventEnvelope) {
-        if (event.seq > lastSeq + 1 && lastSeq >= 0 && !gap) gap = true
         lastSeq = maxOf(lastSeq, event.seq)
         val data = event.data
         when (event.type) {

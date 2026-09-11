@@ -52,6 +52,9 @@ data class HostConfig(
 ) {
     /** Bare `host:port` — the identity key and display form, deliberately scheme-free. */
     val authority: String get() = "$host:$port"
+
+    /** Authority the Harness receives after an SSH local forward has reached its target. */
+    val harnessAuthority: String get() = if (sshEnabled) "$sshDshHost:$port" else authority
     val baseUrl: String get() = harnessBaseUrl(host, port, useTls)
 
     /** What a card prints: the authority, scheme-qualified only when it is not the plain default. */

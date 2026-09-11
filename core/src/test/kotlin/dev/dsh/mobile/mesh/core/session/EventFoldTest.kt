@@ -161,7 +161,9 @@ class EventFoldTest {
     }
 
     @Test
-    fun detectsGap() {
+    fun sparseDurableSequenceDoesNotReportAConnectionGap() {
+        // Format v2 no longer persists token chunks, but durable settlements retain sequence
+        // numbers from the full event stream. A complete snapshot is therefore legitimately sparse.
         val events = listOf(
             event("turn/start", 0, buildJsonObject { put("turn", 1) }),
             event("turn/end", 5, buildJsonObject {
@@ -170,7 +172,7 @@ class EventFoldTest {
             }),
         )
         val snapshot = EventFold("s1").fold(events)
-        assertTrue(snapshot.gap)
+        assertFalse(snapshot.gap)
     }
 
     @Test
