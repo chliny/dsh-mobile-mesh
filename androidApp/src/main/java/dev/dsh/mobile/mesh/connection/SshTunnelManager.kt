@@ -1,29 +1,30 @@
 package dev.dsh.mobile.mesh.connection
 
 import android.content.Context
+import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.Closeable
 import java.io.File
 import java.net.InetAddress
-import java.net.ServerSocket
 import java.security.PublicKey
-import java.util.Base64
+import java.net.ServerSocket
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import net.schmizz.sshj.DefaultConfig
 import net.schmizz.sshj.SSHClient
-import net.schmizz.sshj.common.Buffer
 import net.schmizz.sshj.connection.channel.direct.LocalPortForwarder
 import net.schmizz.sshj.connection.channel.direct.Parameters
+import net.schmizz.sshj.transport.kex.DHG14
+import net.schmizz.sshj.transport.kex.DHGexSHA256
+import net.schmizz.sshj.transport.kex.ECDHNistP
 import net.schmizz.sshj.transport.verification.HostKeyVerifier
-
-class SshHostKeyUnconfirmed(val fingerprint: String) :
-    IllegalStateException("Confirm SSH host key $fingerprint and connect again")
+import net.schmizz.sshj.common.SecurityUtils
 
 data class SshRelay(val baseUrl: String)
 
-/** Owns one SSHJ local forwarder and refuses every unconfirmed or changed host key. */
+/** Owns one SSHJ local forwarder. SSH host-key verification is intentionally disabled. */
 @Singleton
 class SshTunnelManager @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -38,10 +39,21 @@ class SshTunnelManager @Inject constructor(
             ?: throw IllegalArgumentException("SSH username is required")
         val credentials = secrets.get(config.id)
             ?: throw IllegalArgumentException("SSH credentials are missing")
-        val client = SSHClient()
-        val expected = config.sshHostKeyFingerprint?.trim()?.takeIf { it.isNotEmpty() }
-        val verifier = ExactHostKeyVerifier(expected)
-        client.addHostKeyVerifier(verifier)
+        // Android's platform Bouncy Castle provider has no X25519 implementation, so avoid
+        // Curve25519 while retaining the server's other modern NIST ECDH alternatives.
+        // Its "BC" name otherwise makes SSHJ pin all cryptography to that incomplete provider.
+        SecurityUtils.setRegisterBouncyCastle(false)
+        val sshConfig = DefaultConfig().apply {
+            keyExchangeFactories = listOf(
+                ECDHNistP.Factory256(),
+                ECDHNistP.Factory384(),
+                ECDHNistP.Factory521(),
+                DHGexSHA256.Factory(),
+                DHG14.Factory(),
+            )
+        }
+        val client = SSHClient(sshConfig)
+        client.addHostKeyVerifier(AcceptAllHostKeyVerifier)
         var keyFile: File? = null
         try {
             client.connect(sshHost, sshPort)
@@ -74,10 +86,8 @@ class SshTunnelManager @Inject constructor(
             active = ActiveTunnel(client, forwarder, thread)
             SshRelay("http://127.0.0.1:${server.localPort}")
         } catch (error: Throwable) {
+            Log.e(TAG, "Unable to establish SSH relay to $sshHost:$sshPort", error)
             runCatching { client.close() }
-            if (expected == null && verifier.observedFingerprint != null) {
-                throw SshHostKeyUnconfirmed(verifier.observedFingerprint!!)
-            }
             throw error
         } finally {
             keyFile?.runCatching { delete() }
@@ -102,27 +112,14 @@ class SshTunnelManager @Inject constructor(
             thread.interrupt()
         }
     }
+
+    private companion object {
+        const val TAG = "SshTunnelManager"
+    }
 }
 
-private class ExactHostKeyVerifier(private val expected: String?) : HostKeyVerifier {
-    var observedFingerprint: String? = null
-        private set
-
-    override fun verify(hostname: String, port: Int, key: PublicKey): Boolean {
-        val wireKey = Buffer.PlainBuffer().putPublicKey(key).compactData
-        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(wireKey)
-        val fingerprint = "SHA256:" + Base64.getEncoder().withoutPadding().encodeToString(digest)
-        observedFingerprint = fingerprint
-        if (expected == null) return false
-        return constantTimeEquals(normalize(expected), normalize(fingerprint))
-    }
+private object AcceptAllHostKeyVerifier : HostKeyVerifier {
+    override fun verify(hostname: String, port: Int, key: PublicKey): Boolean = true
 
     override fun findExistingAlgorithms(hostname: String, port: Int): List<String> = emptyList()
-
-    private fun normalize(value: String): ByteArray = value.trim().removePrefix("SHA256:").let { encoded ->
-        runCatching { Base64.getDecoder().decode(encoded) }.getOrElse { encoded.toByteArray() }
-    }
-
-    private fun constantTimeEquals(left: ByteArray, right: ByteArray): Boolean =
-        java.security.MessageDigest.isEqual(left, right)
 }

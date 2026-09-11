@@ -54,13 +54,16 @@ class ConnectionLoopHandshakeTest {
         val failures = CopyOnWriteArrayList<Pair<Int, GenerationFailure>>()
         val connected = CopyOnWriteArrayList<HostGeneration>()
         val frames = CopyOnWriteArrayList<RemoteEventFrame>()
+        val states = CopyOnWriteArrayList<ConnectionState>()
         override fun onEventFrame(frame: RemoteEventFrame) {
             frames.add(frame)
         }
         override fun onConnected(generation: HostGeneration) {
             connected.add(generation)
         }
-        override fun onStateChange(state: ConnectionState) = Unit
+        override fun onStateChange(state: ConnectionState) {
+            states.add(state)
+        }
         override fun onHandshakeStep(step: HandshakeStep) {
             steps.add(step)
         }
@@ -265,6 +268,57 @@ class ConnectionLoopHandshakeTest {
         val frame = recorder.frames.first()
         assertTrue("was $frame", frame is RemoteEventFrame.Emit)
         assertEquals("commands/change", (frame as RemoteEventFrame.Emit).event)
+    }
+
+    @Test
+    fun `a clean events end does not reconnect while the mux remains open`() = runBlocking {
+        val recorder = Recorder()
+        val loop = loop(
+            recorder,
+            open = { sink ->
+                onSend = { _, text ->
+                    if (text.contains("\"type\":\"open\"")) {
+                        val id = streamIdOf(text)
+                        sink.onMessage(item(id, readyFrame))
+                        sink.onMessage("{\"type\":\"end\",\"streamId\":\"$id\"}")
+                    }
+                }
+                sink.onOpen()
+            },
+        )
+        loop.start()
+        assertTrue(await { recorder.connected.isNotEmpty() })
+        kotlinx.coroutines.delay(100)
+        loop.stop()
+
+        assertEquals(listOf(ConnectionState.RECONNECTING, ConnectionState.CONNECTED), recorder.states)
+    }
+
+    @Test
+    fun `a non carrier events error does not reconnect while the mux remains open`() = runBlocking {
+        val recorder = Recorder()
+        val loop = loop(
+            recorder,
+            open = { sink ->
+                onSend = { _, text ->
+                    if (text.contains("\"type\":\"open\"")) {
+                        val id = streamIdOf(text)
+                        sink.onMessage(item(id, readyFrame))
+                        sink.onMessage(
+                            "{\"type\":\"error\",\"streamId\":\"$id\",\"error\":" +
+                                "{\"code\":\"internal\",\"message\":\"events ended\",\"details\":{}}}",
+                        )
+                    }
+                }
+                sink.onOpen()
+            },
+        )
+        loop.start()
+        assertTrue(await { recorder.connected.isNotEmpty() })
+        kotlinx.coroutines.delay(100)
+        loop.stop()
+
+        assertEquals(listOf(ConnectionState.RECONNECTING, ConnectionState.CONNECTED), recorder.states)
     }
 
     @Test

@@ -102,7 +102,7 @@ fun ConnectScreen(
     var sshPassword by rememberSaveable { mutableStateOf("") }
     var sshPrivateKey by rememberSaveable { mutableStateOf("") }
     var sshPrivateKeyPassphrase by rememberSaveable { mutableStateOf("") }
-    var sshHostKeyFingerprint by rememberSaveable { mutableStateOf("") }
+    var launchToken by rememberSaveable { mutableStateOf("") }
     var sshDshHost by rememberSaveable { mutableStateOf("127.0.0.1") }
     var restoredDraft by rememberSaveable { mutableStateOf(false) }
 
@@ -120,7 +120,10 @@ fun ConnectScreen(
             sshPort = draft.sshPort
             sshUsername = draft.sshUsername
             sshAuthenticationKey = if (draft.sshAuthentication == SshAuthentication.PRIVATE_KEY) "key" else "password"
-            sshHostKeyFingerprint = draft.sshHostKeyFingerprint
+            sshPassword = draft.sshPassword
+            sshPrivateKey = draft.sshPrivateKey
+            sshPrivateKeyPassphrase = draft.sshPrivateKeyPassphrase
+            launchToken = draft.launchToken
             sshDshHost = draft.sshDshHost
             restoredDraft = true
         }
@@ -129,7 +132,8 @@ fun ConnectScreen(
     LaunchedEffect(
         restoredDraft, host, port, meshTransportKey, zeroTierNetworkId, zeroTierPlanetId, zeroTierPlanetBase64,
         tailscaleHostname, sshEnabled, sshPort, sshUsername, sshAuthentication,
-        sshHostKeyFingerprint, sshDshHost,
+        sshPassword, sshPrivateKey, sshPrivateKeyPassphrase, launchToken,
+        sshDshHost,
     ) {
         if (restoredDraft) viewModel.saveDraft(
             ConnectionDraft(
@@ -144,7 +148,10 @@ fun ConnectScreen(
                 sshPort = sshPort,
                 sshUsername = sshUsername,
                 sshAuthentication = sshAuthentication,
-                sshHostKeyFingerprint = sshHostKeyFingerprint,
+                sshPassword = sshPassword,
+                sshPrivateKey = sshPrivateKey,
+                sshPrivateKeyPassphrase = sshPrivateKeyPassphrase,
+                launchToken = launchToken,
                 sshDshHost = sshDshHost,
             ),
         )
@@ -406,34 +413,29 @@ fun ConnectScreen(
                             singleLine = true,
                             colors = connectFieldColors(),
                         )
-                        TextField(
-                            value = sshHostKeyFingerprint,
-                            onValueChange = { sshHostKeyFingerprint = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text(stringResource(R.string.connect_ssh_fingerprint)) },
-                            placeholder = { Text("SHA256:…") },
-                            singleLine = true,
-                            colors = connectFieldColors(),
-                        )
-                        Text(
-                            stringResource(R.string.connect_ssh_fingerprint_hint),
-                            style = DsType.small13,
-                            color = colors.labelCaption,
-                        )
                     }
+                    TextField(
+                        value = launchToken,
+                        onValueChange = { launchToken = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.connect_launch_token)) },
+                        placeholder = { Text(stringResource(R.string.connect_launch_token_hint)) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        colors = connectFieldColors(),
+                    )
                     DsButton(
                         text = stringResource(R.string.connect_button),
                         onClick = {
                             val transport = meshTransport
                             if (transport == null) viewModel.connectManual(
                                 host, port, sshEnabled, sshPort, sshUsername, sshAuthentication,
-                                sshPassword, sshPrivateKey, sshPrivateKeyPassphrase,
-                                sshHostKeyFingerprint, sshDshHost,
+                                sshPassword, sshPrivateKey, sshPrivateKeyPassphrase, sshDshHost, launchToken,
                             ) else viewModel.connectMesh(
                                 host, port, transport, zeroTierNetworkId, tailscaleHostname,
                                 sshEnabled, sshPort, sshUsername, sshAuthentication,
                                 sshPassword, sshPrivateKey, sshPrivateKeyPassphrase,
-                                sshHostKeyFingerprint, sshDshHost, zeroTierPlanetId,
+                                sshDshHost, zeroTierPlanetId, launchToken,
                             )
                         },
                         enabled = !state.connecting,

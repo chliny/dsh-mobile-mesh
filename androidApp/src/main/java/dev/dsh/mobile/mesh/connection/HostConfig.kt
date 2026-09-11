@@ -47,8 +47,6 @@ data class HostConfig(
     val sshPort: Int = 22,
     val sshUsername: String? = null,
     val sshAuthentication: SshAuthentication = SshAuthentication.PASSWORD,
-    /** Confirmed SHA256 host-key fingerprint. Secrets are stored separately. */
-    val sshHostKeyFingerprint: String? = null,
     /** DSH endpoint as reached from the SSH server. */
     val sshDshHost: String = "127.0.0.1",
 ) {
@@ -65,8 +63,8 @@ data class HostConfig(
 enum class SshAuthentication { PASSWORD, PRIVATE_KEY }
 
 /**
- * The unfinished connection form. Authentication secrets are intentionally excluded: they remain
- * in memory until the user connects, then are encrypted separately by [SshSecretStore].
+ * The unfinished connection form, including SSH credentials, so every connection setting restores
+ * after the app is reopened.
  */
 @Serializable
 data class ConnectionDraft(
@@ -82,7 +80,11 @@ data class ConnectionDraft(
     val sshPort: String = "22",
     val sshUsername: String = "",
     val sshAuthentication: SshAuthentication = SshAuthentication.PASSWORD,
-    val sshHostKeyFingerprint: String = "",
+    val sshPassword: String = "",
+    val sshPrivateKey: String = "",
+    val sshPrivateKeyPassphrase: String = "",
+    /** Harness launch token supplied for the next authenticated connection attempt. */
+    val launchToken: String = "",
     val sshDshHost: String = "127.0.0.1",
 )
 

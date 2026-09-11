@@ -111,6 +111,7 @@ class RemoteStreamMux(
     private val nextStreamId = AtomicLong(1)
     private val started = AtomicBoolean(false)
     private val opened = CompletableDeferred<Unit>()
+    private val closed = CompletableDeferred<Unit>()
 
     @Volatile
     private var closedCause: Throwable? = null
@@ -187,6 +188,11 @@ class RemoteStreamMux(
         closedCause?.let { throw it }
     }
 
+    /** Suspend until the physical WebSocket closes. */
+    suspend fun awaitClosed() {
+        closed.await()
+    }
+
     /**
      * Open one logical stream and send its `open` immediately.
      *
@@ -257,6 +263,7 @@ class RemoteStreamMux(
     private fun failAll(cause: Throwable?) {
         val closure = cause ?: MuxClosedException()
         if (closedCause == null) closedCause = closure
+        closed.complete(Unit)
         // Unblocks awaitOpen for a socket that failed its upgrade and never opened at all.
         opened.complete(Unit)
         val error = carrierError(closure)

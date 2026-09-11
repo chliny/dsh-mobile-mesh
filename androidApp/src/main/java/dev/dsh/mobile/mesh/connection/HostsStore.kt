@@ -126,7 +126,6 @@ class HostsStore @Inject constructor(
         sshPort: Int = 22,
         sshUsername: String? = null,
         sshAuthentication: SshAuthentication = SshAuthentication.PASSWORD,
-        sshHostKeyFingerprint: String? = null,
         sshDshHost: String = "127.0.0.1",
     ): HostConfig {
         val existing = hosts.first().firstOrNull { it.host == host && it.port == port }
@@ -147,7 +146,6 @@ class HostsStore @Inject constructor(
             sshPort = sshPort,
             sshUsername = sshUsername,
             sshAuthentication = sshAuthentication,
-            sshHostKeyFingerprint = sshHostKeyFingerprint,
             sshDshHost = sshDshHost,
         )
         upsertHost(config)

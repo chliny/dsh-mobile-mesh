@@ -157,6 +157,10 @@ class ConnectViewModel @Inject constructor(
     /** One status poll at a time while tsnet waits for the embedded browser authorization. */
     private var tailscaleLoginJob: Job? = null
 
+    /** One-time token supplied with a manual connection; it is never persisted. */
+    private var pendingLaunchToken: String? = null
+    private var tokenPairingJob: Job? = null
+
     /**
      * Exchange a harness launch token for a browser session, then retry the connection.
      *
@@ -175,25 +179,11 @@ class ConnectViewModel @Inject constructor(
             _state.update { it.copy(signInError = SignInError.NoHost) }
             return
         }
-        _state.update { it.copy(signingIn = true, signInError = null) }
-        viewModelScope.launch {
-            val outcome = harnessSessions.pair(host.id, connectionManager.pairingBaseUrl(host), input)
-            _state.update { current ->
-                current.copy(
-                    signingIn = false,
-                    signInError = when (outcome) {
-                        is SessionExchange.Granted -> null
-                        // Almost always a token from an earlier harness process: it rotates on
-                        // every start and is never persisted.
-                        is SessionExchange.Refused -> SignInError.Refused
-                        is SessionExchange.Unreachable -> SignInError.Unreachable
-                    },
-                    // The dialog closes on success; a failure keeps it open with the reason.
-                    signInOpen = outcome !is SessionExchange.Granted,
-                )
-            }
-            if (outcome is SessionExchange.Granted) connectTo(host)
-        }
+        // A failed unauthenticated loop may already have lost its private relay. Recreate the
+        // transport and exchange the token from `connectTo`'s transport-ready callback instead
+        // of trying to reuse a stale local endpoint.
+        _state.update { it.copy(signInOpen = false, signInError = null) }
+        connectTo(host, input)
     }
 
     /** Open or close the launch-token prompt. */
@@ -236,6 +226,12 @@ class ConnectViewModel @Inject constructor(
                 ) {
                     tailscaleLoginJob?.cancel()
                     tailscaleLoginJob = null
+                }
+                val token = pendingLaunchToken
+                val host = conn.host
+                if (conn.failure is ConnectFailure.Unauthenticated && host != null && token != null &&
+                    tokenPairingJob?.isActive != true) {
+                    pairLaunchToken(host, token)
                 }
             }
         }
@@ -430,8 +426,8 @@ class ConnectViewModel @Inject constructor(
         sshPassword: String,
         sshPrivateKey: String,
         sshPrivateKeyPassphrase: String,
-        sshHostKeyFingerprint: String,
         sshDshHost: String,
+        launchToken: String,
     ) {
         // The field takes what people actually have — a pasted URL as readily as a bare address.
         // A port named inside it was typed as part of this address, so it outranks the port field,
@@ -472,7 +468,6 @@ class ConnectViewModel @Inject constructor(
                     sshPort = sshPortInt!!,
                     sshUsername = sshUsername.trim(),
                     sshAuthentication = sshAuthentication,
-                    sshHostKeyFingerprint = sshHostKeyFingerprint.trim().takeIf { it.isNotEmpty() },
                     sshDshHost = sshDshHost.trim(),
                 )
                 sshSecrets.put(
@@ -483,7 +478,7 @@ class ConnectViewModel @Inject constructor(
                         privateKeyPassphrase = sshPrivateKeyPassphrase.takeIf { it.isNotEmpty() },
                     ),
                 )
-                connectTo(config)
+                connectTo(config, launchToken)
                 return@launch
             }
             localStage = ConnectStage.Reaching
@@ -495,7 +490,8 @@ class ConnectViewModel @Inject constructor(
                 preflight = true,
                 useTls = useTls,
             )
-            if (outcome !is ProbeOutcome.Reachable) {
+            if (outcome !is ProbeOutcome.Reachable &&
+                !(outcome is ProbeOutcome.Unauthenticated && launchToken.isNotBlank())) {
                 fail(ConnectFailure.from(outcome), authority)
                 return@launch
             }
@@ -506,10 +502,11 @@ class ConnectViewModel @Inject constructor(
                 port = portInt,
                 isLoopback = isLoopback,
                 useTls = useTls,
-                description = outcome.description,
+                description = (outcome as? ProbeOutcome.Reachable)?.description,
                 sshEnabled = false,
             )
-            connectTo(config)
+            if (outcome is ProbeOutcome.Unauthenticated) pairLaunchToken(config, launchToken)
+            else connectTo(config, launchToken)
         }
     }
 
@@ -527,9 +524,9 @@ class ConnectViewModel @Inject constructor(
         sshPassword: String,
         sshPrivateKey: String,
         sshPrivateKeyPassphrase: String,
-        sshHostKeyFingerprint: String,
         sshDshHost: String,
         zeroTierPlanetId: String?,
+        launchToken: String,
     ) {
         val input = parseHostInput(host)
         val portInt = input?.port ?: port.trim().toIntOrNull()
@@ -560,7 +557,6 @@ class ConnectViewModel @Inject constructor(
                 sshPort = sshPortInt ?: 22,
                 sshUsername = sshUsername.trim().takeIf { sshEnabled },
                 sshAuthentication = sshAuthentication,
-                sshHostKeyFingerprint = sshHostKeyFingerprint.trim().takeIf { sshEnabled && it.isNotEmpty() },
                 sshDshHost = sshDshHost.trim().ifEmpty { "127.0.0.1" },
             )
             if (sshEnabled) sshSecrets.put(
@@ -571,7 +567,7 @@ class ConnectViewModel @Inject constructor(
                     privateKeyPassphrase = sshPrivateKeyPassphrase.takeIf { it.isNotEmpty() },
                 ),
             )
-            connectTo(config)
+            connectTo(config, launchToken)
         }
     }
 
@@ -640,7 +636,9 @@ class ConnectViewModel @Inject constructor(
      * `init` folds in — so a tap on a dead Recent entry reports the same diagnosis as a manual
      * attempt instead of looking like an inert button.
      */
-    fun connectTo(host: HostConfig) {
+    fun connectTo(host: HostConfig, launchToken: String? = null) {
+        val token = launchToken?.trim()?.takeIf { it.isNotEmpty() }
+        token?.let { pendingLaunchToken = it }
         localStage = null
         _state.update {
             it.copy(
@@ -650,7 +648,47 @@ class ConnectViewModel @Inject constructor(
                 retrying = false,
             )
         }
-        viewModelScope.launch { connectionManager.connect(host) }
+        viewModelScope.launch {
+            connectionManager.connect(host) { baseUrl ->
+                val tokenToPair = token ?: return@connect
+                pendingLaunchToken = null
+                _state.update { it.copy(signingIn = true, signInError = null) }
+                when (val outcome = harnessSessions.pair(host.id, baseUrl, tokenToPair)) {
+                    is SessionExchange.Granted -> _state.update { it.copy(signingIn = false) }
+                    is SessionExchange.Refused -> {
+                        _state.update {
+                            it.copy(signingIn = false, signInOpen = true, signInError = SignInError.Refused)
+                        }
+                        throw IllegalArgumentException("Harness launch token was refused")
+                    }
+                    is SessionExchange.Unreachable -> {
+                        _state.update {
+                            it.copy(signingIn = false, signInOpen = true, signInError = SignInError.Unreachable)
+                        }
+                        throw IllegalArgumentException("Harness could not be reached for token pairing")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun pairLaunchToken(host: HostConfig, token: String) {
+        pendingLaunchToken = null
+        tokenPairingJob = viewModelScope.launch {
+            _state.update { it.copy(signingIn = true, signInError = null) }
+            when (val outcome = harnessSessions.pair(host.id, connectionManager.pairingBaseUrl(host), token)) {
+                is SessionExchange.Granted -> {
+                    _state.update { it.copy(signingIn = false) }
+                    connectTo(host)
+                }
+                is SessionExchange.Refused -> _state.update {
+                    it.copy(signingIn = false, signInOpen = true, signInError = SignInError.Refused)
+                }
+                is SessionExchange.Unreachable -> _state.update {
+                    it.copy(signingIn = false, signInOpen = true, signInError = SignInError.Unreachable)
+                }
+            }
+        }
     }
 
     fun connectDiscovered(discovered: DiscoveredHost) {

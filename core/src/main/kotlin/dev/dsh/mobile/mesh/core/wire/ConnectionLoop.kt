@@ -189,7 +189,7 @@ class ConnectionLoop(
                     attempt = 0
                     safeSink { sinks.onConnected(opened.generation) }
                     safeSink { sinks.onStateChange(ConnectionState.CONNECTED) }
-                    consumeEvents(opened.events)
+                    consumeEvents(opened.events, opened.generation.mux)
                     closeGeneration()
                 }
 
@@ -264,7 +264,7 @@ class ConnectionLoop(
         }
         val frame = decodeEventFrame(ready)
             ?: return Opened.Failed(
-                GenerationFailure.ReadyFailed(RpcError("internal", "opening event frame did not parse")),
+                GenerationFailure.ReadyFailed(RpcError("internal", "opening event frame did not parse: $ready")),
             )
         // A generation that opens on anything but `ready` is a protocol failure, not a frame to
         // skip: every later reply is bound to the clientId this frame carries, so without it
@@ -287,11 +287,17 @@ class ConnectionLoop(
         )
     }
 
-    /** Forward `$events` frames until the stream ends or its carrier fails. */
-    private suspend fun consumeEvents(events: RemoteStream) {
+    /** Forward `$events` frames until its carrier fails. */
+    private suspend fun consumeEvents(events: RemoteStream, mux: RemoteStreamMux) {
         try {
             while (true) {
-                val value = events.receive() ?: return
+                val value = events.receive()
+                if (value == null) {
+                    // `$events` can be a finite bootstrap stream. Its clean end does not close the
+                    // shared mux, whose session streams remain usable until the carrier ends.
+                    mux.awaitClosed()
+                    return
+                }
                 val frame = decodeEventFrame(value)
                 // One unparseable frame is not worth ending a generation over: the allowlist
                 // upstream grows and the union already passes unknown kinds through, so only a
@@ -299,9 +305,11 @@ class ConnectionLoop(
                 if (frame != null) safeSink { sinks.onEventFrame(frame) }
             }
         } catch (e: RemoteStreamException) {
-            // Terminal for this generation either way. Ending `$events` — cleanly or not — ends
-            // the generation, because it is the sole source of connection liveness; the loop's
-            // next pass reports the state change and reconnects.
+            if (!e.carrier) {
+                // `$events` is one logical stream on the shared mux. A host-level failure of
+                // that stream does not invalidate the session/control streams on the same socket.
+                mux.awaitClosed()
+            }
         } finally {
             events.cancel()
         }
@@ -345,4 +353,5 @@ class ConnectionLoop(
             // Contain: a misbehaving sink must not take the loop down.
         }
     }
+
 }

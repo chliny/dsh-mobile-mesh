@@ -2,6 +2,7 @@ package dev.dsh.mobile.mesh.connection
 
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.core.content.ContextCompat
 import dev.dsh.mobile.mesh.core.wire.ConnectionLoop
 import dev.dsh.mobile.mesh.core.wire.ConnectionState
@@ -152,6 +153,7 @@ class ConnectionManager @Inject constructor(
         }
 
         override fun onGenerationFailed(attempt: Int, failure: GenerationFailure) {
+            Log.w("ConnectionManager", "Generation $attempt failed: $failure")
             val host = activeHost
             _state.value = _state.value.copy(
                 failure = ConnectFailure.from(failure),
@@ -175,10 +177,13 @@ class ConnectionManager @Inject constructor(
      * forever with nothing on screen. The loop now reports each failed generation directly, which
      * is both sooner and specific.
      */
-    suspend fun connect(config: HostConfig) {
+    suspend fun connect(
+        config: HostConfig,
+        afterTransportReady: suspend (baseUrl: String) -> Unit = {},
+    ) {
         // Keep a pending mesh node alive: ZeroTier authorization is attached to that node identity,
         // and the transport manager reuses it when the user retries after approval.
-        if (activeHost != config || _state.value.authorizationPending == null) disconnect()
+        if (activeHost?.id != config.id || _state.value.authorizationPending == null) disconnect()
         activeHost = config
         val pending = _state.value.takeIf {
             activeHost == config && it.authorizationPending != null
@@ -193,6 +198,7 @@ class ConnectionManager @Inject constructor(
         )
         try {
             activeBaseUrl = startTransports(config)
+            afterTransportReady(activeBaseUrl!!)
             api = clientFactory.clientFor(config, baseUrl = activeBaseUrl!!)
             val loop = ConnectionLoop(muxFactory(config, activeBaseUrl!!), sinks, LoopConfig())
             this.loop = loop
