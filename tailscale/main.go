@@ -92,12 +92,21 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 	deviceHostname := C.GoString(hostname)
 	targetHost := C.GoString(remoteHost)
 	targetPort := int(port)
-	if entry := current.value; entry != nil && entry.listener == nil && entry.stateDir == stateDirectory && entry.hostname == deviceHostname {
+	if entry := current.value; entry != nil && entry.stateDir == stateDirectory && entry.hostname == deviceHostname {
+		if entry.listener != nil {
+			if entry.matchesTarget(targetHost, targetPort) {
+				return encode(readyResult(entry))
+			}
+			stopRelayLocked(entry)
+			return encode(startRelayLocked(entry.server, targetHost, targetPort))
+		}
+		entry.remoteHost = targetHost
+		entry.remotePort = targetPort
 		client, clientErr := entry.server.LocalClient()
 		if clientErr == nil {
 			status, err := getStatus(client)
 			if err == nil && status.BackendState == ipn.Running.String() {
-				return encode(startRelayLocked(entry.server, entry.remoteHost, entry.remotePort))
+				return encode(startRelayLocked(entry.server, targetHost, targetPort))
 			}
 		}
 		return encode(result{State: "needs_login", LoginURL: entry.loginURL})
@@ -132,12 +141,20 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 			_ = server.Close()
 			return encode(result{State: "error", Error: loginErr.Error()})
 		}
+		if login == "" {
+			status, statusErr := getStatus(client)
+			if statusErr == nil && status.BackendState == ipn.Running.String() {
+				current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname}
+				return encode(startRelayLocked(server, targetHost, targetPort))
+			}
+		}
 		current.value = &instance{
 			server: server, stateDir: stateDirectory, hostname: deviceHostname,
 			remoteHost: targetHost, remotePort: targetPort, loginURL: login,
 		}
 		return encode(result{State: "needs_login", LoginURL: login})
 	}
+	current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname}
 	return encode(startRelayLocked(server, targetHost, targetPort))
 }
 
@@ -193,13 +210,31 @@ func loginURL(client *local.Client) (string, error) {
 func startRelayLocked(server *tsnet.Server, remoteHost string, remotePort int) result {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
+		if current.value != nil && current.value.server == server {
+			current.value = nil
+		}
 		_ = server.Close()
 		return result{State: "error", Error: err.Error()}
 	}
-	entry := &instance{server: server, listener: listener, done: make(chan struct{}), remoteHost: remoteHost, remotePort: remotePort}
+	entry := current.value
+	if entry == nil || entry.server != server {
+		entry = &instance{server: server}
+	}
+	entry.listener = listener
+	entry.done = make(chan struct{})
+	entry.remoteHost = remoteHost
+	entry.remotePort = remotePort
 	current.value = entry
 	go serve(entry, net.JoinHostPort(remoteHost, strconv.Itoa(remotePort)))
 	return result{State: "ready", BaseURL: "http://" + listener.Addr().String()}
+}
+
+func (entry *instance) matchesTarget(remoteHost string, remotePort int) bool {
+	return entry.remoteHost == remoteHost && entry.remotePort == remotePort
+}
+
+func readyResult(entry *instance) result {
+	return result{State: "ready", BaseURL: "http://" + entry.listener.Addr().String()}
 }
 
 func serve(entry *instance, remote string) {
@@ -229,12 +264,19 @@ func stopLocked() {
 	if entry == nil {
 		return
 	}
-	if entry.listener != nil {
-		_ = entry.listener.Close()
-		<-entry.done
-	}
+	stopRelayLocked(entry)
 	_ = entry.server.Close()
 	current.value = nil
+}
+
+func stopRelayLocked(entry *instance) {
+	if entry.listener == nil {
+		return
+	}
+	_ = entry.listener.Close()
+	<-entry.done
+	entry.listener = nil
+	entry.done = nil
 }
 
 func encode(value result) *C.char {

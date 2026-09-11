@@ -21,11 +21,14 @@ import dev.dsh.mobile.mesh.core.wire.TransportFailures
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -85,6 +88,11 @@ class ConnectionManager @Inject constructor(
     private var api: DshApiClient? = null
     private var activeHost: HostConfig? = null
     private var activeBaseUrl: String? = null
+    private var pendingTransportReady: (suspend (String) -> Unit)? = null
+    private val authorizationResumeMutex = Mutex()
+    private val lifecycleMutex = Mutex()
+    private var teardownJob: Job? = null
+    @Volatile private var lifecycleEpoch = 0L
 
     /**
      * The current generation, or null while disconnected.
@@ -184,7 +192,18 @@ class ConnectionManager @Inject constructor(
         // Keep a pending mesh node alive: ZeroTier authorization is attached to that node identity,
         // and the transport manager reuses it when the user retries after approval.
         if (activeHost?.id != config.id || _state.value.authorizationPending == null) disconnect()
+        teardownJob?.join()
+        val epoch = lifecycleEpoch
+        lifecycleMutex.withLock { connectLocked(config, afterTransportReady, epoch) }
+    }
+
+    private suspend fun connectLocked(
+        config: HostConfig,
+        afterTransportReady: suspend (baseUrl: String) -> Unit,
+        epoch: Long,
+    ) {
         activeHost = config
+        pendingTransportReady = afterTransportReady
         val pending = _state.value.takeIf {
             activeHost == config && it.authorizationPending != null
         }
@@ -198,12 +217,17 @@ class ConnectionManager @Inject constructor(
         )
         try {
             activeBaseUrl = startTransports(config)
+            if (epoch != lifecycleEpoch) return
+            _state.value = _state.value.copy(authorizationPending = null, tailscaleLoginUrl = null)
             afterTransportReady(activeBaseUrl!!)
+            if (epoch != lifecycleEpoch) return
+            pendingTransportReady = null
             api = clientFactory.clientFor(config, baseUrl = activeBaseUrl!!)
             val loop = ConnectionLoop(muxFactory(config, activeBaseUrl!!), sinks, LoopConfig())
             this.loop = loop
             loop.start()
         } catch (error: Throwable) {
+            if (epoch != lifecycleEpoch) return
             sshTunnel.stop()
             if (error is MeshAuthorizationPending) {
                 hostsStore.upsertHost(config)
@@ -217,6 +241,7 @@ class ConnectionManager @Inject constructor(
                 return
             }
             meshTransport.stop()
+            pendingTransportReady = null
             activeBaseUrl = null
             activeHost = null
             _state.value = ConnectionUiState(
@@ -231,15 +256,21 @@ class ConnectionManager @Inject constructor(
     }
 
     fun disconnect() {
+        lifecycleEpoch++
         loop?.stop()
         loop = null
         api = null
         activeBaseUrl = null
+        pendingTransportReady = null
         generation = null
         activeHost = null
-        scope.launch {
-            sshTunnel.stop()
-            meshTransport.stop()
+        val previousTeardown = teardownJob
+        teardownJob = scope.launch {
+            previousTeardown?.join()
+            lifecycleMutex.withLock {
+                sshTunnel.stop()
+                meshTransport.stop()
+            }
         }
         stopService()
         _state.value = ConnectionUiState()
@@ -247,38 +278,49 @@ class ConnectionManager @Inject constructor(
 
     fun reconnectIfNeeded() {
         val host = activeHost ?: return
+        val epoch = lifecycleEpoch
         loop?.stop()
         scope.launch {
-            try {
-                activeBaseUrl = startTransports(host)
-                api = clientFactory.clientFor(host, baseUrl = activeBaseUrl!!)
-                loop = ConnectionLoop(muxFactory(host, activeBaseUrl!!), sinks, LoopConfig()).also { it.start() }
-            } catch (error: Throwable) {
-                sshTunnel.stop()
-                if (error is MeshAuthorizationPending) {
-                    hostsStore.upsertHost(host)
+            teardownJob?.join()
+            lifecycleMutex.withLock {
+                if (epoch != lifecycleEpoch || activeHost?.id != host.id) return@withLock
+                try {
+                    activeBaseUrl = startTransports(host)
+                    if (epoch != lifecycleEpoch) return@withLock
+                    api = clientFactory.clientFor(host, baseUrl = activeBaseUrl!!)
+                    loop = ConnectionLoop(muxFactory(host, activeBaseUrl!!), sinks, LoopConfig()).also { it.start() }
+                } catch (error: Throwable) {
+                    if (epoch != lifecycleEpoch) return@withLock
+                    sshTunnel.stop()
+                    if (error is MeshAuthorizationPending) {
+                        hostsStore.upsertHost(host)
+                        _state.value = _state.value.copy(
+                            phase = ConnectionPhase.DISCONNECTED,
+                            stage = ConnectStage.Idle,
+                            authorizationPending = error.message.orEmpty(),
+                        )
+                        return@withLock
+                    }
+                    meshTransport.stop()
+                    activeBaseUrl = null
                     _state.value = _state.value.copy(
                         phase = ConnectionPhase.DISCONNECTED,
                         stage = ConnectStage.Idle,
-                        authorizationPending = error.message.orEmpty(),
+                        failure = ConnectFailure.Other(error.message ?: "Unable to restart private-network transport"),
                     )
-                    return@launch
                 }
-                meshTransport.stop()
-                activeBaseUrl = null
-                _state.value = _state.value.copy(
-                    phase = ConnectionPhase.DISCONNECTED,
-                    stage = ConnectStage.Idle,
-                    failure = ConnectFailure.Other(error.message ?: "Unable to restart private-network transport"),
-                )
             }
         }
     }
 
     /** Retry the retained mesh identity after an embedded authorization page completes. */
     suspend fun resumeAuthorization() {
-        val host = activeHost ?: return
-        connect(host)
+        authorizationResumeMutex.withLock {
+            if (_state.value.authorizationPending == null) return
+            val host = activeHost ?: return
+            val afterTransportReady = pendingTransportReady ?: {}
+            connect(host, afterTransportReady)
+        }
     }
 
     /**

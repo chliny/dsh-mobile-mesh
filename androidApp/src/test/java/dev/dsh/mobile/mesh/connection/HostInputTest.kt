@@ -78,4 +78,14 @@ class HostInputTest {
         assertEquals("https://agent.home:443", harnessBaseUrl("agent.home", 443, useTls = true))
         assertEquals("http://[::1]:3080", harnessBaseUrl("::1", 3080, useTls = false))
     }
+
+    @Test
+    fun `harness authorities bracket ipv6 for direct and ssh targets`() {
+        val direct = HostConfig(id = "direct", name = "direct", host = "fd00::1", port = 3080)
+        val ssh = direct.copy(id = "ssh", sshEnabled = true, sshDshHost = "fd00::2")
+
+        assertEquals("[fd00::1]:3080", direct.authority)
+        assertEquals("[fd00::1]:3080", direct.harnessAuthority)
+        assertEquals("[fd00::2]:3080", ssh.harnessAuthority)
+    }
 }
