@@ -1555,7 +1555,28 @@ class SessionStore @Inject constructor(
             eventId = request.eventId,
             outcome = RemoteEventOutcome.Result(value = JsonPrimitive(outcome)),
         )
-        if (result is RpcResult.Err) log("approval response failed for $approvalId: ${result.error.message}")
+        when (result) {
+            is RpcResult.Ok -> clearApproval(request)
+            is RpcResult.Err -> {
+                // Keep the card visible so the user can retry. The request is only removed after
+                // the host acknowledges the answer; otherwise a transient transport failure would
+                // make an unanswered tool call disappear from the UI.
+                setConnectionError(result.error.message)
+                log("approval response failed for $approvalId: ${result.error.message}")
+            }
+        }
+    }
+
+    /** Remove an approval immediately after the host accepts the answer. */
+    private fun clearApproval(request: ApprovalRequest) {
+        synchronized(lock) {
+            approvalRequests.remove(request.eventId)
+            removePendingLocked(request.sessionId, "approval")
+            emitSessionsLocked()
+        }
+        if (_pendingApproval.value?.approvalId == request.eventId) {
+            _pendingApproval.value = null
+        }
     }
 
     /**
