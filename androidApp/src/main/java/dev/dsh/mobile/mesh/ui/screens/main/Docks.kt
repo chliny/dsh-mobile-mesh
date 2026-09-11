@@ -110,6 +110,9 @@ internal fun GoalSummary(goal: GoalSnapshot) {
 /** The live goal bar above the composer, with its phase verbs. */
 @Composable
 internal fun GoalBar(goal: GoalSnapshot, store: SessionStore, modifier: Modifier = Modifier) {
+    // Completion is terminal. The durable goal/change entry remains in the transcript, but the
+    // active composer dock must disappear without making the user clear a completed task manually.
+    if (goal.phase == GoalPhase.COMPLETE) return
     val scope = rememberCoroutineScope()
     val colors = DsTheme.colors
     var editing by remember { mutableStateOf(false) }
