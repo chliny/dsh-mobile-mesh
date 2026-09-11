@@ -185,10 +185,7 @@ sealed interface PromptOutcome {
 
 /** What the harness did with an answer to a question request, or with a dismissal of one. */
 sealed interface QuestionOutcome {
-    /**
-     * Taken. The panel leaves when the `question/resolved` frame lands rather than now — the
-     * receipt only says the response was well-formed for the wait it addressed.
-     */
+    /** The host accepted the answer and the pending panel has been retired. */
     data object Accepted : QuestionOutcome
 
     /**
@@ -1610,7 +1607,7 @@ class SessionStore @Inject constructor(
         val eventId = pendingQuestionEvent(sessionId) ?: return QuestionOutcome.Refused("not-pending")
         val clientId = connectionManager.generation?.clientId ?: return QuestionOutcome.Unsent
         // The waterfall returns the answer object itself; there is no envelope around it now.
-        return answerOutcome(
+        val outcome = answerOutcome(
             api.answerEvent(
                 clientId = clientId,
                 eventId = eventId,
@@ -1621,6 +1618,22 @@ class SessionStore @Inject constructor(
             "question response",
             sessionId,
         )
+        if (outcome is QuestionOutcome.Accepted) clearQuestions(sessionId, eventId)
+        return outcome
+    }
+
+    /** Remove a question panel after the host accepts the matching response. */
+    private fun clearQuestions(sessionId: String, eventId: String) {
+        synchronized(lock) {
+            if (questionEventBySession[sessionId] != eventId) return
+            questionEventBySession.remove(sessionId)
+            removePendingLocked(sessionId, "question")
+            removePendingLocked(sessionId, "plan-review")
+            emitSessionsLocked()
+        }
+        if (_pendingQuestions.value?.let { it.sessionId == sessionId && it.rpcId == eventId } == true) {
+            _pendingQuestions.value = null
+        }
     }
 
     /**
