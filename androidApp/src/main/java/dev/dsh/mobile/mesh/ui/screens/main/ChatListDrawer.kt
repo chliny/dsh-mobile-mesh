@@ -128,9 +128,16 @@ fun ChatListDrawer(
 
     // Local matching is not debounced: it is a string comparison over a list already in memory, and
     // making someone wait a quarter second for it is what made search feel like it did nothing.
-    val searchHits = remember(sessions, workspaces, archivedIds, query, searchResults) {
+    val visibleSessions = remember(sessions, archivedIds) {
+        sessions.filter { session ->
+            session.sessionId !in archivedIds &&
+                !session.blank &&
+                (session.origin != "subagent" || session.running)
+        }
+    }
+    val searchHits = remember(visibleSessions, workspaces, query, searchResults) {
         deriveSearchResults(
-            sessions = sessions,
+            sessions = visibleSessions,
             workspaces = workspaces,
             archivedIds = archivedIds,
             query = query,
@@ -138,11 +145,11 @@ fun ChatListDrawer(
         )
     }
 
-    // Blank sessions are scratch space the harness reuses; subagent transcripts belong under their
-    // parent, not as top-level rows.
-    val listable = sessions.filter { it.sessionId !in archivedIds && !it.blank }
+    // Blank sessions are scratch space the harness reuses. Active subagent transcripts remain
+    // visible under their parent; completed subagents are omitted from grouped and search results.
+    val listable = visibleSessions
     val sessionsById = sessions.associateBy { it.sessionId }
-    val archivedSessions = sessions.filter { it.sessionId in archivedIds }
+    val archivedSessions = sessions.filter { it.sessionId in archivedIds && it.origin != "subagent" }
     val workspaceSessionIds = workspaces.flatMap { it.sessionIds }.toSet()
 
     // Subagents nest under the session that spawned them. `origin` is the discriminator, not
