@@ -663,8 +663,11 @@ class DshApiClient(
     ): RpcResult<JsonElement> {
         val result = commandsExecuteWithField(sessionId, line, attachments, legacyImagesField)
         if (!legacyImagesField && result is RpcResult.Err &&
-            result.error.message.contains("missing \"images\"") &&
-            result.error.message.contains("unexpected \"submittedAttachments\"")) {
+            // Gateway releases differ in whether quoted field names remain JSON-escaped in the
+            // decoded diagnostic. The field names, unlike punctuation, are stable compatibility
+            // evidence for retrying the legacy shape.
+            result.error.message.contains("images") &&
+            result.error.message.contains("submittedAttachments")) {
             return commandsExecuteWithField(sessionId, line, attachments, legacyImagesField = true)
         }
         return result
@@ -822,13 +825,12 @@ class DshApiClient(
         clientId: String,
         eventId: String,
         outcome: RemoteEventOutcome,
-    ): RpcResult<JsonElement> = call(
+    ): RpcResult<JsonElement> = unary(
         REMOTE_EVENT_RESULT_ENDPOINT,
-        buildJsonObject {
-            put("clientId", JsonPrimitive(clientId))
-            put("eventId", JsonPrimitive(eventId))
-            put("outcome", encodeToJsonElement(RemoteEventOutcome.serializer(), outcome))
-        },
+        encodeToJsonElement(
+            RemoteEventResult.serializer(),
+            RemoteEventResult(clientId = clientId, eventId = eventId, outcome = outcome),
+        ),
         JsonElement.serializer(),
     )
 
