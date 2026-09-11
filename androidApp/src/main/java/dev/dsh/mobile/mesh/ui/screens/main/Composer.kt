@@ -246,14 +246,17 @@ internal fun Composer(
                 // Send and stop occupy the same slot: the affordance changes meaning during a turn
                 // rather than the row re-flowing around a second button appearing.
                 AnimatedContent(
-                    targetState = running,
+                    targetState = running to canSend,
                     transitionSpec = {
                         (fadeIn(DsAnimations.fade) + scaleIn(initialScale = 0.85f))
                             .togetherWith(fadeOut(DsAnimations.fade) + scaleOut(targetScale = 0.85f))
                     },
                     label = "sendStop",
-                ) { isRunning ->
-                    if (isRunning) {
+                ) { (isRunning, canSubmit) ->
+                    // A running turn keeps Stop only while the composer is empty. Once there is a
+                    // message, the primary action becomes Send and uses the selected queue/steer
+                    // mode, matching the web input bar.
+                    if (isRunning && !canSubmit) {
                         CircleAction(
                             icon = null,
                             contentDescription = stringResource(R.string.chat_composer_stop),
