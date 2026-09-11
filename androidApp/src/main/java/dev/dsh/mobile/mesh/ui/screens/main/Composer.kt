@@ -317,19 +317,31 @@ private fun ModelChip(
             ?.models?.firstOrNull { it.id == current.current.model }?.name
             ?: current.current.model
     } ?: stringResource(R.string.common_loading)
-    Text(
-        label,
-        style = DsType.caption11,
-        color = colors.labelSecondary,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+    Row(
         modifier = Modifier
-            .clip(DsShapes.pillFull)
+            .height(28.dp)
+            .clip(DsShapes.cube)
             .background(colors.hoverSolid)
-            .border(1.dp, colors.borderL2, DsShapes.pillFull)
+            .border(1.dp, colors.borderL2, DsShapes.cube)
             .clickable(onClick = onClick)
-            .padding(horizontal = DsSpacing.compact, vertical = DsSpacing.tiny),
-    )
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            label,
+            style = DsType.small13,
+            color = colors.labelSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Icon(
+            Icons.Filled.KeyboardArrowDown,
+            contentDescription = null,
+            tint = colors.labelTertiary,
+            modifier = Modifier.size(12.dp),
+        )
+    }
 }
 
 @Composable

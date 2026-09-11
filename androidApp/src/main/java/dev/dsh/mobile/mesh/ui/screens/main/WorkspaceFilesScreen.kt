@@ -42,15 +42,15 @@ fun WorkspaceFilesScreen(
 ) {
     val store = rememberWorkspaceFilesStore()
     val state by store.state.collectAsStateWithLifecycle()
-    var currentPath by remember { mutableStateOf("") }
+    var currentPath by remember { mutableStateOf(".") }
     BackHandler {
-        if (currentPath.isEmpty()) onBack()
-        else currentPath = currentPath.substringBeforeLast('/', "")
+        if (currentPath == ".") onBack()
+        else currentPath = currentPath.substringBeforeLast('/', ".")
     }
     LaunchedEffect(sessionId) {
         store.reset(sessionId)
-        currentPath = ""
-        store.list(sessionId, "")
+        currentPath = "."
+        store.list(sessionId, ".")
     }
     val level = state.levels[currentPath]
     Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -63,7 +63,7 @@ fun WorkspaceFilesScreen(
             is DirectoryLevel.Failed -> Text(level.message, color = DsTheme.colors.labelSecondary, modifier = Modifier.padding(16.dp))
             is DirectoryLevel.Ready -> LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 items(level.listing.entries, key = { it.name }) { entry ->
-                    val path = if (currentPath.isEmpty()) entry.name else "$currentPath/${entry.name}"
+                    val path = if (currentPath == ".") entry.name else "$currentPath/${entry.name}"
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             if (entry.type == "directory") {

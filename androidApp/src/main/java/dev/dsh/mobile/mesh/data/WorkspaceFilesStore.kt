@@ -45,13 +45,16 @@ class WorkspaceFilesStore @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val _state = MutableStateFlow(WorkspaceFilesState())
     val state: StateFlow<WorkspaceFilesState> = _state.asStateFlow()
+    /** Directory listings survive screen recreation and are reused until explicitly reloaded. */
+    private val listingCache = mutableMapOf<String, MutableMap<String, DirectoryLevel.Ready>>()
     private var treeJob: Job? = null
     private var previewJob: Job? = null
 
     fun reset(sessionId: String?) {
         treeJob?.cancel()
         previewJob?.cancel()
-        _state.value = WorkspaceFilesState(sessionId = sessionId)
+        val cached = sessionId?.let { listingCache[it].orEmpty() }.orEmpty()
+        _state.value = WorkspaceFilesState(sessionId = sessionId, levels = cached)
     }
 
     fun list(sessionId: String, path: String, reload: Boolean = false) {
@@ -63,7 +66,9 @@ class WorkspaceFilesStore @Inject constructor(
         treeJob = scope.launch {
             when (val result = api.workspaceFilesList(sessionId, path)) {
                 is RpcResult.Ok -> updateIfCurrent(sessionId) {
-                    copy(levels = levels + (path to DirectoryLevel.Ready(result.value)))
+                    val ready = DirectoryLevel.Ready(result.value)
+                    listingCache.getOrPut(sessionId) { mutableMapOf() }[path] = ready
+                    copy(levels = levels + (path to ready))
                 }
                 is RpcResult.Err -> updateIfCurrent(sessionId) {
                     copy(levels = levels + (path to DirectoryLevel.Failed(result.error.code, result.error.message)))

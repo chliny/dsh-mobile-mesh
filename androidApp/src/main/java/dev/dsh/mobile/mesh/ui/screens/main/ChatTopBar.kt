@@ -18,9 +18,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material3.Icon
@@ -58,10 +58,8 @@ internal enum class ChatTab { Chat, Trajectory }
 /**
  * The session chrome: a two-row bar plus the Chat / Trajectory tabs.
  *
- * Row one carries the controls that belong to the *connection* — the drawer, the model, the live
- * status. Row two carries the ones that belong to the *session* — its title, its agent preset, its
- * subagents. Splitting them is what makes room for the model selector on the left without eliding
- * the session title down to nothing on a phone.
+ * The header carries the session title and connection controls; the tab strip carries the Chat /
+ * Trajectory switch and the optional subagent indicator in one compact row.
  *
  * The title and the chips share row two rather than stacking, and the row disappears entirely when
  * it would be empty: four stacked rows of chrome over a white page ate a third of a phone screen
@@ -131,26 +129,12 @@ internal fun ChatTopBar(
             }
         }
 
-        val hasChips = subagentCount > 0
-        if (hasChips) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = DsSpacing.medium, vertical = DsSpacing.tiny),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
-            ) {
-                if (subagentCount > 0) {
-                    MetaChip(
-                        icon = Icons.Outlined.Groups,
-                        label = "$subagentCount",
-                        onClick = onOpenSubagents,
-                    )
-                }
-            }
-        }
-
-        ChatTabRow(tab = tab, onTabChange = onTabChange)
+        ChatTabRow(
+            tab = tab,
+            subagentCount = subagentCount,
+            onTabChange = onTabChange,
+            onOpenSubagents = onOpenSubagents,
+        )
     }
 }
 
@@ -201,12 +185,12 @@ private fun ModelChip(
     Row(
         modifier = modifier
             .widthIn(max = 240.dp)
-            .heightIn(min = 28.dp)
+            .height(28.dp)
             .clip(DsShapes.pillFull)
             .background(colors.hoverSolid)
             .border(1.dp, colors.borderL2, DsShapes.pillFull)
             .clickable(onClick = onClick)
-            .padding(horizontal = DsSpacing.compact, vertical = DsSpacing.tiny),
+            .padding(horizontal = DsSpacing.compact),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
     ) {
@@ -256,12 +240,12 @@ private fun MetaChip(
     val colors = DsTheme.colors
     Row(
         modifier = Modifier
-            .heightIn(min = 28.dp)
+            .height(28.dp)
             .clip(DsShapes.pillFull)
             .background(colors.hoverSolid)
             .border(1.dp, colors.borderL2, DsShapes.pillFull)
             .clickable(onClick = onClick)
-            .padding(horizontal = DsSpacing.compact, vertical = DsSpacing.tiny),
+            .padding(horizontal = DsSpacing.compact),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
     ) {
@@ -283,7 +267,12 @@ private fun MetaChip(
  * their own; a 28dp track wraps to the labels and lets the chrome end there.
  */
 @Composable
-private fun ChatTabRow(tab: ChatTab, onTabChange: (ChatTab) -> Unit) {
+private fun ChatTabRow(
+    tab: ChatTab,
+    subagentCount: Int,
+    onTabChange: (ChatTab) -> Unit,
+    onOpenSubagents: () -> Unit,
+) {
     val colors = DsTheme.colors
     Row(
         modifier = Modifier
@@ -306,6 +295,13 @@ private fun ChatTabRow(tab: ChatTab, onTabChange: (ChatTab) -> Unit) {
             },
             role = Role.Tab,
         )
+        if (subagentCount > 0) {
+            MetaChip(
+                icon = Icons.Outlined.Groups,
+                label = "$subagentCount",
+                onClick = onOpenSubagents,
+            )
+        }
     }
     Spacer(
         Modifier

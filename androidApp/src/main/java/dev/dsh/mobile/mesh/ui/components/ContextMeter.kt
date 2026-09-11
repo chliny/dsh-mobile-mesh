@@ -96,7 +96,7 @@ fun ContextMeterCircle(
     val animated by animateFloatAsState(ratio, DsAnimations.fade, label = "contextCircle")
     Canvas(
         modifier = modifier
-            .size(24.dp)
+            .size(18.dp)
             .clip(CircleShape)
             .background(colors.bgModulePlatform),
     ) {
