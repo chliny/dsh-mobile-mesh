@@ -38,6 +38,7 @@
     <string name="time_years">%1$dy</string>
     <string name="connect_title">Connect to Harness</string>
     <string name="connect_connections">Connections</string>
+    <string name="connect_current">Connected</string>
     <string name="connect_add_connection">Add connection</string>
     <string name="connect_subtitle">DSH Mobile Mesh mirrors the DeepSeek Harness running on your computer.</string>
     <string name="connect_manual_title">Connect manually</string>
@@ -393,6 +394,7 @@
     <string name="chatlist_search_empty">No sessions match that.</string>
     <string name="chatlist_search_content_off">This harness has content search turned off, so only session and folder names are matched.</string>
     <string name="chatlist_search_refine">More matches — narrow the search to see them.</string>
+    <string name="chatlist_load_more">Load more</string>
     <string name="preset_standard_name">Standard mode</string>
     <string name="preset_standard_desc">Full coding agent with file editing, shell, file and web search, skills, planning, goals, subagents, and workflows.</string>
     <string name="preset_code_name">PTC mode</string>

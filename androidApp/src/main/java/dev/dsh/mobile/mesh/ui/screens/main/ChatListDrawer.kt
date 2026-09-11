@@ -85,6 +85,7 @@ private const val SORT_MANUAL = "manual"
 
 /** [dev.dsh.mobile.mesh.connection.HostsStore.sessionSort]: most recently updated first. */
 private const val SORT_UPDATED = "updated"
+private const val PAGE_SIZE = 10
 
 /**
  * The chat history: workspaces, their sessions, and search.
@@ -121,6 +122,7 @@ fun ChatListDrawer(
     var newWorkspaceOpen by remember { mutableStateOf(false) }
     var newSessionOpen by remember { mutableStateOf(false) }
     val collapsed = remember { mutableStateMapOf<String, Boolean>() }
+    val visiblePageByWorkspace = remember { mutableStateMapOf<String, Int>() }
 
     LaunchedEffect(query) {
         delay(250)
@@ -310,13 +312,20 @@ fun ChatListDrawer(
                 // for; the explicit map entry then remembers whatever you choose.
                 val holdsCurrent = roots.any { it.sessionId in openPath }
                 val isCollapsed = collapsed[workspace.workspaceId] ?: !holdsCurrent
+                val orderedRoots = roots.sortedWith(
+                    compareByDescending<SessionRow> { it.updatedAt }
+                        .thenByDescending { it.sessionId },
+                )
+                val page = (visiblePageByWorkspace[workspace.workspaceId] ?: 1).coerceAtLeast(1)
+                val pageRoots = orderedRoots.take(page * PAGE_SIZE)
+                val hasMore = pageRoots.size < orderedRoots.size
                 item(key = "ws-${workspace.workspaceId}") {
                     WorkspaceHeader(
                         workspace = workspace,
                         collapsed = isCollapsed,
                         // Sessions, not sessions-plus-their-subagents: a subagent count belongs on
                         // the row that spawned them, where it says something.
-                        sessionCount = roots.size,
+                        sessionCount = orderedRoots.size,
                         onToggle = { collapsed[workspace.workspaceId] = !isCollapsed },
                         store = store,
                         scope = scope,
@@ -329,7 +338,7 @@ fun ChatListDrawer(
                     )
                 }
                 if (!isCollapsed) {
-                    val flat = roots.flatMap { subtree(it) }
+                    val flat = pageRoots.flatMap { subtree(it) }
                     items(flat, key = { it.first.sessionId }) { (session, depth) ->
                         Box(Modifier.animateItem()) {
                             SessionRowItem(
@@ -342,6 +351,17 @@ fun ChatListDrawer(
                                 childCount = childrenByParent[session.sessionId].orEmpty().size,
                                 childrenExpanded = isExpanded(session.sessionId),
                                 onToggleChildren = { toggleChildren(session.sessionId) },
+                            )
+                        }
+                    }
+                    if (hasMore) {
+                        item(key = "ws-more-${workspace.workspaceId}") {
+                            DsButton(
+                                text = stringResource(R.string.chatlist_load_more),
+                                onClick = { visiblePageByWorkspace[workspace.workspaceId] = page + 1 },
+                                variant = DsButtonVariant.Ghost,
+                                size = DsButtonSize.Small,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = DsSpacing.xsmall),
                             )
                         }
                     }
