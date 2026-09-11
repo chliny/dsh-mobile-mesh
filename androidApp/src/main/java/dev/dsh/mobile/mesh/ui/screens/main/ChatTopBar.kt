@@ -35,7 +35,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
+import dev.dsh.mobile.mesh.core.wire.dto.ContextPressureView
 import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
+import dev.dsh.mobile.mesh.ui.components.ContextMeterCircle
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.components.DsSegment
 import dev.dsh.mobile.mesh.ui.components.DsSegmented
@@ -69,12 +71,12 @@ internal fun ChatTopBar(
     title: String,
     connectionPhase: ConnectionPhase,
     models: SessionModelsValue?,
+    contextPressure: ContextPressureView?,
     agentPresetLabel: String?,
     subagentCount: Int,
     detailsOpen: Boolean,
     tab: ChatTab,
     onOpenDrawer: () -> Unit,
-    onOpenModels: () -> Unit,
     onOpenPresets: () -> Unit,
     onOpenSubagents: () -> Unit,
     onOpenDetails: () -> Unit,
@@ -97,9 +99,18 @@ internal fun ChatTopBar(
                 tint = colors.labelSecondary,
                 iconSize = 18.dp,
             )
-            ModelChip(models = models, onClick = onOpenModels, modifier = Modifier.weight(1f, fill = false))
-            Spacer(Modifier.weight(1f))
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    title,
+                    style = DsType.std14Strong,
+                    color = colors.labelPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                AgentLabel(agentPresetLabel, onOpenPresets)
+            }
             ConnectionStatusDot(connectionPhase)
+            ContextMeterCircle(contextPressure)
             if (!detailsOpen) {
                 DsIconButton(
                     icon = FeatherIcons.Info,
@@ -111,8 +122,8 @@ internal fun ChatTopBar(
             }
         }
 
-        val hasChips = agentPresetLabel != null || subagentCount > 0
-        if (title.isNotBlank() || hasChips) {
+        val hasChips = subagentCount > 0
+        if (hasChips) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -120,21 +131,6 @@ internal fun ChatTopBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
             ) {
-                Text(
-                    title,
-                    style = DsType.std14Strong,
-                    color = colors.labelPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (agentPresetLabel != null) {
-                    MetaChip(
-                        icon = Icons.Outlined.Dashboard,
-                        label = agentPresetLabel,
-                        onClick = onOpenPresets,
-                    )
-                }
                 if (subagentCount > 0) {
                     MetaChip(
                         icon = Icons.Outlined.Groups,
@@ -229,6 +225,19 @@ private fun ModelChip(
 }
 
 /** The preset and subagent chips. Same reasoning as [ModelChip]: a tap target has to look like one. */
+@Composable
+private fun AgentLabel(label: String?, onClick: () -> Unit) {
+    if (label == null) return
+    Text(
+        label,
+        style = DsType.caption11,
+        color = DsTheme.colors.labelTertiary,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.clickable(onClick = onClick),
+    )
+}
+
 @Composable
 private fun MetaChip(
     icon: androidx.compose.ui.graphics.vector.ImageVector,

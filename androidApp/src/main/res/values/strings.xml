@@ -35,6 +35,8 @@
     <string name="time_months">%1$dmo</string>
     <string name="time_years">%1$dy</string>
     <string name="connect_title">Connect to Harness</string>
+    <string name="connect_connections">Connections</string>
+    <string name="connect_add_connection">Add connection</string>
     <string name="connect_subtitle">DSH Mobile Mesh mirrors the DeepSeek Harness running on your computer.</string>
     <string name="connect_manual_title">Connect manually</string>
     <string name="connect_host_label">Host address</string>
@@ -316,6 +318,7 @@
     <string name="settings_about_version">App version %1$s · protocol %2$s</string>
     <string name="settings_host_info">Host information</string>
     <string name="settings_connection">Connection</string>
+    <string name="settings_open_connection">Open connection settings</string>
     <string name="settings_connection_status">Status</string>
     <string name="settings_connection_host">Connected to</string>
     <string name="settings_connection_disconnect">Disconnect</string>

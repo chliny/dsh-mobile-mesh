@@ -85,6 +85,31 @@ fun ContextMeter(
     }
 }
 
+/** Compact circular context indicator used in the chat header. */
+@Composable
+fun ContextMeterCircle(
+    pressure: ContextPressureView?,
+    modifier: Modifier = Modifier,
+) {
+    val ratio = pressure?.usedRatio ?: return
+    val colors = DsTheme.colors
+    val animated by animateFloatAsState(ratio, DsAnimations.fade, label = "contextCircle")
+    Canvas(
+        modifier = modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(colors.bgModulePlatform),
+    ) {
+        drawArc(
+            color = colors.accent,
+            startAngle = -90f,
+            sweepAngle = animated.coerceIn(0f, 1f) * 360f,
+            useCenter = false,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx()),
+        )
+    }
+}
+
 /** The expanded reading used in the details panel: the same bar plus a labelled legend. */
 @Composable
 fun ContextMeterDetail(

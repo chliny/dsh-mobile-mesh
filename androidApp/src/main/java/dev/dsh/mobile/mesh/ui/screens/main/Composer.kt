@@ -67,6 +67,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.FULL_ACCESS_PRESET
 import dev.dsh.mobile.mesh.core.wire.dto.EncodedImageAttachment
 import dev.dsh.mobile.mesh.core.wire.dto.FileAttachmentRef
 import dev.dsh.mobile.mesh.core.wire.dto.PermissionSelect
+import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
 import dev.dsh.mobile.mesh.core.wire.dto.displayPermissionPreset
 import dev.dsh.mobile.mesh.ui.components.ContextMeter
 import dev.dsh.mobile.mesh.ui.components.skeleton
@@ -138,9 +139,7 @@ internal sealed interface FileUploadState {
  * The message composer, laid out like the harness's own: the `+` and the permission chip on the
  * left, the send affordance on the right.
  *
- * The model selector is deliberately *not* here — it moved to the top bar, which leaves this row
- * for the two controls you change mid-conversation and keeps the composer from wrapping on a
- * narrow phone.
+ * The model selector sits below the input beside the permission control, matching the web composer.
  */
 @Composable
 internal fun Composer(
@@ -154,6 +153,8 @@ internal fun Composer(
     onPermissionPick: (String) -> Unit,
     contextBreakdown: ContextBreakdownView?,
     contextPressure: ContextPressureView?,
+    models: SessionModelsValue?,
+    onOpenModels: () -> Unit,
     running: Boolean,
     enabled: Boolean,
     onOpenSheet: () -> Unit,
@@ -238,9 +239,9 @@ internal fun Composer(
                     onPick = onPermissionPick,
                 )
 
-                Spacer(Modifier.weight(1f))
+                ModelChip(models = models, onClick = onOpenModels)
 
-                ContextMeter(contextBreakdown, contextPressure)
+                Spacer(Modifier.weight(1f))
 
                 // Send and stop occupy the same slot: the affordance changes meaning during a turn
                 // rather than the row re-flowing around a second button appearing.
@@ -302,6 +303,32 @@ internal fun Composer(
  * the preset table is deployment-configurable — mapping ids to local strings would mislabel any
  * deployment that renamed one.
  */
+@Composable
+private fun ModelChip(
+    models: SessionModelsValue?,
+    onClick: () -> Unit,
+) {
+    val colors = DsTheme.colors
+    val label = models?.let { current ->
+        current.groups.firstOrNull { it.id == current.current.provider }
+            ?.models?.firstOrNull { it.id == current.current.model }?.name
+            ?: current.current.model
+    } ?: stringResource(R.string.common_loading)
+    Text(
+        label,
+        style = DsType.caption11,
+        color = colors.labelSecondary,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .clip(DsShapes.pillFull)
+            .background(colors.hoverSolid)
+            .border(1.dp, colors.borderL2, DsShapes.pillFull)
+            .clickable(onClick = onClick)
+            .padding(horizontal = DsSpacing.compact, vertical = DsSpacing.tiny),
+    )
+}
+
 @Composable
 private fun PermissionChip(
     select: PermissionSelect?,

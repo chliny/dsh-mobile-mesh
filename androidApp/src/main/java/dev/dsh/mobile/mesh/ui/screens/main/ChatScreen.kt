@@ -333,12 +333,12 @@ fun ChatScreen(
                 title = title,
                 connectionPhase = connectionPhase,
                 models = models,
+                contextPressure = contextPressure,
                 agentPresetLabel = currentSession?.agentPreset?.let { agentPresetLabel(it, agentPresets) },
                 subagentCount = subagents.size,
                 detailsOpen = detailsOpen,
                 tab = tab,
                 onOpenDrawer = onOpenDrawer,
-                onOpenModels = { sheet = ChatSheet.Models },
                 onOpenPresets = {
                     scope.launch { store.refreshAgentPresets() }
                     sheet = ChatSheet.Presets
@@ -494,6 +494,8 @@ fun ChatScreen(
                 onPermissionPick = { value -> scope.launch { report(store.setPermissionPreset(value)) } },
                 contextBreakdown = contextBreakdown,
                 contextPressure = contextPressure,
+                models = models,
+                onOpenModels = { sheet = ChatSheet.Models },
                 running = conversation?.running == true,
                 enabled = currentSessionId != null,
                 onOpenSheet = { sheet = ChatSheet.Commands },
