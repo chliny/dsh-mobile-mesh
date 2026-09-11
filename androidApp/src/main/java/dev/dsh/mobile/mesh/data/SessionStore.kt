@@ -264,6 +264,10 @@ class SessionStore @Inject constructor(
     private val _workspaces = MutableStateFlow<List<WorkspaceRow>>(emptyList())
     val workspaces: StateFlow<List<WorkspaceRow>> = _workspaces.asStateFlow()
 
+    /** True after the current connection's workspace registry delivered its baseline. */
+    private val _workspacesLoaded = MutableStateFlow(false)
+    val workspacesLoaded: StateFlow<Boolean> = _workspacesLoaded.asStateFlow()
+
     private val _archivedSessionIds = MutableStateFlow<Set<String>>(emptySet())
     val archivedSessionIds: StateFlow<Set<String>> = _archivedSessionIds.asStateFlow()
 
@@ -517,6 +521,7 @@ class SessionStore @Inject constructor(
                 prev = state
                 if (initialConnect || reconnect) triggerBaseline()
                 if (state.phase == ConnectionPhase.RECONNECTING || state.phase == ConnectionPhase.DISCONNECTED) {
+                    _workspacesLoaded.value = false
                     // Cancel generation-bound stream collectors immediately. A dead mux may not
                     // deliver another frame until OkHttp's carrier timeout, leaving stale collectors
                     // and loading state looking like a frozen page.
@@ -803,9 +808,10 @@ class SessionStore @Inject constructor(
             is WorkspaceFollowFrame.Baseline -> synchronized(lock) {
                 workspaceRows.clear()
                 workspaceOrder.clear()
-                for (w in frame.workspaces) workspaceRows[w.workspaceId] = w.toRow()
-                workspaceOrder.addAll(frame.workspaceIds.ifEmpty { frame.workspaces.map { it.workspaceId } })
-                archived = frame.archivedSessionIds.toSet()
+                for (w in frame.value.items) workspaceRows[w.workspaceId] = w.toRow()
+                workspaceOrder.addAll(frame.value.items.map { it.workspaceId })
+                _workspacesLoaded.value = true
+                archived = frame.value.archivedSessionIds.toSet()
                 _archivedSessionIds.value = archived
                 emitWorkspacesLocked()
             }

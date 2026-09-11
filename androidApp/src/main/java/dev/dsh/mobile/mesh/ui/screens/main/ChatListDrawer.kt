@@ -105,6 +105,7 @@ fun ChatListDrawer(
 
     val sessions by store.sessions.collectAsStateWithLifecycle()
     val workspaces by store.workspaces.collectAsStateWithLifecycle()
+    val workspacesLoaded by store.workspacesLoaded.collectAsStateWithLifecycle()
     val archivedIds by store.archivedSessionIds.collectAsStateWithLifecycle()
     val searchResults by store.searchResults.collectAsStateWithLifecycle()
     val contentSearchAvailable by store.contentSearchAvailable.collectAsStateWithLifecycle()
@@ -428,6 +429,7 @@ fun ChatListDrawer(
     if (newSessionOpen) {
         NewSessionDialog(
             workspaces = workspaces,
+            workspacesLoaded = workspacesLoaded,
             homeCwd = hostInfo?.home,
             onPick = { workspaceId ->
                 newSessionOpen = false
@@ -858,13 +860,20 @@ private fun SearchResultRow(
 @Composable
 private fun NewSessionDialog(
     workspaces: List<WorkspaceRow>,
+    workspacesLoaded: Boolean,
     homeCwd: String?,
     onPick: (String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = DsTheme.colors
     DsDialog(title = stringResource(R.string.chatlist_new_session_in), onDismiss = onDismiss) {
-        if (workspaces.isEmpty()) {
+        if (!workspacesLoaded) {
+            Text(
+                stringResource(R.string.common_loading),
+                style = DsType.std14,
+                color = colors.labelSecondary,
+            )
+        } else if (workspaces.isEmpty()) {
             Text(
                 stringResource(R.string.chatlist_no_workspaces),
                 style = DsType.std14,

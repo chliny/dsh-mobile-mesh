@@ -584,9 +584,7 @@ sealed class WorkspaceFollowFrame {
     @Serializable
     data class Baseline(
         @SerialName("type") override val type: String = "baseline",
-        @SerialName("workspaces") val workspaces: List<WorkspaceView> = emptyList(),
-        @SerialName("workspaceIds") val workspaceIds: List<String> = emptyList(),
-        @SerialName("archivedSessionIds") val archivedSessionIds: List<String> = emptyList(),
+        @SerialName("value") val value: WorkspaceBaseline = WorkspaceBaseline(),
     ) : WorkspaceFollowFrame()
 
     /** One workspace was added or changed. */

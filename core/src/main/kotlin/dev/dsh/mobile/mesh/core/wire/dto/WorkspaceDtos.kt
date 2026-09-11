@@ -68,6 +68,13 @@ data class WorkspaceArchiveSessionRequest(
 
 // ---- workspace.* response values ----
 
+/** Complete reconnect baseline carried by `workspace/follow`. */
+@Serializable
+data class WorkspaceBaseline(
+    @SerialName("items") val items: List<WorkspaceView> = emptyList(),
+    @SerialName("archivedSessionIds") val archivedSessionIds: List<String> = emptyList(),
+)
+
 /** Value of `workspace.list`. */
 @Serializable
 data class WorkspaceListValue(
