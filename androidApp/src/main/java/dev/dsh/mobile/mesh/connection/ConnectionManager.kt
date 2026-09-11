@@ -2,6 +2,8 @@ package dev.dsh.mobile.mesh.connection
 
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
 import android.util.Log
 import androidx.core.content.ContextCompat
 import dev.dsh.mobile.mesh.core.wire.ConnectionLoop
@@ -80,6 +82,21 @@ class ConnectionManager @Inject constructor(
     private val sshTunnel: SshTunnelManager,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val connectivity = context.getSystemService(ConnectivityManager::class.java)
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            Log.d("ConnectionManager", "Default network available: $network")
+            if (networkLostWhileConnected) {
+                networkLostWhileConnected = false
+                recoverTransportAfterCarrierLoss()
+            }
+        }
+
+        override fun onLost(network: Network) {
+            if (_state.value.phase == ConnectionPhase.CONNECTED) networkLostWhileConnected = true
+            Log.d("ConnectionManager", "Default network lost: $network")
+        }
+    }
 
     private val _state = MutableStateFlow(ConnectionUiState())
     val state: StateFlow<ConnectionUiState> = _state.asStateFlow()
@@ -93,10 +110,13 @@ class ConnectionManager @Inject constructor(
     private val lifecycleMutex = Mutex()
     private var teardownJob: Job? = null
     @Volatile private var transportRecoveryInFlight = false
+    @Volatile private var networkLostWhileConnected = false
     @Volatile private var lifecycleEpoch = 0L
     @Volatile private var lastForegroundRecoveryAtMs = 0L
 
     init {
+        runCatching { connectivity.registerDefaultNetworkCallback(networkCallback) }
+            .onFailure { Log.w("ConnectionManager", "Unable to register network callback", it) }
         // Apply the background-retention toggle immediately instead of waiting for a later
         // handshake. This also tears down the foreground-service notification when it is disabled.
         scope.launch {
@@ -309,9 +329,16 @@ class ConnectionManager @Inject constructor(
      * usable again. Serialize one full renewal per outage so its own retries never race teardown.
      */
     private fun recoverTransportAfterCarrierLoss() {
-        if (transportRecoveryInFlight) return
+        if (transportRecoveryInFlight) {
+            Log.d("ConnectionManager", "Transport recovery already in flight")
+            return
+        }
+        Log.d("ConnectionManager", "Starting transport recovery")
         transportRecoveryInFlight = true
-        reconnectIfNeeded(onFinished = { transportRecoveryInFlight = false })
+        reconnectIfNeeded(onFinished = {
+            transportRecoveryInFlight = false
+            Log.d("ConnectionManager", "Transport recovery finished")
+        })
     }
 
     fun reconnectIfNeeded(onFinished: () -> Unit = {}) {
@@ -366,8 +393,12 @@ class ConnectionManager @Inject constructor(
      */
     fun recoverForForeground() {
         val current = _state.value
-        if (activeHost == null || current.phase == ConnectionPhase.CONNECTED ||
-            current.phase == ConnectionPhase.CONNECTING || transportRecoveryInFlight) return
+        Log.d("ConnectionManager", "Foreground recovery requested: phase=${current.phase}, active=${activeHost != null}, inFlight=$transportRecoveryInFlight")
+        if (activeHost == null || current.phase == ConnectionPhase.CONNECTING || transportRecoveryInFlight) return
+        // A carrier can disappear while Android keeps the app's logical state CONNECTED. In that
+        // case NetworkCallback marks the path dirty and onResume must still force one recovery;
+        // only skip the expensive rebuild when the connected path is known clean.
+        if (current.phase == ConnectionPhase.CONNECTED && !networkLostWhileConnected) return
         val now = System.currentTimeMillis()
         if (now - lastForegroundRecoveryAtMs < FOREGROUND_RECOVERY_COOLDOWN_MS) return
         lastForegroundRecoveryAtMs = now
@@ -402,9 +433,17 @@ class ConnectionManager @Inject constructor(
     }
 
     private suspend fun reconnectTransports(config: HostConfig): String {
+        val startedAt = System.nanoTime()
+        Log.d("ConnectionManager", "Reconnect transport start for ${config.id}")
         val meshRelay = meshTransport.reconnect(config)
-        return finishTransportStart(config, meshRelay)
+        Log.d("ConnectionManager", "Mesh transport ready in ${elapsedMs(startedAt)}ms")
+        val baseUrl = finishTransportStart(config, meshRelay)
+        Log.d("ConnectionManager", "SSH/API relay ready in ${elapsedMs(startedAt)}ms at $baseUrl")
+        return baseUrl
     }
+
+    private fun elapsedMs(startedAt: Long): Long =
+        java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
 
     private suspend fun finishTransportStart(config: HostConfig, meshRelay: MeshRelay?): String {
         if (!config.sshEnabled) return meshRelay?.baseUrl ?: config.baseUrl

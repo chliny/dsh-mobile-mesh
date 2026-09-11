@@ -50,6 +50,7 @@ class ZeroTierConnector @Inject constructor(
             val networkId = java.lang.Long.parseUnsignedLong(networkIdText, 16)
             val pendingNode = node
             if (pendingNode != null && nodeNetworkId == networkIdText && isServiceOnline()) {
+                Log.d(TAG, "Reusing ZeroTier node for network $networkIdText")
                 // Keep the libzt service alive across a mobile-network handover. Reusing the node
                 // avoids the slow native stop/start path and prevents racing its global service
                 // teardown, which was the source of foreground-return crashes.
@@ -129,14 +130,18 @@ class ZeroTierConnector @Inject constructor(
     }
 
     private fun relayFor(config: HostConfig): MeshRelay {
-        relay?.close()
         val addresses = InetAddress.getAllByName(config.host).mapNotNull { it.hostAddress }.distinct()
         require(addresses.isNotEmpty()) { "ZeroTier server name did not resolve" }
         val remotePort = if (config.sshEnabled) config.sshPort else config.port
+        relay?.takeIf { it.canReuse(addresses, remotePort) }?.let {
+            Log.d(TAG, "Reusing ZeroTier relay at ${it.localPort} to ${addresses.joinToString()}:$remotePort")
+            return it.relay
+        }
+        relay?.close()
         Log.d(TAG, "Opening ZeroTier relay to ${addresses.joinToString()}:$remotePort")
         val nextRelay = ZeroTierRelay(addresses, remotePort, executor).also { it.start() }
         relay = nextRelay
-        return MeshRelay("127.0.0.1", nextRelay.localPort)
+        return nextRelay.relay
     }
 
     private fun checkResult(code: Int, operation: String) {
@@ -157,6 +162,10 @@ private class ZeroTierRelay(
     private val server = ServerSocket(0, 32, InetAddress.getByName("127.0.0.1"))
     @Volatile private var running = false
     val localPort: Int get() = server.localPort
+    val relay: MeshRelay get() = MeshRelay("127.0.0.1", localPort)
+
+    fun canReuse(expectedAddresses: List<String>, expectedPort: Int): Boolean =
+        running && addresses == expectedAddresses && remotePort == expectedPort
 
     fun start() {
         running = true

@@ -72,6 +72,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        android.util.Log.d("MainActivity", "onResume: requesting foreground recovery")
         // Android may defer network delivery while backgrounded. Ask the manager to bypass the
         // reconnect loop's next backoff slot as soon as the user returns to the app.
         connectionManager.recoverForForeground()

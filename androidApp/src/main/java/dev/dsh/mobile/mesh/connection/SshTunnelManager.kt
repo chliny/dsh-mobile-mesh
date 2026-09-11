@@ -8,6 +8,7 @@ import java.io.File
 import java.net.InetAddress
 import java.security.PublicKey
 import java.net.ServerSocket
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -34,7 +35,11 @@ class SshTunnelManager @Inject constructor(
 
     suspend fun start(config: HostConfig, sshHost: String, sshPort: Int): SshRelay = withContext(Dispatchers.IO) {
         require(config.sshEnabled)
-        active?.takeIf { it.canReuse(config.id, sshHost, sshPort) }?.let { return@withContext it.relay }
+        active?.takeIf { it.canReuse(config.id, sshHost, sshPort) }?.let {
+            Log.d(TAG, "Reusing authenticated SSH relay at ${it.relay.baseUrl} to $sshHost:$sshPort")
+            return@withContext it.relay
+        }
+        Log.d(TAG, "Opening SSH relay to $sshHost:$sshPort")
         stopLocked()
         val username = config.sshUsername?.takeIf { it.isNotBlank() }
             ?: throw IllegalArgumentException("SSH username is required")
@@ -57,11 +62,20 @@ class SshTunnelManager @Inject constructor(
         client.addHostKeyVerifier(AcceptAllHostKeyVerifier)
         var keyFile: File? = null
         try {
+            // The ZeroTier path can reach a sleeping SSH host before sshd finishes its key
+            // exchange. Keep the TCP connect bounded, but allow the transport handshake ample time
+            // instead of aborting a valid but slow tunnel after SSHJ's 30s default.
+            client.setConnectTimeout(SSH_CONNECT_TIMEOUT_MS)
+            client.setTimeout(SSH_HANDSHAKE_TIMEOUT_MS)
+            client.transport.setTimeoutMs(SSH_HANDSHAKE_TIMEOUT_MS)
+            val connectStartedAt = System.nanoTime()
             client.connect(sshHost, sshPort)
+            Log.d(TAG, "SSH transport ready in ${elapsedMs(connectStartedAt)}ms to $sshHost:$sshPort")
             // NATs commonly discard an idle SSH TCP mapping long before the app's next RPC. SSHJ's
             // transport-level keepalive both refreshes that mapping and makes a dead forward fail
             // promptly, so ConnectionLoop can rebuild the mesh + SSH path.
             client.connection.keepAlive.keepAliveInterval = KEEP_ALIVE_INTERVAL_SECONDS
+            val authStartedAt = System.nanoTime()
             when (config.sshAuthentication) {
                 SshAuthentication.PASSWORD -> client.authPassword(
                     username,
@@ -79,6 +93,7 @@ class SshTunnelManager @Inject constructor(
                     client.authPublickey(username, provider)
                 }
             }
+            Log.d(TAG, "SSH authentication ready in ${elapsedMs(authStartedAt)}ms for $sshHost:$sshPort")
             val server = ServerSocket(0, 32, InetAddress.getByName("127.0.0.1"))
             val forwarder = client.newLocalPortForwarder(
                 Parameters("127.0.0.1", server.localPort, config.sshDshHost, config.port),
@@ -90,6 +105,7 @@ class SshTunnelManager @Inject constructor(
             }
             val relay = SshRelay("http://127.0.0.1:${server.localPort}")
             active = ActiveTunnel(config.id, sshHost, sshPort, client, forwarder, thread, relay)
+            Log.d(TAG, "SSH local forward ready at ${relay.baseUrl} -> ${config.sshDshHost}:${config.port}")
             relay
         } catch (error: Throwable) {
             Log.e(TAG, "Unable to establish SSH relay to $sshHost:$sshPort", error)
@@ -127,9 +143,14 @@ class SshTunnelManager @Inject constructor(
         }
     }
 
+    private fun elapsedMs(startedAt: Long): Long =
+        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
     private companion object {
         /** Below typical mobile NAT idle expiry without needlessly waking the radio. */
         const val KEEP_ALIVE_INTERVAL_SECONDS = 20
+        const val SSH_CONNECT_TIMEOUT_MS = 10_000
+        const val SSH_HANDSHAKE_TIMEOUT_MS = 120_000
         const val TAG = "SshTunnelManager"
     }
 }

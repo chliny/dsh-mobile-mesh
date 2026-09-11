@@ -183,9 +183,12 @@ class ConnectionLoop(
     private suspend fun runLoop() {
         var attempt = 0
         while (currentCoroutineContext().isActive) {
+            val startedAt = System.nanoTime()
             safeSink { sinks.onStateChange(ConnectionState.RECONNECTING) }
             when (val opened = openGeneration()) {
                 is Opened.Ok -> {
+                    val elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+                    println("ConnectionLoop: generation connected in ${elapsedMs}ms")
                     attempt = 0
                     safeSink { sinks.onConnected(opened.generation) }
                     safeSink { sinks.onStateChange(ConnectionState.CONNECTED) }
