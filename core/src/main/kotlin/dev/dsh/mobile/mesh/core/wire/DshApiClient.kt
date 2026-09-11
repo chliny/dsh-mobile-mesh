@@ -58,6 +58,9 @@ import dev.dsh.mobile.mesh.core.wire.dto.SubagentPromptRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentPromptValue
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceArchiveSessionRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceArchiveValue
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryListing
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceFileBytes
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceFileText
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceCreateRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceCreateValue
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDeleteRequest
@@ -266,6 +269,64 @@ class DshApiClient(
     /** `session/canOpenWorkspacePath` — whether this deployment can reach a native desktop. */
     suspend fun sessionCanOpenWorkspacePath(): RpcResult<Boolean> =
         call("session/canOpenWorkspacePath", JsonObject(emptyMap()), Boolean.serializer())
+
+    // ------------------------------------------------------------------ workspace files
+
+    /** List direct children of a session workspace directory. Paths are workspace-relative. */
+    suspend fun workspaceFilesList(sessionId: String, path: String = "."): RpcResult<WorkspaceDirectoryListing> =
+        call(
+            "workspaceFiles/list",
+            args {
+                put("workspaceFileScopeId", JsonPrimitive(sessionId))
+                put("path", JsonPrimitive(path))
+            },
+        )
+
+    /** Read one bounded UTF-8 text page. Offset is 1-based, matching the Web Remote contract. */
+    suspend fun workspaceFilesRead(
+        sessionId: String,
+        path: String,
+        offset: Int = 1,
+        limit: Int? = null,
+    ): RpcResult<WorkspaceFileText> = call(
+        "workspaceFiles/read",
+        args {
+            put("workspaceFileScopeId", JsonPrimitive(sessionId))
+            put("path", JsonPrimitive(path))
+            put("range", buildJsonObject {
+                put("offset", JsonPrimitive(offset))
+                if (limit != null) put("limit", JsonPrimitive(limit))
+            })
+        },
+    )
+
+    /** Read a complete bounded file as base64 bytes. */
+    suspend fun workspaceFilesReadAll(sessionId: String, path: String): RpcResult<WorkspaceFileBytes> =
+        call(
+            "workspaceFiles/readAll",
+            args {
+                put("workspaceFileScopeId", JsonPrimitive(sessionId))
+                put("path", JsonPrimitive(path))
+            },
+        )
+
+    /** Read a bounded byte window for binary/document fallback renderers. */
+    suspend fun workspaceFilesReadBytes(
+        sessionId: String,
+        path: String,
+        offset: Int = 0,
+        length: Int? = null,
+    ): RpcResult<WorkspaceFileBytes> = call(
+        "workspaceFiles/readBytes",
+        args {
+            put("workspaceFileScopeId", JsonPrimitive(sessionId))
+            put("path", JsonPrimitive(path))
+            put("range", buildJsonObject {
+                put("offset", JsonPrimitive(offset))
+                if (length != null) put("length", JsonPrimitive(length))
+            })
+        },
+    )
 
     // ------------------------------------------------------------------ sessions
 

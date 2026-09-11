@@ -327,17 +327,14 @@ class ConnectionManager @Inject constructor(
                 lifecycleMutex.withLock {
                     if (epoch != lifecycleEpoch || activeHost?.id != host.id) return@withLock
                     try {
-                        // The old relay may still own a stale TCP/network binding. A full renewal
-                        // is required before starting its replacement, especially for tsnet.
-                        sshTunnel.stop()
-                        meshTransport.stop()
-                        activeBaseUrl = startTransports(host)
+                        // Reuse a live SSH forward when possible; SshTunnelManager validates the
+                        // authenticated forward and replaces it only when its carrier is unusable.
+                        activeBaseUrl = reconnectTransports(host)
                         if (epoch != lifecycleEpoch) return@withLock
                         api = clientFactory.clientFor(host, baseUrl = activeBaseUrl!!)
                         loop = ConnectionLoop(muxFactory(host, activeBaseUrl!!), sinks, LoopConfig()).also { it.start() }
                     } catch (error: Throwable) {
                         if (epoch != lifecycleEpoch) return@withLock
-                        sshTunnel.stop()
                         if (error is MeshAuthorizationPending) {
                             hostsStore.upsertHost(host)
                             _state.value = _state.value.copy(
@@ -401,6 +398,15 @@ class ConnectionManager @Inject constructor(
 
     private suspend fun startTransports(config: HostConfig): String {
         val meshRelay = meshTransport.start(config)
+        return finishTransportStart(config, meshRelay)
+    }
+
+    private suspend fun reconnectTransports(config: HostConfig): String {
+        val meshRelay = meshTransport.reconnect(config)
+        return finishTransportStart(config, meshRelay)
+    }
+
+    private suspend fun finishTransportStart(config: HostConfig, meshRelay: MeshRelay?): String {
         if (!config.sshEnabled) return meshRelay?.baseUrl ?: config.baseUrl
         require(!config.useTls) { "TLS cannot be combined with the local SSH relay" }
         val sshHost = meshRelay?.host ?: config.host

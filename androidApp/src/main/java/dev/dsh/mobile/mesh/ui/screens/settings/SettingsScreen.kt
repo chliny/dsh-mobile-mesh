@@ -87,7 +87,11 @@ import java.util.Locale
  * cannot be changed when they plainly can.
  */
 @Composable
-fun SettingsScreen(onClose: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
+fun SettingsScreen(
+    onClose: () -> Unit,
+    onOpenConnections: () -> Unit,
+    viewModel: SettingsViewModel = hiltViewModel(),
+) {
     val settings by viewModel.state.collectAsStateWithLifecycle()
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
     val store = rememberSessionStore()
@@ -134,6 +138,12 @@ fun SettingsScreen(onClose: () -> Unit, viewModel: SettingsViewModel = hiltViewM
                 }
 
                 SettingsCard(stringResource(R.string.settings_connection)) {
+                    DsButton(
+                        text = stringResource(R.string.settings_open_connection),
+                        onClick = onOpenConnections,
+                        variant = DsButtonVariant.Outline,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     ConnectionSection(connectionState, onDisconnect = { showDisconnectDialog = true })
                     ToggleRow(
                         stringResource(R.string.connect_auto_last),

@@ -37,6 +37,29 @@ class MeshTransportManager @Inject constructor(
         }
     }
 
+    /**
+     * Refresh the active transport without unnecessarily destroying a userspace mesh identity.
+     * ZeroTier can immediately reuse its running node after a network handover; stopping libzt first
+     * adds up to 10 seconds of native shutdown plus another online/address wait and is unsafe when
+     * the old service thread is still unwinding.
+     */
+    suspend fun reconnect(config: HostConfig): MeshRelay? {
+        val next = when (config.meshTransport) {
+            MeshTransport.ZERO_TIER -> zeroTier
+            MeshTransport.TAILSCALE -> tailscale
+            null -> null
+        }
+        if (next == null) {
+            stop()
+            return null
+        }
+        if (next === zeroTier && active === zeroTier) {
+            return zeroTier.start(config)
+        }
+        stop()
+        return start(config)
+    }
+
     suspend fun stop() {
         val connector = active ?: return
         active = null

@@ -79,6 +79,10 @@ import dev.dsh.mobile.mesh.core.wire.dto.TokenUsageView
 import dev.dsh.mobile.mesh.core.wire.dto.USER_QUESTIONS_REQUEST_EVENT
 import dev.dsh.mobile.mesh.core.wire.dto.UnknownSubagentListEntry
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceArchiveSessionRequest
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryEntry
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryListing
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceFileBytes
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceFileText
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceCreateRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDeleteRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceFollowFrame

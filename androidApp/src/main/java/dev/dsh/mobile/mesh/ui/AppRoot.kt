@@ -22,6 +22,7 @@ import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
 import dev.dsh.mobile.mesh.ui.components.DsDialog
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectScreen
+import dev.dsh.mobile.mesh.ui.screens.connect.ConnectionsScreen
 import dev.dsh.mobile.mesh.ui.screens.main.ChatListDrawer
 import dev.dsh.mobile.mesh.ui.screens.main.MainScreen
 import dev.dsh.mobile.mesh.ui.screens.settings.SettingsScreen
@@ -48,11 +49,32 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
     DshTheme(preference = themePreference) {
         var showSettings by rememberSaveable { mutableStateOf(false) }
         var showSessionList by rememberSaveable { mutableStateOf(true) }
+        var showConnectPage by rememberSaveable { mutableStateOf(false) }
+        var showConnections by rememberSaveable { mutableStateOf(false) }
         val showMain = connection.hasConnected
-        val showConnect = !connection.hasConnected
+        val showConnect = !connection.hasConnected || showConnectPage
+        LaunchedEffect(connection.hasConnected) {
+            if (connection.hasConnected) showConnectPage = false
+        }
         when {
-            showSettings -> SettingsScreen(onClose = { showSettings = false })
-            showConnect -> ConnectScreen(onOpenSettings = { showSettings = true })
+            showConnections -> ConnectionsScreen(
+                onClose = { showConnections = false },
+                onAdd = {
+                    showConnections = false
+                    showConnectPage = true
+                },
+            )
+            showSettings -> SettingsScreen(
+                onClose = { showSettings = false },
+                onOpenConnections = {
+                    showSettings = false
+                    showConnections = true
+                },
+            )
+            showConnect -> ConnectScreen(
+                onOpenSettings = { showSettings = true },
+                onClose = if (connection.hasConnected) ({ showConnectPage = false }) else null,
+            )
             showSessionList -> ChatListDrawer(
                 onClose = { showSessionList = false },
                 onOpenSettings = { showSettings = true },

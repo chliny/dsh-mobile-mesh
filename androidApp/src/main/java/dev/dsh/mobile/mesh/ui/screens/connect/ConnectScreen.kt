@@ -54,8 +54,8 @@ import dev.dsh.mobile.mesh.connection.SshAuthentication
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonSize
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsCard
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
+import dev.dsh.mobile.mesh.ui.components.DsCard
 import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.DsSegment
 import dev.dsh.mobile.mesh.ui.components.DsSegmented
@@ -79,6 +79,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ConnectScreen(
     onOpenSettings: () -> Unit,
+    onClose: (() -> Unit)? = null,
     viewModel: ConnectViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -185,6 +186,14 @@ fun ConnectScreen(
                     onClick = onOpenSettings,
                     tint = colors.labelTertiary,
                 )
+                onClose?.let { close ->
+                    DsIconButton(
+                        icon = FeatherIcons.Search,
+                        contentDescription = stringResource(R.string.common_back),
+                        onClick = close,
+                        tint = colors.labelTertiary,
+                    )
+                }
             }
 
             ConnectHeader()

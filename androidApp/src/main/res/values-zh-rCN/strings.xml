@@ -25,6 +25,8 @@
     <string name="common_no">否</string>
     <string name="common_none">无</string>
     <string name="connect_title">连接到 Harness</string>
+    <string name="connect_connections">连接列表</string>
+    <string name="connect_add_connection">添加连接</string>
     <string name="connect_subtitle">DSH Mobile Mesh 会镜像运行在你电脑上的 DeepSeek Harness。</string>
     <string name="connect_manual_title">手动连接</string>
     <string name="connect_host_label">主机地址</string>
@@ -339,6 +341,7 @@
     <string name="presets_broken">不可用：%1$s</string>
     <string name="presets_empty">没有 Agent 预设</string>
     <string name="settings_connection">连接</string>
+    <string name="settings_open_connection">打开连接设置</string>
     <string name="settings_connection_status">状态</string>
     <string name="settings_connection_host">已连接到</string>
     <string name="settings_connection_disconnect">断开连接</string>

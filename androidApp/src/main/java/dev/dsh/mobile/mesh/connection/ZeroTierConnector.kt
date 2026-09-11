@@ -49,7 +49,11 @@ class ZeroTierConnector @Inject constructor(
         synchronized(lock) {
             val networkId = java.lang.Long.parseUnsignedLong(networkIdText, 16)
             val pendingNode = node
-            if (pendingNode != null && nodeNetworkId == networkIdText) {
+            if (pendingNode != null && nodeNetworkId == networkIdText && isServiceOnline()) {
+                // Keep the libzt service alive across a mobile-network handover. Reusing the node
+                // avoids the slow native stop/start path and prevents racing its global service
+                // teardown, which was the source of foreground-return crashes.
+                if (hasAddress(networkId)) return@synchronized relayFor(config)
                 waitForAddress(pendingNode, networkId)
                 return@synchronized relayFor(config)
             }
@@ -102,11 +106,20 @@ class ZeroTierConnector @Inject constructor(
         check(current.isOnline()) { "ZeroTier node did not come online; check internet access" }
     }
 
+    private fun isServiceOnline(): Boolean = runCatching {
+        ZeroTierNative.zts_node_is_online() == 1
+    }.getOrDefault(false)
+
+    private fun hasAddress(networkId: Long): Boolean =
+        runCatching {
+            ZeroTierNative.zts_addr_is_assigned(networkId, ZeroTierNative.ZTS_AF_INET) == 1 ||
+                ZeroTierNative.zts_addr_is_assigned(networkId, ZeroTierNative.ZTS_AF_INET6) == 1
+        }.getOrDefault(false)
+
     private fun waitForAddress(current: ZeroTierNode, networkId: Long) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
         while (System.nanoTime() < deadline) {
-            if (ZeroTierNative.zts_addr_is_assigned(networkId, ZeroTierNative.ZTS_AF_INET) == 1 ||
-                ZeroTierNative.zts_addr_is_assigned(networkId, ZeroTierNative.ZTS_AF_INET6) == 1) return
+            if (hasAddress(networkId)) return
             Thread.sleep(150)
         }
         val nodeId = java.lang.Long.toUnsignedString(current.id, 16).padStart(10, '0')

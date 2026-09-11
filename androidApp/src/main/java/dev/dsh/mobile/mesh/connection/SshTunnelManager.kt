@@ -33,8 +33,9 @@ class SshTunnelManager @Inject constructor(
     private var active: ActiveTunnel? = null
 
     suspend fun start(config: HostConfig, sshHost: String, sshPort: Int): SshRelay = withContext(Dispatchers.IO) {
-        stopLocked()
         require(config.sshEnabled)
+        active?.takeIf { it.canReuse(config.id, sshHost, sshPort) }?.let { return@withContext it.relay }
+        stopLocked()
         val username = config.sshUsername?.takeIf { it.isNotBlank() }
             ?: throw IllegalArgumentException("SSH username is required")
         val credentials = secrets.get(config.id)
@@ -87,8 +88,9 @@ class SshTunnelManager @Inject constructor(
                 isDaemon = true
                 start()
             }
-            active = ActiveTunnel(client, forwarder, thread)
-            SshRelay("http://127.0.0.1:${server.localPort}")
+            val relay = SshRelay("http://127.0.0.1:${server.localPort}")
+            active = ActiveTunnel(config.id, sshHost, sshPort, client, forwarder, thread, relay)
+            relay
         } catch (error: Throwable) {
             Log.e(TAG, "Unable to establish SSH relay to $sshHost:$sshPort", error)
             runCatching { client.close() }
@@ -106,10 +108,18 @@ class SshTunnelManager @Inject constructor(
     }
 
     private class ActiveTunnel(
+        private val configId: String,
+        private val sshHost: String,
+        private val sshPort: Int,
         private val client: SSHClient,
         private val forwarder: LocalPortForwarder,
         private val thread: Thread,
+        val relay: SshRelay,
     ) : Closeable {
+        fun canReuse(configId: String, sshHost: String, sshPort: Int): Boolean =
+            this.configId == configId && this.sshHost == sshHost && this.sshPort == sshPort &&
+                client.isConnected && client.isAuthenticated && thread.isAlive
+
         override fun close() {
             runCatching { forwarder.close() }
             runCatching { client.close() }
