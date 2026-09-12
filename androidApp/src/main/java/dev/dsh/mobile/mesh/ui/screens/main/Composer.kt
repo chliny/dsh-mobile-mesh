@@ -179,7 +179,7 @@ internal fun Composer(
             .animateContentSize(),
         shape = DsShapes.composer,
         color = colors.composerCard,
-        border = BorderStroke(1.dp, colors.borderL1),
+        border = BorderStroke(2.dp, colors.borderL2),
     ) {
         Column(
             Modifier.padding(DsSpacing.medium),
@@ -319,12 +319,10 @@ private fun ModelChip(
     } ?: stringResource(R.string.common_loading)
     Row(
         modifier = Modifier
-            .height(28.dp)
+            .widthIn(max = 112.dp)
             .clip(DsShapes.cube)
-            .background(colors.hoverSolid)
-            .border(1.dp, colors.borderL2, DsShapes.cube)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -334,6 +332,7 @@ private fun ModelChip(
             color = colors.labelSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
         )
         Icon(
             Icons.Filled.KeyboardArrowDown,
