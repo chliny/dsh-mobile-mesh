@@ -14,17 +14,12 @@ import java.net.Socket
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-
-private object ZeroTierNativeBridge {
-    init { System.loadLibrary("zt") }
-    @JvmStatic external fun safeNodeStop(): Int
-    @JvmStatic external fun isServiceOffline(): Boolean
-}
 
 /**
  * libzt-backed, app-private transport. Android routes are unchanged: OkHttp connects to a random
@@ -88,19 +83,12 @@ class ZeroTierConnector @Inject constructor(
     private fun stopLocked() {
         relay?.close()
         relay = null
-        // libzt is process-global, including after a failed initialization.
-        runCatching { ZeroTierNativeBridge.safeNodeStop() }
-        waitForServiceOffline()
-        node = null
-        nodeNetworkId = null
-    }
-
-    private fun waitForServiceOffline() {
-        // zts_node_stop() begins termination but returns before the global service becomes offline.
-        // initFromStorage() returns ZTS_ERR_SERVICE (-2) until that state transition completes.
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(STOP_TIMEOUT_SECONDS)
-        while (!ZeroTierNativeBridge.isServiceOffline() && System.nanoTime() < deadline) Thread.sleep(50)
-        check(ZeroTierNativeBridge.isServiceOffline()) { "ZeroTier did not stop before retrying" }
+        // libzt's NodeService owns callbacks for TCP sockets after Java has stopped using their
+        // streams. Stopping its process-global service while one is draining races that callback
+        // against NodeService destruction (a Pixel 3 FORTIFY abort in phyOnTcpClose). Retain the
+        // node for this app process instead; reconnect creates a fresh loopback relay against the
+        // still-authorized node. Android tears the native process state down atomically on process
+        // exit, which is the only safe full-service shutdown boundary.
     }
 
     private fun waitForOnline(current: ZeroTierNode) {
@@ -152,7 +140,6 @@ class ZeroTierConnector @Inject constructor(
     }
 
     private companion object {
-        const val STOP_TIMEOUT_SECONDS = 10L
         const val TAG = "ZeroTierConnector"
     }
 }
@@ -185,15 +172,26 @@ private class ZeroTierRelay(
         local.use { client ->
             val remote = connect() ?: return
             sockets.add(remote)
+            // libzt owns the native socket object. Two copy directions can finish concurrently;
+            // closing it from both threads corrupts libzt's Phy socket list on Android. Elect one
+            // closer and let it run only after either direction ends.
+            val closed = AtomicBoolean(false)
+            fun closeRemoteOnce() {
+                if (closed.compareAndSet(false, true)) runCatching { remote.close() }
+            }
             try {
                 executor.execute {
-                    try { client.getInputStream().copyTo(remote.outputStream) }
-                    finally { runCatching { remote.close() } }
+                    try {
+                        // Socket closure is the normal termination signal for a relay worker.
+                        runCatching { client.getInputStream().copyTo(remote.outputStream) }
+                    } finally {
+                        closeRemoteOnce()
+                    }
                 }
                 runCatching { remote.inputStream.copyTo(client.getOutputStream()) }
             } finally {
                 sockets.remove(remote)
-                runCatching { remote.close() }
+                closeRemoteOnce()
             }
         }
     }
@@ -217,8 +215,10 @@ private class ZeroTierRelay(
     override fun close() {
         running = false
         runCatching { server.close() }
-        sockets.toList().forEach { socket -> runCatching { socket.close() } }
-        sockets.clear()
+        // Do not concurrently close live libzt sockets from the relay lifecycle thread. Their
+        // forwarding workers own the close transition; interrupting the Java loopback endpoints
+        // makes those workers complete and close each native socket exactly once.
+        // Existing forwarding workers retain ownership until their streams naturally finish.
     }
 
     private companion object {
