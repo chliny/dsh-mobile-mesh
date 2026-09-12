@@ -153,6 +153,10 @@ fun SettingsScreen(
                         stringResource(R.string.connect_auto_loopback),
                         settings.autoConnectLoopback,
                     ) { viewModel.set { it.copy(autoConnectLoopback = !it.autoConnectLoopback) } }
+                    ToggleRow(
+                        stringResource(R.string.connect_auto_lan),
+                        settings.autoConnectLan,
+                    ) { viewModel.set { it.copy(autoConnectLan = !it.autoConnectLan) } }
                 }
 
                 SettingsCard(stringResource(R.string.settings_notifications)) {

@@ -7,6 +7,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -21,11 +22,13 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
 import dev.dsh.mobile.mesh.ui.components.DsDialog
+import dev.dsh.mobile.mesh.connection.HostConfig
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectScreen
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectionsScreen
 import dev.dsh.mobile.mesh.ui.screens.main.ChatListDrawer
 import dev.dsh.mobile.mesh.ui.screens.main.MainScreen
 import dev.dsh.mobile.mesh.ui.screens.settings.SettingsScreen
+import dev.dsh.mobile.mesh.ui.rememberHostsStore
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
@@ -38,6 +41,8 @@ import dev.dsh.mobile.mesh.update.AvailableUpdate
 fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val connection by viewModel.connectionState.collectAsStateWithLifecycle()
+    val hostsStore = rememberHostsStore()
+    val hosts by hostsStore.hosts.collectAsStateWithLifecycle(initialValue = emptyList())
     val themePreference = remember(settings.themePreference) {
         runCatching { ThemePreference.valueOf(settings.themePreference.uppercase()) }
             .getOrDefault(ThemePreference.SYSTEM)
@@ -51,6 +56,8 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         var showSessionList by rememberSaveable { mutableStateOf(true) }
         var showConnectPage by rememberSaveable { mutableStateOf(false) }
         var showConnections by rememberSaveable { mutableStateOf(false) }
+        var returnToConnections by rememberSaveable { mutableStateOf(false) }
+        var editingHost by remember { mutableStateOf<HostConfig?>(null) }
         val showMain = connection.hasConnected
         val showConnect = !connection.hasConnected || showConnectPage
         LaunchedEffect(connection.hasConnected) {
@@ -59,10 +66,19 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         when {
             showConnections -> ConnectionsScreen(
                 onClose = { showConnections = false },
+                onOpenHost = { host ->
+                    showConnections = false
+                    showConnectPage = true
+                    returnToConnections = true
+                    editingHost = host
+                },
                 onAdd = {
                     showConnections = false
                     showConnectPage = true
+                    returnToConnections = true
+                    editingHost = null
                 },
+                connectedHostId = connection.host?.id,
             )
             showSettings -> SettingsScreen(
                 onClose = { showSettings = false },
@@ -71,10 +87,18 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     showConnections = true
                 },
             )
-            showConnect -> ConnectScreen(
-                onOpenSettings = { showSettings = true },
-                onClose = if (connection.hasConnected) ({ showConnectPage = false }) else null,
-            )
+            showConnect -> key(editingHost?.id ?: "new") {
+                ConnectScreen(
+                    onOpenSettings = { showSettings = true },
+                    onClose = if (connection.hasConnected) ({ showConnectPage = false }) else null,
+                    onOpenConnections = if (returnToConnections) ({
+                        showConnectPage = false
+                        showConnections = true
+                    }) else null,
+                    initialHost = editingHost,
+                    connectedHostId = connection.host?.id,
+                )
+            }
             showSessionList -> ChatListDrawer(
                 onClose = { showSessionList = false },
                 onOpenSettings = { showSettings = true },
@@ -85,7 +109,15 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 onReconnect = viewModel::reconnect,
                 onOpenSessionList = { showSessionList = true },
             )
-            else -> ConnectScreen(onOpenSettings = { showSettings = true })
+            else -> key(connection.host?.id ?: hosts.firstOrNull()?.id ?: "new") {
+                ConnectScreen(
+                onOpenSettings = { showSettings = true },
+                // On a cold start the manager may already be restoring the active host while the
+                // connection page is visible. Pass that host so the form reflects the attempt.
+                initialHost = connection.host ?: hosts.firstOrNull(),
+                connectedHostId = connection.host?.id,
+            )
+            }
         }
 
         // Offered over whatever is on screen, and only once per release: dismissing records the

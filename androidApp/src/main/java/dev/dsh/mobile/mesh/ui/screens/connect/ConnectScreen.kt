@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -30,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Alignment
@@ -80,12 +83,16 @@ import kotlinx.coroutines.launch
 fun ConnectScreen(
     onOpenSettings: () -> Unit,
     onClose: (() -> Unit)? = null,
+    onOpenConnections: (() -> Unit)? = null,
+    initialHost: HostConfig? = null,
+    connectedHostId: String? = null,
     viewModel: ConnectViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val persistedDraft by viewModel.draft.collectAsStateWithLifecycle(initialValue = null)
     val colors = DsTheme.colors
     // Saveable: a rotation mid-connect used to wipe a hand-typed address.
+    var connectionName by rememberSaveable { mutableStateOf("") }
     var host by rememberSaveable { mutableStateOf("") }
     var port by rememberSaveable { mutableStateOf("3080") }
     var meshTransportKey by rememberSaveable { mutableStateOf("direct") }
@@ -105,39 +112,71 @@ fun ConnectScreen(
     var sshPrivateKeyPassphrase by rememberSaveable { mutableStateOf("") }
     var launchToken by rememberSaveable { mutableStateOf("") }
     var sshDshHost by rememberSaveable { mutableStateOf("127.0.0.1") }
-    var restoredDraft by rememberSaveable { mutableStateOf(false) }
+    var restoredForKey by remember { mutableStateOf<String?>(null) }
+    val editingHost = initialHost
+    val formKey = editingHost?.id ?: "new"
+    val connectedEditing = editingHost?.id == connectedHostId
+    val fieldsEnabled = !connectedEditing
+    onOpenConnections?.let { openConnections ->
+        BackHandler { openConnections() }
+    }
 
-    LaunchedEffect(persistedDraft, restoredDraft) {
-        val draft = persistedDraft ?: return@LaunchedEffect
-        if (!restoredDraft) {
-            host = draft.host
-            port = draft.port
-            meshTransportKey = draft.meshTransport
-            zeroTierNetworkId = draft.zeroTierNetworkId
-            zeroTierPlanetId = draft.zeroTierPlanetId
-            zeroTierPlanetBase64 = draft.zeroTierPlanetBase64
-            tailscaleHostname = draft.tailscaleHostname
-            sshEnabled = draft.sshEnabled
-            sshPort = draft.sshPort
-            sshUsername = draft.sshUsername
-            sshAuthenticationKey = if (draft.sshAuthentication == SshAuthentication.PRIVATE_KEY) "key" else "password"
-            sshPassword = draft.sshPassword
-            sshPrivateKey = draft.sshPrivateKey
-            sshPrivateKeyPassphrase = draft.sshPrivateKeyPassphrase
-            launchToken = draft.launchToken
-            sshDshHost = draft.sshDshHost
-            restoredDraft = true
+    LaunchedEffect(persistedDraft, editingHost, formKey) {
+        if (restoredForKey != formKey) {
+            val saved = editingHost
+            if (saved == null && persistedDraft == null) return@LaunchedEffect
+            if (saved != null) {
+                connectionName = saved.name
+                host = saved.host
+                port = saved.port.toString()
+                meshTransportKey = saved.meshTransport?.storedValue ?: "direct"
+                zeroTierNetworkId = saved.zeroTierNetworkId.orEmpty()
+                zeroTierPlanetId = saved.zeroTierPlanetId
+                zeroTierPlanetBase64 = saved.zeroTierPlanetBase64.orEmpty()
+                viewModel.savedSshCredentials(saved.id)?.let { credentials ->
+                    sshPassword = credentials.password.orEmpty()
+                    sshPrivateKey = credentials.privateKey.orEmpty()
+                    sshPrivateKeyPassphrase = credentials.privateKeyPassphrase.orEmpty()
+                }
+                tailscaleHostname = saved.tailscaleHostname.orEmpty()
+                sshEnabled = saved.sshEnabled
+                sshPort = saved.sshPort.toString()
+                sshUsername = saved.sshUsername.orEmpty()
+                sshAuthenticationKey = if (saved.sshAuthentication == SshAuthentication.PRIVATE_KEY) "key" else "password"
+                sshDshHost = saved.sshDshHost
+            } else if (persistedDraft != null) {
+                val draft = persistedDraft ?: return@LaunchedEffect
+                connectionName = draft.name
+                host = draft.host
+                port = draft.port
+                meshTransportKey = draft.meshTransport
+                zeroTierNetworkId = draft.zeroTierNetworkId
+                zeroTierPlanetId = draft.zeroTierPlanetId
+                zeroTierPlanetBase64 = draft.zeroTierPlanetBase64
+                tailscaleHostname = draft.tailscaleHostname
+                sshEnabled = draft.sshEnabled
+                sshPort = draft.sshPort
+                sshUsername = draft.sshUsername
+                sshAuthenticationKey = if (draft.sshAuthentication == SshAuthentication.PRIVATE_KEY) "key" else "password"
+                sshPassword = draft.sshPassword
+                sshPrivateKey = draft.sshPrivateKey
+                sshPrivateKeyPassphrase = draft.sshPrivateKeyPassphrase
+                launchToken = draft.launchToken
+                sshDshHost = draft.sshDshHost
+            }
+            restoredForKey = formKey
         }
     }
 
     LaunchedEffect(
-        restoredDraft, host, port, meshTransportKey, zeroTierNetworkId, zeroTierPlanetId, zeroTierPlanetBase64,
+        restoredForKey, connectionName, host, port, meshTransportKey, zeroTierNetworkId, zeroTierPlanetId, zeroTierPlanetBase64,
         tailscaleHostname, sshEnabled, sshPort, sshUsername, sshAuthentication,
         sshPassword, sshPrivateKey, sshPrivateKeyPassphrase, launchToken,
         sshDshHost,
     ) {
-        if (restoredDraft) viewModel.saveDraft(
+        if (restoredForKey == formKey) viewModel.saveDraft(
             ConnectionDraft(
+                name = connectionName,
                 host = host,
                 port = port,
                 meshTransport = meshTransportKey,
@@ -178,50 +217,44 @@ fun ConnectScreen(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                onOpenConnections?.let { openConnections ->
+                    DsIconButton(
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.common_back),
+                        onClick = openConnections,
+                    )
+                } ?: onClose?.let { close ->
+                    DsIconButton(
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.common_back),
+                        onClick = close,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
                 DsIconButton(
                     icon = FeatherIcons.Tool,
                     contentDescription = stringResource(R.string.settings_title),
                     onClick = onOpenSettings,
                     tint = colors.labelTertiary,
                 )
-                onClose?.let { close ->
-                    DsIconButton(
-                        icon = FeatherIcons.Search,
-                        contentDescription = stringResource(R.string.common_back),
-                        onClick = close,
-                        tint = colors.labelTertiary,
-                    )
-                }
             }
 
             ConnectHeader()
 
-            // ---- Recent ------------------------------------------------------
-            Column(verticalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
-                SectionHeader(stringResource(R.string.connect_remembered))
-                if (state.remembered.isEmpty()) {
-                        Text(
-                            stringResource(R.string.connect_remembered_empty),
-                            style = DsType.std14,
-                            color = colors.labelCaption,
-                        )
-                } else {
-                    state.remembered.forEach { saved ->
-                            RecentHarnessCard(
-                                host = saved,
-                                probe = state.recentStatus[saved.authority],
-                                onConnect = { viewModel.connectTo(saved) },
-                                onForget = { viewModel.forget(saved) },
-                            )
-                        }
-                }
-            }
-
             // ---- Manual --------------------------------------------------
             Column(verticalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
                     SectionHeader(stringResource(R.string.connect_manual_title))
+                    TextField(
+                        value = connectionName,
+                        onValueChange = { connectionName = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text(stringResource(R.string.connect_name_hint), style = DsType.std14) },
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.connect_name_label)) },
+                        colors = connectFieldColors(),
+                    )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         TextField(
                             value = host,
@@ -232,7 +265,7 @@ fun ConnectScreen(
                             },
                             singleLine = true,
                             label = { Text(stringResource(R.string.connect_host_label)) },
-                            colors = connectFieldColors(),
+                           colors = connectFieldColors(),
                         )
                         Spacer(Modifier.width(DsSpacing.compact))
                         TextField(
@@ -241,7 +274,7 @@ fun ConnectScreen(
                             modifier = Modifier.width(92.dp),
                             singleLine = true,
                             label = { Text(stringResource(R.string.connect_port_label)) },
-                            colors = connectFieldColors(),
+                           colors = connectFieldColors(),
                         )
                     }
                     DsSegmented(
@@ -252,6 +285,7 @@ fun ConnectScreen(
                         ),
                         selectedKey = meshTransport?.storedValue ?: "direct",
                         onSelect = { meshTransportKey = it },
+                        enabled = fieldsEnabled,
                         role = Role.Tab,
                         stretch = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -264,7 +298,8 @@ fun ConnectScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 label = { Text(stringResource(R.string.connect_zerotier_network_id)) },
                                 singleLine = true,
-                                colors = connectFieldColors(),
+                               enabled = fieldsEnabled,
+                            colors = connectFieldColors(),
                             )
                              DsButton(
                                  text = if (zeroTierPlanetId == null) stringResource(R.string.connect_zerotier_planet_import)
@@ -279,7 +314,8 @@ fun ConnectScreen(
                                 label = { Text(stringResource(R.string.connect_zerotier_planet_base64)) },
                                 minLines = 3,
                                 maxLines = 5,
-                                colors = connectFieldColors(),
+                               enabled = fieldsEnabled,
+                            colors = connectFieldColors(),
                             )
                             DsButton(
                                 text = stringResource(R.string.connect_zerotier_planet_base64_import),
@@ -314,7 +350,7 @@ fun ConnectScreen(
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text(stringResource(R.string.connect_tailscale_hostname)) },
                             singleLine = true,
-                            colors = connectFieldColors(),
+                           colors = connectFieldColors(),
                         )
                         null -> Unit
                     }
@@ -335,7 +371,8 @@ fun ConnectScreen(
                                 modifier = Modifier.weight(1f),
                                 label = { Text(stringResource(R.string.connect_ssh_username)) },
                                 singleLine = true,
-                                colors = connectFieldColors(),
+                               enabled = fieldsEnabled,
+                            colors = connectFieldColors(),
                             )
                             Spacer(Modifier.width(DsSpacing.compact))
                             TextField(
@@ -344,7 +381,8 @@ fun ConnectScreen(
                                 modifier = Modifier.width(92.dp),
                                 label = { Text(stringResource(R.string.connect_ssh_port)) },
                                 singleLine = true,
-                                colors = connectFieldColors(),
+                               enabled = fieldsEnabled,
+                            colors = connectFieldColors(),
                             )
                         }
                         DsSegmented(
@@ -366,7 +404,8 @@ fun ConnectScreen(
                                 label = { Text(stringResource(R.string.connect_ssh_password)) },
                                 visualTransformation = PasswordVisualTransformation(),
                                 singleLine = true,
-                                colors = connectFieldColors(),
+                               enabled = fieldsEnabled,
+                            colors = connectFieldColors(),
                             )
                         } else {
                             TextField(
@@ -374,7 +413,8 @@ fun ConnectScreen(
                                 onValueChange = { sshPrivateKey = it },
                                 modifier = Modifier.fillMaxWidth().height(160.dp),
                                 label = { Text(stringResource(R.string.connect_ssh_private_key)) },
-                                colors = connectFieldColors(),
+                               enabled = fieldsEnabled,
+                            colors = connectFieldColors(),
                             )
                             TextField(
                                 value = sshPrivateKeyPassphrase,
@@ -383,7 +423,8 @@ fun ConnectScreen(
                                 label = { Text(stringResource(R.string.connect_ssh_key_passphrase)) },
                                 visualTransformation = PasswordVisualTransformation(),
                                 singleLine = true,
-                                colors = connectFieldColors(),
+                               enabled = fieldsEnabled,
+                            colors = connectFieldColors(),
                             )
                         }
                         TextField(
@@ -392,7 +433,7 @@ fun ConnectScreen(
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text(stringResource(R.string.connect_ssh_dsh_host)) },
                             singleLine = true,
-                            colors = connectFieldColors(),
+                           colors = connectFieldColors(),
                         )
                     }
                     TextField(
@@ -406,20 +447,37 @@ fun ConnectScreen(
                         colors = connectFieldColors(),
                     )
                     DsButton(
+                        text = stringResource(R.string.connect_save),
+                        onClick = {
+                            viewModel.saveConnection(
+                                existing = editingHost, name = connectionName, host = host, port = port,
+                                transport = meshTransport, networkId = zeroTierNetworkId,
+                                planetId = zeroTierPlanetId, planetBase64 = zeroTierPlanetBase64,
+                                tailscaleHostname = tailscaleHostname, sshEnabled = sshEnabled,
+                                sshPort = sshPort, sshUsername = sshUsername,
+                                sshAuthentication = sshAuthentication, sshPassword = sshPassword,
+                                sshPrivateKey = sshPrivateKey, sshPrivateKeyPassphrase = sshPrivateKeyPassphrase,
+                                sshDshHost = sshDshHost,
+                            ) { onOpenConnections?.invoke() ?: onClose?.invoke() }
+                        },
+                        variant = DsButtonVariant.Outline,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    DsButton(
                         text = stringResource(R.string.connect_button),
                         onClick = {
                             val transport = meshTransport
                             if (transport == null) viewModel.connectManual(
-                                host, port, sshEnabled, sshPort, sshUsername, sshAuthentication,
+                                connectionName, host, port, sshEnabled, sshPort, sshUsername, sshAuthentication,
                                 sshPassword, sshPrivateKey, sshPrivateKeyPassphrase, sshDshHost, launchToken,
                             ) else viewModel.connectMesh(
-                                host, port, transport, zeroTierNetworkId, tailscaleHostname,
+                                connectionName, host, port, transport, zeroTierNetworkId, tailscaleHostname,
                                 sshEnabled, sshPort, sshUsername, sshAuthentication,
                                 sshPassword, sshPrivateKey, sshPrivateKeyPassphrase,
                                 sshDshHost, zeroTierPlanetId, launchToken,
                             )
                         },
-                        enabled = !state.connecting,
+                        enabled = !state.connecting && editingHost?.id != connectedHostId,
                         variant = DsButtonVariant.Info,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -452,19 +510,6 @@ fun ConnectScreen(
                     onDismiss = { viewModel.setSignInOpen(false) },
                     onSubmit = viewModel::signIn,
                 )
-            }
-
-            // ---- Auto-connect ------------------------------------------------
-            Column {
-                SectionHeader(stringResource(R.string.connect_auto_title))
-                ToggleRow(
-                    label = stringResource(R.string.connect_auto_last),
-                    checked = state.autoConnectLast,
-                ) { viewModel.setAuto("last", !state.autoConnectLast) }
-                ToggleRow(
-                    label = stringResource(R.string.connect_auto_loopback),
-                    checked = state.autoConnectLoopback,
-                ) { viewModel.setAuto("loopback", !state.autoConnectLoopback) }
             }
 
             Spacer(Modifier.height(DsSpacing.large))

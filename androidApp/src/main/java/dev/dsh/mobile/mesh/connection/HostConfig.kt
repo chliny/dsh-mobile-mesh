@@ -40,6 +40,8 @@ data class HostConfig(
     val zeroTierNetworkId: String? = null,
     /** SHA-256 identity of an imported app-private ZeroTier planet. */
     val zeroTierPlanetId: String? = null,
+    /** Normalized custom ZeroTier planet payload, retained for editing the connection. */
+    val zeroTierPlanetBase64: String? = null,
     /** Optional stable name shown for this phone in the Tailscale admin console. */
     val tailscaleHostname: String? = null,
     /** SSH is the default transport fence; disable it only for an explicitly exposed DSH endpoint. */
@@ -71,6 +73,8 @@ enum class SshAuthentication { PASSWORD, PRIVATE_KEY }
  */
 @Serializable
 data class ConnectionDraft(
+    /** Optional user-facing name; blank falls back to the host address. */
+    val name: String = "",
     val host: String = "",
     val port: String = "3080",
     val meshTransport: String = "direct",

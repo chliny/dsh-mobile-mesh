@@ -26,13 +26,13 @@ import dev.dsh.mobile.mesh.ui.theme.DsType
  * anything that states its own state and flips on tap belongs here, not in a bespoke card.
  */
 @Composable
-fun ToggleRow(label: String, checked: Boolean, hint: String? = null, onChange: () -> Unit) {
+fun ToggleRow(label: String, checked: Boolean, hint: String? = null, enabled: Boolean = true, onChange: () -> Unit) {
     val colors = DsTheme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(DsShapes.row)
-            .clickable(onClick = onChange)
+            .clickable(enabled = enabled, onClick = onChange)
             .padding(vertical = DsSpacing.small),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -42,6 +42,6 @@ fun ToggleRow(label: String, checked: Boolean, hint: String? = null, onChange: (
                 Text(hint, style = DsType.caption11, color = colors.labelCaption)
             }
         }
-        Switch(checked = checked, onCheckedChange = { onChange() })
+        Switch(checked = checked, enabled = enabled, onCheckedChange = { onChange() })
     }
 }

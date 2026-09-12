@@ -4,19 +4,16 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,7 +37,9 @@ import dev.dsh.mobile.mesh.ui.theme.DsType
 @Composable
 fun ConnectionsScreen(
     onClose: () -> Unit,
+    onOpenHost: (HostConfig) -> Unit,
     onAdd: () -> Unit,
+    connectedHostId: String?,
 ) {
     val hostsStore = rememberHostsStore()
     val hosts by hostsStore.hosts.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -84,7 +83,10 @@ fun ConnectionsScreen(
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
                     items(hosts, key = HostConfig::id) { host ->
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = DsSpacing.small),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenHost(host) }
+                                .padding(vertical = DsSpacing.small),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
@@ -92,7 +94,11 @@ fun ConnectionsScreen(
                                 Text(host.displayAddress, style = DsType.caption11, color = colors.labelTertiary)
                             }
                             Text(
-                                if (host.isLoopback) stringResource(R.string.connect_same_device) else "",
+                                when {
+                                    host.id == connectedHostId -> stringResource(R.string.connect_current)
+                                    host.isLoopback -> stringResource(R.string.connect_same_device)
+                                    else -> ""
+                                },
                                 style = DsType.caption11,
                                 color = colors.labelCaption,
                             )
@@ -101,12 +107,6 @@ fun ConnectionsScreen(
                 }
             }
             Spacer(Modifier.weight(1f))
-            DsButton(
-                text = stringResource(R.string.connect_add_connection),
-                onClick = onAdd,
-                variant = DsButtonVariant.Outline,
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
     }
 }

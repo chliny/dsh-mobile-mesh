@@ -58,6 +58,10 @@ class HostsStore @Inject constructor(
         dataStore.edit { it[Keys.CONNECTION_DRAFT] = WireJson.encodeToString(ConnectionDraft.serializer(), draft) }
     }
 
+    suspend fun clearConnectionDraft() {
+        dataStore.edit { it.remove(Keys.CONNECTION_DRAFT) }
+    }
+
     /** Keep the latest launch token when it was entered from the authentication prompt. */
     suspend fun saveLaunchToken(token: String) {
         dataStore.edit { prefs ->
@@ -134,6 +138,7 @@ class HostsStore @Inject constructor(
         meshTransport: MeshTransport? = null,
         zeroTierNetworkId: String? = null,
         zeroTierPlanetId: String? = null,
+        zeroTierPlanetBase64: String? = null,
         tailscaleHostname: String? = null,
         sshEnabled: Boolean = true,
         sshPort: Int = 22,
@@ -144,7 +149,7 @@ class HostsStore @Inject constructor(
         val existing = hosts.first().firstOrNull { it.host == host && it.port == port }
         val config = HostConfig(
             id = existing?.id ?: UUID.randomUUID().toString(),
-            name = name,
+            name = name.trim().ifEmpty { existing?.name ?: host },
             host = host,
             port = port,
             isLoopback = isLoopback,
@@ -154,6 +159,7 @@ class HostsStore @Inject constructor(
             meshTransport = meshTransport,
             zeroTierNetworkId = zeroTierNetworkId?.takeIf { meshTransport == MeshTransport.ZERO_TIER },
             zeroTierPlanetId = zeroTierPlanetId?.takeIf { meshTransport == MeshTransport.ZERO_TIER },
+            zeroTierPlanetBase64 = zeroTierPlanetBase64?.takeIf { meshTransport == MeshTransport.ZERO_TIER },
             tailscaleHostname = tailscaleHostname?.takeIf { meshTransport == MeshTransport.TAILSCALE },
             sshEnabled = sshEnabled,
             sshPort = sshPort,

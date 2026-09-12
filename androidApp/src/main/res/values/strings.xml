@@ -42,11 +42,14 @@
     <string name="connect_add_connection">Add connection</string>
     <string name="connect_subtitle">DSH Mobile Mesh mirrors the DeepSeek Harness running on your computer.</string>
     <string name="connect_manual_title">Connect manually</string>
+    <string name="connect_name_label">Connection name (optional)</string>
+    <string name="connect_name_hint">Home server</string>
     <string name="connect_host_label">Host address</string>
     <string name="connect_host_hint">192.168.1.20</string>
     <string name="connect_port_label">Port</string>
     <string name="connect_port_hint">3080</string>
     <string name="connect_button">Connect</string>
+    <string name="connect_save">Save</string>
     <string name="connect_transport_direct">Direct</string>
     <string name="connect_transport_zerotier">ZeroTier</string>
     <string name="connect_transport_tailscale">Tailscale</string>
