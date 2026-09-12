@@ -243,9 +243,7 @@ fun ConnectScreen(
 
             ConnectHeader()
 
-            // ---- Manual --------------------------------------------------
             Column(verticalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
-                    SectionHeader(stringResource(R.string.connect_manual_title))
                     TextField(
                         value = connectionName,
                         onValueChange = { connectionName = it },
@@ -458,7 +456,7 @@ fun ConnectScreen(
                                 sshAuthentication = sshAuthentication, sshPassword = sshPassword,
                                 sshPrivateKey = sshPrivateKey, sshPrivateKeyPassphrase = sshPrivateKeyPassphrase,
                                 sshDshHost = sshDshHost,
-                            ) { onOpenConnections?.invoke() ?: onClose?.invoke() }
+                            ) { /* Stay on this form so Save is immediately followed by Connect. */ }
                         },
                         variant = DsButtonVariant.Outline,
                         modifier = Modifier.fillMaxWidth(),
@@ -477,7 +475,9 @@ fun ConnectScreen(
                                 sshDshHost, zeroTierPlanetId, launchToken,
                             )
                         },
-                        enabled = !state.connecting && editingHost?.id != connectedHostId,
+                        enabled = editingHost?.id != connectedHostId &&
+                            !state.connecting &&
+                            (!sshEnabled || sshPassword.isNotBlank() || sshPrivateKey.isNotBlank()),
                         variant = DsButtonVariant.Info,
                         modifier = Modifier.fillMaxWidth(),
                     )

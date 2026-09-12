@@ -323,12 +323,24 @@ class ConnectViewModel @Inject constructor(
     private suspend fun autoConnect() {
         val settings = hostsStore.settingsOnce()
         if (settings.autoConnectLast) {
-            val last = hostsStore.hosts.first().firstOrNull()
+            val hosts = hostsStore.hosts.first()
+            val draft = hostsStore.connectionDraft.first()
+            // The editable draft is the source of truth immediately after Save. Host records are
+            // sorted by their historic successful connection time, so a stale Tailscale record
+            // can otherwise win startup even while the restored form shows the newer ZeroTier host.
+            val draftHost = hosts.firstOrNull { it.host == draft.host.trim() &&
+                it.port == draft.port.trim().toIntOrNull() }
+            val last = draftHost ?: hosts.firstOrNull()
+            android.util.Log.d("ConnectViewModel", "Auto-connect candidate=${last?.authority}, ssh=${last?.sshEnabled}")
             if (last != null) {
                 // Startup restoration has exactly one candidate: the active/most recently used host.
                 // Do not fall through to another saved host when this one is offline.
                 if (last.sshEnabled) {
-                    connectTo(last)
+                    // A mesh/SSH host must be paired with this Harness process before opening its
+                    // mux. Form-entered tokens live in the draft, so include that persisted token
+                    // in automatic startup rather than silently retrying an inevitable 401.
+                    val launchToken = draft.launchToken.trim().takeIf { it.isNotEmpty() }
+                    connectTo(last, launchToken)
                     return
                 }
                 val desc = discoveryEngine.probe(last.host, last.port, ProbeTimeouts.Manual, config = last)
@@ -718,7 +730,12 @@ class ConnectViewModel @Inject constructor(
      */
     fun connectTo(host: HostConfig, launchToken: String? = null) {
         val token = launchToken?.trim()?.takeIf { it.isNotEmpty() }
-        token?.let { pendingLaunchToken = it }
+        token?.let {
+            pendingLaunchToken = it
+            // The saved-form Connect path reaches this method directly. Persist its launch token
+            // before transport startup so an Activity/process interruption cannot erase pairing.
+            viewModelScope.launch { hostsStore.saveLaunchToken(it) }
+        }
         localStage = null
         _state.update {
             it.copy(
@@ -730,12 +747,18 @@ class ConnectViewModel @Inject constructor(
         }
         viewModelScope.launch {
             connectionManager.connect(host) { baseUrl ->
-                val tokenToPair = token ?: return@connect
-                pendingLaunchToken = null
+                // Keep the token pending until the exchange is granted. The transport startup can
+                // fail before this callback runs (or be cancelled by a lifecycle recovery), and
+                // clearing it early otherwise turns the next 401 into an unrecoverable retry loop.
+                val tokenToPair = token ?: pendingLaunchToken ?: return@connect
                 _state.update { it.copy(signingIn = true, signInError = null) }
-                when (val outcome = harnessSessions.pair(host.id, baseUrl, tokenToPair, host.harnessAuthority)) {
-                    is SessionExchange.Granted -> _state.update { it.copy(signingIn = false) }
+                when (harnessSessions.pair(host.id, baseUrl, tokenToPair, host.harnessAuthority)) {
+                    is SessionExchange.Granted -> {
+                        pendingLaunchToken = null
+                        _state.update { it.copy(signingIn = false) }
+                    }
                     is SessionExchange.Refused -> {
+                        pendingLaunchToken = null
                         _state.update {
                             it.copy(signingIn = false, signInOpen = true, signInError = SignInError.Refused)
                         }
@@ -753,18 +776,21 @@ class ConnectViewModel @Inject constructor(
     }
 
     private fun pairLaunchToken(host: HostConfig, token: String) {
-        pendingLaunchToken = null
         tokenPairingJob = viewModelScope.launch {
             _state.update { it.copy(signingIn = true, signInError = null) }
             when (val outcome = harnessSessions.pair(
                 host.id, connectionManager.pairingBaseUrl(host), token, host.harnessAuthority,
             )) {
                 is SessionExchange.Granted -> {
+                    pendingLaunchToken = null
                     _state.update { it.copy(signingIn = false) }
                     connectTo(host)
                 }
-                is SessionExchange.Refused -> _state.update {
-                    it.copy(signingIn = false, signInOpen = true, signInError = SignInError.Refused)
+                is SessionExchange.Refused -> {
+                    pendingLaunchToken = null
+                    _state.update {
+                        it.copy(signingIn = false, signInOpen = true, signInError = SignInError.Refused)
+                    }
                 }
                 is SessionExchange.Unreachable -> _state.update {
                     it.copy(signingIn = false, signInOpen = true, signInError = SignInError.Unreachable)
