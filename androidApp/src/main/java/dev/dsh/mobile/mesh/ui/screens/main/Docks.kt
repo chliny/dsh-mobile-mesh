@@ -201,7 +201,12 @@ internal fun GoalBar(goal: GoalSnapshot, store: SessionStore, modifier: Modifier
 
 /** Pending turns, with the edit / remove / steer verbs the harness exposes. */
 @Composable
-internal fun QueueDock(queue: List<QueueItem>, store: SessionStore, modifier: Modifier = Modifier) {
+internal fun QueueDock(
+    queue: List<QueueItem>,
+    store: SessionStore,
+    onSendQueued: (QueueItem) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     if (queue.isEmpty()) return
     val scope = rememberCoroutineScope()
     val colors = DsTheme.colors
@@ -225,11 +230,13 @@ internal fun QueueDock(queue: List<QueueItem>, store: SessionStore, modifier: Mo
             ) {
                 Text(
                     item.previewText,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onSendQueued(item) },
                     style = DsType.small13,
                     color = colors.labelSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
                 DsPill(text = item.placement)

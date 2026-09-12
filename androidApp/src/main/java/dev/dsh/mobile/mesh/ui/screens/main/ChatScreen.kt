@@ -416,7 +416,16 @@ fun ChatScreen(
                 ) {
                     parseTodos(conv.projections["todos"])?.let { TodoDock(it) }
                     parseGoal(conv.projections["goal"])?.let { GoalBar(it, store) }
-                    QueueDock(conv.queue, store)
+                    QueueDock(
+                        queue = conv.queue,
+                        store = store,
+                        onSendQueued = { item ->
+                            scope.launch {
+                                store.updateQueue(item.id, "remove")
+                                send(item.messageText)
+                            }
+                        },
+                    )
                 }
             }
 

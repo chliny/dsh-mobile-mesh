@@ -109,6 +109,7 @@ data class QueueItem(
     val id: String,
     val placement: String, // queued | steering | context
     val previewText: String,
+    val messageText: String = previewText,
     val content: JsonElement,
 )
 

@@ -67,17 +67,16 @@ fun parseSessionEventEnvelope(eventJson: JsonElement): SessionEventEnvelope? =
 
 /** Convert one authoritative queue snapshot item into the renderer-facing [QueueItem]. */
 fun queuedInboxItemToQueueItem(item: QueuedInboxItem): QueueItem {
-    val preview = item.message.content
+    val messageText = item.message.content
         .filterIsInstance<ContentBlock.Text>()
-        .firstOrNull()
-        ?.text
-        ?.take(120)
-        .orEmpty()
+        .joinToString("\n") { it.text }
+    val preview = messageText.take(120)
     val content = encodeToJsonElement(MessageData.serializer(), item.message)
     return QueueItem(
         id = item.id,
         placement = item.placement,
         previewText = preview,
+        messageText = messageText,
         content = content,
     )
 }
