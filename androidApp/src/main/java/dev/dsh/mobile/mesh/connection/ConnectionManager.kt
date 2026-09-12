@@ -85,14 +85,23 @@ class ConnectionManager @Inject constructor(
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            Log.d("ConnectionManager", "Default network available: $network")
-            if (networkLostWhileConnected) {
+            val previous = defaultNetwork
+            defaultNetwork = network
+            Log.d("ConnectionManager", "Default network available: $network (previous=$previous)")
+            if (networkLostWhileConnected && previous != network) {
                 networkLostWhileConnected = false
                 recoverTransportAfterCarrierLoss()
             }
         }
 
         override fun onLost(network: Network) {
+            // During handover Android can report the old network after the replacement is already
+            // available. Ignore that stale callback or we rebuild a healthy relay unnecessarily.
+            if (network != defaultNetwork) {
+                Log.d("ConnectionManager", "Ignoring stale network lost: $network (current=$defaultNetwork)")
+                return
+            }
+            defaultNetwork = null
             if (_state.value.phase == ConnectionPhase.CONNECTED) networkLostWhileConnected = true
             Log.d("ConnectionManager", "Default network lost: $network")
         }
@@ -111,12 +120,15 @@ class ConnectionManager @Inject constructor(
     private var teardownJob: Job? = null
     @Volatile private var transportRecoveryInFlight = false
     @Volatile private var networkLostWhileConnected = false
+    @Volatile private var defaultNetwork: Network? = null
     @Volatile private var lifecycleEpoch = 0L
     @Volatile private var lastForegroundRecoveryAtMs = 0L
 
     init {
-        runCatching { connectivity.registerDefaultNetworkCallback(networkCallback) }
-            .onFailure { Log.w("ConnectionManager", "Unable to register network callback", it) }
+        runCatching {
+            defaultNetwork = connectivity.activeNetwork
+            connectivity.registerDefaultNetworkCallback(networkCallback)
+        }.onFailure { Log.w("ConnectionManager", "Unable to register network callback", it) }
         // Apply the background-retention toggle immediately instead of waiting for a later
         // handshake. This also tears down the foreground-service notification when it is disabled.
         scope.launch {
@@ -423,8 +435,8 @@ class ConnectionManager @Inject constructor(
      * [reconnectIfNeeded] rebuilds its client: a relay token can rotate while the app is
      * backgrounded, and a socket built with the old one is refused at the upgrade.
      */
-    private fun muxFactory(host: HostConfig, baseUrl: String): () -> RemoteStreamMux = {
-        kotlinx.coroutines.runBlocking { clientFactory.muxFor(host, baseUrl) }
+    private fun muxFactory(host: HostConfig, baseUrl: String): suspend () -> RemoteStreamMux = {
+        clientFactory.muxFor(host, baseUrl)
     }
 
     private suspend fun startTransports(config: HostConfig): String {

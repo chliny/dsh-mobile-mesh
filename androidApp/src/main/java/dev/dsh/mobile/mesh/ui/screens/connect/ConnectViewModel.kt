@@ -39,6 +39,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import java.net.InetAddress
+import java.util.UUID
 import javax.inject.Inject
 
 /** Whether a remembered harness is answering right now. */
@@ -141,6 +142,10 @@ class ConnectViewModel @Inject constructor(
         viewModelScope.launch { hostsStore.saveConnectionDraft(draft) }
     }
 
+    fun clearDraft() {
+        viewModelScope.launch { hostsStore.clearConnectionDraft() }
+    }
+
     /**
      * Non-null while this ViewModel owns the outcome rather than the manager.
      *
@@ -213,7 +218,7 @@ class ConnectViewModel @Inject constructor(
                         // through the manager directly — so a failure after pairing arrived with
                         // no address at all, and the message read "Something answered at , but…".
                         attempted = current.attempted ?: conn.host?.authority,
-                        retrying = !owned && !connected && conn.attempts > 0,
+                        retrying = !owned && !connected && conn.attempts > 0 && conn.phase != ConnectionPhase.DISCONNECTED,
                         // The Recent card's liveness dot used to be greyed by the failure callback
                         // that no longer exists; without this a dead entry keeps looking healthy.
                         recentStatus = current.attempted
@@ -254,8 +259,9 @@ class ConnectViewModel @Inject constructor(
                 _state.update { it.copy(remembered = hosts) }
             }
         }
+        // Restore only the single most recently active host. Other remembered hosts stay dormant
+        // until the user explicitly selects them from the connection list.
         viewModelScope.launch { autoConnect() }
-        viewModelScope.launch { probeRemembered() }
     }
 
     /**
@@ -268,11 +274,16 @@ class ConnectViewModel @Inject constructor(
     private suspend fun probeRemembered() {
         val hosts = hostsStore.hosts.first()
         if (hosts.isEmpty()) return
+        // Do not probe every saved endpoint on launch. The list is a selector, not a dashboard of
+        // liveness; inactive rows must remain idle until selected.
+        val activeId = connectionManager.state.value.host?.id
+        val targets = hosts.filter { it.id == activeId }
+        if (targets.isEmpty()) return
         _state.update { current ->
-            current.copy(recentStatus = hosts.associate { it.authority to HostProbe.Probing })
+            current.copy(recentStatus = targets.associate { it.authority to HostProbe.Probing })
         }
         supervisorScope {
-            hosts.map { host ->
+            targets.map { host ->
                 async {
                     // A private transport has to be started as a whole; probing its DSH port on the
                     // device's ordinary routes would only manufacture an "unreachable" result.
@@ -314,15 +325,15 @@ class ConnectViewModel @Inject constructor(
         if (settings.autoConnectLast) {
             val last = hostsStore.hosts.first().firstOrNull()
             if (last != null) {
+                // Startup restoration has exactly one candidate: the active/most recently used host.
+                // Do not fall through to another saved host when this one is offline.
                 if (last.sshEnabled) {
                     connectTo(last)
                     return
                 }
                 val desc = discoveryEngine.probe(last.host, last.port, ProbeTimeouts.Manual, config = last)
-                if (desc != null) {
-                    connectTo(last)
-                    return
-                }
+                if (desc != null) connectTo(last)
+                return
             }
         }
         // 2. LAN discovery.
@@ -420,6 +431,7 @@ class ConnectViewModel @Inject constructor(
     }
 
     fun connectManual(
+        name: String,
         host: String,
         port: String,
         sshEnabled: Boolean,
@@ -463,7 +475,7 @@ class ConnectViewModel @Inject constructor(
         viewModelScope.launch {
             if (sshEnabled) {
                 val config = hostsStore.rememberHost(
-                    name = hostLabel(input.host),
+                    name = name,
                     host = input.host,
                     port = portInt,
                     isLoopback = isLoopback,
@@ -500,7 +512,7 @@ class ConnectViewModel @Inject constructor(
             }
             hostsStore.addKnownPort(portInt)
             val config = hostsStore.rememberHost(
-                name = hostLabel(input.host),
+                name = name,
                 host = input.host,
                 port = portInt,
                 isLoopback = isLoopback,
@@ -515,6 +527,7 @@ class ConnectViewModel @Inject constructor(
 
     /** Save a private-network target and start its embedded userspace relay. */
     fun connectMesh(
+        name: String,
         host: String,
         port: String,
         transport: MeshTransport,
@@ -547,7 +560,7 @@ class ConnectViewModel @Inject constructor(
         _state.update { it.copy(stage = ConnectStage.Reaching, failure = null, attempted = authority) }
         viewModelScope.launch {
             val config = hostsStore.rememberHost(
-                name = hostLabel(input.host),
+                name = name,
                 host = input.host,
                 port = portInt,
                 isLoopback = false,
@@ -580,6 +593,70 @@ class ConnectViewModel @Inject constructor(
 
     suspend fun importZeroTierPlanetBase64(encoded: String): Result<String> = runCatching {
         zeroTierPlanets.importBase64(encoded)
+    }
+
+    fun savedSshCredentials(hostId: String): SshCredentials? = sshSecrets.get(hostId)
+
+    /** Persist the form without starting or replacing the live connection. */
+    fun saveConnection(
+        existing: HostConfig?,
+        name: String,
+        host: String,
+        port: String,
+        transport: MeshTransport?,
+        networkId: String,
+        planetId: String?,
+        planetBase64: String,
+        tailscaleHostname: String,
+        sshEnabled: Boolean,
+        sshPort: String,
+        sshUsername: String,
+        sshAuthentication: SshAuthentication,
+        sshPassword: String,
+        sshPrivateKey: String,
+        sshPrivateKeyPassphrase: String,
+        sshDshHost: String,
+        onSaved: () -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            val input = parseHostInput(host) ?: return@launch
+            val portInt = input.port ?: port.trim().toIntOrNull() ?: return@launch
+            if (portInt !in 1..65535) return@launch
+            val importedPlanetId = if (transport == MeshTransport.ZERO_TIER && planetBase64.isNotBlank()) {
+                zeroTierPlanets.importBase64(planetBase64).also { }
+            } else planetId
+            val config = HostConfig(
+                id = existing?.id ?: UUID.randomUUID().toString(),
+                name = name.trim().ifEmpty { input.host },
+                host = input.host,
+                port = portInt,
+                isLoopback = input.host == LOOPBACK || input.host == "localhost",
+                useTls = input.useTls ?: (portInt == 443),
+                lastConnectedAt = existing?.lastConnectedAt ?: 0L,
+                lastHome = existing?.lastHome,
+                meshTransport = transport,
+                zeroTierNetworkId = networkId.trim().lowercase().takeIf { transport == MeshTransport.ZERO_TIER },
+                zeroTierPlanetId = importedPlanetId?.takeIf { transport == MeshTransport.ZERO_TIER },
+                zeroTierPlanetBase64 = planetBase64.filterNot(Char::isWhitespace).takeIf { transport == MeshTransport.ZERO_TIER && it.isNotBlank() },
+                tailscaleHostname = tailscaleHostname.trim().takeIf { transport == MeshTransport.TAILSCALE && it.isNotBlank() },
+                sshEnabled = sshEnabled,
+                sshPort = sshPort.trim().toIntOrNull() ?: 22,
+                sshUsername = sshUsername.trim().takeIf { sshEnabled && it.isNotBlank() },
+                sshAuthentication = sshAuthentication,
+                sshDshHost = sshDshHost.trim().ifEmpty { "127.0.0.1" },
+            )
+            hostsStore.upsertHost(config)
+            if (sshEnabled) {
+                sshSecrets.put(config.id, SshCredentials(
+                    password = sshPassword.takeIf { sshAuthentication == SshAuthentication.PASSWORD && it.isNotEmpty() },
+                    privateKey = sshPrivateKey.takeIf { sshAuthentication == SshAuthentication.PRIVATE_KEY && it.isNotEmpty() },
+                    privateKeyPassphrase = sshPrivateKeyPassphrase.takeIf { it.isNotEmpty() },
+                ))
+            } else {
+                sshSecrets.remove(config.id)
+            }
+            onSaved()
+        }
     }
 
     /** Stop a connect attempt that the loop would otherwise keep retrying every few seconds. */

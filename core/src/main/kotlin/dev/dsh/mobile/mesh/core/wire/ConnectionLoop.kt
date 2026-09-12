@@ -204,6 +204,9 @@ class ConnectionLoop(
                 }
             }
             if (!currentCoroutineContext().isActive) break
+            // A transport recovery can deliberately replace the loop while the old generation is
+            // still unwinding. Do not spend a backoff tick after a successful replacement.
+            if (attempt == 0) continue
             config.delay(nextBackoff(attempt))
         }
     }
@@ -224,11 +227,17 @@ class ConnectionLoop(
      */
     private suspend fun openGeneration(): Opened {
         safeSink { sinks.onHandshakeStep(HandshakeStep.OPENING_MUX) }
-        val mux = muxFactory()
+        val mux = try {
+            muxFactory()
+        } catch (e: Throwable) {
+            return Opened.Failed(
+                GenerationFailure.MuxFailed(TransportFailures.classify(e), e.message),
+            )
+        }
         current = mux
-        mux.start()
 
         try {
+            mux.start()
             withTimeout(config.streamOpenTimeoutMs) { mux.awaitOpen() }
         } catch (e: TimeoutCancellationException) {
             return Opened.Failed(GenerationFailure.MuxTimedOut(config.streamOpenTimeoutMs))
@@ -314,7 +323,8 @@ class ConnectionLoop(
                 mux.awaitClosed()
             }
         } finally {
-            events.cancel()
+            // The shared mux owns the carrier lifecycle. Cancelling the logical events stream here
+            // can race a reconnect/close on native-backed transports; close the generation instead.
         }
     }
 

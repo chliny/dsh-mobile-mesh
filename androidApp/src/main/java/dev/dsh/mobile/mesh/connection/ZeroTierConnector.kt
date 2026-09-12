@@ -11,6 +11,8 @@ import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -131,6 +133,7 @@ class ZeroTierConnector @Inject constructor(
 
     private fun relayFor(config: HostConfig): MeshRelay {
         val addresses = InetAddress.getAllByName(config.host).mapNotNull { it.hostAddress }.distinct()
+        Log.d(TAG, "Resolved ZeroTier relay target ${config.host} -> ${addresses.joinToString()}")
         require(addresses.isNotEmpty()) { "ZeroTier server name did not resolve" }
         val remotePort = if (config.sshEnabled) config.sshPort else config.port
         relay?.takeIf { it.canReuse(addresses, remotePort) }?.let {
@@ -160,6 +163,7 @@ private class ZeroTierRelay(
     private val executor: java.util.concurrent.ExecutorService,
 ) : Closeable {
     private val server = ServerSocket(0, 32, InetAddress.getByName("127.0.0.1"))
+    private val sockets = Collections.newSetFromMap(ConcurrentHashMap<ZeroTierSocket, Boolean>())
     @Volatile private var running = false
     val localPort: Int get() = server.localPort
     val relay: MeshRelay get() = MeshRelay("127.0.0.1", localPort)
@@ -180,10 +184,15 @@ private class ZeroTierRelay(
     private fun forward(local: Socket) {
         local.use { client ->
             val remote = connect() ?: return
+            sockets.add(remote)
             try {
-                executor.execute { runCatching { client.getInputStream().copyTo(remote.outputStream) } }
+                executor.execute {
+                    try { client.getInputStream().copyTo(remote.outputStream) }
+                    finally { runCatching { remote.close() } }
+                }
                 runCatching { remote.inputStream.copyTo(client.getOutputStream()) }
             } finally {
+                sockets.remove(remote)
                 runCatching { remote.close() }
             }
         }
@@ -205,7 +214,12 @@ private class ZeroTierRelay(
         return null
     }
 
-    override fun close() { running = false; runCatching { server.close() } }
+    override fun close() {
+        running = false
+        runCatching { server.close() }
+        sockets.toList().forEach { socket -> runCatching { socket.close() } }
+        sockets.clear()
+    }
 
     private companion object {
         const val TAG = "ZeroTierRelay"

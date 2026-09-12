@@ -104,6 +104,9 @@ class SshTunnelManager @Inject constructor(
                 start()
             }
             val relay = SshRelay("http://127.0.0.1:${server.localPort}")
+            thread.setUncaughtExceptionHandler { _, error ->
+                Log.w(TAG, "SSH forwarder stopped unexpectedly", error)
+            }
             active = ActiveTunnel(config.id, sshHost, sshPort, client, forwarder, thread, relay)
             Log.d(TAG, "SSH local forward ready at ${relay.baseUrl} -> ${config.sshDshHost}:${config.port}")
             relay
@@ -134,7 +137,7 @@ class SshTunnelManager @Inject constructor(
     ) : Closeable {
         fun canReuse(configId: String, sshHost: String, sshPort: Int): Boolean =
             this.configId == configId && this.sshHost == sshHost && this.sshPort == sshPort &&
-                client.isConnected && client.isAuthenticated && thread.isAlive
+                client.isConnected && client.isAuthenticated && client.transport.isRunning && thread.isAlive
 
         override fun close() {
             runCatching { forwarder.close() }
