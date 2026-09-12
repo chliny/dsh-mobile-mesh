@@ -477,11 +477,12 @@ fun ChatListDrawer(
 private fun AddMenu(onNewSession: () -> Unit, onNewWorkspace: () -> Unit) {
     DsMenu(
         anchor = {
-            Icon(
-                Icons.Filled.Add,
+            DsIconButton(
+                icon = Icons.Filled.Add,
                 contentDescription = stringResource(R.string.chatlist_new_session),
+                onClick = {},
                 tint = DsTheme.colors.labelTertiary,
-                modifier = Modifier.size(20.dp),
+                iconSize = 20.dp,
             )
         },
         items = listOf(
@@ -514,20 +515,13 @@ private fun SortChip(byRecency: Boolean, onPick: (byRecency: Boolean) -> Unit) {
     val manual = stringResource(R.string.chatlist_sort_manual)
     DsMenu(
         anchor = {
-            Row(
-                modifier = Modifier
-                    .clip(DsShapes.cube)
-                    .padding(horizontal = DsSpacing.xsmall, vertical = DsSpacing.tiny),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
-            ) {
-                Icon(
-                    Icons.Filled.SwapVert,
-                    contentDescription = stringResource(R.string.chatlist_sort_title),
-                    tint = colors.labelTertiary,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+            DsIconButton(
+                icon = Icons.Filled.SwapVert,
+                contentDescription = stringResource(R.string.chatlist_sort_title),
+                onClick = {},
+                tint = colors.labelTertiary,
+                iconSize = 20.dp,
+            )
         },
         items = listOf(
             MenuItem(text = manual, selected = !byRecency) { onPick(false) },

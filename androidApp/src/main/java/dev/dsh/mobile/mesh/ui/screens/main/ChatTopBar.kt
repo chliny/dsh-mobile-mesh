@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,9 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
-import dev.dsh.mobile.mesh.core.wire.dto.ContextPressureView
 import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
-import dev.dsh.mobile.mesh.ui.components.ContextMeterCircle
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.components.DsSegment
 import dev.dsh.mobile.mesh.ui.components.DsSegmented
@@ -70,7 +69,6 @@ internal fun ChatTopBar(
     title: String,
     connectionPhase: ConnectionPhase,
     models: SessionModelsValue?,
-    contextPressure: ContextPressureView?,
     agentPresetLabel: String?,
     subagentCount: Int,
     detailsOpen: Boolean,
@@ -93,8 +91,8 @@ internal fun ChatTopBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             DsIconButton(
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = stringResource(R.string.common_back),
+                icon = Icons.AutoMirrored.Outlined.List,
+                contentDescription = stringResource(R.string.chatlist_open),
                 onClick = onOpenDrawer,
                 tint = colors.labelSecondary,
                 iconSize = 18.dp,
@@ -109,14 +107,18 @@ internal fun ChatTopBar(
                 )
                 AgentLabel(agentPresetLabel, onOpenPresets)
             }
-            ConnectionStatusDot(connectionPhase)
-            ContextMeterCircle(contextPressure)
+            Box(
+                modifier = Modifier.size(DsSpacing.touchTarget),
+                contentAlignment = Alignment.Center,
+            ) {
+                ConnectionStatusDot(connectionPhase)
+            }
             DsIconButton(
                 icon = Icons.Filled.Folder,
                 contentDescription = stringResource(R.string.workspace_files_title),
                 onClick = onOpenFiles,
                 tint = colors.labelTertiary,
-                iconSize = 18.dp,
+                iconSize = 20.dp,
             )
             if (!detailsOpen) {
                 DsIconButton(
@@ -124,7 +126,7 @@ internal fun ChatTopBar(
                     contentDescription = stringResource(R.string.chat_details_title),
                     onClick = onOpenDetails,
                     tint = colors.labelTertiary,
-                    iconSize = 18.dp,
+                    iconSize = 20.dp,
                 )
             }
         }
@@ -296,6 +298,7 @@ private fun ChatTabRow(
             role = Role.Tab,
         )
         if (subagentCount > 0) {
+            Spacer(Modifier.width(DsSpacing.small))
             MetaChip(
                 icon = Icons.Outlined.Groups,
                 label = "$subagentCount",
