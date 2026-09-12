@@ -15,6 +15,13 @@ val buildTsnetAndroid by tasks.registering(Exec::class) {
     outputs.dir(layout.buildDirectory.dir("generated/tsnet-jniLibs"))
 }
 
+val dshAndroidAbis = System.getenv("DSH_ANDROID_ABIS")
+    ?.split(',')
+    ?.map(String::trim)
+    ?.filter(String::isNotEmpty)
+    ?.distinct()
+    ?.takeIf { it.isNotEmpty() }
+    ?: listOf("arm64-v8a", "armeabi-v7a")
 val dshVersionName = System.getenv("DSH_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.1.0"
 val dshVersionCode = dshVersionName.substringBefore('-').split('.').mapNotNull(String::toIntOrNull).let { parts ->
     parts.getOrElse(0) { 0 } * 10_000 + parts.getOrElse(1) { 0 } * 100 + parts.getOrElse(2) { 0 }
@@ -41,6 +48,7 @@ android {
         applicationId = "dev.dsh.mobile.mesh"
         minSdk = 26
         targetSdk = 35
+        ndk { abiFilters += dshAndroidAbis }
         versionCode = dshVersionCode
         versionName = dshVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
