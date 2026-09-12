@@ -204,6 +204,30 @@ class EventFoldTest {
      * imperfectly, which is the opposite of the fold's leniency contract everywhere else.
      */
     @Test
+    fun extractsNestedToolResultContentForTerminalRendering() {
+        val events = listOf(
+            event("tool/result", 1, buildJsonObject {
+                put("turn", 1); put("step", 2)
+                putJsonObject("message") {
+                    putJsonArray("content") {
+                        add(buildJsonObject {
+                            put("type", "tool-result")
+                            put("toolCallId", "bash-1")
+                            put("isError", false)
+                            putJsonArray("content") {
+                                add(buildJsonObject { put("type", "text"); put("text", "hello from bash") })
+                            }
+                        })
+                    }
+                }
+            }),
+        )
+        val result = EventFold("s1").fold(events).nodes.single() as ToolResultNode
+        assertEquals("bash-1", result.callId)
+        assertEquals("hello from bash", result.content?.jsonArray?.single()?.jsonObject?.get("text")?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun foldsStringUserContentIntoATextBlock() {
         val events = listOf(
             event("user/message", 1, buildJsonObject {
