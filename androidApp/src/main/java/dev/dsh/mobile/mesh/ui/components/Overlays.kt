@@ -132,11 +132,11 @@ data class MenuItem(
  * hover fill, and danger rows in error/dangerHover.
  */
 @Composable
-fun DsMenu(anchor: @Composable () -> Unit, items: List<MenuItem>) {
+fun DsMenu(anchor: @Composable (onOpen: () -> Unit) -> Unit, items: List<MenuItem>) {
     val colors = DsTheme.colors
     var expanded by remember { mutableStateOf(false) }
     Box {
-        Box(Modifier.clickable { expanded = true }) { anchor() }
+        Box { anchor { expanded = true } }
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },

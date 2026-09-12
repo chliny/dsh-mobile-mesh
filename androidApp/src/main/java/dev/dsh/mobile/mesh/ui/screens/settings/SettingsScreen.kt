@@ -562,9 +562,10 @@ private fun LanguageRow(settings: AppSettings, onSelect: (String?) -> Unit) {
             modifier = Modifier.weight(1f),
         )
         DsMenu(
-            anchor = {
+            anchor = { onOpen ->
                 Row(
                     modifier = Modifier
+                        .clickable(onClick = onOpen)
                         .clip(DsShapes.pillFull)
                         .background(colors.hoverSolid)
                         .border(1.dp, colors.borderL2, DsShapes.pillFull)

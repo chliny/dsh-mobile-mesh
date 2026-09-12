@@ -140,12 +140,12 @@ internal fun GoalBar(goal: GoalSnapshot, store: SessionStore, modifier: Modifier
         DsPill(text = stringResource(goalPhaseLabelRes(goal.phase)))
         Spacer(Modifier.width(4.dp))
         DsMenu(
-            anchor = {
+            anchor = { onOpen ->
                 Icon(
                     Icons.Filled.MoreVert,
                     contentDescription = stringResource(R.string.goal_edit),
                     tint = colors.labelTertiary,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(20.dp).clickable(onClick = onOpen),
                 )
             },
             items = buildList {
@@ -241,12 +241,12 @@ internal fun QueueDock(
                 Spacer(Modifier.width(8.dp))
                 DsPill(text = item.placement)
                 DsMenu(
-                    anchor = {
+                    anchor = { onOpen ->
                         Icon(
                             Icons.Filled.MoreVert,
                             contentDescription = stringResource(R.string.chat_queue_edit),
                             tint = colors.labelTertiary,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(18.dp).clickable(onClick = onOpen),
                         )
                     },
                     items = listOf(

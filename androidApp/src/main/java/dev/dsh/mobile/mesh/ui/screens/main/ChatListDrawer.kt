@@ -495,11 +495,11 @@ fun ChatListDrawer(
 @Composable
 private fun AddMenu(onNewSession: () -> Unit, onNewWorkspace: () -> Unit) {
     DsMenu(
-        anchor = {
+        anchor = { onOpen ->
             DsIconButton(
                 icon = Icons.Filled.Add,
                 contentDescription = stringResource(R.string.chatlist_new_session),
-                onClick = {},
+                onClick = onOpen,
                 tint = DsTheme.colors.labelTertiary,
                 iconSize = 20.dp,
             )
@@ -533,11 +533,11 @@ private fun SortChip(byRecency: Boolean, onPick: (byRecency: Boolean) -> Unit) {
     val updated = stringResource(R.string.chatlist_sort_updated)
     val manual = stringResource(R.string.chatlist_sort_manual)
     DsMenu(
-        anchor = {
+        anchor = { onOpen ->
             DsIconButton(
                 icon = Icons.Filled.SwapVert,
                 contentDescription = stringResource(R.string.chatlist_sort_title),
-                onClick = {},
+                onClick = onOpen,
                 tint = colors.labelTertiary,
                 iconSize = 20.dp,
             )
