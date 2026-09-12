@@ -171,8 +171,10 @@ fun DetailsPanel(
                     onArchive = { scope.launch { currentSessionId?.let { store.archiveSession(it) } } },
                     onOpenModels = { sheet = DetailsSheet.Models },
                     onOpenPresets = {
-                        scope.launch { store.refreshAgentPresets() }
+                        // Open the sheet immediately; cached presets render first while a refresh
+                        // continues off the interaction path.
                         sheet = DetailsSheet.Presets
+                        scope.launch { store.refreshAgentPresets() }
                     },
                 )
 

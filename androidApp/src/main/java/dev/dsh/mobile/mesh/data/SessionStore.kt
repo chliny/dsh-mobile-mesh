@@ -433,6 +433,15 @@ class SessionStore @Inject constructor(
     private var currentQueue = emptyList<QueueItem>()
 
     /**
+     * Recently rendered conversations, kept by session id so a slow follow snapshot never blanks the
+     * screen when the user switches back to a session. The live stream remains authoritative and
+     * replaces the cached value as soon as its snapshot arrives.
+     */
+    private val conversationCache = object : LinkedHashMap<String, ConversationSnapshot>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ConversationSnapshot>?): Boolean = size > 8
+    }
+
+    /**
      * The open session's follow cursor: the log cut its current stream generation opened at.
      *
      * `session/page` will not answer without it. Paging is pinned to the same cut the live tail
@@ -447,6 +456,12 @@ class SessionStore @Inject constructor(
      * folded after the durable window and retired by the settlement. Guarded by [lock].
      */
     private val liveAssistant = AssistantLiveState()
+
+    /** Session-scoped metadata caches keep sheets usable while a weak network refresh is pending. */
+    private val skillsCache = LinkedHashMap<String, List<SkillEntry>>()
+    private var modelCatalogCache: ModelCatalog? = null
+    private var agentPresetsCache: AgentPresetListValue? = null
+    private var commandsCache: List<CommandDescriptor>? = null
 
     /** The open session's live journal. Cancelled and replaced whenever the open session changes. */
     private var followJob: Job? = null
@@ -1100,6 +1115,7 @@ class SessionStore @Inject constructor(
             projections = currentProjections.mapValues { it.value.value },
         )
         _currentConversation.value = merged
+        conversationCache[sid] = merged
     }
 
     private fun emitSessionsLocked() {
@@ -1188,7 +1204,17 @@ class SessionStore @Inject constructor(
     private fun applyWorkspaceValue(value: WorkspaceValue) = upsertWorkspace(value.workspace)
 
     suspend fun openSession(sessionId: String) = withContext(Dispatchers.Default) {
-        val api = apiOrNull() ?: return@withContext
+        val cached = synchronized(lock) { conversationCache[sessionId] }
+        val api = apiOrNull()
+        if (api == null) {
+            synchronized(lock) {
+                currentId = sessionId
+                _currentSessionId.value = sessionId
+                _currentConversation.value = cached
+            }
+            rememberLastSession(sessionId)
+            return@withContext
+        }
         _loadOlderFailed.value = false
         synchronized(lock) {
             val same = currentId == sessionId
@@ -1950,9 +1976,11 @@ class SessionStore @Inject constructor(
      */
     suspend fun refreshCommands() {
         val sid = currentSessionId.value ?: return
+        synchronized(lock) { commandsCache?.let { _commands.value = it; _commandsAvailable.value = true } }
         val api = apiOrNull() ?: return
         when (val r = api.commandsList(sid)) {
             is RpcResult.Ok -> synchronized(lock) {
+                commandsCache = r.value
                 if (currentId == sid) {
                     _commands.value = r.value
                     _commandsAvailable.value = true
@@ -2063,9 +2091,13 @@ class SessionStore @Inject constructor(
 
     /** Reload the agent-preset roster (host-scoped, so it survives session switches). */
     suspend fun refreshAgentPresets() {
+        synchronized(lock) { agentPresetsCache?.let { _agentPresets.value = it } }
         val api = apiOrNull() ?: return
         when (val r = api.agentPresetList()) {
-            is RpcResult.Ok -> _agentPresets.value = r.value
+            is RpcResult.Ok -> synchronized(lock) {
+                agentPresetsCache = r.value
+                _agentPresets.value = r.value
+            }
             is RpcResult.Err -> log("agentPreset.list unavailable (${r.error.code}): ${r.error.message}")
         }
     }
@@ -2127,9 +2159,11 @@ class SessionStore @Inject constructor(
     }
 
     private suspend fun loadSkills(sessionId: String) {
+        synchronized(lock) { skillsCache[sessionId]?.let { _skills.value = it } }
         val api = apiOrNull() ?: return
         when (val r = api.skillList(SkillListRequest(sessionId))) {
             is RpcResult.Ok -> synchronized(lock) {
+                skillsCache[sessionId] = r.value.skills
                 if (currentId == sessionId) _skills.value = r.value.skills
             }
             is RpcResult.Err -> setConnectionError(r.error.message)
@@ -2137,11 +2171,13 @@ class SessionStore @Inject constructor(
     }
 
     private suspend fun loadModels(sessionId: String) {
+        synchronized(lock) { modelCatalogCache?.let { _models.value = it } }
         val api = apiOrNull() ?: return
         // Host-scoped now, not session-scoped: `session/modelCatalog` describes the generation's
         // routable models, and the session's own current selection comes from its projections.
         when (val r = api.sessionModelCatalog()) {
             is RpcResult.Ok -> synchronized(lock) {
+                modelCatalogCache = r.value
                 if (currentId == sessionId) _models.value = r.value
             }
             is RpcResult.Err -> setConnectionError(r.error.message)
