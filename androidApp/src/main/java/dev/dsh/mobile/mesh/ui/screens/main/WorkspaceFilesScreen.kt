@@ -71,7 +71,14 @@ fun WorkspaceFilesScreen(
                 tint = DsTheme.colors.labelSecondary,
                 iconSize = 18.dp,
             )
-            Text(stringResource(R.string.workspace_files_title), style = DsType.large20)
+            Text(
+                currentPath
+                    .trimEnd('/')
+                    .takeIf { it.isNotBlank() && it != "." }
+                    ?.substringAfterLast('/')
+                    ?: stringResource(R.string.workspace_files_title),
+                style = DsType.large20,
+            )
         }
         when (level) {
             null, DirectoryLevel.Loading -> Text(stringResource(R.string.common_loading), modifier = Modifier.padding(16.dp))
