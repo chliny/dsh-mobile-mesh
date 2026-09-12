@@ -52,6 +52,7 @@ import dev.dsh.mobile.mesh.ui.components.PlanReviewPanel
 import dev.dsh.mobile.mesh.ui.components.planReviewOf
 import dev.dsh.mobile.mesh.ui.components.QuestionsPanel
 import dev.dsh.mobile.mesh.ui.components.rememberDsToast
+import dev.dsh.mobile.mesh.ui.rememberChatDraftStore
 import dev.dsh.mobile.mesh.ui.rememberSessionStore
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
@@ -79,6 +80,7 @@ fun ChatScreen(
     onOpenFile: (String, String) -> Unit = { _, _ -> },
 ) {
     val store = rememberSessionStore()
+    val draftStore = rememberChatDraftStore()
     val scope = rememberCoroutineScope()
     val colors = DsTheme.colors
     val context = LocalContext.current
@@ -105,7 +107,6 @@ fun ChatScreen(
     val sessionStats by store.sessionStats.collectAsStateWithLifecycle()
     val tokenUsage by store.tokenUsage.collectAsStateWithLifecycle()
     val contextBreakdown by store.contextBreakdown.collectAsStateWithLifecycle()
-    val contextPressure by store.contextPressure.collectAsStateWithLifecycle()
     val imageLimits by store.imageLimits.collectAsStateWithLifecycle()
 
     val currentSession = sessions.firstOrNull { it.sessionId == currentSessionId }
@@ -113,7 +114,7 @@ fun ChatScreen(
         ?: currentSession?.cwd?.let { basename(it) }
         ?: currentSessionId.orEmpty()
 
-    var draft by rememberSaveable(currentSessionId) { mutableStateOf("") }
+    var draft by remember(currentSessionId) { mutableStateOf(currentSessionId?.let(draftStore::get).orEmpty()) }
     var mode by rememberSaveable(currentSessionId) { mutableStateOf("queue") }
     var tab by rememberSaveable { mutableStateOf(ChatTab.Chat) }
     val attachments = remember(currentSessionId) { mutableStateListOf<PendingAttachment>() }
@@ -335,7 +336,6 @@ fun ChatScreen(
                 title = title,
                 connectionPhase = connectionPhase,
                 models = models,
-                contextPressure = contextPressure,
                 agentPresetLabel = currentSession?.agentPreset?.let { agentPresetLabel(it, agentPresets) },
                 subagentCount = subagents.size,
                 detailsOpen = detailsOpen,
@@ -479,6 +479,7 @@ fun ChatScreen(
                         // so it ends the request rather than answering it with the refusal.
                         onDiscuss = {
                             draft = ""
+                            draftStore.clear(questions.sessionId)
                             settle { store.dismissQuestions(questions.sessionId) }
                         },
                     )
@@ -496,7 +497,10 @@ fun ChatScreen(
 
             Composer(
                 draft = draft,
-                onDraftChange = { draft = it },
+                onDraftChange = {
+                    draft = it
+                    currentSessionId?.let { sessionId -> draftStore.set(sessionId, it) }
+                },
                 attachments = attachments,
                 onRemoveAttachment = { index -> attachments.removeAt(index) },
                 onRetryAttachment = { index ->
@@ -506,7 +510,7 @@ fun ChatScreen(
                 pendingPermission = pendingPermission,
                 onPermissionPick = { value -> scope.launch { report(store.setPermissionPreset(value)) } },
                 contextBreakdown = contextBreakdown,
-                contextPressure = contextPressure,
+                contextPressure = null,
                 models = models,
                 onOpenModels = { sheet = ChatSheet.Models },
                 running = conversation?.running == true,

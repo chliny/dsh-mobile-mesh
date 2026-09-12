@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -51,7 +52,8 @@ import dev.dsh.mobile.mesh.ui.theme.DshTheme
 fun MarkdownText(text: String, modifier: Modifier = Modifier) {
     val colors = DsTheme.colors
     val blocks = remember(text) { parseMarkdown(text) }
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    SelectionContainer {
+        Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         blocks.forEach { block ->
             when (block) {
                 is MdBlock.Heading -> {
@@ -74,6 +76,7 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
                 is MdBlock.Table -> block.rows.forEach { row ->
                     InlineMarkdown(row, DsType.mdSmall.copy(color = colors.labelTertiary), Modifier.fillMaxWidth())
                 }
+            }
             }
         }
     }

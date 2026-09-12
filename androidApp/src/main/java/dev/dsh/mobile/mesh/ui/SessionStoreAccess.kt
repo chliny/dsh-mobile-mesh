@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import dev.dsh.mobile.mesh.connection.HostsStore
+import dev.dsh.mobile.mesh.data.ChatDraftStore
 import dev.dsh.mobile.mesh.data.SessionStore
 import dev.dsh.mobile.mesh.data.WorkspaceFilesStore
 import dagger.hilt.EntryPoint
@@ -23,8 +24,17 @@ import dagger.hilt.components.SingletonComponent
 @InstallIn(SingletonComponent::class)
 interface SessionStoreEntryPoint {
     fun sessionStore(): SessionStore
+    fun chatDraftStore(): ChatDraftStore
     fun workspaceFilesStore(): WorkspaceFilesStore
     fun hostsStore(): HostsStore
+}
+
+@Composable
+internal fun rememberChatDraftStore(): ChatDraftStore {
+    val context = LocalContext.current.applicationContext
+    return remember {
+        EntryPointAccessors.fromApplication(context, SessionStoreEntryPoint::class.java).chatDraftStore()
+    }
 }
 
 /** Resolves the process-scoped [SessionStore] once per composition. */

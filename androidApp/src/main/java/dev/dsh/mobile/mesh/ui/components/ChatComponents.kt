@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -57,16 +58,18 @@ import java.util.Locale
 fun UserBubble(text: String, modifier: Modifier = Modifier) {
     val colors = DsTheme.colors
     BoxWithConstraints(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-        Text(
-            text,
-            style = DsType.bubbleText,
-            color = colors.labelPrimary,
-            modifier = Modifier
-                .widthIn(max = minOf(525.dp, maxWidth * 0.82f))
-                .background(colors.userBubble, DsShapes.bubble)
-                .border(1.dp, colors.borderL3, DsShapes.bubble)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-        )
+        SelectionContainer {
+            Text(
+                text,
+                style = DsType.bubbleText,
+                color = colors.labelPrimary,
+                modifier = Modifier
+                    .widthIn(max = minOf(525.dp, maxWidth * 0.82f))
+                    .background(colors.userBubble, DsShapes.bubble)
+                    .border(1.dp, colors.borderL3, DsShapes.bubble)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+        }
     }
 }
 
