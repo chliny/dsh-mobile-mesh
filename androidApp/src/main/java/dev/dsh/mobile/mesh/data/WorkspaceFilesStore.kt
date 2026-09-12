@@ -57,6 +57,12 @@ class WorkspaceFilesStore @Inject constructor(
         _state.value = WorkspaceFilesState(sessionId = sessionId, levels = cached)
     }
 
+    fun cachedEntries(sessionId: String): List<WorkspaceDirectoryEntry> =
+        listingCache[sessionId].orEmpty().values
+            .flatMap { it.listing.entries }
+            .distinctBy { it.name }
+            .sortedBy { it.name }
+
     fun list(sessionId: String, path: String, reload: Boolean = false) {
         if (_state.value.sessionId != sessionId) reset(sessionId)
         if (!reload && _state.value.levels[path] is DirectoryLevel.Ready) return

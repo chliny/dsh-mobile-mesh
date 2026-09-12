@@ -1343,6 +1343,8 @@ class SessionStore @Inject constructor(
         synchronized(lock) {
             if (currentId != sessionId) return@synchronized
             followCursor = frame.cursor
+            // Keep the currently rendered conversation while replacing the journal. Rebuilding only
+            // after the complete snapshot prevents a reconnect from flashing an empty transcript.
             currentEvents.clear()
             currentEvents.addAll(page)
             currentEvents.sortBy { it.seq }

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +55,7 @@ import dev.dsh.mobile.mesh.ui.components.QuestionsPanel
 import dev.dsh.mobile.mesh.ui.components.rememberDsToast
 import dev.dsh.mobile.mesh.ui.rememberChatDraftStore
 import dev.dsh.mobile.mesh.ui.rememberSessionStore
+import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import androidx.compose.ui.res.stringResource
@@ -125,6 +127,11 @@ fun ChatScreen(
     val chatListState = rememberLazyListState()
     val trajectoryListState = rememberLazyListState()
 
+    val workspaceFiles = rememberWorkspaceFilesStore()
+    val fileCandidates = currentSessionId?.let(workspaceFiles::cachedEntries).orEmpty()
+    LaunchedEffect(currentSessionId) {
+        currentSessionId?.let { workspaceFiles.list(it, ".") }
+    }
     val commandFailed = stringResource(R.string.err_command_failed)
     val unknownCommand = stringResource(R.string.err_command_unknown)
 
@@ -516,6 +523,8 @@ fun ChatScreen(
                 running = conversation?.running == true,
                 enabled = currentSessionId != null,
                 onOpenSheet = { sheet = ChatSheet.Commands },
+                commands = commands,
+                fileCandidates = fileCandidates,
                 onSend = ::send,
                 onStop = { scope.launch { store.cancelTurn() } },
             )

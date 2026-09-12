@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -63,6 +64,8 @@ import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.ContextBreakdownView
 import dev.dsh.mobile.mesh.core.wire.dto.ContextPressureView
+import dev.dsh.mobile.mesh.core.wire.dto.CommandDescriptor
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryEntry
 import dev.dsh.mobile.mesh.core.wire.dto.FULL_ACCESS_PRESET
 import dev.dsh.mobile.mesh.core.wire.dto.EncodedImageAttachment
 import dev.dsh.mobile.mesh.core.wire.dto.FileAttachmentRef
@@ -158,6 +161,8 @@ internal fun Composer(
     running: Boolean,
     enabled: Boolean,
     onOpenSheet: () -> Unit,
+    commands: List<CommandDescriptor> = emptyList(),
+    fileCandidates: List<WorkspaceDirectoryEntry> = emptyList(),
     onSend: (String) -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
@@ -171,6 +176,17 @@ internal fun Composer(
     val currentDraft by rememberUpdatedState(draft)
     val currentOnDraftChange by rememberUpdatedState(onDraftChange)
     val currentOnSend by rememberUpdatedState(onSend)
+    var commandPickerOpen by remember { mutableStateOf(false) }
+    var filePickerOpen by remember { mutableStateOf(false) }
+    val mentionQuery = draft.substringAfterLast('@').takeIf { '@' in draft && !draft.substringAfterLast('@').contains(' ') }.orEmpty()
+    val mentionActive = '@' in draft && !draft.substringAfterLast('@').contains(' ')
+    val matchingFiles = remember(fileCandidates, mentionQuery) {
+        fileCandidates.filter { it.name.contains(mentionQuery, ignoreCase = true) }.take(8)
+    }
+    val commandQuery = draft.removePrefix("/").takeIf { draft.startsWith("/") && !draft.contains(' ') }.orEmpty()
+    val matchingCommands = remember(commands, commandQuery) {
+        commands.filter { it.name.startsWith(commandQuery, ignoreCase = true) }
+    }
 
     Surface(
         modifier = modifier
@@ -187,7 +203,11 @@ internal fun Composer(
         ) {
             TextField(
                 value = draft,
-                onValueChange = onDraftChange,
+                onValueChange = {
+                    onDraftChange(it)
+                    commandPickerOpen = it.startsWith("/") && !it.contains(' ')
+                    filePickerOpen = '@' in it && !it.substringAfterLast('@').contains(' ')
+                },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,
                 placeholder = {
@@ -212,6 +232,49 @@ internal fun Composer(
                     unfocusedTextColor = colors.labelPrimary,
                 ),
             )
+
+            AnimatedVisibility(visible = mentionActive && filePickerOpen && matchingFiles.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(DsShapes.block)
+                        .background(colors.bgModulePlatform).border(1.dp, colors.borderL2, DsShapes.block),
+                ) {
+                    matchingFiles.forEach { file ->
+                        Text(
+                            text = "@${file.name}", style = DsType.std14, color = colors.labelPrimary,
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                onDraftChange(draft.substringBeforeLast('@') + "@${file.name} ")
+                                filePickerOpen = false
+                            }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+            }
+
+            AnimatedVisibility(visible = commandPickerOpen && matchingCommands.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 220.dp)
+                        .clip(DsShapes.block)
+                        .background(colors.bgModulePlatform)
+                        .border(1.dp, colors.borderL2, DsShapes.block),
+                ) {
+                    matchingCommands.take(8).forEach { command ->
+                        Text(
+                            text = command.line,
+                            style = DsType.std14,
+                            color = colors.labelPrimary,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onDraftChange(command.draftPrefix)
+                                    commandPickerOpen = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+            }
 
             AnimatedVisibility(visible = attachments.isNotEmpty()) {
                 AttachmentStrip(attachments, onRemoveAttachment, onRetryAttachment)
