@@ -69,6 +69,23 @@ private const val LOAD_OLDER_THRESHOLD = 2
 private const val MAX_AUTO_PAGES = 1
 
 /**
+ * Decide whether the top sentinel may request another page. A reconnect can replace the visible
+ * window while the list is already at index zero; that is not a reader gesture and must not be
+ * mistaken for permission to walk the entire history.
+ */
+internal fun shouldPageAtTop(
+    firstVisible: Int,
+    fillsViewport: Boolean,
+    autoPages: Int,
+    maxAutoPages: Int,
+): Boolean {
+    if (firstVisible > LOAD_OLDER_THRESHOLD) return false
+    // A filled viewport at index zero is also the normal post-reconnect layout. Only a short list
+    // may auto-fill itself; otherwise a stable top position would repeatedly fetch after every page.
+    return !fillsViewport && autoPages < maxAutoPages
+}
+
+/**
  * The conversation itself.
  *
  * Auto-scroll only follows the tail when the reader is already there — scrolling back through a
@@ -157,11 +174,8 @@ internal fun ChatTranscript(
             val viewport = info.viewportEndOffset - info.viewportStartOffset
             listState.firstVisibleItemIndex to (viewport > 0 && covered >= viewport)
         }.collect { (firstVisible, fillsViewport) ->
-            if (firstVisible > LOAD_OLDER_THRESHOLD) return@collect
-            if (!fillsViewport) {
-                if (autoPages >= MAX_AUTO_PAGES) return@collect
-                autoPages++
-            }
+            if (!shouldPageAtTop(firstVisible, fillsViewport, autoPages, MAX_AUTO_PAGES)) return@collect
+            if (!fillsViewport) autoPages++
             onLoadOlder()
         }
     }
