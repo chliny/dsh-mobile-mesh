@@ -859,7 +859,10 @@ class SessionStore @Inject constructor(
                 setRunning(sessionId, true)
                 setBlank(sessionId, false)
             }
-            "turn/end" -> setRunning(sessionId, false)
+            "turn/end" -> {
+                setRunning(sessionId, false)
+                clearPendingInteraction(sessionId)
+            }
             "user/message" -> setBlank(sessionId, false)
             "session/title" -> {
                 val title = envelope.data.jsonObject["title"]?.jsonPrimitive?.contentOrNull
@@ -998,6 +1001,20 @@ class SessionStore @Inject constructor(
             runningBySession[sessionId] = running
             sessionRows[sessionId]?.let { if (it.running != running) sessionRows[sessionId] = it.copy(running = running) }
             if (sessionId == currentId) rebuildCurrentLocked()
+            emitSessionsLocked()
+        }
+    }
+
+    /** Remove interaction markers once a turn has durably settled. */
+    private fun clearPendingInteraction(sessionId: String) {
+        synchronized(lock) {
+            pendingKinds.remove(sessionId)
+            questionEventBySession.remove(sessionId)
+            approvalRequests.entries.removeIf { it.value.sessionId == sessionId }
+            if (sessionId == currentId) {
+                _pendingApproval.value = null
+                _pendingQuestions.value = null
+            }
             emitSessionsLocked()
         }
     }
@@ -1177,7 +1194,10 @@ class SessionStore @Inject constructor(
                     for (item in r.value.items) {
                         val title = titleBySession[item.sessionId]
                             ?: extractTitle(item.projections)?.also { titleBySession[item.sessionId] = it }
-                        runningBySession.putIfAbsent(item.sessionId, item.running)
+                        // session/list is the authoritative recovery snapshot. Replacing rather than
+                        // putIfAbsent repairs a stale true left behind when the previous generation
+                        // missed the session's final turn/end event.
+                        runningBySession[item.sessionId] = item.running
                         sessionRows[item.sessionId] = SessionRow(
                             sessionId = item.sessionId,
                             title = title,
@@ -1326,6 +1346,15 @@ class SessionStore @Inject constructor(
             currentEvents.clear()
             currentEvents.addAll(page)
             currentEvents.sortBy { it.seq }
+            // A fresh follow snapshot is authoritative for the opened session. Re-derive running
+            // from its durable tail so a missed turn/end notification cannot keep the old true
+            // value alive in the list or composer after reconnect/open.
+            runningBySession[sessionId] = EventFold(sessionId).fold(currentEvents).running
+            sessionRows[sessionId]?.let { row ->
+                if (row.running != runningBySession[sessionId]) {
+                    sessionRows[sessionId] = row.copy(running = runningBySession[sessionId] == true)
+                }
+            }
             currentHasMore = frame.hasMore || overDelivered
             val asOf = frame.projections["asOfSeq"]?.jsonPrimitive?.intOrNull ?: frame.cursor
             (frame.projections["values"] as? JsonObject)?.forEach { (key, value) ->
@@ -1746,11 +1775,15 @@ class SessionStore @Inject constructor(
 
     suspend fun selectModel(provider: String, model: String, reasoningEffort: String? = null) {
         val sid = currentSessionId.value ?: return
+        if (_models.value == null) return
         val api = apiOrNull() ?: return
         val request = SessionSelectModelRequest(sid, provider, model, reasoningEffort)
         when (val r = api.sessionSelectModel(request)) {
             is RpcResult.Ok -> loadModels(sid)
-            is RpcResult.Err -> setConnectionError(r.error.message)
+            is RpcResult.Err -> {
+                setConnectionError(r.error.message)
+                loadModels(sid)
+            }
         }
     }
 

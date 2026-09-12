@@ -99,13 +99,25 @@ internal fun ChatTranscript(
     // inheriting the previous transcript's position — and so the collector always writes to the
     // state the composition is currently reading.
     var wasNearBottom by remember(sessionId) { mutableStateOf(true) }
-    LaunchedEffect(listState, sessionId) {
+    LaunchedEffect(listState, sessionId, itemCount) {
+        var previousViewportHeight: Int? = null
         snapshotFlow {
             val info = listState.layoutInfo
             val last = info.visibleItemsInfo.lastOrNull()?.index ?: -1
             val total = info.totalItemsCount
-            total == 0 || last >= total - 2
-        }.collect { wasNearBottom = it }
+            val viewportHeight = info.viewportEndOffset - info.viewportStartOffset
+            Triple(total, last, viewportHeight)
+        }.collect { (total, last, viewportHeight) ->
+            val viewportChanged = previousViewportHeight != null && previousViewportHeight != viewportHeight
+            // The IME reduces the transcript viewport while the composer moves upward. Preserve the
+            // old tail anchor and scroll to the new bottom in the same frame, instead of leaving the
+            // user one viewport-height short of the latest message.
+            if (viewportChanged && wasNearBottom && total > 0) {
+                listState.scrollToItem(total - 1)
+            }
+            wasNearBottom = total == 0 || last >= total - 2 || (viewportChanged && wasNearBottom)
+            previousViewportHeight = viewportHeight
+        }
     }
 
     // Keyed on the *newest* seq, not the item count, so only growth at the tail moves the view.
