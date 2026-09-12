@@ -18,6 +18,10 @@ for abi in arm64-v8a armeabi-v7a x86 x86_64; do
   IFS=: read -r goarch compiler <<< "${targets[$abi]}"
   output="$output_root/$abi"
   mkdir -p "$output"
-  (cd tailscale && CGO_ENABLED=1 GOOS=android GOARCH="$goarch" CC="$toolchain/$compiler" go build -trimpath -buildvcs=false -buildmode=c-shared -o "$output/libdsh_tsnet.so" .)
+  go_ldflags=()
+  if [[ -n "${DSH_GO_LDFLAGS:-}" ]]; then
+    go_ldflags=("-ldflags=${DSH_GO_LDFLAGS}")
+  fi
+  (cd tailscale && CGO_ENABLED=1 GOOS=android GOARCH="$goarch" CC="$toolchain/$compiler" go build -trimpath -buildvcs=false "${go_ldflags[@]}" -buildmode=c-shared -o "$output/libdsh_tsnet.so" .)
   rm -f "$output/libdsh_tsnet.h"
 done
