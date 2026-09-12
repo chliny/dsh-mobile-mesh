@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -128,7 +129,8 @@ private fun diffStats(diffs: List<DiffHunk>): Triple<Int, Int, Int> {
 @Composable
 private fun ToolCardBody(view: ToolCardView) {
     val colors = DsTheme.colors
-    Column(
+    SelectionContainer {
+        Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(DsShapes.block)
@@ -144,6 +146,7 @@ private fun ToolCardBody(view: ToolCardView) {
             is ToolCardView.SearchCard -> SearchBody(view)
             is ToolCardView.ReadCard -> ReadBody(view)
             is ToolCardView.WebCard -> WebBody(view)
+        }
         }
     }
 }
