@@ -100,6 +100,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 )
             }
             showSessionList -> ChatListDrawer(
+                connectionPhase = connection.phase,
                 onClose = { showSessionList = false },
                 onOpenSettings = { showSettings = true },
             )

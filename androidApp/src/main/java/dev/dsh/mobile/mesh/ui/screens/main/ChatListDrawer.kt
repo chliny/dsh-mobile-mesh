@@ -53,6 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dsh.mobile.mesh.R
+import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.data.SessionRow
 import dev.dsh.mobile.mesh.data.SessionStore
 import dev.dsh.mobile.mesh.data.WorkspaceRow
@@ -82,6 +83,17 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+@Composable
+private fun SessionListConnectionStatusDot(phase: ConnectionPhase) {
+    val state = when (phase) {
+        ConnectionPhase.CONNECTED -> StateDotState.Done
+        ConnectionPhase.RECONNECTING -> StateDotState.Warning
+        ConnectionPhase.CONNECTING -> StateDotState.Running
+        ConnectionPhase.DISCONNECTED -> StateDotState.Error
+    }
+    StateDot(state, size = 8.dp)
+}
+
 /** [dev.dsh.mobile.mesh.connection.HostsStore.sessionSort]: the workspace's own row order. */
 private const val SORT_MANUAL = "manual"
 
@@ -98,6 +110,7 @@ private const val PAGE_SIZE = 10
  */
 @Composable
 fun ChatListDrawer(
+    connectionPhase: ConnectionPhase,
     onClose: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -215,6 +228,12 @@ fun ChatListDrawer(
                 color = colors.labelPrimary,
                 modifier = Modifier.weight(1f),
             )
+            Box(
+                modifier = Modifier.size(DsSpacing.touchTarget),
+                contentAlignment = Alignment.Center,
+            ) {
+                SessionListConnectionStatusDot(connectionPhase)
+            }
             DsIconButton(
                 icon = Icons.Filled.Search,
                 contentDescription = stringResource(R.string.common_search),
