@@ -2,14 +2,19 @@ package dev.dsh.mobile.mesh.ui.screens.main
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,9 +35,23 @@ fun FilePreviewScreen(sessionId: String, path: String, title: String, onBack: ()
     val state by store.state.collectAsStateWithLifecycle()
     BackHandler(onBack = onBack)
     LaunchedEffect(sessionId, path) { store.readText(sessionId, path) }
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back)) }
-        Text(title, style = DsType.large20, modifier = Modifier.padding(bottom = 12.dp))
+    Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DsIconButton(
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = stringResource(R.string.common_back),
+                onClick = onBack,
+                tint = DsTheme.colors.labelSecondary,
+                iconSize = 18.dp,
+            )
+            Text(title, style = DsType.large20, modifier = Modifier.padding(start = 4.dp))
+        }
         when (val preview = state.preview) {
             null, PreviewState.Loading -> Text(stringResource(R.string.common_loading))
             is PreviewState.Text -> Text(

@@ -28,8 +28,8 @@ import dev.dsh.mobile.mesh.ui.theme.DsAnimations
 
 private sealed interface MainPage {
     data object Chat : MainPage
-    data object Files : MainPage
-    data class Preview(val path: String, val title: String) : MainPage
+    data class Files(val path: String = ".") : MainPage
+    data class Preview(val path: String, val title: String, val returnPage: MainPage) : MainPage
 }
 
 /**
@@ -62,20 +62,27 @@ fun MainScreen(
             page = MainPage.Chat
         } else {
             when (val current = page) {
-                MainPage.Files -> WorkspaceFilesScreen(
+                is MainPage.Files -> WorkspaceFilesScreen(
                     sessionId = sid,
+                    initialPath = current.path,
                     onBack = { page = MainPage.Chat },
-                    onOpenFile = { path, title -> page = MainPage.Preview(path, title) },
+                    onOpenFile = { path, title -> page = MainPage.Preview(path, title, current) },
                 )
                 is MainPage.Preview -> FilePreviewScreen(
                     sessionId = sid,
                     path = current.path,
                     title = current.title,
-                    onBack = { page = MainPage.Files },
+                    onBack = { page = current.returnPage },
                 )
                 MainPage.Chat -> Unit
             }
-            BackHandler { page = if (page is MainPage.Preview) MainPage.Files else MainPage.Chat }
+            BackHandler {
+                page = when (val current = page) {
+                    is MainPage.Preview -> current.returnPage
+                    is MainPage.Files -> MainPage.Chat
+                    MainPage.Chat -> MainPage.Chat
+                }
+            }
             return
         }
     }
@@ -137,8 +144,8 @@ fun MainScreen(
                 connectionPhase = connectionPhase,
                 reconnectAttempt = reconnectAttempt,
                 onReconnect = onReconnect,
-                onOpenFiles = { page = MainPage.Files },
-                onOpenFile = { path, title -> page = MainPage.Preview(path, title) },
+                onOpenFiles = { page = MainPage.Files() },
+                onOpenFile = { path, title -> page = MainPage.Preview(path, title, MainPage.Chat) },
             )
 
             AnimatedVisibility(

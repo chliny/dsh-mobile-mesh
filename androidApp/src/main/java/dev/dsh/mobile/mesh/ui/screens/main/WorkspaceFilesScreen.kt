@@ -39,20 +39,21 @@ import dev.dsh.mobile.mesh.ui.theme.DsType
 @Composable
 fun WorkspaceFilesScreen(
     sessionId: String,
+    initialPath: String = ".",
     onBack: () -> Unit,
     onOpenFile: (String, String) -> Unit,
 ) {
     val store = rememberWorkspaceFilesStore()
     val state by store.state.collectAsStateWithLifecycle()
-    var currentPath by remember { mutableStateOf(".") }
+    var currentPath by remember { mutableStateOf(initialPath) }
     BackHandler {
         if (currentPath == ".") onBack()
         else currentPath = currentPath.substringBeforeLast('/', ".")
     }
-    LaunchedEffect(sessionId) {
+    LaunchedEffect(sessionId, initialPath) {
         store.reset(sessionId)
-        currentPath = "."
-        store.list(sessionId, ".")
+        currentPath = initialPath
+        store.list(sessionId, initialPath)
     }
     val level = state.levels[currentPath]
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
