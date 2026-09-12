@@ -165,6 +165,19 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
             card.description?.let {
                 Text(it, style = DsType.mdSmall, color = colors.labelSecondary)
             }
+            card.command?.let { command ->
+                Text(
+                    command,
+                    style = DsType.caption11.copy(fontFamily = DsType.codeFont),
+                    color = colors.labelPrimary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(DsShapes.block)
+                        .background(colors.bgModulePlatform)
+                        .border(1.dp, colors.borderL2, DsShapes.block)
+                        .padding(8.dp),
+                )
+            }
             card.cwd?.let {
                 Text(
                     it,

@@ -180,6 +180,7 @@ private fun terminalCard(
         return ToolCardView.TerminalCard(
             title = command,
             description = description,
+            command = command,
             cwd = workdir,
             running = true,
         )
@@ -199,6 +200,7 @@ private fun terminalCard(
     return ToolCardView.TerminalCard(
         title = command,
         description = description,
+        command = command,
         cwd = workdir,
         output = status.output,
         outputBlocks = displayBlocks.filter { it.isNotBlank() },

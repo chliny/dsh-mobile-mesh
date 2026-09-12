@@ -525,6 +525,9 @@ fun ChatScreen(
                 onOpenSheet = { sheet = ChatSheet.Commands },
                 commands = commands,
                 fileCandidates = fileCandidates,
+                onFileQueryChange = { query ->
+                    currentSessionId?.let { sessionId -> workspaceFiles.searchReferences(sessionId, query) }
+                },
                 onSend = ::send,
                 onStop = { scope.launch { store.cancelTurn() } },
             )

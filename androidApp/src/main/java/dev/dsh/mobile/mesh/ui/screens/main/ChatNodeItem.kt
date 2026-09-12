@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.CallSplit
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.Description
@@ -142,7 +143,7 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
         is ToolResultNode -> Unit
 
         is TurnEndNode -> when (node.reasonKind) {
-            "completed" -> Unit
+            "completed" -> ProducedFilesRow(node, context)
             "aborted", "interrupted" -> DsPill(text = stringResource(R.string.chat_stopped), warn = true)
             "error" -> Row(verticalAlignment = Alignment.CenterVertically) {
                 StateDot(StateDotState.Error, size = 8.dp)
@@ -429,6 +430,49 @@ private fun ActionIcon(
             .padding(6.dp),
     )
 }
+
+@Composable
+private fun ProducedFilesRow(node: TurnEndNode, context: ChatNodeContext) {
+    val paths = remember(node.turn, context.nodes) {
+        val successfulCalls = context.nodes.filterIsInstance<ToolResultNode>()
+            .filter { it.turn == node.turn && !it.isError }
+            .map { it.callId }
+            .toSet()
+        context.nodes
+            .filterIsInstance<ToolCallNode>()
+            .filter { it.turn == node.turn && it.callId in successfulCalls }
+            .filter { it.name in setOf("write", "edit", "str_replace_editor") }
+            .mapNotNull { changedFilePath(it) }
+            .distinct()
+    }
+    if (paths.isEmpty()) return
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(stringResource(R.string.chat_produced_files), style = DsType.caption11, color = DsTheme.colors.labelTertiary)
+        paths.take(6).forEach { path ->
+            Row(
+                modifier = Modifier
+                    .clip(DsShapes.pillFull)
+                    .background(DsTheme.colors.bgModulePlatform)
+                    .clickable(enabled = context.onOpenFile != null) { context.onOpenFile?.invoke(path, basename(path)) }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.AutoMirrored.Outlined.InsertDriveFile, contentDescription = null, modifier = Modifier.size(14.dp), tint = DsTheme.colors.labelSecondary)
+                Text(basename(path), style = DsType.caption11, color = DsTheme.colors.labelSecondary, modifier = Modifier.padding(start = 4.dp))
+            }
+        }
+        if (paths.size > 6) Text(stringResource(R.string.chat_more_files, paths.size - 6), style = DsType.caption11, color = DsTheme.colors.labelTertiary)
+    }
+}
+
+private fun changedFilePath(call: ToolCallNode): String? = runCatching {
+    val args = kotlinx.serialization.json.Json.parseToJsonElement(call.arguments) as? JsonObject ?: return@runCatching null
+    args["file_path"]?.toString()?.trim('"') ?: args["path"]?.toString()?.trim('"')
+}.getOrNull()
 
 // ---------------------------------------------------------------------------
 // Tool calls

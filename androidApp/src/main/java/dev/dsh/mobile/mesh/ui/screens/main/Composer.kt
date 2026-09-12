@@ -163,6 +163,7 @@ internal fun Composer(
     onOpenSheet: () -> Unit,
     commands: List<CommandDescriptor> = emptyList(),
     fileCandidates: List<WorkspaceDirectoryEntry> = emptyList(),
+    onFileQueryChange: (String) -> Unit = {},
     onSend: (String) -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
@@ -181,7 +182,9 @@ internal fun Composer(
     val mentionQuery = draft.substringAfterLast('@').takeIf { '@' in draft && !draft.substringAfterLast('@').contains(' ') }.orEmpty()
     val mentionActive = '@' in draft && !draft.substringAfterLast('@').contains(' ')
     val matchingFiles = remember(fileCandidates, mentionQuery) {
-        fileCandidates.filter { it.name.contains(mentionQuery, ignoreCase = true) }.take(8)
+        fileCandidates.filter { file ->
+            file.name.contains(mentionQuery.substringAfterLast('/'), ignoreCase = true)
+        }.take(8)
     }
     val commandQuery = draft.removePrefix("/").takeIf { draft.startsWith("/") && !draft.contains(' ') }.orEmpty()
     val matchingCommands = remember(commands, commandQuery) {
@@ -207,6 +210,9 @@ internal fun Composer(
                     onDraftChange(it)
                     commandPickerOpen = it.startsWith("/") && !it.contains(' ')
                     filePickerOpen = '@' in it && !it.substringAfterLast('@').contains(' ')
+                    if ('@' in it && !it.substringAfterLast('@').contains(' ')) {
+                        onFileQueryChange(it.substringAfterLast('@'))
+                    }
                 },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,

@@ -85,6 +85,7 @@ sealed interface ToolCardView {
     data class TerminalCard(
         val title: String? = null,
         val description: String? = null,
+        val command: String? = null,
         val cwd: String? = null,
         val output: String? = null,
         val outputBlocks: List<String> = emptyList(),

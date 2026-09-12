@@ -17,6 +17,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
 sealed interface DirectoryLevel {
     data object Loading : DirectoryLevel
@@ -57,11 +61,43 @@ class WorkspaceFilesStore @Inject constructor(
         _state.value = WorkspaceFilesState(sessionId = sessionId, levels = cached)
     }
 
-    fun cachedEntries(sessionId: String): List<WorkspaceDirectoryEntry> =
-        listingCache[sessionId].orEmpty().values
-            .flatMap { it.listing.entries }
+    fun cachedEntries(sessionId: String): List<WorkspaceDirectoryEntry> {
+        val cached = listingCache[sessionId].orEmpty()
+        val treeEntries = cached.filterKeys { it != "@" }.values.flatMap { ready ->
+            ready.listing.entries.map { entry ->
+                val path = ready.listing.path.trimEnd('/').takeUnless { it.isNullOrBlank() || it == "." }
+                entry.copy(name = if (path == null) entry.name else "$path/${entry.name}")
+            }
+        }
+        return (cached["@"]?.listing?.entries.orEmpty() + treeEntries)
             .distinctBy { it.name }
             .sortedBy { it.name }
+    }
+
+    /** Load the harness-backed reference candidates for the composer's active @ token. */
+    fun searchReferences(sessionId: String, query: String) {
+        val api = connectionManager.connectedApi ?: return
+        scope.launch {
+            when (val result = api.fileReferencesList(sessionId, query)) {
+                is RpcResult.Ok -> {
+                    val entries = ((result.value as? JsonArray) ?: (result.value as? JsonObject)?.get("items") as? JsonArray)
+                        .orEmpty()
+                        .mapNotNull { item ->
+                            val row = item as? JsonObject ?: return@mapNotNull null
+                            val path = row["path"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                            val type = row["kind"]?.jsonPrimitive?.contentOrNull ?: "file"
+                            WorkspaceDirectoryEntry(name = path, type = type)
+                        }
+                    val ready = DirectoryLevel.Ready(WorkspaceDirectoryListing(path = "@", entries = entries))
+                    listingCache.getOrPut(sessionId) { mutableMapOf() }["@"] = ready
+                    if (_state.value.sessionId == sessionId) {
+                        _state.value = _state.value.copy(levels = _state.value.levels + ("@" to ready))
+                    }
+                }
+                is RpcResult.Err -> Unit
+            }
+        }
+    }
 
     fun list(sessionId: String, path: String, reload: Boolean = false) {
         if (_state.value.sessionId != sessionId) reset(sessionId)
