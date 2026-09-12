@@ -78,11 +78,12 @@ internal fun shouldPageAtTop(
     fillsViewport: Boolean,
     autoPages: Int,
     maxAutoPages: Int,
+    userScrolling: Boolean,
 ): Boolean {
     if (firstVisible > LOAD_OLDER_THRESHOLD) return false
-    // A filled viewport at index zero is also the normal post-reconnect layout. Only a short list
-    // may auto-fill itself; otherwise a stable top position would repeatedly fetch after every page.
-    return !fillsViewport && autoPages < maxAutoPages
+    // A filled viewport at index zero is also the normal post-reconnect layout. Only an active user
+    // scroll may page it; a programmatic re-anchor must not walk the whole history.
+    return if (fillsViewport) userScrolling else autoPages < maxAutoPages
 }
 
 /**
@@ -164,9 +165,14 @@ internal fun ChatTranscript(
     // MAX_AUTO_PAGES — a page that adds thousands of events and no visible rows would otherwise
     // keep the app asking forever.
     var autoPages by rememberSaveable(sessionId) { mutableIntStateOf(0) }
+    var userScrolling by remember(sessionId) { mutableStateOf(false) }
     val canPage = hasMore && !loading && !loadingOlder && !loadOlderFailed
     val autoPagingExhausted = hasMore && !loading && autoPages >= MAX_AUTO_PAGES
-    LaunchedEffect(listState, sessionId, canPage) {
+    LaunchedEffect(listState, sessionId) {
+        snapshotFlow { listState.isScrollInProgress }
+            .collect { userScrolling = it }
+    }
+    LaunchedEffect(listState, sessionId, canPage, userScrolling) {
         if (!canPage) return@LaunchedEffect
         snapshotFlow {
             val info = listState.layoutInfo
@@ -174,7 +180,7 @@ internal fun ChatTranscript(
             val viewport = info.viewportEndOffset - info.viewportStartOffset
             listState.firstVisibleItemIndex to (viewport > 0 && covered >= viewport)
         }.collect { (firstVisible, fillsViewport) ->
-            if (!shouldPageAtTop(firstVisible, fillsViewport, autoPages, MAX_AUTO_PAGES)) return@collect
+            if (!shouldPageAtTop(firstVisible, fillsViewport, autoPages, MAX_AUTO_PAGES, userScrolling)) return@collect
             if (!fillsViewport) autoPages++
             onLoadOlder()
         }
