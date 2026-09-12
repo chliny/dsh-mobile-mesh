@@ -87,6 +87,7 @@ sealed interface ToolCardView {
         val description: String? = null,
         val cwd: String? = null,
         val output: String? = null,
+        val outputBlocks: List<String> = emptyList(),
         val exitCode: Int? = null,
         val signal: String? = null,
         val running: Boolean? = null,

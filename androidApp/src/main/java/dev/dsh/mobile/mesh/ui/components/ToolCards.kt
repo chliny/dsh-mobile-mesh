@@ -172,13 +172,18 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
                     color = colors.labelCaption,
                 )
             }
-            card.output?.let {
-                Text(
-                    it,
-                    style = DsType.mdCode,
-                    color = colors.labelPrimary,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+            val blocks = card.outputBlocks.ifEmpty { listOfNotNull(card.output) }
+            blocks.forEach { block ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(DsShapes.block)
+                        .background(colors.bgModulePlatform)
+                        .border(1.dp, colors.borderL2, DsShapes.block)
+                        .padding(8.dp),
+                ) {
+                    MarkdownText(block)
+                }
             }
             val status = when {
                 card.signal != null -> "killed by ${card.signal}"

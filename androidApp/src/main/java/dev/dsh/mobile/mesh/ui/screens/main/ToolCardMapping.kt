@@ -72,15 +72,13 @@ private fun singleResultText(result: ToolResultNode): String? {
 }
 
 /** Every text block joined, used to recover a capped search's full-result locator. */
-private fun flattenContent(result: ToolResultNode): String? {
-    val content = result.content as? JsonArray ?: return null
-    val text = content
-        .mapNotNull { it as? JsonObject }
-        .filter { it["type"]?.jsonPrimitive?.contentOrNull == "text" }
-        .mapNotNull { it["text"]?.jsonPrimitive?.contentOrNull }
-        .joinToString("\n")
-    return text.ifEmpty { null }
-}
+private fun textBlocks(result: ToolResultNode): List<String> =
+    (result.content as? JsonArray)
+        ?.mapNotNull { it as? JsonObject }
+        ?.filter { it["type"]?.jsonPrimitive?.contentOrNull == "text" }
+        ?.mapNotNull { it["text"]?.jsonPrimitive?.contentOrNull }
+        ?.filter { it.isNotBlank() }
+        .orEmpty()
 
 private fun str(o: JsonObject, key: String): String? = o[key]?.jsonPrimitive?.contentOrNull
 private fun int(o: JsonObject, key: String): Int? = o[key]?.jsonPrimitive?.intOrNull
@@ -189,13 +187,21 @@ private fun terminalCard(
     // A persistent shell's result stays generic: it can report a reset or partial output, and
     // inventing one process exit status for it would be a claim this client cannot support.
     if (result.isError || shell?.persistent == true) return null
-    val output = singleResultText(result) ?: return null
+    val blocks = textBlocks(result)
+    val output = blocks.joinToString("\n").ifEmpty { return null }
     val status = if (send != null) ExitStatus(output, null, null) else parseExitStatus(output)
+    val displayBlocks = if (send != null) {
+        blocks
+    } else {
+        val last = parseExitStatus(blocks.last())
+        blocks.dropLast(1) + last.output
+    }
     return ToolCardView.TerminalCard(
         title = command,
         description = description,
         cwd = workdir,
         output = status.output,
+        outputBlocks = displayBlocks.filter { it.isNotBlank() },
         exitCode = status.exitCode,
         signal = status.signal,
         running = false,

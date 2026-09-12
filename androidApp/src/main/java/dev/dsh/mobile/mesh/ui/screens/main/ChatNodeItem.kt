@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.CallSplit
 import androidx.compose.material.icons.filled.ContentCopy
@@ -127,7 +129,7 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
                 }
             }
             val text = node.displayText()
-            if (text.isNotBlank()) UserBubble(text)
+            if (text.isNotBlank()) MarkdownUserBubble(text)
         }
 
         is ContextMessageNode -> ContextInjectionRow(node)
@@ -214,7 +216,26 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
     }
 }
 
-/** A collapsed model-context disclosure, deliberately separate from the right-aligned user bubble. */
+/** A Markdown-rendered user message bubble. */
+@Composable
+private fun MarkdownUserBubble(text: String) {
+    val colors = DsTheme.colors
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.CenterEnd,
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = minOf(525.dp, maxWidth * 0.82f))
+                .background(colors.userBubble, DsShapes.bubble)
+                .border(1.dp, colors.borderL3, DsShapes.bubble)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+        ) {
+            MarkdownText(text)
+        }
+    }
+}
+
 @Composable
 private fun ContextInjectionRow(node: ContextMessageNode) {
     val text = node.displayText()
@@ -226,7 +247,16 @@ private fun ContextInjectionRow(node: ContextMessageNode) {
         expanded = expanded,
         onToggle = { expanded = !expanded },
     ) {
-        MarkdownText(text)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(DsShapes.block)
+                .background(DsTheme.colors.codeBlockBg)
+                .border(1.dp, DsTheme.colors.borderL2, DsShapes.block)
+                .padding(10.dp),
+        ) {
+            MarkdownText(text)
+        }
     }
 }
 
