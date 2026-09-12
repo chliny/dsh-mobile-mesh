@@ -131,22 +131,22 @@ private fun ToolCardBody(view: ToolCardView) {
     val colors = DsTheme.colors
     SelectionContainer {
         Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(DsShapes.block)
-            .background(colors.codeBlockBg)
-            .border(1.dp, colors.borderL1, DsShapes.block)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        when (view) {
-            is ToolCardView.GenericCard -> GenericBody(view)
-            is ToolCardView.TerminalCard -> TerminalBody(view)
-            is ToolCardView.DiffCard -> DiffBody(view)
-            is ToolCardView.SearchCard -> SearchBody(view)
-            is ToolCardView.ReadCard -> ReadBody(view)
-            is ToolCardView.WebCard -> WebBody(view)
-        }
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(DsShapes.block)
+                .background(colors.codeBlockBg)
+                .border(1.dp, colors.borderL1, DsShapes.block)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            when (view) {
+                is ToolCardView.GenericCard -> GenericBody(view)
+                is ToolCardView.TerminalCard -> TerminalBody(view)
+                is ToolCardView.DiffCard -> DiffBody(view)
+                is ToolCardView.SearchCard -> SearchBody(view)
+                is ToolCardView.ReadCard -> ReadBody(view)
+                is ToolCardView.WebCard -> WebBody(view)
+            }
         }
     }
 }
