@@ -1247,12 +1247,14 @@ class SessionStore @Inject constructor(
             val same = currentId == sessionId
             currentId = sessionId
             _currentSessionId.value = sessionId
-            currentEvents.clear()
-            currentHasMore = false
-            currentBlank = sessionRows[sessionId]?.blank ?: true
-            currentProjections.clear()
-            currentQueue = emptyList()
-            liveAssistant.clear()
+            if (!same) {
+                currentEvents.clear()
+                currentHasMore = false
+                currentBlank = sessionRows[sessionId]?.blank ?: true
+                currentProjections.clear()
+                currentQueue = emptyList()
+                liveAssistant.clear()
+            }
             if (!same) {
                 // Publish the last rendered snapshot immediately. Network work continues below and
                 // the follow stream will replace it with the authoritative snapshot when available.
@@ -2314,7 +2316,8 @@ class SessionStore @Inject constructor(
 
         /** Largest file the base64 Remote fallback will carry; anything bigger needs the route. */
         const val MAX_ENCODED_UPLOAD_BYTES = 20L * 1024 * 1024
-        const val HISTORY_PAGE_SIZE = 60
+        /** Recent visible messages requested on open/reconnect and per history page. */
+        const val HISTORY_PAGE_SIZE = 40
         const val RPC_TIMEOUT_MS = 8_000L
 
         /** Ceiling on events folded per page, whatever the host sends. */

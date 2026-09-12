@@ -51,7 +51,9 @@ import dev.dsh.mobile.mesh.ui.theme.DshTheme
 @Composable
 fun MarkdownText(text: String, modifier: Modifier = Modifier) {
     val colors = DsTheme.colors
-    val blocks = remember(text) { parseMarkdown(text) }
+    // `remember` covers a composed row, while this bounded process cache also covers LazyColumn
+    // disposal/recomposition when older transcript rows leave and re-enter the viewport.
+    val blocks = remember(text) { MarkdownParseCache.getOrParse(text) }
     SelectionContainer {
         Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         blocks.forEach { block ->
@@ -94,6 +96,31 @@ private sealed interface MdBlock {
     data class Blockquote(val lines: List<String>) : MdBlock
     data class Code(val lang: String?, val code: String) : MdBlock
     data class Table(val rows: List<String>) : MdBlock
+}
+
+/**
+ * Small LRU cache shared by transcript rows. Markdown content is immutable once a durable chat
+ * event lands, whereas LazyColumn disposes off-screen rows and would otherwise parse it again.
+ * The entry/count and text-size bounds keep unusually large command output from retaining memory.
+ */
+private object MarkdownParseCache {
+    private const val MAX_ENTRIES = 160
+    private const val MAX_CACHEABLE_CHARS = 64 * 1024
+    private val entries = object : LinkedHashMap<String, List<MdBlock>>(MAX_ENTRIES, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<MdBlock>>?): Boolean =
+            size > MAX_ENTRIES
+    }
+
+    fun getOrParse(markdown: String): List<MdBlock> {
+        if (markdown.length > MAX_CACHEABLE_CHARS) return parseMarkdown(markdown)
+        synchronized(entries) {
+            entries[markdown]?.let { return it }
+        }
+        val parsed = parseMarkdown(markdown)
+        synchronized(entries) {
+            return entries[markdown] ?: parsed.also { entries[markdown] = it }
+        }
+    }
 }
 
 private fun parseMarkdown(markdown: String): List<MdBlock> {
