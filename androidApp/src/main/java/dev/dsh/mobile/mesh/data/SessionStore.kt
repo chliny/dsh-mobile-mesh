@@ -387,13 +387,20 @@ class SessionStore @Inject constructor(
      */
     val models: StateFlow<SessionModelsValue?> =
         combine(_models, modelSelection) { catalog, selection ->
-            if (catalog == null) return@combine null
-            val current = selection?.next ?: selection?.lastUsed ?: catalog.default
+            val current = selection?.next ?: selection?.lastUsed
+            if (catalog == null) {
+                // The session projection can arrive before the host catalog RPC. Keep the chip
+                // useful instead of showing an endless loading skeleton; the sheet will fill in
+                // provider names once the catalog arrives.
+                return@combine current?.let {
+                    SessionModelsValue(current = it, routable = true)
+                }
+            }
             SessionModelsValue(
-                current = current,
+                current = current ?: catalog.default,
                 // `routableProviders` lists what can serve a request at all; whether *this*
                 // session can start a turn is whether its own provider is in that list.
-                routable = current.provider in catalog.routableProviders,
+                routable = (current ?: catalog.default).provider in catalog.routableProviders,
                 groups = catalog.groups,
                 failures = catalog.failures,
             )
@@ -1227,10 +1234,14 @@ class SessionStore @Inject constructor(
             currentQueue = emptyList()
             liveAssistant.clear()
             if (!same) {
-                _currentConversation.value = null
+                // Publish the last rendered snapshot immediately. Network work continues below and
+                // the follow stream will replace it with the authoritative snapshot when available.
+                _currentConversation.value = conversationCache[sessionId]
                 _jobs.value = emptyList()
                 _skills.value = emptyList()
-                _models.value = null
+                // Keep the host-scoped model catalog while switching sessions. Clearing it makes the
+                // composer show an endless loading state until a second catalog RPC completes.
+                if (modelCatalogCache == null) _models.value = null
                 _subagents.value = emptyList()
                 _subagentConversation.value = null
                 _subagentMode.value = null
