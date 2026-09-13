@@ -90,6 +90,7 @@ class ConnectionManager @Inject constructor(
             Log.d("ConnectionManager", "Default network available: $network (previous=$previous)")
             if (networkLostWhileConnected && previous != network) {
                 networkLostWhileConnected = false
+                markCarrierRecoveryNeeded()
                 recoverTransportAfterCarrierLoss()
             }
         }
@@ -195,7 +196,10 @@ class ConnectionManager @Inject constructor(
                 generation = null
                 // Only an established carrier moving from CONNECTED to RECONNECTING can be a
                 // dead relay. A new loop also announces RECONNECTING as its first state.
-                if (current.phase == ConnectionPhase.CONNECTED) recoverTransportAfterCarrierLoss()
+                if (current.phase == ConnectionPhase.CONNECTED) {
+                    markCarrierRecoveryNeeded()
+                    recoverTransportAfterCarrierLoss()
+                }
             }
             val phase = when {
                 state == ConnectionState.CONNECTED -> ConnectionPhase.CONNECTED
@@ -340,6 +344,18 @@ class ConnectionManager @Inject constructor(
      * ConnectionLoop deliberately owns WebSocket retry, but it cannot make a stale loopback relay
      * usable again. Serialize one full renewal per outage so its own retries never race teardown.
      */
+    /** Publish the dead-carrier transition before potentially slow relay teardown begins. */
+    private fun markCarrierRecoveryNeeded() {
+        val current = _state.value
+        if (current.phase != ConnectionPhase.CONNECTING) {
+            _state.value = current.copy(
+                phase = ConnectionPhase.RECONNECTING,
+                stage = ConnectStage.OpeningStreams,
+                failure = null,
+            )
+        }
+    }
+
     private fun recoverTransportAfterCarrierLoss() {
         if (transportRecoveryInFlight) {
             Log.d("ConnectionManager", "Transport recovery already in flight")
@@ -407,10 +423,11 @@ class ConnectionManager @Inject constructor(
         val current = _state.value
         Log.d("ConnectionManager", "Foreground recovery requested: phase=${current.phase}, active=${activeHost != null}, inFlight=$transportRecoveryInFlight")
         if (activeHost == null || current.phase == ConnectionPhase.CONNECTING || transportRecoveryInFlight) return
-        // A carrier can disappear while Android keeps the app's logical state CONNECTED. In that
-        // case NetworkCallback marks the path dirty and onResume must still force one recovery;
-        // only skip the expensive rebuild when the connected path is known clean.
-        if (current.phase == ConnectionPhase.CONNECTED && !networkLostWhileConnected) return
+        // A carrier can disappear while Android keeps the app's logical state CONNECTED. A
+        // suspended background carrier may instead leave the loop in DISCONNECTED/RECONNECTING
+        // without a NetworkCallback. In both cases publish the recovery state before the relay
+        // work starts, so the UI never presents that stale green connection.
+        markCarrierRecoveryNeeded()
         val now = System.currentTimeMillis()
         if (now - lastForegroundRecoveryAtMs < FOREGROUND_RECOVERY_COOLDOWN_MS) return
         lastForegroundRecoveryAtMs = now
