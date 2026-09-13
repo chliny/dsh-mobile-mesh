@@ -33,6 +33,7 @@ sealed interface ChatNode {
 
 data class TurnStartNode(override val seq: Long, val turn: Int) : ChatNode
 data class TurnEndNode(override val seq: Long, val turn: Int, val reasonKind: String, val reasonDetail: JsonElement? = null) : ChatNode
+data class ProducedFilesNode(override val seq: Long, val turn: Int, val paths: List<String>) : ChatNode
 
 data class UserMessageNode(
     override val seq: Long,

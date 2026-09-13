@@ -251,6 +251,16 @@ private class FoldState(private val sessionId: String) {
                 nodes.add(ToolCallNode(event.seq, callId, name, args, turn, step))
             }
 
+            "deliverables/presented" -> {
+                val turn = data.jsonObject["turn"]?.jsonPrimitive?.intOrNull ?: 0
+                val paths = (data.jsonObject["files"] as? JsonArray).orEmpty()
+                    .mapNotNull { file ->
+                        (file as? JsonObject)?.get("path")?.jsonPrimitive?.contentOrNull
+                    }
+                    .distinct()
+                if (paths.isNotEmpty()) nodes.add(ProducedFilesNode(event.seq, turn, paths))
+            }
+
             "tool/result" -> {
                 val message = data.jsonObject["message"]?.jsonObject
                 val messageContent = message?.get("content") as? JsonArray
