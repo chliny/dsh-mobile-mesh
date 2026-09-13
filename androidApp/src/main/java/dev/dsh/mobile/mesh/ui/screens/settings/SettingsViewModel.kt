@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -71,22 +70,4 @@ class SettingsViewModel @Inject constructor(
         connectionManager.disconnect()
     }
 
-    /**
-     * Forget every remembered harness; the connect screen starts from discovery again.
-     *
-     */
-    fun forgetHosts(onDone: () -> Unit = {}) {
-        viewModelScope.launch {
-            hostsStore.hosts.first().forEach { hostsStore.removeHost(it.id) }
-            onDone()
-        }
-    }
-
-    /** Forget which session to reopen per harness; the app lands on the newest one next time. */
-    fun clearLastSessions(onDone: () -> Unit = {}) {
-        viewModelScope.launch {
-            hostsStore.clearLastSessions()
-            onDone()
-        }
-    }
 }

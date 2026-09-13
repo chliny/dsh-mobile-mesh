@@ -346,10 +346,6 @@
     <string name="settings_language_system">افتراضي النظام</string>
     <string name="settings_harness">Harness</string>
     <string name="settings_data">البيانات</string>
-    <string name="settings_forget_hosts">نسيان أجهزة Harness المحفوظة</string>
-    <string name="settings_forget_hosts_done">تم مسح أجهزة Harness المحفوظة</string>
-    <string name="settings_clear_last_sessions">نسيان الجلسة التي تُفتح</string>
-    <string name="settings_clear_last_sessions_done">سيفتح التطبيق أحدث جلسة في المرة القادمة</string>
     <string name="settings_notifications_turn_hint">انتهاء دور والتطبيق في الخلفية</string>
     <string name="settings_notifications_goal_hint">اكتمال هدف أو تعطّله</string>
     <string name="settings_notifications_action_hint">موافقة أو سؤال أو خطة بانتظارك</string>

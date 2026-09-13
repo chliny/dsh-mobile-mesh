@@ -346,10 +346,6 @@
     <string name="settings_language_system">Как в системе</string>
     <string name="settings_harness">Harness</string>
     <string name="settings_data">Данные</string>
-    <string name="settings_forget_hosts">Забыть сохранённые Harness</string>
-    <string name="settings_forget_hosts_done">Сохранённые Harness удалены</string>
-    <string name="settings_clear_last_sessions">Забыть, какой сеанс открывать</string>
-    <string name="settings_clear_last_sessions_done">В следующий раз откроется самый свежий сеанс</string>
     <string name="settings_notifications_turn_hint">Ход завершается, пока приложение в фоне</string>
     <string name="settings_notifications_goal_hint">Цель выполнена или заблокирована</string>
     <string name="settings_notifications_action_hint">Подтверждение, вопрос или план ждут вас</string>

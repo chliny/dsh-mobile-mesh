@@ -38,15 +38,33 @@ class HostsStore @Inject constructor(
         val THEME = stringPreferencesKey("theme")
         val LOCALE = stringPreferencesKey("locale")
         val PORTS = stringPreferencesKey("ports_json")
-        val LAST_SESSIONS = stringPreferencesKey("last_sessions_json")
         val SESSION_SORT = stringPreferencesKey("session_sort")
+        val WORKSPACE_EXPANSION = stringPreferencesKey("workspace_expansion_json")
         val UPDATE_CHECK = booleanPreferencesKey("update_check")
         val DISMISSED_UPDATE = stringPreferencesKey("dismissed_update")
         val CONNECTION_DRAFT = stringPreferencesKey("connection_draft_json")
     }
 
     private val hostsSerializer = ListSerializer(HostConfig.serializer())
-    private val lastSessionsSerializer = MapSerializer(String.serializer(), String.serializer())
+    private val workspaceExpansionSerializer = MapSerializer(String.serializer(), Boolean.serializer())
+
+    val workspaceExpansion: Flow<Map<String, Boolean>> = dataStore.data.map { prefs ->
+        prefs[Keys.WORKSPACE_EXPANSION]?.let { raw ->
+            runCatching { WireJson.decodeFromString(workspaceExpansionSerializer, raw) }.getOrNull()
+        } ?: emptyMap()
+    }
+
+    suspend fun setWorkspaceExpanded(workspaceId: String, expanded: Boolean) {
+        dataStore.edit { prefs ->
+            val current = prefs[Keys.WORKSPACE_EXPANSION]?.let { raw ->
+                runCatching { WireJson.decodeFromString(workspaceExpansionSerializer, raw) }.getOrNull()
+            }.orEmpty()
+            prefs[Keys.WORKSPACE_EXPANSION] = WireJson.encodeToString(
+                workspaceExpansionSerializer,
+                current + (workspaceId to expanded),
+            )
+        }
+    }
 
     val connectionDraft: Flow<ConnectionDraft> = dataStore.data.map { prefs ->
         prefs[Keys.CONNECTION_DRAFT]?.let {
@@ -191,27 +209,6 @@ class HostsStore @Inject constructor(
      * used before. Keyed per host because session ids are host-scoped — one global key would try to
      * reopen a stale id from a different harness after every host switch.
      */
-    suspend fun lastSessionId(hostKey: String): String? = lastSessions()[hostKey]
-
-    /** Remember [sessionId] as the landing session for [hostKey], keeping the newest 8 hosts. */
-    suspend fun setLastSessionId(hostKey: String, sessionId: String) {
-        val next = LinkedHashMap<String, String>()
-        next[hostKey] = sessionId
-        lastSessions().forEach { (key, value) -> if (key != hostKey) next[key] = value }
-        val trimmed = next.entries.take(MAX_REMEMBERED_HOSTS).associate { it.key to it.value }
-        dataStore.edit { it[Keys.LAST_SESSIONS] = WireJson.encodeToString(lastSessionsSerializer, trimmed) }
-    }
-
-    /** Forget every remembered landing session (the Settings "clear data" action). */
-    suspend fun clearLastSessions() {
-        dataStore.edit { it.remove(Keys.LAST_SESSIONS) }
-    }
-
-    private suspend fun lastSessions(): Map<String, String> {
-        val raw = dataStore.data.first()[Keys.LAST_SESSIONS] ?: return emptyMap()
-        return runCatching { WireJson.decodeFromString(lastSessionsSerializer, raw) }.getOrDefault(emptyMap())
-    }
-
     /** Drawer session ordering: `"manual"` follows the workspace order, `"updated"` sorts by recency. */
     val sessionSort: Flow<String> = dataStore.data.map { it[Keys.SESSION_SORT] ?: "manual" }
 

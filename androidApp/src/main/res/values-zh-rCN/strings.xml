@@ -358,10 +358,6 @@
     <string name="settings_language_system">跟随系统</string>
     <string name="settings_harness">Harness</string>
     <string name="settings_data">数据</string>
-    <string name="settings_forget_hosts">忘记已记住的 Harness</string>
-    <string name="settings_forget_hosts_done">已清除记住的 Harness</string>
-    <string name="settings_clear_last_sessions">忘记要打开的会话</string>
-    <string name="settings_clear_last_sessions_done">下次将打开最新的会话</string>
     <string name="settings_notifications_turn_hint">应用在后台时回合结束</string>
     <string name="settings_notifications_goal_hint">目标完成或被阻塞</string>
     <string name="settings_notifications_action_hint">有审批、提问或计划等待你处理</string>

@@ -346,10 +346,6 @@
     <string name="settings_language_system">Par défaut du système</string>
     <string name="settings_harness">Harness</string>
     <string name="settings_data">Données</string>
-    <string name="settings_forget_hosts">Oublier les Harness mémorisés</string>
-    <string name="settings_forget_hosts_done">Harness mémorisés effacés</string>
-    <string name="settings_clear_last_sessions">Oublier quelle session ouvrir</string>
-    <string name="settings_clear_last_sessions_done">L’application ouvrira la session la plus récente la prochaine fois</string>
     <string name="settings_notifications_turn_hint">Un tour qui se termine pendant que l’app est en arrière-plan</string>
     <string name="settings_notifications_goal_hint">Un objectif terminé ou bloqué</string>
     <string name="settings_notifications_action_hint">Une approbation, une question ou un plan qui vous attend</string>
