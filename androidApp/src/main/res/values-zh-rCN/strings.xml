@@ -40,6 +40,8 @@
     <string name="connect_port_hint">3080</string>
     <string name="connect_button">连接</string>
     <string name="connect_save">保存</string>
+    <string name="connect_delete_title">删除连接？</string>
+    <string name="connect_delete_message">这将从此设备删除已保存的连接及其 SSH 凭据。</string>
     <string name="connect_transport_direct">直接连接</string>
     <string name="connect_transport_zerotier">ZeroTier</string>
     <string name="connect_transport_tailscale">Tailscale</string>
