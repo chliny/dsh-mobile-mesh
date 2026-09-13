@@ -56,8 +56,8 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.data.SessionRow
 import dev.dsh.mobile.mesh.data.SessionStore
-import dev.dsh.mobile.mesh.data.WorkspaceRow
 import dev.dsh.mobile.mesh.core.wire.dto.DirectoryListing
+import dev.dsh.mobile.mesh.data.WorkspaceRow
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonSize
@@ -134,8 +134,8 @@ fun ChatListDrawer(
     // to reset every time the drawer was closed.
     val sessionSort by hostsStore.sessionSort.collectAsStateWithLifecycle(initialValue = SORT_MANUAL)
     val sortByRecency = sessionSort == SORT_UPDATED
-    var newWorkspaceOpen by remember { mutableStateOf(false) }
     var newSessionOpen by remember { mutableStateOf(false) }
+    var newWorkspaceOpen by remember { mutableStateOf(false) }
     val collapsed = remember { mutableStateMapOf<String, Boolean>() }
     val visiblePageByWorkspace = remember { mutableStateMapOf<String, Int>() }
 
@@ -440,27 +440,18 @@ fun ChatListDrawer(
             }
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(DsShapes.row)
-                .clickable { newWorkspaceOpen = true }
-                .padding(vertical = DsSpacing.small),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Filled.Add,
-                contentDescription = null,
-                tint = colors.labelTertiary,
-                modifier = Modifier.size(16.dp),
-            )
-            Spacer(Modifier.width(DsSpacing.small))
-            Text(
-                stringResource(R.string.chatlist_new_workspace),
-                style = DsType.std14,
-                color = colors.labelSecondary,
-            )
-        }
+    }
+
+    if (newWorkspaceOpen) {
+        NewWorkspaceDialog(
+            onDismiss = { newWorkspaceOpen = false },
+            onCreate = { path ->
+                scope.launch {
+                    store.createWorkspace(path)
+                    newWorkspaceOpen = false
+                }
+            },
+        )
     }
 
     if (newSessionOpen) {
@@ -476,18 +467,6 @@ fun ChatListDrawer(
                 }
             },
             onDismiss = { newSessionOpen = false },
-        )
-    }
-
-    if (newWorkspaceOpen) {
-        NewWorkspaceDialog(
-            onDismiss = { newWorkspaceOpen = false },
-            onCreate = { path ->
-                scope.launch {
-                    store.createWorkspace(path)
-                    newWorkspaceOpen = false
-                }
-            },
         )
     }
 }
