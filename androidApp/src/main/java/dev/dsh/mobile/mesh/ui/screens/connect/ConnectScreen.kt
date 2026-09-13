@@ -144,6 +144,7 @@ fun ConnectScreen(
                 sshUsername = saved.sshUsername.orEmpty()
                 sshAuthenticationKey = if (saved.sshAuthentication == SshAuthentication.PRIVATE_KEY) "key" else "password"
                 sshDshHost = saved.sshDshHost
+                launchToken = saved.launchToken
             } else if (persistedDraft != null) {
                 val draft = persistedDraft ?: return@LaunchedEffect
                 connectionName = draft.name
@@ -455,7 +456,7 @@ fun ConnectScreen(
                                 sshPort = sshPort, sshUsername = sshUsername,
                                 sshAuthentication = sshAuthentication, sshPassword = sshPassword,
                                 sshPrivateKey = sshPrivateKey, sshPrivateKeyPassphrase = sshPrivateKeyPassphrase,
-                                sshDshHost = sshDshHost,
+                                sshDshHost = sshDshHost, launchToken = launchToken,
                             ) { /* Stay on this form so Save is immediately followed by Connect. */ }
                         },
                         variant = DsButtonVariant.Outline,

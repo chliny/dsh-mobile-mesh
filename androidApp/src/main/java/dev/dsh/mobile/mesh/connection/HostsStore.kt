@@ -62,19 +62,6 @@ class HostsStore @Inject constructor(
         dataStore.edit { it.remove(Keys.CONNECTION_DRAFT) }
     }
 
-    /** Keep the latest launch token when it was entered from the authentication prompt. */
-    suspend fun saveLaunchToken(token: String) {
-        dataStore.edit { prefs ->
-            val current = prefs[Keys.CONNECTION_DRAFT]?.let {
-                runCatching { WireJson.decodeFromString(ConnectionDraft.serializer(), it) }.getOrNull()
-            } ?: ConnectionDraft()
-            prefs[Keys.CONNECTION_DRAFT] = WireJson.encodeToString(
-                ConnectionDraft.serializer(),
-                current.copy(launchToken = token),
-            )
-        }
-    }
-
     val hosts: Flow<List<HostConfig>> = dataStore.data.map { prefs ->
         val raw = prefs[Keys.HOSTS] ?: return@map emptyList()
         runCatching {
@@ -116,6 +103,14 @@ class HostsStore @Inject constructor(
     suspend fun touchHost(host: String, port: Int) {
         val current = hosts.first().map {
             if (it.host == host && it.port == port) it.copy(lastConnectedAt = System.currentTimeMillis()) else it
+        }
+        persist(current)
+    }
+
+    /** Replace the process-startup token only for its associated saved connection. */
+    suspend fun saveLaunchToken(hostId: String, token: String) {
+        val current = hosts.first().map {
+            if (it.id == hostId) it.copy(launchToken = token) else it
         }
         persist(current)
     }
@@ -166,6 +161,7 @@ class HostsStore @Inject constructor(
             sshUsername = sshUsername,
             sshAuthentication = sshAuthentication,
             sshDshHost = sshDshHost,
+            launchToken = existing?.launchToken.orEmpty(),
         )
         upsertHost(config)
         return config
