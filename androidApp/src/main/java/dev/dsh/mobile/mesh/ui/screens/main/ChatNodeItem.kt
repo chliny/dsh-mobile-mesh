@@ -48,13 +48,14 @@ import dev.dsh.mobile.mesh.core.session.ContextMessageNode
 import dev.dsh.mobile.mesh.core.session.GoalNode
 import dev.dsh.mobile.mesh.core.session.OtherNode
 import dev.dsh.mobile.mesh.core.session.PlanModeNode
+import dev.dsh.mobile.mesh.core.session.ProducedFilesNode
 import dev.dsh.mobile.mesh.core.session.RetryNode
+import dev.dsh.mobile.mesh.core.session.TurnEndNode
 import dev.dsh.mobile.mesh.core.session.SubagentNode
 import dev.dsh.mobile.mesh.core.session.TitleNode
 import dev.dsh.mobile.mesh.core.session.TodoNode
 import dev.dsh.mobile.mesh.core.session.ToolCallNode
 import dev.dsh.mobile.mesh.core.session.ToolResultNode
-import dev.dsh.mobile.mesh.core.session.TurnEndNode
 import dev.dsh.mobile.mesh.core.session.TurnErrorNode
 import dev.dsh.mobile.mesh.core.session.TurnStartNode
 import dev.dsh.mobile.mesh.core.session.UserMessageNode
@@ -142,7 +143,7 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
         is ToolResultNode -> Unit
 
         is TurnEndNode -> when (node.reasonKind) {
-            "completed" -> ProducedFilesRow(node, context)
+            "completed" -> Unit
             "aborted", "interrupted" -> DsPill(text = stringResource(R.string.chat_stopped), warn = true)
             "error" -> Row(verticalAlignment = Alignment.CenterVertically) {
                 StateDot(StateDotState.Error, size = 8.dp)
@@ -160,6 +161,8 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
         is TodoNode -> parseTodos(node.todos)?.let { TodoDock(it) }
 
         is GoalNode -> parseGoal(node.data)?.let { GoalSummary(it) }
+
+        is ProducedFilesNode -> ProducedFilesRow(node.paths, context)
 
         is PlanModeNode -> DsPill(
             text = stringResource(if (node.active) R.string.plan_mode_on else R.string.plan_mode_off),
@@ -431,19 +434,7 @@ private fun ActionIcon(
 }
 
 @Composable
-private fun ProducedFilesRow(node: TurnEndNode, context: ChatNodeContext) {
-    val paths = remember(node.turn, context.nodes) {
-        val successfulCalls = context.nodes.filterIsInstance<ToolResultNode>()
-            .filter { it.turn == node.turn && !it.isError }
-            .map { it.callId }
-            .toSet()
-        context.nodes
-            .filterIsInstance<ToolCallNode>()
-            .filter { it.turn == node.turn && it.callId in successfulCalls }
-            .filter { it.name in setOf("write", "edit", "str_replace_editor") }
-            .mapNotNull { changedFilePath(it) }
-            .distinct()
-    }
+private fun ProducedFilesRow(paths: List<String>, context: ChatNodeContext) {
     if (paths.isEmpty()) return
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -467,11 +458,6 @@ private fun ProducedFilesRow(node: TurnEndNode, context: ChatNodeContext) {
         if (paths.size > 6) Text(stringResource(R.string.chat_more_files, paths.size - 6), style = DsType.caption11, color = DsTheme.colors.labelTertiary)
     }
 }
-
-private fun changedFilePath(call: ToolCallNode): String? = runCatching {
-    val args = kotlinx.serialization.json.Json.parseToJsonElement(call.arguments) as? JsonObject ?: return@runCatching null
-    args["file_path"]?.toString()?.trim('"') ?: args["path"]?.toString()?.trim('"')
-}.getOrNull()
 
 // ---------------------------------------------------------------------------
 // Tool calls
