@@ -153,7 +153,14 @@ class SshTunnelManager @Inject constructor(
         /** Below typical mobile NAT idle expiry without needlessly waking the radio. */
         const val KEEP_ALIVE_INTERVAL_SECONDS = 20
         const val SSH_CONNECT_TIMEOUT_MS = 10_000
-        const val SSH_HANDSHAKE_TIMEOUT_MS = 120_000
+        /**
+         * Long enough for a slow userspace path, far short of sshj's default.
+         *
+         * A suspended ZeroTier peer can complete the TCP and banner exchange and then stop
+         * carrying bytes, which left authentication waiting two minutes. Failing in a fraction of
+         * that lets the recovery retry rebuild the relay while the user is still watching.
+         */
+        const val SSH_HANDSHAKE_TIMEOUT_MS = 25_000
         const val TAG = "SshTunnelManager"
     }
 }
