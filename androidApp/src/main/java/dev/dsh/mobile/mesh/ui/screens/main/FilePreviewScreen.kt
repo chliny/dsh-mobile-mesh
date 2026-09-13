@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,7 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.data.PreviewState
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
-import dev.dsh.mobile.mesh.ui.components.SyntaxHighlightedCode
+import dev.dsh.mobile.mesh.ui.components.KodeViewCode
 import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
@@ -69,10 +67,10 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
         ) {
             when (preview) {
                 null, PreviewState.Loading -> Text(stringResource(R.string.common_loading))
-                is PreviewState.Text -> SyntaxHighlightedCode(
-                    path = path,
+                is PreviewState.Text -> KodeViewCode(
                     code = preview.value.text,
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    pathOrLanguage = path,
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                 )
                 is PreviewState.Bytes -> Text(stringResource(R.string.workspace_files_binary), color = DsTheme.colors.labelSecondary)
                 is PreviewState.Failed -> Text(preview.message, color = DsTheme.colors.labelSecondary)

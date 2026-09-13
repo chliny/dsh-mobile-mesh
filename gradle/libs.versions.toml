@@ -14,6 +14,8 @@ coroutines = "1.9.0"
 serializationJson = "1.7.3"
 okhttp = "4.12.0"
 sshj = "0.39.0"
+highlights = "1.0.0"
+kodeview = "0.9.0"
 datastore = "1.1.1"
 workManager = "2.10.0"
 splashscreen = "1.0.1"
@@ -54,6 +56,8 @@ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
 sshj = { group = "com.hierynomus", name = "sshj", version.ref = "sshj" }
+highlights = { group = "dev.snipme", name = "highlights-jvm", version.ref = "highlights" }
+kodeview = { group = "dev.snipme", name = "kodeview-jvm", version.ref = "kodeview" }
 ktor-server-core = { group = "io.ktor", name = "ktor-server-core", version.ref = "ktor" }
 ktor-server-netty = { group = "io.ktor", name = "ktor-server-netty", version.ref = "ktor" }
 ktor-server-websockets = { group = "io.ktor", name = "ktor-server-websockets", version.ref = "ktor" }

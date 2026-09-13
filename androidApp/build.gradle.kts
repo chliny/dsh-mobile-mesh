@@ -116,6 +116,18 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.sshj)
+    implementation(libs.highlights)
+    implementation(libs.kodeview) {
+        // KodeView is published as a Kotlin Multiplatform JVM artifact that depends on the
+        // JetBrains Compose artifacts. Those use the same androidx.compose packages this app
+        // already gets from the Compose BOM, so they are excluded to avoid duplicate classes.
+        exclude(group = "org.jetbrains.compose.runtime", module = "runtime")
+        exclude(group = "org.jetbrains.compose.foundation", module = "foundation")
+        exclude(group = "org.jetbrains.compose.material", module = "material")
+        exclude(group = "org.jetbrains.compose.material3", module = "material3")
+        exclude(group = "org.jetbrains.compose.ui", module = "ui")
+        exclude(group = "org.jetbrains.compose.components", module = "components-resources")
+    }
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.work.runtime.ktx)
     testImplementation(libs.junit)
