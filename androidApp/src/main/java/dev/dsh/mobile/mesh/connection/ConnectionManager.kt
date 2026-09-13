@@ -373,17 +373,20 @@ class ConnectionManager @Inject constructor(
      * converge on the same job: two concurrent libzt/SSH replacements can tear down the other's
      * socket while it is handshaking and were the source of foreground crashes.
      */
-    fun reconnectIfNeeded() {
+    fun reconnectIfNeeded() = startRecovery(0)
+
+    private fun startRecovery(attempt: Int) {
         val host = activeHost ?: return
         synchronized(recoveryLock) {
             if (recoveryJob?.isActive == true) {
                 Log.d("ConnectionManager", "Transport recovery already in flight")
                 return
             }
-            Log.d("ConnectionManager", "Starting transport recovery")
+            Log.d("ConnectionManager", "Starting transport recovery (attempt ${attempt + 1})")
             transportRecoveryInFlight = true
             val epoch = lifecycleEpoch
             recoveryJob = scope.launch {
+                var recovered = false
                 try {
                     lifecycleMutex.withLock {
                         if (epoch != lifecycleEpoch || activeHost?.id != host.id) return@withLock
@@ -392,13 +395,18 @@ class ConnectionManager @Inject constructor(
                         loop?.stop()
                         loop = null
                         generation = null
+                        // The old unary client points at the relay we are about to close. Exposing
+                        // it during RECONNECTING lets a session tap issue RPCs to a dead port and
+                        // race the new generation. SessionStore treats null as a local-only switch
+                        // and baseline reopens the selected session after CONNECTED.
+                        api = null
                         try {
                             activeBaseUrl = reconnectTransports(host)
                             if (epoch != lifecycleEpoch || activeHost?.id != host.id) return@withLock
                             api = clientFactory.clientFor(host, baseUrl = activeBaseUrl!!)
                             loop = ConnectionLoop(muxFactory(host, activeBaseUrl!!), sinks, LoopConfig()).also { it.start() }
+                            recovered = true
                         } catch (error: Throwable) {
-                            Log.e("ConnectionManager", "Transport recovery failed", error)
                             if (epoch != lifecycleEpoch) return@withLock
                             if (error is MeshAuthorizationPending) {
                                 hostsStore.upsertHost(host)
@@ -409,13 +417,18 @@ class ConnectionManager @Inject constructor(
                                 )
                                 return@withLock
                             }
+                            // A userspace peer path suspended by Android can take a whole connect
+                            // cycle to fail. While the user is looking at the app, retry a bounded
+                            // number of times instead of parking them on a dead connection.
+                            val willRetry = appInForeground && attempt + 1 < FOREGROUND_RECOVERY_MAX_ATTEMPTS
+                            Log.w("ConnectionManager", "Transport recovery failed (attempt ${attempt + 1}, retry=$willRetry)", error)
                             // Do not stop the retained userspace mesh node after a failed renewal:
                             // libzt remains process-global and a second initialization attempt is
                             // invalid. A later foreground retry can safely replace just its relay.
                             activeBaseUrl = null
                             _state.value = _state.value.copy(
-                                phase = ConnectionPhase.DISCONNECTED,
-                                stage = ConnectStage.Idle,
+                                phase = if (willRetry) ConnectionPhase.RECONNECTING else ConnectionPhase.DISCONNECTED,
+                                stage = if (willRetry) ConnectStage.OpeningStreams else ConnectStage.Idle,
                                 failure = ConnectFailure.Other(error.message ?: "Unable to restart private-network transport"),
                             )
                         }
@@ -426,6 +439,13 @@ class ConnectionManager @Inject constructor(
                         recoveryJob = null
                     }
                     Log.d("ConnectionManager", "Transport recovery finished")
+                    if (!recovered && appInForeground && attempt + 1 < FOREGROUND_RECOVERY_MAX_ATTEMPTS && activeHost?.id == host.id) {
+                        val next = attempt + 1
+                        scope.launch {
+                            kotlinx.coroutines.delay(FOREGROUND_RECOVERY_RETRY_DELAY_MS)
+                            startRecovery(next)
+                        }
+                    }
                 }
             }
         }
@@ -440,7 +460,11 @@ class ConnectionManager @Inject constructor(
         appInForeground = true
         val current = _state.value
         Log.d("ConnectionManager", "Foreground recovery requested: phase=${current.phase}, active=${activeHost != null}, inFlight=$transportRecoveryInFlight")
-        if (activeHost == null || current.phase == ConnectionPhase.CONNECTING || transportRecoveryInFlight) return
+        // A normal activity resume is not evidence that a healthy foreground relay is stale.
+        // Rebuilding a CONNECTED relay here tears down the live mux and can look like a random
+        // foreground disconnect (and used to be triggered by ordinary activity recreation).
+        if (activeHost == null || current.phase == ConnectionPhase.CONNECTED ||
+            current.phase == ConnectionPhase.CONNECTING || transportRecoveryInFlight) return
         // A carrier can disappear while Android keeps the app's logical state CONNECTED. A
         // suspended background carrier may instead leave the loop in DISCONNECTED/RECONNECTING
         // without a NetworkCallback. In both cases publish the recovery state before the relay
@@ -531,5 +555,7 @@ class ConnectionManager @Inject constructor(
 
     private companion object {
         const val FOREGROUND_RECOVERY_COOLDOWN_MS = 1_000L
+        const val FOREGROUND_RECOVERY_MAX_ATTEMPTS = 3
+        const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 1_500L
     }
 }

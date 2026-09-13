@@ -182,26 +182,39 @@ private class ZeroTierRelay(
         local.use { client ->
             val remote = connect() ?: return
             sockets.add(remote)
-            // libzt owns the native socket object. Two copy directions can finish concurrently;
-            // closing it from both threads corrupts libzt's Phy socket list on Android. Elect one
-            // closer and let it run only after either direction ends.
-            val closed = AtomicBoolean(false)
-            fun closeRemoteOnce() {
-                if (closed.compareAndSet(false, true)) runCatching { remote.close() }
+            // libzt owns the native socket object. Never close it while either copy direction is
+            // still inside a native read/write: the old "close on first EOF" implementation raced
+            // the other worker and produced a reproducible Pixel 3 SIGSEGV when the user switched
+            // chats during foreground recovery. First close only the Java loopback socket to make
+            // the peer direction finish; close the native socket only after both workers returned.
+            val finished = java.util.concurrent.CountDownLatch(2)
+            val localClosed = AtomicBoolean(false)
+            fun directionFinished() {
+                finished.countDown()
+                if (localClosed.compareAndSet(false, true)) runCatching { client.close() }
+            }
+            val upstream = executor.submit {
+                try {
+                    // Socket closure is the normal termination signal for a relay worker.
+                    runCatching { client.getInputStream().copyTo(remote.outputStream) }
+                } finally {
+                    directionFinished()
+                }
             }
             try {
-                executor.execute {
-                    try {
-                        // Socket closure is the normal termination signal for a relay worker.
-                        runCatching { client.getInputStream().copyTo(remote.outputStream) }
-                    } finally {
-                        closeRemoteOnce()
-                    }
-                }
                 runCatching { remote.inputStream.copyTo(client.getOutputStream()) }
             } finally {
-                sockets.remove(remote)
-                closeRemoteOnce()
+                directionFinished()
+                // The native close is now serialized after both stream operations have left JNI.
+                // If a suspended native read ignores local close, leave that socket for libzt's
+                // eventual callback instead of closing it concurrently and crashing the process.
+                if (finished.await(2, java.util.concurrent.TimeUnit.SECONDS)) {
+                    sockets.remove(remote)
+                    runCatching { remote.close() }
+                } else {
+                    Log.w(TAG, "Leaving stalled ZeroTier socket for native cleanup")
+                }
+                runCatching { upstream.get(2, java.util.concurrent.TimeUnit.SECONDS) }
             }
         }
     }
