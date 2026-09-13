@@ -4,7 +4,6 @@ import android.util.Base64
 import android.util.Log
 import dev.dsh.mobile.mesh.connection.ConnectionManager
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
-import dev.dsh.mobile.mesh.connection.HostsStore
 import dev.dsh.mobile.mesh.core.session.AssistantLiveState
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
 import dev.dsh.mobile.mesh.core.session.EventFold
@@ -115,6 +114,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.KSerializer
@@ -249,11 +250,15 @@ internal fun nextHasMore(freshCount: Int, hostHasMore: Boolean, overDelivered: B
 @Singleton
 class SessionStore @Inject constructor(
     private val connectionManager: ConnectionManager,
-    private val hostsStore: HostsStore,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lock = Any()
     private val baselineMutex = Mutex()
+    /** Serialize session selection so rapid taps cannot interleave follow/metadata replacement. */
+    private val sessionSwitchMutex = Mutex()
+    /** Latest-wins queue: rapid drawer taps must not backlog one network switch per tap. */
+    @Volatile private var pendingSessionId: String? = null
+    @Volatile private var sessionSwitchJob: Job? = null
 
     /** Coalesces transcript rebuilds during a stream; see [observeRebuildTicks]. */
     private val rebuildTicks = Channel<Unit>(Channel.CONFLATED)
@@ -390,12 +395,10 @@ class SessionStore @Inject constructor(
         combine(_models, modelSelection) { catalog, selection ->
             val current = selection?.next ?: selection?.lastUsed
             if (catalog == null) {
-                // The session projection can arrive before the host catalog RPC. Keep the chip
-                // useful instead of showing an endless loading skeleton; the sheet will fill in
-                // provider names once the catalog arrives.
-                return@combine current?.let {
-                    SessionModelsValue(current = it, routable = true)
-                }
+                // A selection without its host catalog cannot populate the picker. Keep this as a
+                // loading state rather than publishing an empty SessionModelsValue whose sheet looks
+                // like the host has no models. The catalog is loaded during connection baseline.
+                return@combine null
             }
             SessionModelsValue(
                 current = current ?: catalog.default,
@@ -622,41 +625,14 @@ class SessionStore @Inject constructor(
         startHostStreams()
         _hostInfo.value = connectionManager.generation?.description
         refreshSessions()
+        // Model choices belong to the connected host, not to the first session opened. Load the
+        // catalog during cold-start baseline so opening the model sheet immediately cannot show an
+        // empty list before openSession has had a chance to run its session-scoped refresh.
+        refreshModelCatalog()
         // Host-scoped and needed before anything is tapped: the chat bar names the session's preset
         // as soon as it renders, and without the roster it could only show the raw wire id.
         refreshAgentPresets()
-        // On a reconnect `currentSessionId` is already set, so the resolver only ever runs on the
-        // first connect of a process — no double-open, and reconnect keeps reopening what was open.
-        val sid = currentSessionId.value ?: resolveInitialSession() ?: return
-        openSession(sid)
     }
-
-    /**
-     * Which session to land on when the app has just connected and nothing is open.
-     *
-     * Mirrors the harness's own startup policy: the session you were last in, else the most
-     * recently active workspace's newest session, else simply the newest session. Ranking is by
-     * session `updatedAt` — `workspace.updatedAt` stamps the registration record (a rename, a
-     * session being added), and `workspace.list` order is the manual display order, so neither
-     * tracks conversation activity.
-     *
-     * Returns null when there is nothing worth opening, which leaves the empty hero on screen.
-     */
-    private suspend fun resolveInitialSession(): String? {
-        val remembered = hostKey()?.let { hostsStore.lastSessionId(it) }
-        val (rows, workspaces, archivedNow) = synchronized(lock) {
-            Triple(
-                sessionRows.values.toList(),
-                workspaceOrder.mapNotNull { workspaceRows[it] },
-                archived,
-            )
-        }
-        return pickInitialSession(rows, workspaces, archivedNow, remembered)
-    }
-
-    /** `"host:port"` for the connected harness — session ids are only meaningful within one host. */
-    private fun hostKey(): String? =
-        connectionManager.state.value.host?.let { "${it.host}:${it.port}" }
 
     // ------------------------------------------------------------------ host event frames
     /**
@@ -1245,16 +1221,28 @@ class SessionStore @Inject constructor(
      */
     private fun applyWorkspaceValue(value: WorkspaceValue) = upsertWorkspace(value.workspace)
 
-    suspend fun openSession(sessionId: String) = withContext(Dispatchers.Default) {
-        val cached = synchronized(lock) { conversationCache[sessionId] }
-        val api = apiOrNull()
+    suspend fun openSession(sessionId: String) {
+        pendingSessionId = sessionId
+        if (sessionSwitchJob?.isActive == true) return
+        sessionSwitchJob = scope.launch {
+            while (true) {
+                val next = pendingSessionId ?: break
+                pendingSessionId = null
+                openSessionOnce(next)
+            }
+        }
+    }
+
+    private suspend fun openSessionOnce(sessionId: String) = sessionSwitchMutex.withLock {
+        withContext(Dispatchers.Default) {
+            val cached = synchronized(lock) { conversationCache[sessionId] }
+            val api = apiOrNull()
         if (api == null) {
             synchronized(lock) {
                 currentId = sessionId
                 _currentSessionId.value = sessionId
                 _currentConversation.value = cached
             }
-            rememberLastSession(sessionId)
             return@withContext
         }
         _loadOlderFailed.value = false
@@ -1263,17 +1251,20 @@ class SessionStore @Inject constructor(
             currentId = sessionId
             _currentSessionId.value = sessionId
             if (!same) {
+                // Keep the old fold only until the replacement snapshot is available. Most importantly,
+                // publish the per-session cache before clearing live state: a slow follow open must not
+                // turn a previously rendered conversation into the blank initial hero.
+                val cachedSnapshot = conversationCache[sessionId]
                 currentEvents.clear()
-                currentHasMore = false
-                currentBlank = sessionRows[sessionId]?.blank ?: true
+                currentHasMore = cachedSnapshot?.hasMore ?: false
+                currentBlank = cachedSnapshot?.blank ?: (sessionRows[sessionId]?.blank ?: true)
                 currentProjections.clear()
-                currentQueue = emptyList()
+                cachedSnapshot?.projections?.forEach { (key, value) ->
+                    currentProjections[key] = ProjectionValue(cachedSnapshot.lastSeq.toInt(), value)
+                }
+                currentQueue = cachedSnapshot?.queue ?: emptyList()
                 liveAssistant.clear()
-            }
-            if (!same) {
-                // Publish the last rendered snapshot immediately. Network work continues below and
-                // the follow stream will replace it with the authoritative snapshot when available.
-                _currentConversation.value = conversationCache[sessionId]
+                _currentConversation.value = cachedSnapshot
                 _jobs.value = emptyList()
                 _skills.value = emptyList()
                 // Keep the host-scoped model catalog while switching sessions. Clearing it makes the
@@ -1287,11 +1278,16 @@ class SessionStore @Inject constructor(
             }
         }
         startFollow(sessionId)
-        loadSkills(sessionId)
-        loadModels(sessionId)
-        refreshSubagents()
-        refreshCommands()
-        rememberLastSession(sessionId)
+        // A red/orange carrier has no usable API generation. Preserve the user's chosen session
+        // locally and let the connection baseline reopen it once green, rather than launching
+        // several unary RPCs to the relay that recovery is actively closing.
+        if (apiOrNull() != null) {
+            loadSkills(sessionId)
+            loadModels(sessionId)
+            refreshSubagents()
+            refreshCommands()
+        }
+        }
     }
 
     /**
@@ -1407,13 +1403,6 @@ class SessionStore @Inject constructor(
     /** History records are plain events since harness 0.1.3; nothing is packed any more. */
     private fun expandRecords(records: List<SessionHistoryRecord>): List<SessionEventEnvelope> =
         records.map { wireEventToEnvelope(it.event) }
-
-    /** Persist the landing session for this harness; a write failure is not worth surfacing. */
-    private suspend fun rememberLastSession(sessionId: String) {
-        val key = hostKey() ?: return
-        runCatching { hostsStore.setLastSessionId(key, sessionId) }
-            .onFailure { log("could not remember last session", it) }
-    }
 
     /**
      * Page one screen further back.
@@ -2244,11 +2233,20 @@ class SessionStore @Inject constructor(
     // ------------------------------------------------------------------ internal helpers
     private fun goalRefFromProjectionLocked(): GoalRef? {
         val value = currentProjections["goal"]?.value ?: return null
-        return runCatching {
-            val snapshot = decodeFromJsonElement(GoalSnapshot.serializer(), value)
-            GoalRef(snapshot.id, snapshot.revision)
-        }.getOrElse {
-            runCatching { decodeFromJsonElement(GoalRef.serializer(), value) }.getOrNull()
+        // The projection is sent both as a bare GoalSnapshot and, on newer hosts, as
+        // {"goal": GoalSnapshot}. The UI accepts both shapes; mutations must do the same or the
+        // pause menu silently returns before sending goals/pause.
+        val candidates = buildList {
+            add(value)
+            (value as? JsonObject)?.get("goal")?.let(::add)
+        }
+        return candidates.firstNotNullOfOrNull { candidate ->
+            runCatching {
+                val snapshot = decodeFromJsonElement(GoalSnapshot.serializer(), candidate)
+                GoalRef(snapshot.id, snapshot.revision)
+            }.getOrNull() ?: runCatching {
+                decodeFromJsonElement(GoalRef.serializer(), candidate)
+            }.getOrNull()
         }
     }
 
@@ -2264,17 +2262,24 @@ class SessionStore @Inject constructor(
         }
     }
 
-    private suspend fun loadModels(sessionId: String) {
+    private suspend fun refreshModelCatalog() {
         synchronized(lock) { modelCatalogCache?.let { _models.value = it } }
         val api = apiOrNull() ?: return
-        // Host-scoped now, not session-scoped: `session/modelCatalog` describes the generation's
-        // routable models, and the session's own current selection comes from its projections.
+        // Host-scoped: the catalog must be available before the first session is opened, because the
+        // model sheet can be opened directly from the initial chat screen after a cold start.
         when (val r = api.sessionModelCatalog()) {
             is RpcResult.Ok -> synchronized(lock) {
                 modelCatalogCache = r.value
-                if (currentId == sessionId) _models.value = r.value
+                _models.value = r.value
             }
             is RpcResult.Err -> setConnectionError(r.error.message)
+        }
+    }
+
+    private suspend fun loadModels(sessionId: String) {
+        refreshModelCatalog()
+        synchronized(lock) {
+            if (currentId == sessionId) modelCatalogCache?.let { _models.value = it }
         }
     }
 
