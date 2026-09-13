@@ -12,10 +12,9 @@ object DshCore {
      * version string, and there is no version-shaped branch in the client at all — see
      * `docs/COMPATIBILITY.md`.
      *
-     * 0.1.3 moved the baseline for the second time in a row that the older wire cannot follow:
-     * session format v2 replaced per-token durable events with one settlement per model attempt,
-     * so a client that does not opt into the live assistant stream never sees a reply being
-     * written.
+     * The current compatibility target is DeepSeek Harness tag `dsh-v0.1.5-alpha.2`. The wire
+     * remains backward-compatible with the session and workspace-file protocol used by this client;
+     * the tag is the release tested for the current DTOs and call shapes.
      */
-    const val PROTOCOL_BASELINE = "0.1.3-alpha.1"
+    const val PROTOCOL_BASELINE = "0.1.5-alpha.2"
 }

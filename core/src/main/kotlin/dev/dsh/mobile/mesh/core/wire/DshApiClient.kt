@@ -96,7 +96,7 @@ private fun encodeQueryComponent(value: String): String =
 const val FILE_UPLOAD_PATH: String = "/api/session/uploadFileBinary"
 
 /**
- * Typed client for the harness unary wire protocol (v0.1.3-alpha.1).
+ * Typed client for the harness unary wire protocol (tested against DeepSeek Harness dsh-v0.1.5-alpha.2).
  *
  * Every call is one `POST /api/<namespace>/<method>` carrying the unchanged RPC envelope with a
  * `{"args": {…}}` payload, and returns [RpcResult]: business failures arrive as HTTP 200 +
