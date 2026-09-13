@@ -346,10 +346,6 @@
     <string name="settings_language_system">सिस्टम डिफ़ॉल्ट</string>
     <string name="settings_harness">Harness</string>
     <string name="settings_data">डेटा</string>
-    <string name="settings_forget_hosts">याद किए गए Harness भूल जाएँ</string>
-    <string name="settings_forget_hosts_done">याद किए गए Harness साफ़ किए गए</string>
-    <string name="settings_clear_last_sessions">कौन-सा सेशन खोलना है, भूल जाएँ</string>
-    <string name="settings_clear_last_sessions_done">अगली बार सबसे नया सेशन खुलेगा</string>
     <string name="settings_notifications_turn_hint">ऐप के बैकग्राउंड में रहते हुए टर्न पूरा होना</string>
     <string name="settings_notifications_goal_hint">लक्ष्य पूरा होना या अवरुद्ध होना</string>
     <string name="settings_notifications_action_hint">कोई अनुमोदन, प्रश्न या योजना आपकी प्रतीक्षा में</string>

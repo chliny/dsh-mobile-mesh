@@ -336,10 +336,6 @@
     <string name="settings_language_system">System default</string>
     <string name="settings_harness">Harness</string>
     <string name="settings_data">Data</string>
-    <string name="settings_forget_hosts">Forget remembered harnesses</string>
-    <string name="settings_forget_hosts_done">Remembered harnesses cleared</string>
-    <string name="settings_clear_last_sessions">Forget which session to open</string>
-    <string name="settings_clear_last_sessions_done">The app will open the newest session next time</string>
     <string name="settings_notifications_turn_hint">A turn finishing while the app is in the background</string>
     <string name="settings_notifications_goal_hint">A goal completing or getting blocked</string>
     <string name="settings_notifications_action_hint">An approval, question, or plan waiting on you</string>

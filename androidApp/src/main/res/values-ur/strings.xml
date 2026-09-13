@@ -346,10 +346,6 @@
     <string name="settings_language_system">سسٹم ڈیفالٹ</string>
     <string name="settings_harness">Harness</string>
     <string name="settings_data">ڈیٹا</string>
-    <string name="settings_forget_hosts">محفوظ Harness بھول جائیں</string>
-    <string name="settings_forget_hosts_done">محفوظ Harness صاف کر دیے گئے</string>
-    <string name="settings_clear_last_sessions">کون سا سیشن کھلے، بھول جائیں</string>
-    <string name="settings_clear_last_sessions_done">اگلی بار سب سے نیا سیشن کھلے گا</string>
     <string name="settings_notifications_turn_hint">ایپ کے پس منظر میں ہوتے ہوئے ٹرن مکمل ہونا</string>
     <string name="settings_notifications_goal_hint">ہدف مکمل ہونا یا رک جانا</string>
     <string name="settings_notifications_action_hint">کوئی منظوری، سوال یا منصوبہ آپ کا منتظر</string>

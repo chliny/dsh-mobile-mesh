@@ -346,10 +346,6 @@
     <string name="settings_language_system">সিস্টেম ডিফল্ট</string>
     <string name="settings_harness">Harness</string>
     <string name="settings_data">ডেটা</string>
-    <string name="settings_forget_hosts">মনে রাখা Harness ভুলে যান</string>
-    <string name="settings_forget_hosts_done">মনে রাখা Harness মুছে ফেলা হয়েছে</string>
-    <string name="settings_clear_last_sessions">কোন সেশন খুলবে তা ভুলে যান</string>
-    <string name="settings_clear_last_sessions_done">পরের বার সবচেয়ে নতুন সেশন খুলবে</string>
     <string name="settings_notifications_turn_hint">অ্যাপ ব্যাকগ্রাউন্ডে থাকাকালীন টার্ন শেষ হওয়া</string>
     <string name="settings_notifications_goal_hint">লক্ষ্য সম্পূর্ণ বা অবরুদ্ধ হওয়া</string>
     <string name="settings_notifications_action_hint">কোনো অনুমোদন, প্রশ্ন বা পরিকল্পনা আপনার অপেক্ষায়</string>

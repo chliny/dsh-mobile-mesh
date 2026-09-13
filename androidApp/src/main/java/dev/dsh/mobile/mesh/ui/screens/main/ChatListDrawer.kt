@@ -133,10 +133,12 @@ fun ChatListDrawer(
     // Persisted, not remembered: the order you read your sessions in is a preference, and it used
     // to reset every time the drawer was closed.
     val sessionSort by hostsStore.sessionSort.collectAsStateWithLifecycle(initialValue = SORT_MANUAL)
+    val workspaceExpansion by hostsStore.workspaceExpansion.collectAsStateWithLifecycle(initialValue = emptyMap())
     val sortByRecency = sessionSort == SORT_UPDATED
     var newSessionOpen by remember { mutableStateOf(false) }
     var newWorkspaceOpen by remember { mutableStateOf(false) }
-    val collapsed = remember { mutableStateMapOf<String, Boolean>() }
+    val workspaceOverrides = remember { mutableStateMapOf<String, Boolean>() }
+    val childCollapsed = remember { mutableStateMapOf<String, Boolean>() }
     val visiblePageByWorkspace = remember { mutableStateMapOf<String, Int>() }
 
     LaunchedEffect(query) {
@@ -190,11 +192,11 @@ fun ChatListDrawer(
         }
     }
 
-    // `collapsed` holds explicit choices only; the default is closed unless the subtree holds the
-    // session you are looking at, so opening the drawer mid-run shows you where you are.
-    fun isExpanded(sessionId: String): Boolean = collapsed[sessionId]?.not() ?: (sessionId in openPath)
+    fun isExpanded(workspaceId: String): Boolean =
+        workspaceOverrides[workspaceId] ?: workspaceExpansion[workspaceId] ?: false
+    fun isChildExpanded(sessionId: String): Boolean = childCollapsed[sessionId]?.not() ?: (sessionId in openPath)
     fun toggleChildren(sessionId: String) {
-        collapsed[sessionId] = isExpanded(sessionId)
+        childCollapsed[sessionId] = !isChildExpanded(sessionId)
     }
 
     /** Depth-first expansion of one top-level session, honouring each row's collapse state. */
@@ -203,7 +205,7 @@ fun ChatListDrawer(
         fun walk(row: SessionRow, depth: Int) {
             out += row to depth
             val children = childrenByParent[row.sessionId].orEmpty()
-            if (children.isEmpty() || !isExpanded(row.sessionId)) return
+            if (children.isEmpty() || !isChildExpanded(row.sessionId)) return
             val ordered = if (sortByRecency) children.sortedByDescending(SessionRow::updatedAt) else children
             ordered.forEach { walk(it, depth + 1) }
         }
@@ -324,11 +326,9 @@ fun ChatListDrawer(
                     .let { if (sortByRecency) it.sortedByDescending(SessionRow::updatedAt) else it }
                 if (roots.isEmpty()) continue
                 anyShown = true
-                // Only the workspace you are working in is open by default. With twenty sessions
-                // and their subagents in one group, expanding everything buries the list you came
-                // for; the explicit map entry then remembers whatever you choose.
-                val holdsCurrent = roots.any { it.sessionId in openPath }
-                val isCollapsed = collapsed[workspace.workspaceId] ?: !holdsCurrent
+                // Workspace expansion is persisted per workspace; session-child expansion remains
+                // a local UI choice and does not affect the workspace preference.
+                val isCollapsed = !isExpanded(workspace.workspaceId)
                 val orderedRoots = roots.sortedWith(
                     compareByDescending<SessionRow> { it.updatedAt }
                         .thenByDescending { it.sessionId },
@@ -343,7 +343,11 @@ fun ChatListDrawer(
                         // Sessions, not sessions-plus-their-subagents: a subagent count belongs on
                         // the row that spawned them, where it says something.
                         sessionCount = orderedRoots.size,
-                        onToggle = { collapsed[workspace.workspaceId] = !isCollapsed },
+                        onToggle = {
+                             val expanded = !isExpanded(workspace.workspaceId)
+                             workspaceOverrides[workspace.workspaceId] = expanded
+                             scope.launch { hostsStore.setWorkspaceExpanded(workspace.workspaceId, expanded) }
+                         },
                         store = store,
                         scope = scope,
                         onNewSession = {
@@ -366,7 +370,7 @@ fun ChatListDrawer(
                                 onClose = onClose,
                                 depth = depth,
                                 childCount = childrenByParent[session.sessionId].orEmpty().size,
-                                childrenExpanded = isExpanded(session.sessionId),
+                                childrenExpanded = isChildExpanded(session.sessionId),
                                 onToggleChildren = { toggleChildren(session.sessionId) },
                             )
                         }

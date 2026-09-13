@@ -102,9 +102,6 @@ fun SettingsScreen(
     var pluginsOpen by remember { mutableStateOf(false) }
     BackHandler(onBack = onClose)
 
-    val hostsCleared = stringResource(R.string.settings_forget_hosts_done)
-    val sessionsCleared = stringResource(R.string.settings_clear_last_sessions_done)
-
     // Fetched on open rather than kept live: the inventory only changes when the harness is
     // restarted with a different composition, and nothing pushes that over the wire.
     LaunchedEffect(Unit) { store.refreshPlugins() }
@@ -203,21 +200,6 @@ fun SettingsScreen(
                 // read-only banner is scoped to the facts it shows, and plugins are a different
                 // subject that happens to also be read-only.
                 plugins?.let { PluginsCard(it) { pluginsOpen = true } }
-
-                SettingsCard(stringResource(R.string.settings_data)) {
-                    DsButton(
-                        text = stringResource(R.string.settings_forget_hosts),
-                        onClick = { viewModel.forgetHosts { toast.second(hostsCleared) } },
-                        variant = DsButtonVariant.Outline,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    DsButton(
-                        text = stringResource(R.string.settings_clear_last_sessions),
-                        onClick = { viewModel.clearLastSessions { toast.second(sessionsCleared) } },
-                        variant = DsButtonVariant.Ghost,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
 
                 SettingsCard(stringResource(R.string.settings_about)) {
                     // Beside the version, because that is what it is about — and off-switchable,

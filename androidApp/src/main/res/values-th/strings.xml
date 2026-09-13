@@ -346,10 +346,6 @@
     <string name="settings_language_system">ค่าเริ่มต้นของระบบ</string>
     <string name="settings_harness">Harness</string>
     <string name="settings_data">ข้อมูล</string>
-    <string name="settings_forget_hosts">ลืม Harness ที่จดจำไว้</string>
-    <string name="settings_forget_hosts_done">ล้าง Harness ที่จดจำไว้แล้ว</string>
-    <string name="settings_clear_last_sessions">ลืมว่าจะเปิดเซสชันใด</string>
-    <string name="settings_clear_last_sessions_done">ครั้งต่อไปแอปจะเปิดเซสชันล่าสุด</string>
     <string name="settings_notifications_turn_hint">เทิร์นจบขณะที่แอปอยู่เบื้องหลัง</string>
     <string name="settings_notifications_goal_hint">เป้าหมายสำเร็จหรือถูกบล็อก</string>
     <string name="settings_notifications_action_hint">มีการอนุมัติ คำถาม หรือแผนรอคุณอยู่</string>
