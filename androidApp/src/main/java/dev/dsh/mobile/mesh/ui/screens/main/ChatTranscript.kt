@@ -68,6 +68,8 @@ private const val LOAD_OLDER_THRESHOLD = 2
  */
 private const val MAX_AUTO_PAGES = 1
 
+private data class OlderPageAnchor(val seq: Long, val offset: Int)
+
 /**
  * Decide whether the top sentinel may request another page. A reconnect can replace the visible
  * window while the list is already at index zero; that is not a reader gesture and must not be
@@ -83,7 +85,7 @@ internal fun shouldPageAtTop(
     if (firstVisible > LOAD_OLDER_THRESHOLD) return false
     // A filled viewport at index zero is also the normal post-reconnect layout. Only an active user
     // scroll may page it; a programmatic re-anchor must not walk the whole history.
-    return if (fillsViewport) userScrolling else autoPages < maxAutoPages
+    return if (userScrolling) true else autoPages < maxAutoPages
 }
 
 /**
@@ -117,6 +119,7 @@ internal fun ChatTranscript(
     // inheriting the previous transcript's position — and so the collector always writes to the
     // state the composition is currently reading.
     var wasNearBottom by remember(sessionId) { mutableStateOf(true) }
+    var olderPageAnchor by remember(sessionId) { mutableStateOf<OlderPageAnchor?>(null) }
     LaunchedEffect(listState, sessionId, itemCount) {
         var previousViewportHeight: Int? = null
         snapshotFlow {
@@ -145,6 +148,14 @@ internal fun ChatTranscript(
     // appearing and disappearing changed the count too, which moved the view for no reason at all.
     val newestSeq = nodes.lastOrNull()?.seq
     var lastSession by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(nodes, hasMore, sessionId) {
+        val anchor = olderPageAnchor ?: return@LaunchedEffect
+        if (nodes.none { it.seq == anchor.seq }) return@LaunchedEffect
+        val newIndex = nodes.indexOfFirst { it.seq == anchor.seq }
+        if (newIndex >= 0) listState.scrollToItem(newIndex + if (hasMore) 1 else 0, anchor.offset)
+        olderPageAnchor = null
+    }
+
     LaunchedEffect(newestSeq, sessionId) {
         if (itemCount == 0) return@LaunchedEffect
         val switched = sessionId != lastSession
@@ -166,6 +177,7 @@ internal fun ChatTranscript(
     // keep the app asking forever.
     var autoPages by rememberSaveable(sessionId) { mutableIntStateOf(0) }
     var userScrolling by remember(sessionId) { mutableStateOf(false) }
+    var pullArmed by remember(sessionId) { mutableStateOf(false) }
     val canPage = hasMore && !loading && !loadingOlder && !loadOlderFailed
     val autoPagingExhausted = hasMore && !loading && autoPages >= MAX_AUTO_PAGES
     LaunchedEffect(listState, sessionId) {
@@ -182,6 +194,8 @@ internal fun ChatTranscript(
         }.collect { (firstVisible, fillsViewport) ->
             if (!shouldPageAtTop(firstVisible, fillsViewport, autoPages, MAX_AUTO_PAGES, userScrolling)) return@collect
             if (!fillsViewport) autoPages++
+            val anchor = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index > 0 }
+            if (anchor != null) olderPageAnchor = OlderPageAnchor(nodes.getOrNull(anchor.index - 1)?.seq ?: return@collect, anchor.offset)
             onLoadOlder()
         }
     }
@@ -230,9 +244,9 @@ internal fun ChatTranscript(
 /**
  * Head of the transcript while more history exists.
  *
- * Silent by default — paging is automatic, so an affordance would only invite a tap that does
- * nothing. It speaks up while fetching, and offers a retry when a page failed, because the scroll
- * trigger will not fire again on its own until the reader moves.
+ * The row is silent during normal automatic paging. Once the reader explicitly reaches the top
+ * again, the same pull gesture requests another page without requiring a button tap. It speaks up
+ * while fetching, and offers a retry when a page failed.
  *
  * [offerManual] is the third case: automatic paging has spent its budget on a session whose events
  * are mostly not messages, so the list may still be too short to scroll. Without a button there
