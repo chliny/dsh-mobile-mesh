@@ -248,7 +248,7 @@
     <string name="settings_notifications_action">需要你操作时通知</string>
     <string name="settings_background">在后台保持连接</string>
     <string name="settings_about">关于</string>
-    <string name="settings_about_version">应用版本 %1$s · 协议 %2$s</string>
+    <string name="settings_about_version">应用版本 %1$s · 已针对 DeepSeek Harness %2$s 测试</string>
     <string name="settings_host_info">主机信息</string>
     <string name="notif_channel_completions">完成通知</string>
     <string name="notif_channel_action">需要你的操作</string>
