@@ -51,6 +51,8 @@ data class HostConfig(
     val sshAuthentication: SshAuthentication = SshAuthentication.PASSWORD,
     /** DSH endpoint as reached from the SSH server. */
     val sshDshHost: String = "127.0.0.1",
+    /** Process-startup token for this specific Harness connection, used to mint its browser session. */
+    val launchToken: String = "",
 ) {
     /** Bare `host:port` — the identity key and display form, deliberately scheme-free. */
     val authority: String get() = urlAuthority(host, port)

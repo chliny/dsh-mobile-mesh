@@ -189,7 +189,7 @@ class ConnectViewModel @Inject constructor(
         // of trying to reuse a stale local endpoint.
         _state.update { it.copy(signInOpen = false, signInError = null) }
         viewModelScope.launch {
-            hostsStore.saveLaunchToken(input.trim())
+            hostsStore.saveLaunchToken(host.id, input.trim())
             connectTo(host, input)
         }
     }
@@ -331,13 +331,20 @@ class ConnectViewModel @Inject constructor(
                 // Startup restoration has exactly one candidate: the active/most recently used host.
                 // Do not fall through to another saved host when this one is offline.
                 if (last.sshEnabled) {
-                    // A mesh/SSH host must be paired with this Harness process before opening its
-                    // mux. Form-entered tokens live in the draft, so include that persisted token
-                    // in automatic startup rather than silently retrying an inevitable 401.
-                    val launchToken = hostsStore.connectionDraft.first().launchToken
-                        .trim()
-                        .takeIf { it.isNotEmpty() }
-                    connectTo(last, launchToken)
+                    // One migration path for releases that kept this field in the global editable
+                    // draft: adopt it only when that draft describes this exact connection. New
+                    // tokens are always stored on HostConfig, never shared across hosts.
+                    val draft = hostsStore.connectionDraft.first()
+                    val legacyToken = draft.launchToken.trim().takeIf {
+                        it.isNotEmpty() && draft.host.trim() == last.host &&
+                            draft.port.trim().toIntOrNull() == last.port &&
+                            draft.meshTransport == (last.meshTransport?.storedValue ?: "direct")
+                    }
+                    val token = last.launchToken.trim().takeIf { it.isNotEmpty() } ?: legacyToken
+                    if (legacyToken != null && last.launchToken.isBlank()) {
+                        hostsStore.saveLaunchToken(last.id, legacyToken)
+                    }
+                    connectTo(if (token == null) last else last.copy(launchToken = token))
                     return
                 }
                 val desc = discoveryEngine.probe(last.host, last.port, ProbeTimeouts.Manual, config = last)
@@ -584,6 +591,7 @@ class ConnectViewModel @Inject constructor(
                 sshAuthentication = sshAuthentication,
                 sshDshHost = sshDshHost.trim().ifEmpty { "127.0.0.1" },
             )
+            hostsStore.saveLaunchToken(config.id, launchToken.trim())
             if (sshEnabled) sshSecrets.put(
                 config.id,
                 SshCredentials(
@@ -625,6 +633,7 @@ class ConnectViewModel @Inject constructor(
         sshPrivateKey: String,
         sshPrivateKeyPassphrase: String,
         sshDshHost: String,
+        launchToken: String,
         onSaved: () -> Unit = {},
     ) {
         viewModelScope.launch {
@@ -653,6 +662,7 @@ class ConnectViewModel @Inject constructor(
                 sshUsername = sshUsername.trim().takeIf { sshEnabled && it.isNotBlank() },
                 sshAuthentication = sshAuthentication,
                 sshDshHost = sshDshHost.trim().ifEmpty { "127.0.0.1" },
+                launchToken = launchToken.trim(),
             )
             hostsStore.upsertHost(config)
             if (sshEnabled) {
@@ -727,12 +737,8 @@ class ConnectViewModel @Inject constructor(
      */
     fun connectTo(host: HostConfig, launchToken: String? = null) {
         val token = launchToken?.trim()?.takeIf { it.isNotEmpty() }
-        token?.let {
-            pendingLaunchToken = it
-            // The saved-form Connect path reaches this method directly. Persist its launch token
-            // before transport startup so an Activity/process interruption cannot erase pairing.
-            viewModelScope.launch { hostsStore.saveLaunchToken(it) }
-        }
+            ?: host.launchToken.trim().takeIf { it.isNotEmpty() }
+        token?.let { pendingLaunchToken = it }
         localStage = null
         _state.update {
             it.copy(
@@ -774,6 +780,7 @@ class ConnectViewModel @Inject constructor(
 
     private fun pairLaunchToken(host: HostConfig, token: String) {
         tokenPairingJob = viewModelScope.launch {
+            hostsStore.saveLaunchToken(host.id, token)
             _state.update { it.copy(signingIn = true, signInError = null) }
             when (val outcome = harnessSessions.pair(
                 host.id, connectionManager.pairingBaseUrl(host), token, host.harnessAuthority,
