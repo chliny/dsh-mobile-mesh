@@ -116,7 +116,10 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 // On a cold start the manager may already be restoring the active host while the
                 // connection page is visible. Pass that host so the form reflects the attempt.
                 initialHost = connection.host ?: hosts.firstOrNull(),
-                connectedHostId = connection.host?.id,
+                // During cold-start auto-connect, the manager publishes its host a little after
+                // composition. The first saved host is the only startup candidate, so treat it as
+                // active immediately and lock its connection-changing fields from the first frame.
+                connectedHostId = connection.host?.id ?: hosts.firstOrNull()?.id,
             )
             }
         }
