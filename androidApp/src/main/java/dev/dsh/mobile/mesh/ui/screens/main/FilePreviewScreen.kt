@@ -28,6 +28,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.data.PreviewState
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
+import dev.dsh.mobile.mesh.ui.components.SyntaxHighlightedCode
 import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
@@ -68,10 +69,9 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
         ) {
             when (preview) {
                 null, PreviewState.Loading -> Text(stringResource(R.string.common_loading))
-                is PreviewState.Text -> Text(
-                    preview.value.text,
-                    style = DsType.mdCode,
-                    color = DsTheme.colors.labelPrimary,
+                is PreviewState.Text -> SyntaxHighlightedCode(
+                    path = path,
+                    code = preview.value.text,
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                 )
                 is PreviewState.Bytes -> Text(stringResource(R.string.workspace_files_binary), color = DsTheme.colors.labelSecondary)
