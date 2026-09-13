@@ -5,6 +5,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.REMOTE_EVENT_STREAM_ENDPOINT
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventFrame
 import kotlin.math.pow
 import kotlin.random.Random
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -229,6 +230,8 @@ class ConnectionLoop(
         safeSink { sinks.onHandshakeStep(HandshakeStep.OPENING_MUX) }
         val mux = try {
             muxFactory()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Throwable) {
             return Opened.Failed(
                 GenerationFailure.MuxFailed(TransportFailures.classify(e), e.message),
@@ -241,6 +244,8 @@ class ConnectionLoop(
             withTimeout(config.streamOpenTimeoutMs) { mux.awaitOpen() }
         } catch (e: TimeoutCancellationException) {
             return Opened.Failed(GenerationFailure.MuxTimedOut(config.streamOpenTimeoutMs))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Throwable) {
             return Opened.Failed(
                 GenerationFailure.MuxFailed(TransportFailures.classify(e), e.message),
@@ -263,6 +268,8 @@ class ConnectionLoop(
             )
         } catch (e: RemoteStreamException) {
             return Opened.Failed(GenerationFailure.ReadyFailed(e.error))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Throwable) {
             return Opened.Failed(
                 GenerationFailure.ReadyFailed(RpcError("internal", e.message ?: "events stream failed")),
@@ -316,6 +323,10 @@ class ConnectionLoop(
                 // frame that is not an object at all lands here.
                 if (frame != null) safeSink { sinks.onEventFrame(frame) }
             }
+        } catch (e: CancellationException) {
+            // A transport replacement cancels the old loop. It is not a carrier failure and must
+            // not turn into a visible "remote stream carrier failed" retry attempt.
+            throw e
         } catch (e: RemoteStreamException) {
             if (!e.carrier) {
                 // `$events` is one logical stream on the shared mux. A host-level failure of
