@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -169,17 +171,23 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
                 Text(it, style = DsType.mdSmall, color = colors.labelSecondary)
             }
             card.command?.let { command ->
-                Text(
-                    command,
-                    style = DsType.caption11.copy(fontFamily = DsType.codeFont),
-                    color = colors.labelPrimary,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(DsShapes.block)
-                        .background(colors.bgModulePlatform)
-                        .border(1.dp, colors.borderL2, DsShapes.block)
-                        .padding(8.dp),
-                )
+                CompositionLocalProvider(
+                    LocalTextStyle provides DsType.caption11.copy(
+                        fontFamily = DsType.codeFont,
+                        color = colors.labelPrimary,
+                    ),
+                ) {
+                    KodeViewCode(
+                        code = command,
+                        pathOrLanguage = "sh",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(DsShapes.block)
+                            .background(colors.bgModulePlatform)
+                            .border(1.dp, colors.borderL2, DsShapes.block)
+                            .padding(8.dp),
+                    )
+                }
             }
             card.cwd?.let {
                 Text(
@@ -198,7 +206,11 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
                         .border(1.dp, colors.borderL2, DsShapes.block)
                         .padding(8.dp),
                 ) {
-                    MarkdownText(block)
+                    CompositionLocalProvider(
+                        LocalTextStyle provides DsType.mdCode.copy(color = colors.labelPrimary),
+                    ) {
+                        KodeViewCode(code = block, modifier = Modifier.fillMaxWidth())
+                    }
                 }
             }
             val status = when {
@@ -234,11 +246,11 @@ private fun DiffBody(card: ToolCardView.DiffCard) {
                 color = colors.labelSecondary,
                 modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
             )
-            hunk.oldText?.takeIf { it.isNotEmpty() }?.lines()?.forEach { line ->
-                DiffLine("-", line, colors.error)
+            hunk.oldText?.takeIf { it.isNotEmpty() }?.let { old ->
+                DiffBlock(old, colors.errorTertiary, colors.error, hunk.path)
             }
-            hunk.newText?.takeIf { it.isNotEmpty() }?.lines()?.forEach { line ->
-                DiffLine("+", line, colors.success)
+            hunk.newText?.takeIf { it.isNotEmpty() }?.let { new ->
+                DiffBlock(new, colors.successTertiary, colors.success, hunk.path)
             }
         }
         Spacer(Modifier.height(2.dp))
@@ -253,10 +265,21 @@ private fun DiffBody(card: ToolCardView.DiffCard) {
 }
 
 @Composable
-private fun DiffLine(prefix: String, line: String, color: Color) {
-    Row(Modifier.fillMaxWidth()) {
-        Text(prefix, style = DsType.mdCode, color = color, modifier = Modifier.width(18.dp))
-        Text(line, style = DsType.mdCode, color = color, modifier = Modifier.weight(1f))
+private fun DiffBlock(text: String, background: Color, border: Color, path: String) {
+    val colors = DsTheme.colors
+    CompositionLocalProvider(
+        LocalTextStyle provides DsType.mdCode.copy(color = colors.labelPrimary),
+    ) {
+        KodeViewCode(
+            code = text,
+            pathOrLanguage = path,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(DsShapes.block)
+                .background(background)
+                .border(1.dp, border, DsShapes.block)
+                .padding(8.dp),
+        )
     }
 }
 

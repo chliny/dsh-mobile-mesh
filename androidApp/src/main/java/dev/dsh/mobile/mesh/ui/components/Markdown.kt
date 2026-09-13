@@ -371,55 +371,6 @@ private fun MdBlockquote(block: MdBlock.Blockquote) {
     }
 }
 
-/** Render a workspace file with lightweight, extension-aware syntax highlighting. */
-@Composable
-fun SyntaxHighlightedCode(path: String, code: String, modifier: Modifier = Modifier) {
-    val colors = DsTheme.colors
-    val highlighted = remember(path, code, colors) { highlightSource(path, code, colors) }
-    BasicText(
-        highlighted,
-        modifier = modifier,
-        style = DsType.mdCode,
-    )
-}
-
-internal fun syntaxLanguage(path: String): String = when (path.substringAfterLast('.', "").lowercase()) {
-    "kt", "kts" -> "kotlin"
-    "java" -> "java"
-    "js", "jsx", "mjs", "cjs", "ts", "tsx" -> "javascript"
-    "json" -> "json"
-    "xml", "html", "htm", "svg" -> "markup"
-    "css", "scss" -> "css"
-    "py" -> "python"
-    "sh", "bash", "zsh", "fish" -> "shell"
-    "yml", "yaml" -> "yaml"
-    "toml" -> "toml"
-    "md", "markdown" -> "markdown"
-    else -> "plain"
-}
-
-private fun highlightSource(path: String, code: String, colors: DsColors): AnnotatedString {
-    val language = syntaxLanguage(path)
-    if (language == "plain") return AnnotatedString(code)
-    val token = Regex("//[^\\n]*|#[^\\n]*|/\\*[\\s\\S]*?\\*/|\\\"(?:\\\\.|[^\\\"])*\\\"|'(?:\\\\.|[^'\\'])*'|\\b\\d+(?:\\.\\d+)?\\b|\\b(?:class|fun|val|var|return|if|else|when|for|while|in|is|object|interface|import|package|public|private|const|let|const|function|def|from|as|true|false|null|None|True|False|extends|new|async|await)\\b")
-    val builder = AnnotatedString.Builder()
-    var cursor = 0
-    token.findAll(code).forEach { match ->
-        if (match.range.first < cursor) return@forEach
-        builder.append(code.substring(cursor, match.range.first))
-        val value = match.value
-        val color = when {
-            value.startsWith("//") || value.startsWith("#") || value.startsWith("/*") -> colors.labelTertiary
-            value.startsWith("\\\"") || value.startsWith("'") -> colors.success
-            value.firstOrNull()?.isDigit() == true -> colors.accent
-            else -> colors.warnLabel
-        }
-        builder.withStyle(SpanStyle(color = color)) { append(value) }
-        cursor = match.range.last + 1
-    }
-    if (cursor < code.length) builder.append(code.substring(cursor))
-    return builder.toAnnotatedString()
-}
 
 /** Fenced code block with a sticky banner (lang · copy) and a mono pre. */
 @Composable
