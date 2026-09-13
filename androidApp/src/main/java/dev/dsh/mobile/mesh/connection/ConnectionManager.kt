@@ -125,6 +125,7 @@ class ConnectionManager @Inject constructor(
     @Volatile private var lifecycleEpoch = 0L
     private val recoveryLock = Any()
     @Volatile private var recoveryJob: Job? = null
+    @Volatile private var appInForeground = false
     @Volatile private var lastForegroundRecoveryAtMs = 0L
 
     init {
@@ -200,7 +201,10 @@ class ConnectionManager @Inject constructor(
                 // dead relay. A new loop also announces RECONNECTING as its first state.
                 if (current.phase == ConnectionPhase.CONNECTED) {
                     markCarrierRecoveryNeeded()
-                    recoverTransportAfterCarrierLoss()
+                    // A loop callback may arrive after Activity.onStop. Rebuilding native/SSH
+                    // carriers there made background recovery race Doze; foreground will perform
+                    // the serialized renewal when the user actually returns.
+                    if (appInForeground) recoverTransportAfterCarrierLoss()
                 }
             }
             val phase = when {
@@ -226,11 +230,13 @@ class ConnectionManager @Inject constructor(
 
         override fun onGenerationFailed(attempt: Int, failure: GenerationFailure) {
             Log.w("ConnectionManager", "Generation $attempt failed: $failure")
-            val host = activeHost
             _state.value = _state.value.copy(
                 failure = ConnectFailure.from(failure),
                 attempts = attempt,
             )
+            // Do not recreate libzt/SSH from this callback while Android has the activity in the
+            // background. The loop's own retries are safe there; recovery is intentionally driven
+            // when foreground/network lifecycle signals say the carrier can be used again.
         }
     }
 
@@ -392,6 +398,7 @@ class ConnectionManager @Inject constructor(
                             api = clientFactory.clientFor(host, baseUrl = activeBaseUrl!!)
                             loop = ConnectionLoop(muxFactory(host, activeBaseUrl!!), sinks, LoopConfig()).also { it.start() }
                         } catch (error: Throwable) {
+                            Log.e("ConnectionManager", "Transport recovery failed", error)
                             if (epoch != lifecycleEpoch) return@withLock
                             if (error is MeshAuthorizationPending) {
                                 hostsStore.upsertHost(host)
@@ -402,7 +409,9 @@ class ConnectionManager @Inject constructor(
                                 )
                                 return@withLock
                             }
-                            meshTransport.stop()
+                            // Do not stop the retained userspace mesh node after a failed renewal:
+                            // libzt remains process-global and a second initialization attempt is
+                            // invalid. A later foreground retry can safely replace just its relay.
                             activeBaseUrl = null
                             _state.value = _state.value.copy(
                                 phase = ConnectionPhase.DISCONNECTED,
@@ -428,6 +437,7 @@ class ConnectionManager @Inject constructor(
      * immediately rebuild the stale relay path. The cooldown absorbs duplicate activity resumes.
      */
     fun recoverForForeground() {
+        appInForeground = true
         val current = _state.value
         Log.d("ConnectionManager", "Foreground recovery requested: phase=${current.phase}, active=${activeHost != null}, inFlight=$transportRecoveryInFlight")
         if (activeHost == null || current.phase == ConnectionPhase.CONNECTING || transportRecoveryInFlight) return
@@ -440,6 +450,11 @@ class ConnectionManager @Inject constructor(
         lastForegroundRecoveryAtMs = now
         markCarrierRecoveryNeeded()
         recoverTransportAfterCarrierLoss()
+    }
+
+    /** Mark carrier callbacks as backgrounded; foreground recovery is resumed explicitly on resume. */
+    fun onAppBackgrounded() {
+        appInForeground = false
     }
 
     /** Retry the retained mesh identity after an embedded authorization page completes. */
@@ -478,8 +493,7 @@ class ConnectionManager @Inject constructor(
         // ZeroTierConnector.stop deliberately retains that process-global node, so this is not the
         // unsafe native NodeService teardown that previously crashed Pixel 3.
         sshTunnel.stop()
-        meshTransport.stop()
-        val meshRelay = meshTransport.start(config)
+        val meshRelay = meshTransport.reconnect(config)
         Log.d("ConnectionManager", "Mesh transport ready in ${elapsedMs(startedAt)}ms")
         val baseUrl = finishTransportStart(config, meshRelay)
         Log.d("ConnectionManager", "SSH/API relay ready in ${elapsedMs(startedAt)}ms at $baseUrl")

@@ -91,6 +91,16 @@ class ZeroTierConnector @Inject constructor(
         // exit, which is the only safe full-service shutdown boundary.
     }
 
+    /** Close only the Java loopback relay; keep the native node and its authorization alive. */
+    suspend fun renewRelay(config: HostConfig): MeshRelay = withContext(Dispatchers.IO) {
+        require(config.meshTransport == MeshTransport.ZERO_TIER) { "Not a ZeroTier host" }
+        synchronized(lock) {
+            relay?.close()
+            relay = null
+            relayFor(config)
+        }
+    }
+
     private fun waitForOnline(current: ZeroTierNode) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
         while (!current.isOnline() && System.nanoTime() < deadline) Thread.sleep(50)
