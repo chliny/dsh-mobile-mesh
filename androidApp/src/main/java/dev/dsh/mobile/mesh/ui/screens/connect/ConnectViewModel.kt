@@ -323,15 +323,10 @@ class ConnectViewModel @Inject constructor(
     private suspend fun autoConnect() {
         val settings = hostsStore.settingsOnce()
         if (settings.autoConnectLast) {
-            val hosts = hostsStore.hosts.first()
-            val draft = hostsStore.connectionDraft.first()
-            // The editable draft is the source of truth immediately after Save. Host records are
-            // sorted by their historic successful connection time, so a stale Tailscale record
-            // can otherwise win startup even while the restored form shows the newer ZeroTier host.
-            val draftHost = hosts.firstOrNull { it.host == draft.host.trim() &&
-                it.port == draft.port.trim().toIntOrNull() }
-            val last = draftHost ?: hosts.firstOrNull()
-            android.util.Log.d("ConnectViewModel", "Auto-connect candidate=${last?.authority}, ssh=${last?.sshEnabled}")
+            // Hosts are ordered by the timestamp of their last *successful* connection. The
+            // editable draft may describe a connection the user is preparing, but must not change
+            // the automatic default: restarting preserves the actual last ZeroTier/Tailscale path.
+            val last = hostsStore.hosts.first().firstOrNull()
             if (last != null) {
                 // Startup restoration has exactly one candidate: the active/most recently used host.
                 // Do not fall through to another saved host when this one is offline.
@@ -339,7 +334,9 @@ class ConnectViewModel @Inject constructor(
                     // A mesh/SSH host must be paired with this Harness process before opening its
                     // mux. Form-entered tokens live in the draft, so include that persisted token
                     // in automatic startup rather than silently retrying an inevitable 401.
-                    val launchToken = draft.launchToken.trim().takeIf { it.isNotEmpty() }
+                    val launchToken = hostsStore.connectionDraft.first().launchToken
+                        .trim()
+                        .takeIf { it.isNotEmpty() }
                     connectTo(last, launchToken)
                     return
                 }
