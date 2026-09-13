@@ -28,7 +28,7 @@ import dev.dsh.mobile.mesh.ui.theme.DsAnimations
 
 private sealed interface MainPage {
     data object Chat : MainPage
-    data class Files(val path: String = ".") : MainPage
+    data class Files(val path: String = ".", val rootTitle: String? = null) : MainPage
     data class Preview(val path: String, val title: String, val returnPage: MainPage) : MainPage
 }
 
@@ -56,6 +56,14 @@ fun MainScreen(
 
     val store = dev.dsh.mobile.mesh.ui.rememberSessionStore()
     val sessionId by store.currentSessionId.collectAsStateWithLifecycle()
+    val sessions by store.sessions.collectAsStateWithLifecycle()
+    val workspaces by store.workspaces.collectAsStateWithLifecycle()
+    val workspaceKey = sessionId?.let { sid -> workspaces.firstOrNull { sid in it.sessionIds }?.workspaceId }
+        ?: sessionId?.let { "session:$it" }
+    val rootDirectoryName = sessions.firstOrNull { it.sessionId == sessionId }?.cwd
+        ?.trimEnd('/')
+        ?.substringAfterLast('/')
+        ?.takeIf { it.isNotBlank() }
     if (page != MainPage.Chat) {
         val sid = sessionId
         if (sid == null) {
@@ -63,12 +71,17 @@ fun MainScreen(
         } else {
             when (val current = page) {
                 is MainPage.Files -> WorkspaceFilesScreen(
+                    workspaceKey = workspaceKey ?: "session:$sid",
                     sessionId = sid,
                     initialPath = current.path,
+                    rootTitle = current.rootTitle,
                     onBack = { page = MainPage.Chat },
-                    onOpenFile = { path, title -> page = MainPage.Preview(path, title, current) },
+                    onOpenFile = { path, title, parentPath ->
+                        page = MainPage.Preview(path, title, MainPage.Files(parentPath, current.rootTitle))
+                    },
                 )
                 is MainPage.Preview -> FilePreviewScreen(
+                    workspaceKey = workspaceKey ?: "session:$sid",
                     sessionId = sid,
                     path = current.path,
                     title = current.title,
@@ -76,13 +89,8 @@ fun MainScreen(
                 )
                 MainPage.Chat -> Unit
             }
-            BackHandler {
-                page = when (val current = page) {
-                    is MainPage.Preview -> current.returnPage
-                    is MainPage.Files -> MainPage.Chat
-                    MainPage.Chat -> MainPage.Chat
-                }
-            }
+            // WorkspaceFilesScreen and FilePreviewScreen own the system BackHandler. A parent
+            // handler here would consume the same event and collapse the file stack to chat.
             return
         }
     }
@@ -144,8 +152,10 @@ fun MainScreen(
                 connectionPhase = connectionPhase,
                 reconnectAttempt = reconnectAttempt,
                 onReconnect = onReconnect,
-                onOpenFiles = { page = MainPage.Files() },
-                onOpenFile = { path, title -> page = MainPage.Preview(path, title, MainPage.Chat) },
+                onOpenFiles = { page = MainPage.Files(rootTitle = rootDirectoryName) },
+                onOpenFile = { path, title ->
+                    page = MainPage.Preview(path, title, MainPage.Files(rootTitle = rootDirectoryName))
+                },
             )
 
             AnimatedVisibility(

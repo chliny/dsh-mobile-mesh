@@ -123,6 +123,8 @@ class ConnectionManager @Inject constructor(
     @Volatile private var networkLostWhileConnected = false
     @Volatile private var defaultNetwork: Network? = null
     @Volatile private var lifecycleEpoch = 0L
+    private val recoveryLock = Any()
+    @Volatile private var recoveryJob: Job? = null
     @Volatile private var lastForegroundRecoveryAtMs = 0L
 
     init {
@@ -356,60 +358,66 @@ class ConnectionManager @Inject constructor(
         }
     }
 
-    private fun recoverTransportAfterCarrierLoss() {
-        if (transportRecoveryInFlight) {
-            Log.d("ConnectionManager", "Transport recovery already in flight")
-            return
-        }
-        Log.d("ConnectionManager", "Starting transport recovery")
-        transportRecoveryInFlight = true
-        reconnectIfNeeded(onFinished = {
-            transportRecoveryInFlight = false
-            Log.d("ConnectionManager", "Transport recovery finished")
-        })
-    }
+    private fun recoverTransportAfterCarrierLoss() = reconnectIfNeeded()
 
-    fun reconnectIfNeeded(onFinished: () -> Unit = {}) {
-        val host = activeHost ?: run {
-            onFinished()
-            return
-        }
-        val epoch = lifecycleEpoch
-        loop?.stop()
-        scope.launch {
-            try {
-                teardownJob?.join()
-                lifecycleMutex.withLock {
-                    if (epoch != lifecycleEpoch || activeHost?.id != host.id) return@withLock
-                    try {
-                        // Reuse a live SSH forward when possible; SshTunnelManager validates the
-                        // authenticated forward and replaces it only when its carrier is unusable.
-                        activeBaseUrl = reconnectTransports(host)
-                        if (epoch != lifecycleEpoch) return@withLock
-                        api = clientFactory.clientFor(host, baseUrl = activeBaseUrl!!)
-                        loop = ConnectionLoop(muxFactory(host, activeBaseUrl!!), sinks, LoopConfig()).also { it.start() }
-                    } catch (error: Throwable) {
-                        if (epoch != lifecycleEpoch) return@withLock
-                        if (error is MeshAuthorizationPending) {
-                            hostsStore.upsertHost(host)
+    /**
+     * Replace a dead relay through exactly one serialized recovery job.
+     *
+     * onResume, network callbacks and WorkManager can all notice the same dead carrier. They must
+     * converge on the same job: two concurrent libzt/SSH replacements can tear down the other's
+     * socket while it is handshaking and were the source of foreground crashes.
+     */
+    fun reconnectIfNeeded() {
+        val host = activeHost ?: return
+        synchronized(recoveryLock) {
+            if (recoveryJob?.isActive == true) {
+                Log.d("ConnectionManager", "Transport recovery already in flight")
+                return
+            }
+            Log.d("ConnectionManager", "Starting transport recovery")
+            transportRecoveryInFlight = true
+            val epoch = lifecycleEpoch
+            recoveryJob = scope.launch {
+                try {
+                    lifecycleMutex.withLock {
+                        if (epoch != lifecycleEpoch || activeHost?.id != host.id) return@withLock
+                        // Stop before rebuilding the relay. ConnectionLoop.stop closes its mux, and
+                        // its cancellation exceptions are deliberately not reported as failures.
+                        loop?.stop()
+                        loop = null
+                        generation = null
+                        try {
+                            activeBaseUrl = reconnectTransports(host)
+                            if (epoch != lifecycleEpoch || activeHost?.id != host.id) return@withLock
+                            api = clientFactory.clientFor(host, baseUrl = activeBaseUrl!!)
+                            loop = ConnectionLoop(muxFactory(host, activeBaseUrl!!), sinks, LoopConfig()).also { it.start() }
+                        } catch (error: Throwable) {
+                            if (epoch != lifecycleEpoch) return@withLock
+                            if (error is MeshAuthorizationPending) {
+                                hostsStore.upsertHost(host)
+                                _state.value = _state.value.copy(
+                                    phase = ConnectionPhase.DISCONNECTED,
+                                    stage = ConnectStage.Idle,
+                                    authorizationPending = error.message.orEmpty(),
+                                )
+                                return@withLock
+                            }
+                            meshTransport.stop()
+                            activeBaseUrl = null
                             _state.value = _state.value.copy(
                                 phase = ConnectionPhase.DISCONNECTED,
                                 stage = ConnectStage.Idle,
-                                authorizationPending = error.message.orEmpty(),
+                                failure = ConnectFailure.Other(error.message ?: "Unable to restart private-network transport"),
                             )
-                            return@withLock
                         }
-                        meshTransport.stop()
-                        activeBaseUrl = null
-                        _state.value = _state.value.copy(
-                            phase = ConnectionPhase.DISCONNECTED,
-                            stage = ConnectStage.Idle,
-                            failure = ConnectFailure.Other(error.message ?: "Unable to restart private-network transport"),
-                        )
                     }
+                } finally {
+                    synchronized(recoveryLock) {
+                        transportRecoveryInFlight = false
+                        recoveryJob = null
+                    }
+                    Log.d("ConnectionManager", "Transport recovery finished")
                 }
-            } finally {
-                onFinished()
             }
         }
     }
@@ -427,10 +435,10 @@ class ConnectionManager @Inject constructor(
         // suspended background carrier may instead leave the loop in DISCONNECTED/RECONNECTING
         // without a NetworkCallback. In both cases publish the recovery state before the relay
         // work starts, so the UI never presents that stale green connection.
-        markCarrierRecoveryNeeded()
         val now = System.currentTimeMillis()
         if (now - lastForegroundRecoveryAtMs < FOREGROUND_RECOVERY_COOLDOWN_MS) return
         lastForegroundRecoveryAtMs = now
+        markCarrierRecoveryNeeded()
         recoverTransportAfterCarrierLoss()
     }
 
@@ -464,7 +472,14 @@ class ConnectionManager @Inject constructor(
     private suspend fun reconnectTransports(config: HostConfig): String {
         val startedAt = System.nanoTime()
         Log.d("ConnectionManager", "Reconnect transport start for ${config.id}")
-        val meshRelay = meshTransport.reconnect(config)
+        // A backgrounded TCP carrier can look alive to both libzt and SSH while no longer moving
+        // bytes. Reusing that relay only makes the new mux time out forever. Stop the Java relay
+        // endpoints first, then create fresh sockets against the retained ZeroTier node identity.
+        // ZeroTierConnector.stop deliberately retains that process-global node, so this is not the
+        // unsafe native NodeService teardown that previously crashed Pixel 3.
+        sshTunnel.stop()
+        meshTransport.stop()
+        val meshRelay = meshTransport.start(config)
         Log.d("ConnectionManager", "Mesh transport ready in ${elapsedMs(startedAt)}ms")
         val baseUrl = finishTransportStart(config, meshRelay)
         Log.d("ConnectionManager", "SSH/API relay ready in ${elapsedMs(startedAt)}ms at $baseUrl")
