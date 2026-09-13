@@ -118,6 +118,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -467,6 +468,8 @@ class SessionStore @Inject constructor(
     /** Session-scoped metadata caches keep sheets usable while a weak network refresh is pending. */
     private val skillsCache = LinkedHashMap<String, List<SkillEntry>>()
     private var modelCatalogCache: ModelCatalog? = null
+    /** Optimistic queue entries bridge the interval before the control stream echoes a prompt. */
+    private val optimisticQueueBySession = mutableMapOf<String, MutableList<QueueItem>>()
     private var agentPresetsCache: AgentPresetListValue? = null
     private var commandsCache: List<CommandDescriptor>? = null
 
@@ -789,6 +792,14 @@ class SessionStore @Inject constructor(
         synchronized(lock) {
             if (sessionId == currentId) {
                 currentQueue = items.map { queuedInboxItemToQueueItem(it) }
+                // A control snapshot is authoritative once it contains a matching submitted text.
+                // Drop only echoed optimistic rows; a snapshot that raced ahead of propagation must
+                // leave the local entry visible instead of making a newly queued message disappear.
+                optimisticQueueBySession[sessionId]?.let { optimistic ->
+                    val echoed = currentQueue.map { it.messageText }.toHashSet()
+                    optimistic.removeAll { it.messageText in echoed }
+                    if (optimistic.isEmpty()) optimisticQueueBySession.remove(sessionId)
+                }
                 rebuildCurrentLocked()
             }
         }
@@ -861,6 +872,10 @@ class SessionStore @Inject constructor(
             }
             "turn/end" -> {
                 setRunning(sessionId, false)
+                synchronized(lock) {
+                    optimisticQueueBySession.remove(sessionId)
+                    if (currentId == sessionId) rebuildCurrentLocked()
+                }
                 clearPendingInteraction(sessionId)
             }
             "user/message" -> setBlank(sessionId, false)
@@ -1135,7 +1150,7 @@ class SessionStore @Inject constructor(
             blank = blank,
             running = running,
             hasMore = currentHasMore,
-            queue = currentQueue,
+            queue = currentQueue + optimisticQueueBySession[sid].orEmpty(),
             projections = currentProjections.mapValues { it.value.value },
         )
         _currentConversation.value = merged
@@ -1592,7 +1607,14 @@ class SessionStore @Inject constructor(
             clientTimeZone = zone,
         )
         return when (val r = api.sessionPrompt(request)) {
-            is RpcResult.Ok -> PromptOutcome.Ok
+            is RpcResult.Ok -> {
+                // `queue` is a host-side deferred message while a turn runs. Render it immediately;
+                // the control stream replaces this optimistic entry when its authoritative item lands.
+                if (safeMode == "queue" && synchronized(lock) { runningBySession[sid] == true }) {
+                    addOptimisticQueue(sid, request.requestId, content)
+                }
+                PromptOutcome.Ok
+            }
             is RpcResult.Err -> if (r.error.code == ATTACHMENT_INVALID) {
                 // The host declined the attachments, not the connection. Report it where they are
                 // so the composer can keep them and say which bound they crossed.
@@ -1603,6 +1625,22 @@ class SessionStore @Inject constructor(
                 setConnectionError(r.error.message)
                 PromptOutcome.Failed(r.error.message)
             }
+        }
+    }
+
+    private fun addOptimisticQueue(sessionId: String, requestId: String, content: List<PromptContentPart>) {
+        val messageText = content.filterIsInstance<PromptContentPart.Text>().joinToString("\n") { it.text }
+        synchronized(lock) {
+            optimisticQueueBySession.getOrPut(sessionId) { mutableListOf() }.add(
+                QueueItem(
+                    id = "local:$requestId",
+                    placement = "queued",
+                    previewText = messageText.take(120),
+                    messageText = messageText,
+                    content = encodeToJsonElement(ListSerializer(PromptContentPart.serializer()), content),
+                ),
+            )
+            if (currentId == sessionId) rebuildCurrentLocked()
         }
     }
 
@@ -1617,6 +1655,14 @@ class SessionStore @Inject constructor(
 
     suspend fun updateQueue(itemId: String, action: String, contentText: String? = null) {
         val sid = currentSessionId.value ?: return
+        if (itemId.startsWith("local:")) {
+            synchronized(lock) {
+                optimisticQueueBySession[sid]?.removeAll { it.id == itemId }
+                if (optimisticQueueBySession[sid].isNullOrEmpty()) optimisticQueueBySession.remove(sid)
+                if (currentId == sid) rebuildCurrentLocked()
+            }
+            return
+        }
         val api = apiOrNull() ?: return
         val queueAction: QueueAction = when (action) {
             "remove" -> QueueAction.Remove()

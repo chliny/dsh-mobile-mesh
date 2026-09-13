@@ -29,7 +29,7 @@ sealed interface DirectoryLevel {
 }
 
 data class WorkspaceFilesState(
-    val sessionId: String? = null,
+    val workspaceKey: String? = null,
     val levels: Map<String, DirectoryLevel> = emptyMap(),
     val preview: PreviewState? = null,
 )
@@ -41,7 +41,7 @@ sealed interface PreviewState {
     data class Failed(val code: String, val message: String) : PreviewState
 }
 
-/** Session-scoped workspace file access with latest-request-wins state updates. */
+/** Workspace-scoped file access. Directory and reference caches are shared by all sessions in a workspace. */
 @Singleton
 class WorkspaceFilesStore @Inject constructor(
     private val connectionManager: ConnectionManager,
@@ -49,20 +49,31 @@ class WorkspaceFilesStore @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val _state = MutableStateFlow(WorkspaceFilesState())
     val state: StateFlow<WorkspaceFilesState> = _state.asStateFlow()
-    /** Directory listings survive screen recreation and are reused until explicitly reloaded. */
     private val listingCache = mutableMapOf<String, MutableMap<String, DirectoryLevel.Ready>>()
+    private val refreshedAt = mutableMapOf<String, Long>()
+    private val cacheLock = Any()
     private var treeJob: Job? = null
+    private var treeRequest: TreeRequest? = null
     private var previewJob: Job? = null
+    private var referenceSearchJob: Job? = null
+    private var requestSerial = 0L
 
-    fun reset(sessionId: String?) {
+    fun reset(workspaceKey: String?) {
         treeJob?.cancel()
+        treeJob = null
+        treeRequest = null
         previewJob?.cancel()
-        val cached = sessionId?.let { listingCache[it].orEmpty() }.orEmpty()
-        _state.value = WorkspaceFilesState(sessionId = sessionId, levels = cached)
+        requestSerial++
+        val cached = workspaceKey?.let { key -> synchronized(cacheLock) { listingCache[key].orEmpty().toMap() } }.orEmpty()
+        _state.value = WorkspaceFilesState(workspaceKey = workspaceKey, levels = cached)
     }
 
-    fun cachedEntries(sessionId: String): List<WorkspaceDirectoryEntry> {
-        val cached = listingCache[sessionId].orEmpty()
+    fun isStale(workspaceKey: String, now: Long = System.currentTimeMillis()): Boolean = synchronized(cacheLock) {
+        now - (refreshedAt[workspaceKey] ?: 0L) >= CACHE_TTL_MS
+    }
+
+    fun cachedEntries(workspaceKey: String): List<WorkspaceDirectoryEntry> {
+        val cached = synchronized(cacheLock) { listingCache[workspaceKey].orEmpty().toMap() }
         val treeEntries = cached.filterKeys { it != "@" }.values.flatMap { ready ->
             ready.listing.entries.map { entry ->
                 val path = ready.listing.path.trimEnd('/').takeUnless { it.isNullOrBlank() || it == "." }
@@ -74,82 +85,114 @@ class WorkspaceFilesStore @Inject constructor(
             .sortedBy { it.name }
     }
 
-    /** Load the harness-backed reference candidates for the composer's active @ token. */
-    fun searchReferences(sessionId: String, query: String) {
+    fun searchReferences(workspaceKey: String, sessionId: String, query: String) {
         val api = connectionManager.connectedApi ?: return
-        scope.launch {
+        referenceSearchJob?.cancel()
+        referenceSearchJob = scope.launch {
+            // Ask the host for path-aware references. Unlike the root directory cache this can
+            // resolve `tmp/deepseek-harness` directly without requiring every subdirectory to be
+            // opened in the file browser first.
             when (val result = api.fileReferencesList(sessionId, query)) {
                 is RpcResult.Ok -> {
                     val entries = ((result.value as? JsonArray) ?: (result.value as? JsonObject)?.get("items") as? JsonArray)
-                        .orEmpty()
-                        .mapNotNull { item ->
+                        .orEmpty().mapNotNull { item ->
                             val row = item as? JsonObject ?: return@mapNotNull null
                             val path = row["path"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                            val type = row["kind"]?.jsonPrimitive?.contentOrNull ?: "file"
-                            WorkspaceDirectoryEntry(name = path, type = type)
+                            WorkspaceDirectoryEntry(name = path, type = row["kind"]?.jsonPrimitive?.contentOrNull ?: "file")
                         }
                     val ready = DirectoryLevel.Ready(WorkspaceDirectoryListing(path = "@", entries = entries))
-                    listingCache.getOrPut(sessionId) { mutableMapOf() }["@"] = ready
-                    if (_state.value.sessionId == sessionId) {
-                        _state.value = _state.value.copy(levels = _state.value.levels + ("@" to ready))
+                    synchronized(cacheLock) {
+                        listingCache.getOrPut(workspaceKey) { mutableMapOf() }["@"] = ready
+                        refreshedAt[workspaceKey] = System.currentTimeMillis()
                     }
+                    if (_state.value.workspaceKey == workspaceKey) _state.value = _state.value.copy(levels = _state.value.levels + ("@" to ready))
                 }
                 is RpcResult.Err -> Unit
             }
         }
     }
 
-    fun list(sessionId: String, path: String, reload: Boolean = false) {
-        if (_state.value.sessionId != sessionId) reset(sessionId)
+    fun list(workspaceKey: String, sessionId: String, path: String, reload: Boolean = false) {
+        if (_state.value.workspaceKey != workspaceKey) reset(workspaceKey)
         if (!reload && _state.value.levels[path] is DirectoryLevel.Ready) return
         val api = connectionManager.connectedApi ?: return
-        _state.value = _state.value.copy(levels = _state.value.levels + (path to DirectoryLevel.Loading))
+        val existing = treeRequest
+        if (existing?.workspaceKey == workspaceKey && existing.sessionId == sessionId && existing.path == path) return
         treeJob?.cancel()
+        val request = TreeRequest(workspaceKey, sessionId, path, ++requestSerial)
+        treeRequest = request
+        _state.value = _state.value.copy(levels = _state.value.levels + (path to DirectoryLevel.Loading))
         treeJob = scope.launch {
-            when (val result = api.workspaceFilesList(sessionId, path)) {
-                is RpcResult.Ok -> updateIfCurrent(sessionId) {
-                    val ready = DirectoryLevel.Ready(result.value)
-                    listingCache.getOrPut(sessionId) { mutableMapOf() }[path] = ready
-                    copy(levels = levels + (path to ready))
+            try {
+                when (val result = api.workspaceFilesList(sessionId, path)) {
+                    is RpcResult.Ok -> {
+                        val ready = DirectoryLevel.Ready(result.value)
+                        synchronized(cacheLock) {
+                            listingCache.getOrPut(workspaceKey) { mutableMapOf() }[path] = ready
+                            refreshedAt[workspaceKey] = System.currentTimeMillis()
+                        }
+                        updateIfCurrent(request) { copy(levels = levels + (path to ready)) }
+                    }
+                    is RpcResult.Err -> updateIfCurrent(request) {
+                        copy(levels = levels + (path to DirectoryLevel.Failed(result.error.code, result.error.message)))
+                    }
                 }
-                is RpcResult.Err -> updateIfCurrent(sessionId) {
-                    copy(levels = levels + (path to DirectoryLevel.Failed(result.error.code, result.error.message)))
-                }
+            } finally {
+                if (treeRequest == request) treeRequest = null
             }
         }
     }
 
-    fun readText(sessionId: String, path: String) {
-        if (_state.value.sessionId != sessionId) reset(sessionId)
+    fun readText(workspaceKey: String, sessionId: String, path: String) {
+        readPreview(workspaceKey, sessionId, path) { api -> api.workspaceFilesRead(sessionId, path) }
+    }
+
+    fun readBytes(workspaceKey: String, sessionId: String, path: String) {
+        readPreview(workspaceKey, sessionId, path) { api -> api.workspaceFilesReadAll(sessionId, path) }
+    }
+
+    private fun <T> readPreview(
+        workspaceKey: String,
+        sessionId: String,
+        path: String,
+        request: suspend (DshApiClient) -> RpcResult<T>,
+    ) {
         val api = connectionManager.connectedApi ?: return
         previewJob?.cancel()
         _state.value = _state.value.copy(preview = PreviewState.Loading)
         previewJob = scope.launch {
-            when (val result = api.workspaceFilesRead(sessionId, path)) {
-                is RpcResult.Ok -> updateIfCurrent(sessionId) { copy(preview = PreviewState.Text(result.value)) }
-                is RpcResult.Err -> updateIfCurrent(sessionId) {
-                    copy(preview = PreviewState.Failed(result.error.code, result.error.message))
-                }
+            when (val result = request(api)) {
+                is RpcResult.Ok -> updateIfCurrent(workspaceKey) { copy(preview = previewValue(result.value)) }
+                is RpcResult.Err -> updateIfCurrent(workspaceKey) { copy(preview = PreviewState.Failed(result.error.code, result.error.message)) }
             }
         }
     }
 
-    fun readBytes(sessionId: String, path: String) {
-        if (_state.value.sessionId != sessionId) reset(sessionId)
-        val api = connectionManager.connectedApi ?: return
-        previewJob?.cancel()
-        _state.value = _state.value.copy(preview = PreviewState.Loading)
-        previewJob = scope.launch {
-            when (val result = api.workspaceFilesReadAll(sessionId, path)) {
-                is RpcResult.Ok -> updateIfCurrent(sessionId) { copy(preview = PreviewState.Bytes(result.value)) }
-                is RpcResult.Err -> updateIfCurrent(sessionId) {
-                    copy(preview = PreviewState.Failed(result.error.code, result.error.message))
-                }
-            }
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> previewValue(value: T): PreviewState = when (value) {
+        is WorkspaceFileText -> PreviewState.Text(value)
+        is WorkspaceFileBytes -> PreviewState.Bytes(value)
+        else -> error("Unsupported workspace preview type: ${value!!::class}")
+    }
+
+    private data class TreeRequest(
+        val workspaceKey: String,
+        val sessionId: String,
+        val path: String,
+        val serial: Long,
+    )
+
+    private fun updateIfCurrent(request: TreeRequest, transform: WorkspaceFilesState.() -> WorkspaceFilesState) {
+        if (_state.value.workspaceKey == request.workspaceKey && treeRequest?.serial == request.serial) {
+            _state.value = transform(_state.value)
         }
     }
 
-    private fun updateIfCurrent(sessionId: String, transform: WorkspaceFilesState.() -> WorkspaceFilesState) {
-        if (_state.value.sessionId == sessionId) _state.value = transform(_state.value)
+    private fun updateIfCurrent(workspaceKey: String, transform: WorkspaceFilesState.() -> WorkspaceFilesState) {
+        if (_state.value.workspaceKey == workspaceKey) _state.value = transform(_state.value)
+    }
+
+    private companion object {
+        const val CACHE_TTL_MS = 30_000L
     }
 }

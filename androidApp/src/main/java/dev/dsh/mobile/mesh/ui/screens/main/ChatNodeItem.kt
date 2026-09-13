@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.CallSplit
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.Description
@@ -461,7 +460,7 @@ private fun ProducedFilesRow(node: TurnEndNode, context: ChatNodeContext) {
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.AutoMirrored.Outlined.InsertDriveFile, contentDescription = null, modifier = Modifier.size(14.dp), tint = DsTheme.colors.labelSecondary)
+                Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(14.dp), tint = DsTheme.colors.labelSecondary)
                 Text(basename(path), style = DsType.caption11, color = DsTheme.colors.labelSecondary, modifier = Modifier.padding(start = 4.dp))
             }
         }

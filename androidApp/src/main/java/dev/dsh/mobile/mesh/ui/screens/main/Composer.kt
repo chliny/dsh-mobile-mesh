@@ -182,8 +182,14 @@ internal fun Composer(
     val mentionQuery = draft.substringAfterLast('@').takeIf { '@' in draft && !draft.substringAfterLast('@').contains(' ') }.orEmpty()
     val mentionActive = '@' in draft && !draft.substringAfterLast('@').contains(' ')
     val matchingFiles = remember(fileCandidates, mentionQuery) {
+        val normalized = mentionQuery.trimStart('/')
+        val prefix = normalized.substringBeforeLast('/', "")
+        val leaf = normalized.substringAfterLast('/')
         fileCandidates.filter { file ->
-            file.name.contains(mentionQuery.substringAfterLast('/'), ignoreCase = true)
+            val name = file.name.trimStart('/')
+            if (prefix.isBlank()) name.substringAfterLast('/').contains(leaf, ignoreCase = true)
+            else name.startsWith("$prefix/", ignoreCase = true) &&
+                name.substringAfterLast('/').contains(leaf, ignoreCase = true)
         }.take(8)
     }
     val commandQuery = draft.removePrefix("/").takeIf { draft.startsWith("/") && !draft.contains(' ') }.orEmpty()

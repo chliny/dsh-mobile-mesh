@@ -20,6 +20,7 @@
     <string name="common_close">Close</string>
     <string name="common_back">Back</string>
     <string name="workspace_files_title">Workspace files</string>
+    <string name="workspace_files_refresh">Refresh files</string>
     <string name="workspace_files_binary">This file cannot be previewed as text.</string>
     <string name="common_edit">Edit</string>
     <string name="common_rename">Rename</string>

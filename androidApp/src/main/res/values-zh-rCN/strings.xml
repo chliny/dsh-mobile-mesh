@@ -17,6 +17,8 @@
     <string name="common_error">出了点问题</string>
     <string name="common_close">关闭</string>
     <string name="common_back">返回</string>
+    <string name="workspace_files_title">工作区文件</string>
+    <string name="workspace_files_refresh">刷新文件</string>
     <string name="common_edit">编辑</string>
     <string name="common_rename">重命名</string>
     <string name="common_archive">归档</string>

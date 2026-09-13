@@ -61,6 +61,8 @@ import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import androidx.compose.ui.res.stringResource
 import dev.dsh.mobile.mesh.R
 import java.util.UUID
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -70,6 +72,8 @@ import kotlinx.coroutines.launch
  * answering an approval, while reading the trajectory, and the keyboard-attached surface never
  * animates out from under the cursor.
  */
+private const val FILE_CACHE_CHECK_INTERVAL_MS = 10_000L
+
 @Composable
 fun ChatScreen(
     onOpenDetails: () -> Unit,
@@ -128,9 +132,24 @@ fun ChatScreen(
     val trajectoryListState = rememberLazyListState()
 
     val workspaceFiles = rememberWorkspaceFilesStore()
-    val fileCandidates = currentSessionId?.let(workspaceFiles::cachedEntries).orEmpty()
-    LaunchedEffect(currentSessionId) {
-        currentSessionId?.let { workspaceFiles.list(it, ".") }
+    val workspaces by store.workspaces.collectAsStateWithLifecycle()
+    val workspaceKey = currentSessionId?.let { sid ->
+        workspaces.firstOrNull { sid in it.sessionIds }?.workspaceId
+    } ?: currentSessionId?.let { "session:$it" }
+    val fileCandidates = workspaceKey?.let(workspaceFiles::cachedEntries).orEmpty()
+    fun queryFileReferences(query: String) {
+        val key = workspaceKey ?: return
+        val sid = currentSessionId ?: return
+        workspaceFiles.searchReferences(key, sid, query)
+    }
+    LaunchedEffect(workspaceKey, currentSessionId) {
+        val key = workspaceKey
+        val sid = currentSessionId
+        if (key == null || sid == null) return@LaunchedEffect
+        while (isActive) {
+            if (workspaceFiles.isStale(key)) workspaceFiles.list(key, sid, ".", reload = true)
+            delay(FILE_CACHE_CHECK_INTERVAL_MS)
+        }
     }
     val commandFailed = stringResource(R.string.err_command_failed)
     val unknownCommand = stringResource(R.string.err_command_unknown)
@@ -525,9 +544,7 @@ fun ChatScreen(
                 onOpenSheet = { sheet = ChatSheet.Commands },
                 commands = commands,
                 fileCandidates = fileCandidates,
-                onFileQueryChange = { query ->
-                    currentSessionId?.let { sessionId -> workspaceFiles.searchReferences(sessionId, query) }
-                },
+                onFileQueryChange = ::queryFileReferences,
                 onSend = ::send,
                 onStop = { scope.launch { store.cancelTurn() } },
             )

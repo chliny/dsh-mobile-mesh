@@ -14,10 +14,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,72 +38,85 @@ import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkspaceFilesScreen(
+    workspaceKey: String,
     sessionId: String,
     initialPath: String = ".",
+    rootTitle: String? = null,
     onBack: () -> Unit,
-    onOpenFile: (String, String) -> Unit,
+    onOpenFile: (String, String, String) -> Unit,
 ) {
     val store = rememberWorkspaceFilesStore()
     val state by store.state.collectAsStateWithLifecycle()
     var currentPath by remember { mutableStateOf(initialPath) }
+    val level = state.levels[currentPath]
+    val refreshing = level is DirectoryLevel.Loading
+
+    fun reload() = store.list(workspaceKey, sessionId, currentPath, reload = true)
+
     BackHandler {
         if (currentPath == ".") onBack()
         else currentPath = currentPath.substringBeforeLast('/', ".")
     }
-    LaunchedEffect(sessionId, initialPath) {
-        store.reset(sessionId)
+    LaunchedEffect(workspaceKey, sessionId, initialPath) {
+        store.reset(workspaceKey)
         currentPath = initialPath
-        store.list(sessionId, initialPath)
+        store.list(workspaceKey, sessionId, initialPath)
     }
-    val level = state.levels[currentPath]
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp)
-                .padding(horizontal = 4.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             DsIconButton(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = stringResource(R.string.common_back),
-                onClick = onBack,
+                onClick = {
+                    if (currentPath == ".") onBack()
+                    else currentPath = currentPath.substringBeforeLast('/', ".")
+                },
                 tint = DsTheme.colors.labelSecondary,
                 iconSize = 18.dp,
             )
             Text(
-                currentPath
-                    .trimEnd('/')
-                    .takeIf { it.isNotBlank() && it != "." }
-                    ?.substringAfterLast('/')
+                currentPath.trimEnd('/').takeIf { it.isNotBlank() && it != "." }?.substringAfterLast('/')
+                    ?: rootTitle?.takeIf { it.isNotBlank() }
                     ?: stringResource(R.string.workspace_files_title),
                 style = DsType.large20,
             )
         }
-        when (level) {
-            null, DirectoryLevel.Loading -> Text(stringResource(R.string.common_loading), modifier = Modifier.padding(16.dp))
-            is DirectoryLevel.Failed -> Text(level.message, color = DsTheme.colors.labelSecondary, modifier = Modifier.padding(16.dp))
-            is DirectoryLevel.Ready -> LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(level.listing.entries, key = { it.name }) { entry ->
-                    val path = if (currentPath == ".") entry.name else "$currentPath/${entry.name}"
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            if (entry.type == "directory") {
-                                currentPath = path
-                                store.list(sessionId, path)
-                            }
-                            else onOpenFile(path, entry.name)
-                        }.padding(vertical = 12.dp, horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            if (entry.type == "directory") Icons.Filled.Folder else Icons.AutoMirrored.Filled.InsertDriveFile,
-                            contentDescription = null,
-                            tint = DsTheme.colors.labelSecondary,
-                        )
-                        Text(entry.name, modifier = Modifier.padding(start = 12.dp), style = DsType.std14)
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = ::reload,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            when (level) {
+                null, DirectoryLevel.Loading -> Text(stringResource(R.string.common_loading), modifier = Modifier.padding(16.dp))
+                is DirectoryLevel.Failed -> Text(level.message, color = DsTheme.colors.labelSecondary, modifier = Modifier.padding(16.dp))
+                is DirectoryLevel.Ready -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    items(level.listing.entries, key = { it.name }) { entry ->
+                        val path = if (currentPath == ".") entry.name else "$currentPath/${entry.name}"
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                if (entry.type == "directory") {
+                                    currentPath = path
+                                    store.list(workspaceKey, sessionId, path)
+                                } else onOpenFile(path, entry.name, currentPath)
+                            }.padding(vertical = 12.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                if (entry.type == "directory") Icons.Filled.Folder else Icons.AutoMirrored.Filled.InsertDriveFile,
+                                contentDescription = null,
+                                tint = DsTheme.colors.labelSecondary,
+                            )
+                            Text(entry.name, modifier = Modifier.padding(start = 12.dp), style = DsType.std14)
+                        }
                     }
                 }
             }
