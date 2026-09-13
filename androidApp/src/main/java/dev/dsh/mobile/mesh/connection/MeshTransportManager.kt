@@ -54,7 +54,9 @@ class MeshTransportManager @Inject constructor(
             return null
         }
         if (next === zeroTier && active === zeroTier) {
-            return zeroTier.start(config)
+            // The node itself remains authorized and safe to retain, but its loopback TCP relay
+            // may have been suspended in the background. Replace that Java relay on recovery.
+            return zeroTier.renewRelay(config)
         }
         stop()
         return start(config)

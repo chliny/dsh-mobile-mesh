@@ -70,6 +70,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onPause() {
+        connectionManager.onAppBackgrounded()
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
         android.util.Log.d("MainActivity", "onResume: requesting foreground recovery")
