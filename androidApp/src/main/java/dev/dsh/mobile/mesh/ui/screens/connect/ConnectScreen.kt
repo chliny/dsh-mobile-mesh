@@ -101,6 +101,7 @@ fun ConnectScreen(
     var zeroTierPlanetId by rememberSaveable { mutableStateOf<String?>(null) }
     var zeroTierPlanetBase64 by rememberSaveable { mutableStateOf("") }
     var zeroTierPlanetError by rememberSaveable { mutableStateOf<String?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
     var tailscaleHostname by rememberSaveable { mutableStateOf("") }
     var sshEnabled by rememberSaveable { mutableStateOf(true) }
     var sshPort by rememberSaveable { mutableStateOf("22") }
@@ -264,6 +265,7 @@ fun ConnectScreen(
                             },
                             singleLine = true,
                             label = { Text(stringResource(R.string.connect_host_label)) },
+                             enabled = fieldsEnabled,
                            colors = connectFieldColors(),
                         )
                         Spacer(Modifier.width(DsSpacing.compact))
@@ -273,6 +275,7 @@ fun ConnectScreen(
                             modifier = Modifier.width(92.dp),
                             singleLine = true,
                             label = { Text(stringResource(R.string.connect_port_label)) },
+                             enabled = fieldsEnabled,
                            colors = connectFieldColors(),
                         )
                     }
@@ -304,6 +307,7 @@ fun ConnectScreen(
                                  text = if (zeroTierPlanetId == null) stringResource(R.string.connect_zerotier_planet_import)
                                  else stringResource(R.string.connect_zerotier_planet_replace),
                                  onClick = { planetPicker.launch(arrayOf("*/*")) },
+                                  enabled = fieldsEnabled,
                                  variant = DsButtonVariant.Info,
                              )
                             TextField(
@@ -329,7 +333,7 @@ fun ConnectScreen(
                                         )
                                     }
                                 },
-                                enabled = zeroTierPlanetBase64.isNotBlank(),
+                                enabled = fieldsEnabled && zeroTierPlanetBase64.isNotBlank(),
                                 variant = DsButtonVariant.Info,
                             )
                             zeroTierPlanetId?.let {
@@ -348,6 +352,7 @@ fun ConnectScreen(
                             onValueChange = { tailscaleHostname = it },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text(stringResource(R.string.connect_tailscale_hostname)) },
+                             enabled = fieldsEnabled,
                             singleLine = true,
                            colors = connectFieldColors(),
                         )
@@ -361,7 +366,8 @@ fun ConnectScreen(
                     ToggleRow(
                         label = stringResource(R.string.connect_ssh_enabled),
                         checked = sshEnabled,
-                    ) { sshEnabled = !sshEnabled }
+                         enabled = fieldsEnabled,
+                    ) { if (fieldsEnabled) sshEnabled = !sshEnabled }
                     if (sshEnabled) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             TextField(
@@ -390,7 +396,8 @@ fun ConnectScreen(
                                 DsSegment("key", stringResource(R.string.connect_ssh_key_auth)),
                             ),
                             selectedKey = sshAuthenticationKey,
-                            onSelect = { sshAuthenticationKey = it },
+                            onSelect = { if (fieldsEnabled) sshAuthenticationKey = it },
+                             enabled = fieldsEnabled,
                             role = Role.Tab,
                             stretch = true,
                             modifier = Modifier.fillMaxWidth(),
@@ -431,6 +438,7 @@ fun ConnectScreen(
                             onValueChange = { sshDshHost = it },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text(stringResource(R.string.connect_ssh_dsh_host)) },
+                             enabled = fieldsEnabled,
                             singleLine = true,
                            colors = connectFieldColors(),
                         )
@@ -441,10 +449,19 @@ fun ConnectScreen(
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text(stringResource(R.string.connect_launch_token)) },
                         placeholder = { Text(stringResource(R.string.connect_launch_token_hint)) },
+                         enabled = fieldsEnabled,
                         visualTransformation = PasswordVisualTransformation(),
                         singleLine = true,
                         colors = connectFieldColors(),
                     )
+                    if (editingHost != null) {
+                        DsButton(
+                            text = stringResource(R.string.common_delete),
+                            onClick = { confirmDelete = true },
+                            variant = DsButtonVariant.Danger,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     DsButton(
                         text = stringResource(R.string.connect_save),
                         onClick = {
@@ -514,6 +531,32 @@ fun ConnectScreen(
             }
 
             Spacer(Modifier.height(DsSpacing.large))
+        }
+    }
+    val pendingDeletion = editingHost
+    if (confirmDelete && pendingDeletion != null) {
+        DsDialog(
+            title = stringResource(R.string.connect_delete_title),
+            onDismiss = { confirmDelete = false },
+        ) {
+            Text(stringResource(R.string.connect_delete_message), style = DsType.std14, color = colors.labelSecondary)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                DsButton(
+                    text = stringResource(R.string.common_cancel),
+                    onClick = { confirmDelete = false },
+                    variant = DsButtonVariant.Ghost,
+                )
+                Spacer(Modifier.width(DsSpacing.small))
+                DsButton(
+                    text = stringResource(R.string.common_delete),
+                    onClick = {
+                        viewModel.forget(pendingDeletion)
+                        confirmDelete = false
+                        onOpenConnections?.invoke() ?: onClose?.invoke()
+                    },
+                    variant = DsButtonVariant.Danger,
+                )
+            }
         }
     }
 }

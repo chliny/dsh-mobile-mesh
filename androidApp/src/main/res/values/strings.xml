@@ -51,6 +51,8 @@
     <string name="connect_port_hint">3080</string>
     <string name="connect_button">Connect</string>
     <string name="connect_save">Save</string>
+    <string name="connect_delete_title">Delete connection?</string>
+    <string name="connect_delete_message">This will remove the saved connection and its SSH credentials from this device.</string>
     <string name="connect_transport_direct">Direct</string>
     <string name="connect_transport_zerotier">ZeroTier</string>
     <string name="connect_transport_tailscale">Tailscale</string>
