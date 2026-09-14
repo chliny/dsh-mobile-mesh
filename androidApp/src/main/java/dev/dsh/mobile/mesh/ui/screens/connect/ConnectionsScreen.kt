@@ -4,7 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +19,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -28,22 +35,33 @@ import dev.dsh.mobile.mesh.connection.HostConfig
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
+import dev.dsh.mobile.mesh.ui.components.DsDialog
 import dev.dsh.mobile.mesh.ui.components.SectionHeader
 import dev.dsh.mobile.mesh.ui.rememberHostsStore
+import dev.dsh.mobile.mesh.ui.screens.main.SheetRow
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
+import dev.dsh.mobile.mesh.connection.ConnectionPhase
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun ConnectionsScreen(
     onClose: () -> Unit,
-    onOpenHost: (HostConfig) -> Unit,
+    onConnectHost: (HostConfig) -> Unit,
+    onUpdateToken: (HostConfig) -> Unit,
+    onEditHost: (HostConfig) -> Unit,
+    onDeleteHost: (HostConfig) -> Unit,
     onAdd: () -> Unit,
     connectedHostId: String?,
+    connectingHostId: String? = null,
+    connectionPhase: ConnectionPhase = ConnectionPhase.DISCONNECTED,
 ) {
     val hostsStore = rememberHostsStore()
     val hosts by hostsStore.hosts.collectAsStateWithLifecycle(initialValue = emptyList())
     val colors = DsTheme.colors
+    var menuHost by remember { mutableStateOf<HostConfig?>(null) }
+    var deleteHost by remember { mutableStateOf<HostConfig?>(null) }
     BackHandler(onBack = onClose)
 
     Surface(modifier = Modifier.fillMaxSize(), color = colors.bgBase) {
@@ -85,7 +103,10 @@ fun ConnectionsScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onOpenHost(host) }
+                                .combinedClickable(
+                                    onClick = { onConnectHost(host) },
+                                    onLongClick = { menuHost = host },
+                                )
                                 .padding(vertical = DsSpacing.small),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -93,20 +114,75 @@ fun ConnectionsScreen(
                                 Text(host.name, style = DsType.std14Strong, color = colors.labelPrimary)
                                 Text(host.displayAddress, style = DsType.caption11, color = colors.labelTertiary)
                             }
-                            Text(
-                                when {
-                                    host.id == connectedHostId -> stringResource(R.string.connect_current)
-                                    host.isLoopback -> stringResource(R.string.connect_same_device)
-                                    else -> ""
-                                },
-                                style = DsType.caption11,
-                                color = colors.labelCaption,
-                            )
+                            if (host.id == connectingHostId) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.padding(end = DsSpacing.small),
+                                    strokeWidth = 2.dp,
+                                )
+                            }
+                            when (connectionRowStatus(host.id, connectedHostId, connectingHostId, connectionPhase, host.isLoopback)) {
+                                ConnectionRowStatus.CONNECTING -> Text(
+                                    stringResource(R.string.connect_connecting),
+                                    style = DsType.caption11,
+                                    color = colors.labelCaption,
+                                )
+                                ConnectionRowStatus.CONNECTED -> Text(
+                                    stringResource(R.string.connect_current),
+                                    style = DsType.caption11,
+                                    color = colors.labelCaption,
+                                )
+                                ConnectionRowStatus.SAME_DEVICE -> Text(
+                                    stringResource(R.string.connect_same_device),
+                                    style = DsType.caption11,
+                                    color = colors.labelCaption,
+                                )
+                                ConnectionRowStatus.NONE -> Unit
+                            }
                         }
                     }
                 }
             }
             Spacer(Modifier.weight(1f))
+        }
+    }
+    menuHost?.let { host ->
+        DsDialog(title = host.name, onDismiss = { menuHost = null }) {
+            SheetRow(
+                title = stringResource(R.string.connect_update_token),
+                onClick = { menuHost = null; onUpdateToken(host) },
+            )
+            SheetRow(
+                title = stringResource(R.string.common_edit),
+                onClick = { menuHost = null; onEditHost(host) },
+            )
+            SheetRow(
+                title = stringResource(R.string.common_delete),
+                onClick = { menuHost = null; deleteHost = host },
+            )
+        }
+    }
+    deleteHost?.let { host ->
+        DsDialog(
+            title = stringResource(R.string.connect_delete_title),
+            onDismiss = { deleteHost = null },
+        ) {
+            Text(
+                stringResource(R.string.connect_delete_message),
+                style = DsType.std14,
+                color = colors.labelSecondary,
+            )
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                DsButton(
+                    text = stringResource(R.string.common_cancel),
+                    onClick = { deleteHost = null },
+                    variant = DsButtonVariant.Ghost,
+                )
+                DsButton(
+                    text = stringResource(R.string.common_delete),
+                    onClick = { deleteHost = null; onDeleteHost(host) },
+                    variant = DsButtonVariant.Danger,
+                )
+            }
         }
     }
 }

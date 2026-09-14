@@ -14,8 +14,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -31,6 +31,8 @@ import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
 import dev.dsh.mobile.mesh.ui.components.DsDialog
 import dev.dsh.mobile.mesh.connection.HostConfig
+import dev.dsh.mobile.mesh.connection.ConnectionPhase
+import dev.dsh.mobile.mesh.ui.screens.connect.ConnectViewModel
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectScreen
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectionsScreen
 import dev.dsh.mobile.mesh.ui.screens.main.ChatListDrawer
@@ -44,6 +46,15 @@ import dev.dsh.mobile.mesh.ui.theme.DshTheme
 import dev.dsh.mobile.mesh.ui.theme.ThemePreference
 import dev.dsh.mobile.mesh.update.AvailableUpdate
 
+internal fun shouldShowStartupConnections(hasConnected: Boolean, editingConnection: Boolean): Boolean =
+    !hasConnected && !editingConnection
+
+internal fun shouldShowConnectionTokenPrompt(
+    showingConnections: Boolean,
+    startupConnections: Boolean,
+    signInOpen: Boolean,
+): Boolean = signInOpen && (showingConnections || startupConnections)
+
 /** Application root: theme + locale-aware shell, connect vs. main routing. */
 @Composable
 fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
@@ -51,6 +62,8 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
     val connection by viewModel.connectionState.collectAsStateWithLifecycle()
     val hostsStore = rememberHostsStore()
     val hosts by hostsStore.hosts.collectAsStateWithLifecycle(initialValue = emptyList())
+    val connectViewModel: ConnectViewModel = hiltViewModel()
+    val connectUiState by connectViewModel.state.collectAsStateWithLifecycle()
     val themePreference = remember(settings.themePreference) {
         runCatching { ThemePreference.valueOf(settings.themePreference.uppercase()) }
             .getOrDefault(ThemePreference.SYSTEM)
@@ -68,28 +81,43 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         var editingHost by remember { mutableStateOf<HostConfig?>(null) }
         var connectFormInstance by rememberSaveable { mutableIntStateOf(0) }
         val showMain = connection.hasConnected
-        val showConnect = !connection.hasConnected || showConnectPage
+        val showConnect = showConnectPage
+        val showStartupConnections = shouldShowStartupConnections(connection.hasConnected, editingHost != null) && !showSettings && !showConnectPage
         LaunchedEffect(connection.hasConnected) {
-            if (connection.hasConnected) showConnectPage = false
+            if (connection.hasConnected && editingHost == null) showConnectPage = false
         }
         when {
-            showConnections -> ConnectionsScreen(
-                onClose = { showConnections = false },
-                onOpenHost = { host ->
+            showConnections || showStartupConnections -> ConnectionsScreen(
+                onClose = {
                     showConnections = false
-                    showConnectPage = true
-                    returnToConnections = true
+                    showConnectPage = false
+                    editingHost = null
+                },
+                onConnectHost = { host ->
+                    connectViewModel.connectTo(host)
+                },
+                onUpdateToken = connectViewModel::requestTokenUpdate,
+                onEditHost = { host ->
                     editingHost = host
+                    returnToConnections = true
                     connectFormInstance++
+                    showConnectPage = true
+                    showConnections = false
+                },
+                onDeleteHost = { host ->
+                    connectViewModel.forget(host)
+                    if (host.id == connection.host?.id) viewModel.reconnect()
                 },
                 onAdd = {
-                    showConnections = false
-                    showConnectPage = true
-                    returnToConnections = true
                     editingHost = null
+                    returnToConnections = true
                     connectFormInstance++
+                    showConnectPage = true
+                    showConnections = false
                 },
                 connectedHostId = connection.host?.id,
+                connectingHostId = connection.host?.takeIf { connection.phase == ConnectionPhase.CONNECTING || connection.phase == ConnectionPhase.RECONNECTING }?.id,
+                connectionPhase = connection.phase,
             )
             showSettings -> SettingsScreen(
                 onClose = { showSettings = false },
@@ -104,6 +132,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     onClose = if (connection.hasConnected) ({ showConnectPage = false }) else null,
                     onOpenConnections = if (returnToConnections) ({
                         showConnectPage = false
+                        editingHost = null
                         showConnections = true
                     }) else null,
                     initialHost = editingHost,
@@ -122,18 +151,19 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 onReconnect = viewModel::reconnect,
                 onOpenSessionList = { showSessionList = true },
             )
-            else -> key(connection.host?.id ?: hosts.firstOrNull()?.id ?: "new") {
-                ConnectScreen(
-                onOpenSettings = { showSettings = true },
-                // On a cold start the manager may already be restoring the active host while the
-                // connection page is visible. Pass that host so the form reflects the attempt.
-                initialHost = connection.host ?: hosts.firstOrNull(),
-                // During cold-start auto-connect, the manager publishes its host a little after
-                // composition. The first saved host is the only startup candidate, so treat it as
-                // active immediately and lock its connection-changing fields from the first frame.
-                connectedHostId = connection.host?.id ?: hosts.firstOrNull()?.id,
+            else -> Unit
+        }
+
+        // The remembered-connection list has no form on screen, so it owns the token-update dialog
+        // for a host selected from its long-press menu. The same ViewModel then saves the token and
+        // reconnects that exact host.
+        if (shouldShowConnectionTokenPrompt(showConnections, showStartupConnections, connectUiState.signInOpen)) {
+            dev.dsh.mobile.mesh.ui.screens.connect.LaunchTokenDialog(
+                signingIn = connectUiState.signingIn,
+                error = connectUiState.signInError,
+                onDismiss = { connectViewModel.setSignInOpen(false) },
+                onSubmit = connectViewModel::signIn,
             )
-            }
         }
 
         // Offered over whatever is on screen, and only once per release: dismissing records the

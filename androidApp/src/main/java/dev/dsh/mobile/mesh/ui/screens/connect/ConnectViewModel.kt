@@ -90,6 +90,8 @@ data class ConnectUiState(
     val retrying: Boolean = false,
     /** The launch-token prompt is showing. */
     val signInOpen: Boolean = false,
+    /** Remembered host currently requesting a token update, never inferred from a mutable address. */
+    val signInHostId: String? = null,
     /** An exchange is in flight. */
     val signingIn: Boolean = false,
     /** Why the last exchange did not produce a session, or null. */
@@ -165,6 +167,8 @@ class ConnectViewModel @Inject constructor(
     /** One-time token supplied with a manual connection; it is never persisted. */
     private var pendingLaunchToken: String? = null
     private var tokenPairingJob: Job? = null
+    /** Latest remembered-host selection; older connect coroutines must not pair or publish over it. */
+    private val connectFence = ConnectRequestFence()
 
     /**
      * Exchange a harness launch token for a browser session, then retry the connection.
@@ -178,7 +182,8 @@ class ConnectViewModel @Inject constructor(
      */
     fun signIn(input: String) {
         val host = _state.value.let { current ->
-            current.remembered.firstOrNull { it.authority == current.attempted }
+            current.signInHostId?.let { id -> current.remembered.firstOrNull { it.id == id } }
+                ?: current.remembered.firstOrNull { it.authority == current.attempted }
         }
         if (host == null) {
             _state.update { it.copy(signInError = SignInError.NoHost) }
@@ -187,7 +192,7 @@ class ConnectViewModel @Inject constructor(
         // A failed unauthenticated loop may already have lost its private relay. Recreate the
         // transport and exchange the token from `connectTo`'s transport-ready callback instead
         // of trying to reuse a stale local endpoint.
-        _state.update { it.copy(signInOpen = false, signInError = null) }
+        _state.update { it.copy(signInOpen = false, signInHostId = null, signInError = null) }
         viewModelScope.launch {
             hostsStore.saveLaunchToken(host.id, input.trim())
             connectTo(host, input)
@@ -196,7 +201,31 @@ class ConnectViewModel @Inject constructor(
 
     /** Open or close the launch-token prompt. */
     fun setSignInOpen(open: Boolean) {
-        _state.update { it.copy(signInOpen = open, signInError = null) }
+        _state.update { current ->
+            current.copy(
+                signInOpen = open,
+                signInHostId = if (open) current.signInHostId ?: current.remembered
+                    .firstOrNull { it.authority == current.attempted }?.id else null,
+                signInError = null,
+            )
+        }
+    }
+
+    /** Prompt for a replacement token before connecting the selected remembered host. */
+    fun requestTokenUpdate(host: HostConfig) {
+        tokenPairingJob?.cancel()
+        tokenPairingJob = null
+        pendingLaunchToken = null
+        _state.update {
+            it.copy(
+                signInOpen = true,
+                signInHostId = host.id,
+                signInError = null,
+                failure = null,
+                attempted = host.authority,
+                retrying = false,
+            )
+        }
     }
 
     init {
@@ -736,31 +765,41 @@ class ConnectViewModel @Inject constructor(
      * attempt instead of looking like an inert button.
      */
     fun connectTo(host: HostConfig, launchToken: String? = null) {
+        val requestId = connectFence.next()
         val token = launchToken?.trim()?.takeIf { it.isNotEmpty() }
             ?: host.launchToken.trim().takeIf { it.isNotEmpty() }
-        token?.let { pendingLaunchToken = it }
+        // Token ownership follows the latest host selection. Retaining the previous host's token
+        // during a rapid switch can pair it against the replacement host and corrupt its session.
+        pendingLaunchToken = token
+        tokenPairingJob?.cancel()
+        tokenPairingJob = null
         localStage = null
         _state.update {
             it.copy(
                 stage = ConnectStage.OpeningStreams,
                 failure = null,
+                signInOpen = false,
+                signInHostId = null,
                 attempted = host.authority,
                 retrying = false,
             )
         }
         viewModelScope.launch {
             connectionManager.connect(host) { baseUrl ->
+                if (!connectFence.accepts(requestId)) return@connect
                 // Keep the token pending until the exchange is granted. The transport startup can
                 // fail before this callback runs (or be cancelled by a lifecycle recovery), and
                 // clearing it early otherwise turns the next 401 into an unrecoverable retry loop.
-                val tokenToPair = token ?: pendingLaunchToken ?: return@connect
+                val tokenToPair = pendingLaunchToken ?: return@connect
                 _state.update { it.copy(signingIn = true, signInError = null) }
                 when (harnessSessions.pair(host.id, baseUrl, tokenToPair, host.harnessAuthority)) {
                     is SessionExchange.Granted -> {
+                        if (!connectFence.accepts(requestId)) return@connect
                         pendingLaunchToken = null
                         _state.update { it.copy(signingIn = false) }
                     }
                     is SessionExchange.Refused -> {
+                        if (!connectFence.accepts(requestId)) return@connect
                         pendingLaunchToken = null
                         _state.update {
                             it.copy(signingIn = false, signInOpen = true, signInError = SignInError.Refused)
@@ -768,6 +807,7 @@ class ConnectViewModel @Inject constructor(
                         throw IllegalArgumentException("Harness launch token was refused")
                     }
                     is SessionExchange.Unreachable -> {
+                        if (!connectFence.accepts(requestId)) return@connect
                         _state.update {
                             it.copy(signingIn = false, signInOpen = true, signInError = SignInError.Unreachable)
                         }
