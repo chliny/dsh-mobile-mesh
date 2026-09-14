@@ -7,12 +7,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.viewinterop.AndroidView
+import android.webkit.WebView
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,7 +26,11 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,7 +56,11 @@ import dev.dsh.mobile.mesh.ui.theme.DshTheme
  * `code` chips and [links](https://example.com). Tables render as plain text.
  */
 @Composable
-fun MarkdownText(text: String, modifier: Modifier = Modifier) {
+fun MarkdownText(
+    text: String,
+    modifier: Modifier = Modifier,
+    imageResolver: (suspend (String) -> String?)? = null,
+) {
     val colors = DsTheme.colors
     // `remember` covers a composed row, while this bounded process cache also covers LazyColumn
     // disposal/recomposition when older transcript rows leave and re-enter the viewport.
@@ -58,6 +69,7 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
         Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         blocks.forEach { block ->
             when (block) {
+                is MdBlock.Image -> ResolvedMarkdownImage(block.source, imageResolver)
                 is MdBlock.Heading -> {
                     val style = when (block.level) {
                         1 -> DsType.mdH1
@@ -87,10 +99,13 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
 // ---- Parser (deterministic, line-based) ------------------------------------
 
 private val HEADING_REGEX = Regex("^(#{1,4})\\s+(.*)$")
+internal val IMAGE_REGEX = Regex("^!\\[([^]]*)]\\(([^)]+)\\)$")
+internal val HTML_IMAGE_REGEX = Regex("<img\\s+[^>]*src=[\\\"']([^\\\"']+)[\\\"'][^>]*>", RegexOption.IGNORE_CASE)
 private val ORDERED_REGEX = Regex("^\\d+\\.\\s+")
 
 private sealed interface MdBlock {
     data class Paragraph(val lines: List<String>) : MdBlock
+    data class Image(val alt: String, val source: String) : MdBlock
     data class Heading(val level: Int, val text: String) : MdBlock
     data class MdList(val items: List<String>, val ordered: Boolean) : MdBlock
     data class Blockquote(val lines: List<String>) : MdBlock
@@ -141,6 +156,17 @@ private fun parseMarkdown(markdown: String): List<MdBlock> {
                 }
                 i++ // skip closing fence
                 blocks += MdBlock.Code(lang, code.toString().trimEnd('\n'))
+            }
+            IMAGE_REGEX.matches(trimmed) -> {
+                val match = IMAGE_REGEX.matchEntire(trimmed)!!
+                blocks += MdBlock.Image(match.groupValues[1], match.groupValues[2])
+                i++
+            }
+            HTML_IMAGE_REGEX.containsMatchIn(trimmed) -> {
+                HTML_IMAGE_REGEX.findAll(trimmed).forEach { match ->
+                    blocks += MdBlock.Image("", match.groupValues[1])
+                }
+                i++
             }
             HEADING_REGEX.matches(trimmed) -> {
                 val match = HEADING_REGEX.matchEntire(trimmed)!!
@@ -201,6 +227,8 @@ private fun parseMarkdown(markdown: String): List<MdBlock> {
 private fun isSpecialLine(line: String): Boolean {
     val trimmed = line.trimStart()
     return trimmed.startsWith("```") ||
+        IMAGE_REGEX.matches(trimmed) ||
+        HTML_IMAGE_REGEX.containsMatchIn(trimmed) ||
         HEADING_REGEX.matches(trimmed) ||
         trimmed.startsWith("- ") ||
         trimmed.startsWith("* ") ||
@@ -214,6 +242,31 @@ private fun isTableSeparator(line: String): Boolean =
     line.replace(Regex("[|:\\-\\s]"), "").isEmpty()
 
 // ---- Inline rendering ------------------------------------------------------
+
+internal fun markdownImagePath(source: String): String? = source.trim().trim('<', '>').substringBefore('#').substringBefore('?').takeIf { it.isNotBlank() }
+
+@Composable
+private fun ResolvedMarkdownImage(source: String, resolver: (suspend (String) -> String?)?) {
+    var resolved by remember(source) { mutableStateOf<String?>(null) }
+    LaunchedEffect(source, resolver) {
+        resolved = resolver?.invoke(source) ?: source
+    }
+    resolved?.let { MarkdownImage(it, Modifier.fillMaxWidth()) }
+}
+
+@Composable
+internal fun MarkdownImage(source: String, modifier: Modifier = Modifier) {
+    val path = markdownImagePath(source)
+    if (path == null) return
+    AndroidView(
+        factory = { context -> WebView(context).apply { settings.javaScriptEnabled = false; settings.allowFileAccess = true } },
+        update = { webView ->
+            val escaped = path.replace("\"", "&quot;")
+            webView.loadDataWithBaseURL(null, "<html><body><img src=\"$escaped\" style=\"max-width:100%;height:auto;\"/></body></html>", "text/html", "UTF-8", null)
+        },
+        modifier = modifier.fillMaxWidth().heightIn(min = 24.dp),
+    )
+}
 
 private sealed interface InlineSegment {
     data class Plain(val text: String) : InlineSegment
@@ -276,6 +329,17 @@ private fun parseInlineSegments(text: String): List<InlineSegment> {
                     } else {
                         sb.append(text[i]); i++
                     }
+                } else {
+                    sb.append(text[i]); i++
+                }
+            }
+            text.startsWith("![", i) -> {
+                val close = text.indexOf("](", i + 2)
+                val end = if (close >= 0) text.indexOf(')', close + 2) else -1
+                if (close >= 0 && end >= 0) {
+                    flush()
+                    segments += InlineSegment.Link(text.substring(i + 2, close), text.substring(close + 2, end))
+                    i = end + 1
                 } else {
                     sb.append(text[i]); i++
                 }

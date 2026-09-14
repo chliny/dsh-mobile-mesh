@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
@@ -30,6 +31,7 @@ import dev.dsh.mobile.mesh.ui.theme.DsShapes
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 import dev.dsh.mobile.mesh.ui.theme.DshTheme
+import dev.dsh.mobile.mesh.ui.screens.main.basename
 
 /**
  * Collapsible harness tool card: a 24dp [DisclosureRow] header plus a r12
@@ -54,6 +56,7 @@ fun ToolCard(
     iconOverride: ImageVector? = null,
     /** Terminal state from the call's own result; null derives the running bit from the card. */
     state: DisclosureState? = null,
+    onOpenFile: ((String, String) -> Unit)? = null,
 ) {
     DisclosureRow(
         title = titleOverride ?: view.displayTitle(),
@@ -63,7 +66,7 @@ fun ToolCard(
         expanded = expanded,
         onToggle = onToggle,
     ) {
-        ToolCardBody(view)
+        ToolCardBody(view, onOpenFile)
     }
 }
 
@@ -129,7 +132,7 @@ private fun diffStats(diffs: List<DiffHunk>): Triple<Int, Int, Int> {
 // ---- Bodies -----------------------------------------------------------------
 
 @Composable
-private fun ToolCardBody(view: ToolCardView) {
+private fun ToolCardBody(view: ToolCardView, onOpenFile: ((String, String) -> Unit)?) {
     val colors = DsTheme.colors
     SelectionContainer {
         Column(
@@ -144,9 +147,9 @@ private fun ToolCardBody(view: ToolCardView) {
             when (view) {
                 is ToolCardView.GenericCard -> GenericBody(view)
                 is ToolCardView.TerminalCard -> TerminalBody(view)
-                is ToolCardView.DiffCard -> DiffBody(view)
-                is ToolCardView.SearchCard -> SearchBody(view)
-                is ToolCardView.ReadCard -> ReadBody(view)
+                is ToolCardView.DiffCard -> DiffBody(view, onOpenFile)
+                is ToolCardView.SearchCard -> SearchBody(view, onOpenFile)
+                is ToolCardView.ReadCard -> ReadBody(view, onOpenFile)
                 is ToolCardView.WebCard -> WebBody(view)
             }
         }
@@ -177,9 +180,10 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
                         color = colors.labelPrimary,
                     ),
                 ) {
-                    KodeViewCode(
-                        code = command,
-                        pathOrLanguage = "sh",
+                    Text(
+                        command,
+                        style = DsType.mdCode,
+                        color = colors.labelPrimary,
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(DsShapes.block)
@@ -209,7 +213,7 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
                     CompositionLocalProvider(
                         LocalTextStyle provides DsType.mdCode.copy(color = colors.labelPrimary),
                     ) {
-                        KodeViewCode(code = block, modifier = Modifier.fillMaxWidth())
+                        Text(block, style = DsType.mdCode, color = colors.labelPrimary, modifier = Modifier.fillMaxWidth())
                     }
                 }
             }
@@ -235,7 +239,7 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
 }
 
 @Composable
-private fun DiffBody(card: ToolCardView.DiffCard) {
+private fun DiffBody(card: ToolCardView.DiffCard, onOpenFile: ((String, String) -> Unit)?) {
     val colors = DsTheme.colors
     val (added, removed, files) = diffStats(card.diffs)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -244,7 +248,9 @@ private fun DiffBody(card: ToolCardView.DiffCard) {
                 hunk.path,
                 style = DsType.small13Strong,
                 color = colors.labelSecondary,
-                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                modifier = Modifier
+                    .padding(top = 6.dp, bottom = 2.dp)
+                    .clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(hunk.path, basename(hunk.path)) },
             )
             hunk.oldText?.takeIf { it.isNotEmpty() }?.let { old ->
                 DiffBlock(old, colors.errorTertiary, colors.error, hunk.path)
@@ -284,7 +290,7 @@ private fun DiffBlock(text: String, background: Color, border: Color, path: Stri
 }
 
 @Composable
-private fun SearchBody(card: ToolCardView.SearchCard) {
+private fun SearchBody(card: ToolCardView.SearchCard, onOpenFile: ((String, String) -> Unit)?) {
     val colors = DsTheme.colors
     val shown = when (val matches = card.matches) {
         is SearchMatches.FileMatches -> matches.files.sumOf { it.matches.size }
@@ -298,6 +304,7 @@ private fun SearchBody(card: ToolCardView.SearchCard) {
                         file.path,
                         style = DsType.small13Strong.copy(fontFamily = DsType.codeFont),
                         color = colors.labelSecondary,
+                        modifier = Modifier.clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(file.path, basename(file.path)) },
                     )
                     file.matches.forEach { match ->
                         Row(Modifier.fillMaxWidth()) {
@@ -326,9 +333,11 @@ private fun SearchBody(card: ToolCardView.SearchCard) {
                     path,
                     style = DsType.mdCode,
                     color = colors.labelSecondary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(path, basename(path)) },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
@@ -343,8 +352,16 @@ private fun SearchBody(card: ToolCardView.SearchCard) {
 }
 
 @Composable
-private fun ReadBody(card: ToolCardView.ReadCard) {
+private fun ReadBody(card: ToolCardView.ReadCard, onOpenFile: ((String, String) -> Unit)?) {
     val colors = DsTheme.colors
+    if (card.path != null) {
+        Text(
+            card.path,
+            style = DsType.small13Strong.copy(fontFamily = DsType.codeFont),
+            color = colors.labelSecondary,
+            modifier = Modifier.clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(card.path, basename(card.path)) },
+        )
+    }
     if (card.lines.isEmpty()) {
         Text(
             "(${card.totalLines} lines)",

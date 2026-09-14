@@ -221,6 +221,14 @@ class DshApiClient(
     private fun scalarString(value: JsonElement): String? =
         if (value is JsonNull) null else value.jsonPrimitive.contentOrNull
 
+    /**
+     * A side-effect-free authenticated round trip used when Android resumes a previously green
+     * carrier. It deliberately uses a normal unary request, so success proves the local relay,
+     * SSH/mesh path, HTTP session and DSH endpoint can all exchange bytes — unlike checking that a
+     * locally cached WebSocket has not yet reported close.
+     */
+    suspend fun connectionProbe(): RpcResult<JsonElement> = callEmpty("settings/describe")
+
     // ------------------------------------------------------------------ host / directory picker
 
     /**
@@ -287,7 +295,7 @@ class DshApiClient(
         sessionId: String,
         path: String,
         offset: Int = 1,
-        limit: Int? = null,
+        limit: Int? = 400,
     ): RpcResult<WorkspaceFileText> = call(
         "workspaceFiles/read",
         args {
