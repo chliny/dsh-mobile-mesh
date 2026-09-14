@@ -58,6 +58,30 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `foreground resume rearms stranded reconnect after background cancelled retry`() {
+        assertEquals(
+            true,
+            shouldStartForegroundRecovery(ForegroundRecoveryAction.RECOVER, recoveryInFlight = false),
+        )
+    }
+
+    @Test
+    fun `foreground resume does not duplicate a live recovery job`() {
+        assertEquals(
+            false,
+            shouldStartForegroundRecovery(ForegroundRecoveryAction.RECOVER, recoveryInFlight = true),
+        )
+    }
+
+    @Test
+    fun `verification action does not start transport recovery`() {
+        assertEquals(
+            false,
+            shouldStartForegroundRecovery(ForegroundRecoveryAction.VERIFY, recoveryInFlight = false),
+        )
+    }
+
+    @Test
     fun `no active host does no recovery work`() {
         assertEquals(
             ForegroundRecoveryAction.NONE,
