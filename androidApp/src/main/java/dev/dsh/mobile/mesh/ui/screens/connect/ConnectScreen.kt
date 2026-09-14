@@ -73,7 +73,9 @@ import dev.dsh.mobile.mesh.ui.components.relativeTime
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal fun shouldRestoreConnectionDraft(editingHost: HostConfig?, restoreDraft: Boolean, draftAvailable: Boolean): Boolean =
     editingHost == null && restoreDraft && draftAvailable
@@ -141,7 +143,7 @@ fun ConnectScreen(
                 zeroTierNetworkId = saved.zeroTierNetworkId.orEmpty()
                 zeroTierPlanetId = saved.zeroTierPlanetId
                 zeroTierPlanetBase64 = saved.zeroTierPlanetBase64.orEmpty()
-                viewModel.savedSshCredentials(saved.id)?.let { credentials ->
+                withContext(Dispatchers.IO) { viewModel.savedSshCredentials(saved.id) }?.let { credentials ->
                     sshPassword = credentials.password.orEmpty()
                     sshPrivateKey = credentials.privateKey.orEmpty()
                     sshPrivateKeyPassphrase = credentials.privateKeyPassphrase.orEmpty()
@@ -850,7 +852,7 @@ private fun ConnectAuthorizationPendingBlock(message: String) {
  * token, because that is what people actually copy.
  */
 @Composable
-private fun LaunchTokenDialog(
+internal fun LaunchTokenDialog(
     signingIn: Boolean,
     error: SignInError?,
     onDismiss: () -> Unit,

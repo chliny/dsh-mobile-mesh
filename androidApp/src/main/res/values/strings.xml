@@ -40,6 +40,7 @@
     <string name="connect_title">Connect to Harness</string>
     <string name="connect_connections">Connections</string>
     <string name="connect_current">Connected</string>
+    <string name="connect_connecting">Connecting…</string>
     <string name="connect_add_connection">Add connection</string>
     <string name="connect_subtitle">DSH Mobile Mesh mirrors the DeepSeek Harness running on your computer.</string>
     <string name="connect_manual_title">Connect manually</string>
@@ -75,6 +76,7 @@
     <string name="connect_ssh_dsh_host" translatable="false">DSH host from SSH server</string>
     <string name="connect_launch_token">Harness startup link or token (first connection)</string>
     <string name="connect_launch_token_hint">Optional; paste the dsh web startup link</string>
+    <string name="connect_update_token">Update DSH Web token</string>
     <string name="connect_ssh_fingerprint" translatable="false">Confirmed host-key fingerprint</string>
     <string name="connect_ssh_fingerprint_hint" translatable="false">Leave blank on the first attempt. The connection will stop and show the server fingerprint; verify it out of band, enter it here, then reconnect.</string>
     <string name="connect_scanning">Scanning your network…</string>
