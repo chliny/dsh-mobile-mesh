@@ -108,10 +108,13 @@ class RemoteStreamMux(
     }
 
     private val streams = ConcurrentHashMap<String, Stream>()
+    /** Serializes stream registration/send with carrier teardown. */
+    private val lifecycleLock = Any()
     private val nextStreamId = AtomicLong(1)
     private val started = AtomicBoolean(false)
     private val opened = CompletableDeferred<Unit>()
     private val closed = CompletableDeferred<Unit>()
+    private val channelClosed = AtomicBoolean(false)
 
     @Volatile
     private var closedCause: Throwable? = null
@@ -168,6 +171,10 @@ class RemoteStreamMux(
     val failure: Throwable?
         get() = closedCause
 
+    /** True after the physical WebSocket carrier has closed or failed. */
+    val isClosed: Boolean
+        get() = closed.isCompleted || closedCause != null
+
     /** Perform the handshake. Idempotent; [awaitOpen] waits for it to land. */
     fun start() {
         if (!started.compareAndSet(false, true)) return
@@ -203,23 +210,23 @@ class RemoteStreamMux(
     fun open(endpoint: String, args: JsonElement = JsonObject(emptyMap())): RemoteStream {
         val streamId = nextStreamId.getAndIncrement().toString()
         val stream = Stream(streamId)
-        // Registered before the send so a failure arriving between the two reaches this stream
-        // rather than a map that does not contain it yet.
-        streams[streamId] = stream
-        closedCause?.let {
-            streams.remove(streamId)
-            throw carrierFailure(it)
-        }
-        val sent = send(
-            RemoteStreamClientMessage.Open(
-                streamId = streamId,
-                endpoint = endpoint,
-                payload = JsonObject(mapOf("args" to args)),
-            ),
-        )
-        if (!sent) {
-            streams.remove(streamId)
-            throw carrierFailure(closedCause)
+        // Registration and the first send are one lifecycle transaction. Without this, failAll()
+        // can observe an empty map between the check and registration, leaving this stream blocked
+        // forever after a concurrent close.
+        synchronized(lifecycleLock) {
+            closedCause?.let { throw carrierFailure(it) }
+            streams[streamId] = stream
+            val sent = send(
+                RemoteStreamClientMessage.Open(
+                    streamId = streamId,
+                    endpoint = endpoint,
+                    payload = JsonObject(mapOf("args" to args)),
+                ),
+            )
+            if (!sent) {
+                streams.remove(streamId)
+                throw carrierFailure(closedCause)
+            }
         }
         return stream
     }
@@ -245,8 +252,10 @@ class RemoteStreamMux(
     /** Tear the socket down and fail every open logical stream. Idempotent. */
     fun close() {
         failAll(null)
-        channel?.close()
-        channel = null
+        if (channelClosed.compareAndSet(false, true)) {
+            channel?.close()
+            channel = null
+        }
     }
 
     private fun send(message: RemoteStreamClientMessage): Boolean {
@@ -261,14 +270,16 @@ class RemoteStreamMux(
      * rather than registering itself with nothing left to complete it.
      */
     private fun failAll(cause: Throwable?) {
-        val closure = cause ?: MuxClosedException()
-        if (closedCause == null) closedCause = closure
-        closed.complete(Unit)
-        // Unblocks awaitOpen for a socket that failed its upgrade and never opened at all.
-        opened.complete(Unit)
-        val error = carrierError(closure)
-        streams.keys.toList().forEach { streamId ->
-            streams.remove(streamId)?.signals?.trySend(Signal.Failed(error, carrier = true))
+        synchronized(lifecycleLock) {
+            val closure = cause ?: MuxClosedException()
+            if (closedCause == null) closedCause = closure
+            closed.complete(Unit)
+            // Unblocks awaitOpen for a socket that failed its upgrade and never opened at all.
+            opened.complete(Unit)
+            val error = carrierError(closure)
+            streams.keys.toList().forEach { streamId ->
+                streams.remove(streamId)?.signals?.trySend(Signal.Failed(error, carrier = true))
+            }
         }
     }
 
