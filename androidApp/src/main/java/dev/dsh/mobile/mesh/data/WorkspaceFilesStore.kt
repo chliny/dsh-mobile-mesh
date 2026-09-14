@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -32,6 +34,7 @@ data class WorkspaceFilesState(
     val workspaceKey: String? = null,
     val levels: Map<String, DirectoryLevel> = emptyMap(),
     val preview: PreviewState? = null,
+    val previewLoadingMore: Boolean = false,
 )
 
 sealed interface PreviewState {
@@ -143,8 +146,34 @@ class WorkspaceFilesStore @Inject constructor(
         }
     }
 
-    fun readText(workspaceKey: String, sessionId: String, path: String) {
-        readPreview(workspaceKey, sessionId, path) { api -> api.workspaceFilesRead(sessionId, path) }
+    suspend fun readTextContent(sessionId: String, path: String): String? {
+        val api = connectionManager.connectedApi ?: return null
+        return when (val result = api.workspaceFilesRead(sessionId, path, offset = 1, limit = 20_000)) {
+            is RpcResult.Ok -> result.value.text
+            is RpcResult.Err -> null
+        }
+    }
+
+    fun readText(workspaceKey: String, sessionId: String, path: String, offset: Int = 1, limit: Int = PREVIEW_PAGE_LINES) {
+        readPreview(workspaceKey, sessionId, path, append = offset > 1) { api ->
+            api.workspaceFilesRead(sessionId, path, offset = offset, limit = limit)
+        }
+    }
+
+    fun loadNextPreviewPage(workspaceKey: String, sessionId: String, path: String) {
+        val current = _state.value.preview as? PreviewState.Text ?: return
+        if (current.value.eof || _state.value.previewLoadingMore) return
+        _state.value = _state.value.copy(previewLoadingMore = true)
+        readPreview(workspaceKey, sessionId, path, append = true, onFinished = {
+            _state.value = _state.value.copy(previewLoadingMore = false)
+        }) { api ->
+            api.workspaceFilesRead(
+                sessionId,
+                path,
+                offset = current.value.offset + current.value.lines,
+                limit = PREVIEW_PAGE_LINES,
+            )
+        }
     }
 
     fun readBytes(workspaceKey: String, sessionId: String, path: String) {
@@ -155,17 +184,37 @@ class WorkspaceFilesStore @Inject constructor(
         workspaceKey: String,
         sessionId: String,
         path: String,
+        append: Boolean = false,
+        onFinished: () -> Unit = {},
         request: suspend (DshApiClient) -> RpcResult<T>,
     ) {
         val api = connectionManager.connectedApi ?: return
         previewJob?.cancel()
-        _state.value = _state.value.copy(preview = PreviewState.Loading)
+        if (!append) _state.value = _state.value.copy(preview = PreviewState.Loading)
         previewJob = scope.launch {
-            when (val result = request(api)) {
-                is RpcResult.Ok -> updateIfCurrent(workspaceKey) { copy(preview = previewValue(result.value)) }
-                is RpcResult.Err -> updateIfCurrent(workspaceKey) { copy(preview = PreviewState.Failed(result.error.code, result.error.message)) }
+            try {
+                when (val result = request(api)) {
+                    is RpcResult.Ok -> updateIfCurrent(workspaceKey) {
+                        copy(preview = if (append) appendPreview(preview, previewValue(result.value)) else previewValue(result.value))
+                    }
+                    is RpcResult.Err -> updateIfCurrent(workspaceKey) { copy(preview = PreviewState.Failed(result.error.code, result.error.message)) }
+                }
+            } finally {
+                onFinished()
             }
         }
+    }
+
+    private fun appendPreview(existing: PreviewState?, next: PreviewState): PreviewState = when {
+        existing is PreviewState.Text && next is PreviewState.Text -> PreviewState.Text(
+            next.value.copy(
+                offset = existing.value.offset,
+                text = existing.value.text + next.value.text,
+                lines = existing.value.lines + next.value.lines,
+                eof = next.value.eof,
+            ),
+        )
+        else -> next
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -194,5 +243,6 @@ class WorkspaceFilesStore @Inject constructor(
 
     private companion object {
         const val CACHE_TTL_MS = 30_000L
+        const val PREVIEW_PAGE_LINES = 400
     }
 }

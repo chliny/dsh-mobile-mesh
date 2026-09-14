@@ -26,6 +26,24 @@ import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
 
+internal fun safePreviewPath(path: String, cwd: String?): String? {
+    val clean = path.trim().trim('"').replace('\\', '/')
+    if (clean.isBlank()) return null
+    val root = cwd?.trim()?.trimEnd('/', '\\')?.replace('\\', '/')
+    if (clean.startsWith("/", ignoreCase = false) || clean.matches(Regex("^[A-Za-z]:/.*"))) {
+        if (!root.isNullOrBlank() && !clean.startsWith(root, ignoreCase = true)) return null
+    }
+    val relative = if (!root.isNullOrBlank() && clean.startsWith(root, ignoreCase = true)) {
+        clean.substring(root.length).trimStart('/')
+    } else {
+        clean.trimStart('/')
+    }
+    return relative.takeIf { it.isNotBlank() && it != "." && !hasUnsafePreviewSegment(it) }
+}
+
+private fun hasUnsafePreviewSegment(path: String): Boolean =
+    path.split('/').any { it == ".." }
+
 private sealed interface MainPage {
     data object Chat : MainPage
     data class Files(val path: String = ".", val rootTitle: String? = null) : MainPage
@@ -77,7 +95,9 @@ fun MainScreen(
                     rootTitle = current.rootTitle,
                     onBack = { page = MainPage.Chat },
                     onOpenFile = { path, title, parentPath ->
-                        page = MainPage.Preview(path, title, MainPage.Files(parentPath, current.rootTitle))
+                        safePreviewPath(path, sessions.firstOrNull { it.sessionId == sid }?.cwd)?.let { safePath ->
+                            page = MainPage.Preview(safePath, title, MainPage.Files(parentPath, current.rootTitle))
+                        }
                     },
                 )
                 is MainPage.Preview -> FilePreviewScreen(
@@ -154,7 +174,9 @@ fun MainScreen(
                 onReconnect = onReconnect,
                 onOpenFiles = { page = MainPage.Files(rootTitle = rootDirectoryName) },
                 onOpenFile = { path, title ->
-                    page = MainPage.Preview(path, title, MainPage.Files(rootTitle = rootDirectoryName))
+                    safePreviewPath(path, sessions.firstOrNull { it.sessionId == sessionId }?.cwd)?.let { safePath ->
+                        page = MainPage.Preview(safePath, title, MainPage.Chat)
+                    }
                 },
             )
 

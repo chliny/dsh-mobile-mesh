@@ -79,6 +79,13 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
 /** Everything one transcript row needs that is not on the node itself. */
+internal fun openWorkspacePath(context: ChatNodeContext, path: String, title: String, onOpen: ((String, String) -> Unit)?) {
+    val clean = path.trim().trim('"').replace('\\', '/')
+    if (clean.isBlank()) return
+    val relative = relativizeToCwd(clean, context.cwd).trimStart('/')
+    onOpen?.invoke(relative.ifBlank { clean }, title)
+}
+
 internal data class ChatNodeContext(
     val nodes: List<ChatNode>,
     val running: Boolean,
@@ -447,7 +454,7 @@ private fun ProducedFilesRow(paths: List<String>, context: ChatNodeContext) {
                 modifier = Modifier
                     .clip(DsShapes.pillFull)
                     .background(DsTheme.colors.bgModulePlatform)
-                    .clickable(enabled = context.onOpenFile != null) { context.onOpenFile?.invoke(path, basename(path)) }
+                    .clickable(enabled = context.onOpenFile != null && path.isNotBlank()) { openWorkspacePath(context, path, basename(path), context.onOpenFile) }
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -501,6 +508,7 @@ private fun ToolCallRow(node: ToolCallNode, context: ChatNodeContext) {
         summaryOverride = row.summary,
         iconOverride = row.variant.featherIcon(),
         state = state,
+        onOpenFile = { path, title -> openWorkspacePath(context, path, title, context.onOpenFile) },
     )
     if (result?.isError == true) {
         // The dot is colour-only, so the word stays — but without a second dot beside it.

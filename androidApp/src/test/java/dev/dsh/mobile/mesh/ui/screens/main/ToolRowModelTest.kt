@@ -106,6 +106,14 @@ class ToolRowModelTest {
     }
 
     @Test
+    fun `read and edit paths are safe to open relative to cwd`() {
+        val read = toolRowModel("read", "{\"file_path\":\"/home/me/project/src/main.kt\"}", "/home/me/project")
+        val edit = toolRowModel("edit", "{\"path\":\"/home/me/project/src/main.kt\"}", "/home/me/project")
+        assertEquals("src/main.kt", relativizeToCwd(read.filePath!!, "/home/me/project"))
+        assertEquals("src/main.kt", relativizeToCwd(edit.filePath!!, "/home/me/project"))
+    }
+
+    @Test
     fun `basename handles both separators`() {
         assertEquals("deepseek-mobile", basename("D:\\LabTeto\\deepseek-mobile"))
         assertEquals("project", basename("/home/me/project/"))
