@@ -139,7 +139,6 @@ class ConnectionManager @Inject constructor(
     @Volatile private var backgroundedAtMs = 0L
     @Volatile private var keepConnectedInBackground = false
     @Volatile private var foregroundProbeJob: Job? = null
-    @Volatile private var lastForegroundRecoveryAtMs = 0L
 
     init {
         // SSHJ only exposes a forwarder's terminal event by returning from listen(). Turn that into
@@ -546,8 +545,12 @@ class ConnectionManager @Inject constructor(
                 return
             }
             ForegroundRecoveryAction.RECOVER -> {
-                if (now - lastForegroundRecoveryAtMs < FOREGROUND_RECOVERY_COOLDOWN_MS) return
-                lastForegroundRecoveryAtMs = now
+                // Never cooldown a stranded reconnect. onStop cancels its delayed retry; onStart is
+                // the authoritative signal that must re-arm recovery when no job is currently alive.
+                if (!shouldStartForegroundRecovery(
+                        action,
+                        transportRecoveryInFlight || recoveryJob?.isActive == true,
+                    )) return
                 _state.value = _state.value.copy(foregroundCheckPending = true)
                 networkTracker.consumeRecoveryNeeded()
                 networkLostWhileConnected = false
@@ -673,7 +676,6 @@ class ConnectionManager @Inject constructor(
         /** Bound the resume probe so fake green is replaced promptly, even for a black-holed TCP path. */
         const val FOREGROUND_PROBE_TIMEOUT_MS = 1_500L
         const val FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS = 10_000L
-        const val FOREGROUND_RECOVERY_COOLDOWN_MS = 1_000L
         const val FOREGROUND_RECOVERY_MAX_ATTEMPTS = 3
         const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 1_500L
     }

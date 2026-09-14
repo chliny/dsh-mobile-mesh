@@ -29,3 +29,13 @@ internal fun foregroundRecoveryAction(facts: ForegroundRecoveryFacts): Foregroun
 }
 
 internal const val FOREGROUND_VERIFY_AFTER_MS = 1_000L
+
+/**
+ * A non-connected foreground state must always re-arm recovery when no job is active.
+ * Time-based cooldowns are unsafe here: backgrounding cancels delayed retries, so suppressing the
+ * resume signal can otherwise leave the UI permanently blocked in RECONNECTING.
+ */
+internal fun shouldStartForegroundRecovery(
+    action: ForegroundRecoveryAction,
+    recoveryInFlight: Boolean,
+): Boolean = action == ForegroundRecoveryAction.RECOVER && !recoveryInFlight
