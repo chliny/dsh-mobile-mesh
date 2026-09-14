@@ -129,6 +129,7 @@ fun DetailsPanel(
     val savedLabel = stringResource(R.string.chat_export_saved)
     val failedLabel = stringResource(R.string.chat_export_failed)
     val copiedLabel = stringResource(R.string.common_copied)
+    val forkCreatedLabel = stringResource(R.string.chat_fork_created)
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
@@ -167,7 +168,14 @@ fun DetailsPanel(
                     onRename = { title ->
                         scope.launch { currentSessionId?.let { store.renameSession(it, title) } }
                     },
-                    onFork = { scope.launch { currentSessionId?.let { store.forkSession(it) } } },
+                    onFork = {
+                        scope.launch {
+                            currentSessionId?.let {
+                                store.forkSession(it)
+                                toast.second(forkCreatedLabel)
+                            }
+                        }
+                    },
                     onArchive = { scope.launch { currentSessionId?.let { store.archiveSession(it) } } },
                     onOpenModels = { sheet = DetailsSheet.Models },
                     onOpenPresets = {

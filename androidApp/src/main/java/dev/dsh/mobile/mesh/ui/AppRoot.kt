@@ -1,13 +1,21 @@
 package dev.dsh.mobile.mesh.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -58,6 +66,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         var showConnections by rememberSaveable { mutableStateOf(false) }
         var returnToConnections by rememberSaveable { mutableStateOf(false) }
         var editingHost by remember { mutableStateOf<HostConfig?>(null) }
+        var connectFormInstance by rememberSaveable { mutableIntStateOf(0) }
         val showMain = connection.hasConnected
         val showConnect = !connection.hasConnected || showConnectPage
         LaunchedEffect(connection.hasConnected) {
@@ -71,12 +80,14 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     showConnectPage = true
                     returnToConnections = true
                     editingHost = host
+                    connectFormInstance++
                 },
                 onAdd = {
                     showConnections = false
                     showConnectPage = true
                     returnToConnections = true
                     editingHost = null
+                    connectFormInstance++
                 },
                 connectedHostId = connection.host?.id,
             )
@@ -87,7 +98,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     showConnections = true
                 },
             )
-            showConnect -> key(editingHost?.id ?: "new") {
+            showConnect -> key(editingHost?.id ?: "new", connectFormInstance) {
                 ConnectScreen(
                     onOpenSettings = { showSettings = true },
                     onClose = if (connection.hasConnected) ({ showConnectPage = false }) else null,
@@ -97,6 +108,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     }) else null,
                     initialHost = editingHost,
                     connectedHostId = connection.host?.id,
+                    restoreDraft = false,
                 )
             }
             showSessionList -> ChatListDrawer(
@@ -127,6 +139,30 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         // Offered over whatever is on screen, and only once per release: dismissing records the
         // version, so the next launch is quiet until there is a newer one.
         update?.let { UpdateDialog(it, onDismiss = { viewModel.dismissUpdate(it.version) }) }
+
+        // A connected session must not accept taps while its carrier is being verified or rebuilt.
+        // The scrim consumes input at the root, preventing session switches and writes from racing
+        // ConnectionManager's transport teardown/reconnect sequence.
+        if (shouldBlockForConnectionRecovery(
+                connection.hasConnected,
+                connection.phase,
+                connection.foregroundCheckPending,
+            )) {
+            ConnectionRecoveryOverlay()
+        }
+    }
+}
+
+@Composable
+private fun ConnectionRecoveryOverlay() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.18f))
+            .clickable(enabled = true, onClick = {}),
+        contentAlignment = Alignment.Center,
+    ) {
+        CircularProgressIndicator()
     }
 }
 
