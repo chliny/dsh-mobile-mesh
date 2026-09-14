@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
@@ -66,6 +67,8 @@ data class ConnectionUiState(
     val attempts: Int = 0,
     /** True once at least one generation completed the readiness handshake. */
     val hasConnected: Boolean = false,
+    /** True while the app has returned from background but the live carrier is not revalidated. */
+    val foregroundCheckPending: Boolean = false,
 )
 
 /**
@@ -83,12 +86,17 @@ class ConnectionManager @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
+    private val networkTracker = DefaultNetworkTracker(connectivity.activeNetwork)
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            val previous = defaultNetwork
-            defaultNetwork = network
-            Log.d("ConnectionManager", "Default network available: $network (previous=$previous)")
-            if (networkLostWhileConnected && previous != network) {
+            val connected = _state.value.phase == ConnectionPhase.CONNECTED
+            val previous = networkTracker.current()
+            networkTracker.onAvailable(network, connected)
+            defaultNetwork = networkTracker.current()
+            networkLostWhileConnected = networkTracker.hasRecoveryNeeded()
+            Log.d("ConnectionManager", "Default network available: $network (previous=$previous, dirty=$networkLostWhileConnected)")
+            if (networkLostWhileConnected && appInForeground) {
+                networkTracker.consumeRecoveryNeeded()
                 networkLostWhileConnected = false
                 markCarrierRecoveryNeeded()
                 recoverTransportAfterCarrierLoss()
@@ -96,15 +104,15 @@ class ConnectionManager @Inject constructor(
         }
 
         override fun onLost(network: Network) {
-            // During handover Android can report the old network after the replacement is already
-            // available. Ignore that stale callback or we rebuild a healthy relay unnecessarily.
-            if (network != defaultNetwork) {
-                Log.d("ConnectionManager", "Ignoring stale network lost: $network (current=$defaultNetwork)")
-                return
+            val before = networkTracker.current()
+            networkTracker.onLost(network, _state.value.phase == ConnectionPhase.CONNECTED)
+            defaultNetwork = networkTracker.current()
+            networkLostWhileConnected = networkTracker.hasRecoveryNeeded()
+            if (before != network) {
+                Log.d("ConnectionManager", "Ignoring stale network lost: $network (current=$before)")
+            } else {
+                Log.d("ConnectionManager", "Default network lost: $network")
             }
-            defaultNetwork = null
-            if (_state.value.phase == ConnectionPhase.CONNECTED) networkLostWhileConnected = true
-            Log.d("ConnectionManager", "Default network lost: $network")
         }
     }
 
@@ -124,11 +132,20 @@ class ConnectionManager @Inject constructor(
     @Volatile private var defaultNetwork: Network? = null
     @Volatile private var lifecycleEpoch = 0L
     private val recoveryLock = Any()
+    private val loopFence = RecoveryCallbackFence()
     @Volatile private var recoveryJob: Job? = null
+    @Volatile private var recoveryRetryJob: Job? = null
     @Volatile private var appInForeground = false
+    @Volatile private var backgroundedAtMs = 0L
+    @Volatile private var keepConnectedInBackground = false
+    @Volatile private var foregroundProbeJob: Job? = null
     @Volatile private var lastForegroundRecoveryAtMs = 0L
 
     init {
+        // SSHJ only exposes a forwarder's terminal event by returning from listen(). Turn that into
+        // the same state transition as a mux carrier failure instead of waiting for a timer, ping,
+        // or the next user request to discover a dead local relay.
+        sshTunnel.onRelayTerminated = { token -> onSshRelayTerminated(token) }
         runCatching {
             defaultNetwork = connectivity.activeNetwork
             connectivity.registerDefaultNetworkCallback(networkCallback)
@@ -137,6 +154,7 @@ class ConnectionManager @Inject constructor(
         // handshake. This also tears down the foreground-service notification when it is disabled.
         scope.launch {
             hostsStore.settings.collect { settings ->
+                keepConnectedInBackground = settings.keepConnectedInBackground
                 if (settings.keepConnectedInBackground && _state.value.phase == ConnectionPhase.CONNECTED) {
                     startService()
                 } else if (!settings.keepConnectedInBackground) {
@@ -168,12 +186,13 @@ class ConnectionManager @Inject constructor(
      */
     val eventFrames = kotlinx.coroutines.flow.MutableSharedFlow<RemoteEventFrame>(extraBufferCapacity = 256)
 
-    private val sinks = object : LoopSinks {
+    private fun sinksFor(token: RecoveryCallbackFence.Token): LoopSinks = object : LoopSinks {
         override fun onEventFrame(frame: RemoteEventFrame) {
-            eventFrames.tryEmit(frame)
+            loopFence.runIfCurrent(token) { eventFrames.tryEmit(frame) }
         }
 
         override fun onConnected(generation: HostGeneration) {
+            loopFence.runIfCurrent(token) {
             this@ConnectionManager.generation = generation
             val host = activeHost
             if (host != null) scope.launch { hostsStore.touchHost(host.host, host.port) }
@@ -187,9 +206,11 @@ class ConnectionManager @Inject constructor(
                 hasConnected = true,
             )
             maybeStartService()
+            }
         }
 
         override fun onStateChange(state: ConnectionState) {
+            loopFence.runIfCurrent(token) {
             // The mux generation is no longer usable as soon as the carrier starts reconnecting.
             // Keep the unary client: it is an HTTP client, not the retired WebSocket generation, and
             // clearing it here makes the UI report "not connected" forever after the next successful
@@ -218,17 +239,21 @@ class ConnectionManager @Inject constructor(
             // Note: does not clear `failure`. The loop emits this on every retry, so clearing here
             // would erase the explanation a fraction of a second after showing it.
             _state.value = current.copy(phase = phase)
+            }
         }
 
         override fun onHandshakeStep(step: HandshakeStep) {
+            loopFence.runIfCurrent(token) {
             val stage = when (step) {
                 HandshakeStep.OPENING_MUX -> ConnectStage.OpeningStreams
                 HandshakeStep.AWAITING_READY -> ConnectStage.Verifying
             }
             _state.value = _state.value.copy(stage = stage)
+            }
         }
 
         override fun onGenerationFailed(attempt: Int, failure: GenerationFailure) {
+            loopFence.runIfCurrent(token) {
             Log.w("ConnectionManager", "Generation $attempt failed: $failure")
             _state.value = _state.value.copy(
                 failure = ConnectFailure.from(failure),
@@ -237,6 +262,7 @@ class ConnectionManager @Inject constructor(
             // Do not recreate libzt/SSH from this callback while Android has the activity in the
             // background. The loop's own retries are safe there; recovery is intentionally driven
             // when foreground/network lifecycle signals say the carrier can be used again.
+            }
         }
     }
 
@@ -293,7 +319,8 @@ class ConnectionManager @Inject constructor(
             if (epoch != lifecycleEpoch) return
             pendingTransportReady = null
             api = clientFactory.clientFor(config, baseUrl = activeBaseUrl!!)
-            val loop = ConnectionLoop(muxFactory(config, activeBaseUrl!!), sinks, LoopConfig())
+            val token = loopFence.next()
+            val loop = ConnectionLoop(muxFactory(config, activeBaseUrl!!), sinksFor(token), LoopConfig())
             this.loop = loop
             loop.start()
         } catch (error: Throwable) {
@@ -327,6 +354,16 @@ class ConnectionManager @Inject constructor(
 
     fun disconnect() {
         lifecycleEpoch++
+        foregroundProbeJob?.cancel()
+        foregroundProbeJob = null
+        recoveryRetryJob?.cancel()
+        recoveryRetryJob = null
+        synchronized(recoveryLock) {
+            recoveryJob?.cancel()
+            recoveryJob = null
+            transportRecoveryInFlight = false
+        }
+        loopFence.invalidate()
         loop?.stop()
         loop = null
         api = null
@@ -367,6 +404,19 @@ class ConnectionManager @Inject constructor(
     private fun recoverTransportAfterCarrierLoss() = reconnectIfNeeded()
 
     /**
+     * The SSH forwarder has an authoritative terminal event: its listener returned. Do not wait for
+     * an HTTP/WebSocket timeout to infer this locally-observable relay failure.
+     */
+    private fun onSshRelayTerminated(token: Long) {
+        val current = _state.value
+        if (token != sshTunnel.activeRelayToken || activeHost?.sshEnabled != true || current.phase != ConnectionPhase.CONNECTED) return
+        Log.w("ConnectionManager", "Active SSH relay terminated; scheduling transport recovery")
+        generation = null
+        markCarrierRecoveryNeeded()
+        if (appInForeground) recoverTransportAfterCarrierLoss()
+    }
+
+    /**
      * Replace a dead relay through exactly one serialized recovery job.
      *
      * onResume, network callbacks and WorkManager can all notice the same dead carrier. They must
@@ -392,6 +442,7 @@ class ConnectionManager @Inject constructor(
                         if (epoch != lifecycleEpoch || activeHost?.id != host.id) return@withLock
                         // Stop before rebuilding the relay. ConnectionLoop.stop closes its mux, and
                         // its cancellation exceptions are deliberately not reported as failures.
+                        loopFence.invalidate()
                         loop?.stop()
                         loop = null
                         generation = null
@@ -401,10 +452,13 @@ class ConnectionManager @Inject constructor(
                         // and baseline reopens the selected session after CONNECTED.
                         api = null
                         try {
-                            activeBaseUrl = reconnectTransports(host)
+                            activeBaseUrl = withTimeout(FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS) {
+                                reconnectTransports(host)
+                            }
                             if (epoch != lifecycleEpoch || activeHost?.id != host.id) return@withLock
                             api = clientFactory.clientFor(host, baseUrl = activeBaseUrl!!)
-                            loop = ConnectionLoop(muxFactory(host, activeBaseUrl!!), sinks, LoopConfig()).also { it.start() }
+                            val token = loopFence.next()
+                            loop = ConnectionLoop(muxFactory(host, activeBaseUrl!!), sinksFor(token), LoopConfig()).also { it.start() }
                             recovered = true
                         } catch (error: Throwable) {
                             if (epoch != lifecycleEpoch) return@withLock
@@ -438,12 +492,20 @@ class ConnectionManager @Inject constructor(
                         transportRecoveryInFlight = false
                         recoveryJob = null
                     }
+                    if (appInForeground && activeHost?.id == host.id && epoch == lifecycleEpoch) {
+                        _state.value = _state.value.copy(foregroundCheckPending = false)
+                    }
                     Log.d("ConnectionManager", "Transport recovery finished")
                     if (!recovered && appInForeground && attempt + 1 < FOREGROUND_RECOVERY_MAX_ATTEMPTS && activeHost?.id == host.id) {
                         val next = attempt + 1
-                        scope.launch {
+                        val expectedHostId = host.id
+                        val expectedEpoch = epoch
+                        recoveryRetryJob?.cancel()
+                        recoveryRetryJob = scope.launch {
                             kotlinx.coroutines.delay(FOREGROUND_RECOVERY_RETRY_DELAY_MS)
-                            startRecovery(next)
+                            if (appInForeground && lifecycleEpoch == expectedEpoch && activeHost?.id == expectedHostId) {
+                                startRecovery(next)
+                            }
                         }
                     }
                 }
@@ -459,26 +521,84 @@ class ConnectionManager @Inject constructor(
     fun recoverForForeground() {
         appInForeground = true
         val current = _state.value
-        Log.d("ConnectionManager", "Foreground recovery requested: phase=${current.phase}, active=${activeHost != null}, inFlight=$transportRecoveryInFlight")
-        // A normal activity resume is not evidence that a healthy foreground relay is stale.
-        // Rebuilding a CONNECTED relay here tears down the live mux and can look like a random
-        // foreground disconnect (and used to be triggered by ordinary activity recreation).
-        if (activeHost == null || current.phase == ConnectionPhase.CONNECTED ||
-            current.phase == ConnectionPhase.CONNECTING || transportRecoveryInFlight) return
-        // A carrier can disappear while Android keeps the app's logical state CONNECTED. A
-        // suspended background carrier may instead leave the loop in DISCONNECTED/RECONNECTING
-        // without a NetworkCallback. In both cases publish the recovery state before the relay
-        // work starts, so the UI never presents that stale green connection.
         val now = System.currentTimeMillis()
-        if (now - lastForegroundRecoveryAtMs < FOREGROUND_RECOVERY_COOLDOWN_MS) return
-        lastForegroundRecoveryAtMs = now
-        markCarrierRecoveryNeeded()
-        recoverTransportAfterCarrierLoss()
+        val backgroundDuration = (now - backgroundedAtMs).coerceAtLeast(0L)
+        val action = foregroundRecoveryAction(
+            ForegroundRecoveryFacts(
+                phase = current.phase,
+                hasActiveHost = activeHost != null,
+                recoveryInFlight = transportRecoveryInFlight || foregroundProbeJob?.isActive == true,
+                backgroundDurationMs = backgroundDuration,
+                networkChanged = networkLostWhileConnected,
+                foregroundCheckPending = current.foregroundCheckPending,
+            ),
+        )
+        Log.d("ConnectionManager", "Foreground recovery requested: phase=${current.phase}, backgroundMs=$backgroundDuration, action=$action")
+        if (current.foregroundCheckPending) return
+        if (action == ForegroundRecoveryAction.VERIFY) {
+            _state.value = current.copy(foregroundCheckPending = true)
+        }
+        when (action) {
+            ForegroundRecoveryAction.NONE -> {
+                if (current.phase == ConnectionPhase.CONNECTING && activeHost != null && !current.foregroundCheckPending) {
+                    startRecovery(0)
+                }
+                return
+            }
+            ForegroundRecoveryAction.RECOVER -> {
+                if (now - lastForegroundRecoveryAtMs < FOREGROUND_RECOVERY_COOLDOWN_MS) return
+                lastForegroundRecoveryAtMs = now
+                _state.value = _state.value.copy(foregroundCheckPending = true)
+                networkTracker.consumeRecoveryNeeded()
+                networkLostWhileConnected = false
+                markCarrierRecoveryNeeded()
+                recoverTransportAfterCarrierLoss()
+            }
+            ForegroundRecoveryAction.VERIFY -> {
+                val expectedGeneration = generation
+                val expectedApi = api
+                val expectedHostId = activeHost?.id
+                val expectedEpoch = lifecycleEpoch
+                foregroundProbeJob = scope.launch {
+                    val mux = expectedGeneration?.mux
+                    val carrierOpen = mux != null && !mux.isClosed
+                    val result = if (carrierOpen) runCatching {
+                        kotlinx.coroutines.withTimeout(FOREGROUND_PROBE_TIMEOUT_MS) {
+                            expectedApi?.connectionProbe()
+                        }
+                    }.getOrNull() else null
+                    val reachedHost = foregroundProbeReachedHost(carrierOpen, result)
+                    if (!appInForeground || expectedEpoch != lifecycleEpoch || activeHost?.id != expectedHostId || generation !== expectedGeneration) return@launch
+                    if (reachedHost) {
+                        Log.d("ConnectionManager", "Foreground end-to-end probe succeeded")
+                        _state.value = _state.value.copy(foregroundCheckPending = false)
+                    } else {
+                        Log.w("ConnectionManager", "Foreground end-to-end probe failed; renewing transport")
+                        _state.value = _state.value.copy(foregroundCheckPending = false)
+                        generation = null
+                        markCarrierRecoveryNeeded()
+                        recoverTransportAfterCarrierLoss()
+                    }
+                }.also { job ->
+                    job.invokeOnCompletion {
+                        synchronized(recoveryLock) {
+                            if (foregroundProbeJob === job) foregroundProbeJob = null
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /** Mark carrier callbacks as backgrounded; foreground recovery is resumed explicitly on resume. */
     fun onAppBackgrounded() {
         appInForeground = false
+        _state.value = _state.value.copy(foregroundCheckPending = false)
+        backgroundedAtMs = System.currentTimeMillis()
+        foregroundProbeJob?.cancel()
+        foregroundProbeJob = null
+        recoveryRetryJob?.cancel()
+        recoveryRetryJob = null
     }
 
     /** Retry the retained mesh identity after an embedded authorization page completes. */
@@ -537,8 +657,7 @@ class ConnectionManager @Inject constructor(
 
 
     private fun maybeStartService() {
-        val settings = runBlockingRead { hostsStore.settingsOnce() }
-        if (settings.keepConnectedInBackground) startService()
+        if (keepConnectedInBackground) startService()
     }
 
     private fun startService() {
@@ -550,10 +669,10 @@ class ConnectionManager @Inject constructor(
         context.stopService(Intent(context, ConnectionService::class.java))
     }
 
-    private fun <T> runBlockingRead(block: suspend () -> T): T =
-        kotlinx.coroutines.runBlocking { block() }
-
     private companion object {
+        /** Bound the resume probe so fake green is replaced promptly, even for a black-holed TCP path. */
+        const val FOREGROUND_PROBE_TIMEOUT_MS = 1_500L
+        const val FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS = 10_000L
         const val FOREGROUND_RECOVERY_COOLDOWN_MS = 1_000L
         const val FOREGROUND_RECOVERY_MAX_ATTEMPTS = 3
         const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 1_500L
