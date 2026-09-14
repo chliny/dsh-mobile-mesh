@@ -204,7 +204,7 @@ internal fun GoalBar(goal: GoalSnapshot, store: SessionStore, modifier: Modifier
 internal fun QueueDock(
     queue: List<QueueItem>,
     store: SessionStore,
-    onSendQueued: (QueueItem) -> Unit,
+    onInsertQueued: (QueueItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (queue.isEmpty()) return
@@ -225,14 +225,13 @@ internal fun QueueDock(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 28.dp, top = 2.dp),
+                    .padding(start = 28.dp, top = 2.dp)
+                    .clickable { onInsertQueued(item) },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     item.previewText,
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { onSendQueued(item) },
+                    modifier = Modifier.weight(1f),
                     style = DsType.small13,
                     color = colors.labelSecondary,
                     maxLines = 1,

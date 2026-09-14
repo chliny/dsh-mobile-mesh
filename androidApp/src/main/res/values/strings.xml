@@ -210,6 +210,8 @@
     <string name="chat_queue_edit">Edit</string>
     <string name="chat_queue_remove">Remove</string>
     <string name="chat_queue_steer">Steer into running turn</string>
+    <string name="chat_queue_inserted">Queued message inserted into composer</string>
+    <string name="chat_fork_created">Fork created</string>
     <string name="chat_context_title">Context</string>
     <string name="chat_context_system">System</string>
     <string name="chat_context_tools">Tools</string>

@@ -70,14 +70,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onPause() {
+    override fun onStop() {
+        // onPause also fires for permission dialogs and translucent system surfaces. Treat only a
+        // stopped activity as a real background transition; otherwise those short pauses cancel a
+        // valid recovery window and make the next resume look permanently stuck.
         connectionManager.onAppBackgrounded()
-        super.onPause()
+        super.onStop()
     }
 
-    override fun onResume() {
-        super.onResume()
-        android.util.Log.d("MainActivity", "onResume: requesting foreground recovery")
+    override fun onStart() {
+        super.onStart()
+        android.util.Log.d("MainActivity", "onStart: requesting foreground recovery")
         // Android may defer network delivery while backgrounded. Ask the manager to bypass the
         // reconnect loop's next backoff slot as soon as the user returns to the app.
         connectionManager.recoverForForeground()

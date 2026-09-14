@@ -75,6 +75,9 @@ import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.launch
 
+internal fun shouldRestoreConnectionDraft(editingHost: HostConfig?, restoreDraft: Boolean, draftAvailable: Boolean): Boolean =
+    editingHost == null && restoreDraft && draftAvailable
+
 /**
  * Choose how to reach a harness, then reach one.
  *
@@ -86,6 +89,7 @@ fun ConnectScreen(
     onOpenConnections: (() -> Unit)? = null,
     initialHost: HostConfig? = null,
     connectedHostId: String? = null,
+    restoreDraft: Boolean = true,
     viewModel: ConnectViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -125,7 +129,10 @@ fun ConnectScreen(
     LaunchedEffect(persistedDraft, editingHost, formKey) {
         if (restoredForKey != formKey) {
             val saved = editingHost
-            if (saved == null && persistedDraft == null) return@LaunchedEffect
+            if (saved == null && !shouldRestoreConnectionDraft(editingHost, restoreDraft, persistedDraft != null)) {
+                restoredForKey = formKey
+                return@LaunchedEffect
+            }
             if (saved != null) {
                 connectionName = saved.name
                 host = saved.host

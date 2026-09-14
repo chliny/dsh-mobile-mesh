@@ -91,6 +91,7 @@ fun ChatScreen(
     val colors = DsTheme.colors
     val context = LocalContext.current
     val toast = rememberDsToast()
+    val queueInsertedLabel = stringResource(R.string.chat_queue_inserted)
 
     val conversation by store.currentConversation.collectAsStateWithLifecycle()
     val currentSessionId by store.currentSessionId.collectAsStateWithLifecycle()
@@ -394,7 +395,14 @@ fun ChatScreen(
                     scope.launch { store.openSubagentTranscript(childId) }
                     sheet = ChatSheet.Subagents
                 },
-                onBranchFrom = { seq -> scope.launch { currentSessionId?.let { store.forkSession(it, seq) } } },
+                onBranchFrom = { seq ->
+                    scope.launch {
+                        currentSessionId?.let {
+                            store.forkSession(it, seq)
+                            toast.second(context.getString(R.string.chat_fork_created))
+                        }
+                    }
+                },
                 onFeedback = { _, positive ->
                     scope.launch { report(store.runCommand(if (positive) "/feedback +1" else "/feedback -1")) }
                 },
@@ -445,11 +453,10 @@ fun ChatScreen(
                     QueueDock(
                         queue = conv.queue,
                         store = store,
-                        onSendQueued = { item ->
-                            scope.launch {
-                                store.updateQueue(item.id, "remove")
-                                send(item.messageText)
-                            }
+                        onInsertQueued = { item ->
+                            draft = item.messageText
+                            currentSessionId?.let { draftStore.set(it, item.messageText) }
+                            toast.second(queueInsertedLabel)
                         },
                     )
                 }
