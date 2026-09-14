@@ -158,22 +158,23 @@ class ConnectionLoop(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
 
+    private val lifecycleLock = Any()
+
     @Volatile
     private var job: Job? = null
 
     @Volatile
     private var current: RemoteStreamMux? = null
 
-    /** Begin the loop. Idempotent. */
-    fun start() {
-        if (job != null) return
-        val newJob = scope.launch { runLoop() }
-        job = newJob
+    /** Begin the loop. Idempotent and serialized against [stop]. */
+    fun start() = synchronized(lifecycleLock) {
+        if (job != null) return@synchronized
+        job = scope.launch { runLoop() }
     }
 
-    /** Stop the loop and tear down the mux. Idempotent. */
-    fun stop() {
-        val running = job ?: return
+    /** Stop the loop and tear down the mux. Idempotent and serialized against [start]. */
+    fun stop() = synchronized(lifecycleLock) {
+        val running = job ?: return@synchronized
         job = null
         running.cancel()
         closeGeneration()
