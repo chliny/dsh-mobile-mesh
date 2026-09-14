@@ -33,6 +33,13 @@ class SshTunnelManager @Inject constructor(
 ) {
     private var active: ActiveTunnel? = null
 
+    /** Called exactly once when a live SSH forwarder exits unexpectedly. */
+    @Volatile
+    var onRelayTerminated: ((token: Long) -> Unit)? = null
+
+    val activeRelayToken: Long?
+        get() = active?.token
+
     suspend fun start(config: HostConfig, sshHost: String, sshPort: Int): SshRelay = withContext(Dispatchers.IO) {
         require(config.sshEnabled)
         active?.takeIf { it.canReuse(config.id, sshHost, sshPort) }?.let {
@@ -99,15 +106,19 @@ class SshTunnelManager @Inject constructor(
                 Parameters("127.0.0.1", server.localPort, config.sshDshHost, config.port),
                 server,
             )
-            val thread = Thread({ runCatching { forwarder.listen() } }, "dsh-ssh-forward").apply {
+            val termination = RelayTerminationGate()
+            val thread = Thread({
+                val failure = runCatching { forwarder.listen() }.exceptionOrNull()
+                if (termination.reportUnexpectedTermination()) {
+                    Log.w(TAG, "SSH forwarder stopped unexpectedly", failure)
+                    onRelayTerminated?.invoke(termination.token)
+                }
+            }, "dsh-ssh-forward").apply {
                 isDaemon = true
                 start()
             }
             val relay = SshRelay("http://127.0.0.1:${server.localPort}")
-            thread.setUncaughtExceptionHandler { _, error ->
-                Log.w(TAG, "SSH forwarder stopped unexpectedly", error)
-            }
-            active = ActiveTunnel(config.id, sshHost, sshPort, client, forwarder, thread, relay)
+            active = ActiveTunnel(config.id, sshHost, sshPort, client, forwarder, thread, relay, termination)
             Log.d(TAG, "SSH local forward ready at ${relay.baseUrl} -> ${config.sshDshHost}:${config.port}")
             relay
         } catch (error: Throwable) {
@@ -134,12 +145,16 @@ class SshTunnelManager @Inject constructor(
         private val forwarder: LocalPortForwarder,
         private val thread: Thread,
         val relay: SshRelay,
+        private val termination: RelayTerminationGate,
     ) : Closeable {
+        val token: Long get() = termination.token
+
         fun canReuse(configId: String, sshHost: String, sshPort: Int): Boolean =
             this.configId == configId && this.sshHost == sshHost && this.sshPort == sshPort &&
                 client.isConnected && client.isAuthenticated && client.transport.isRunning && thread.isAlive
 
         override fun close() {
+            termination.markClosing()
             runCatching { forwarder.close() }
             runCatching { client.close() }
             thread.interrupt()
