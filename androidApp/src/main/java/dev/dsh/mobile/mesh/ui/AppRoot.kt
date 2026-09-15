@@ -33,6 +33,7 @@ import dev.dsh.mobile.mesh.ui.components.DsDialog
 import dev.dsh.mobile.mesh.connection.HostConfig
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectViewModel
+import dev.dsh.mobile.mesh.ui.screens.connect.ConnectUiState
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectScreen
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectionsScreen
 import dev.dsh.mobile.mesh.ui.screens.main.ChatListDrawer
@@ -48,6 +49,9 @@ import dev.dsh.mobile.mesh.update.AvailableUpdate
 
 internal fun shouldShowStartupConnections(hasConnected: Boolean, editingConnection: Boolean): Boolean =
     !hasConnected && !editingConnection
+
+internal fun shouldRouteToSessionListAfterConnection(hasConnected: Boolean, editingConnection: Boolean): Boolean =
+    hasConnected && !editingConnection
 
 internal fun shouldShowConnectionTokenPrompt(
     showingConnections: Boolean,
@@ -83,8 +87,12 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         val showMain = connection.hasConnected
         val showConnect = showConnectPage
         val showStartupConnections = shouldShowStartupConnections(connection.hasConnected, editingHost != null) && !showSettings && !showConnectPage
-        LaunchedEffect(connection.hasConnected) {
-            if (connection.hasConnected && editingHost == null) showConnectPage = false
+        LaunchedEffect(connection.hasConnected, connection.host?.id) {
+            if (shouldRouteToSessionListAfterConnection(connection.hasConnected, editingHost != null)) {
+                showConnectPage = false
+                showConnections = false
+                showSessionList = true
+            }
         }
         when {
             showConnections || showStartupConnections -> ConnectionsScreen(
@@ -118,6 +126,11 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 connectedHostId = connection.host?.id,
                 connectingHostId = connection.host?.takeIf { connection.phase == ConnectionPhase.CONNECTING || connection.phase == ConnectionPhase.RECONNECTING }?.id,
                 connectionPhase = connection.phase,
+                connectionState = connectUiState,
+                onCancelConnection = connectViewModel::cancelConnect,
+                onRequestToken = { connectViewModel.setSignInOpen(true) },
+                onDismissToken = { connectViewModel.setSignInOpen(false) },
+                onSubmitToken = connectViewModel::signIn,
             )
             showSettings -> SettingsScreen(
                 onClose = { showSettings = false },
