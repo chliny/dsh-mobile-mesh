@@ -32,14 +32,16 @@ type result struct {
 }
 
 type instance struct {
-	server     *tsnet.Server
-	listener   net.Listener
-	done       chan struct{}
-	stateDir   string
-	hostname   string
-	remoteHost string
-	remotePort int
-	loginURL   string
+	server       *tsnet.Server
+	listener     net.Listener
+	done         chan struct{}
+	stateDir     string
+	hostname     string
+	remoteHost   string
+	remotePort   int
+	loginURL     string
+	relayMu      sync.RWMutex
+	relayHealthy bool
 }
 
 var current struct {
@@ -94,7 +96,7 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 	targetPort := int(port)
 	if entry := current.value; entry != nil && entry.stateDir == stateDirectory && entry.hostname == deviceHostname {
 		if entry.listener != nil {
-			if entry.matchesTarget(targetHost, targetPort) {
+			if relayReady(entry) && entry.matchesTarget(targetHost, targetPort) {
 				return encode(readyResult(entry))
 			}
 			stopRelayLocked(entry)
@@ -103,13 +105,10 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 		entry.remoteHost = targetHost
 		entry.remotePort = targetPort
 		client, clientErr := entry.server.LocalClient()
-		if clientErr == nil {
-			status, err := getStatus(client)
-			if err == nil && status.BackendState == ipn.Running.String() {
-				return encode(startRelayLocked(entry.server, targetHost, targetPort))
-			}
+		if clientErr == nil && waitForRunning(client) {
+			return encode(startRelayLocked(entry.server, targetHost, targetPort))
 		}
-		return encode(result{State: "needs_login", LoginURL: entry.loginURL})
+		return encode(pendingLoginState(entry.loginURL))
 	}
 	stopLocked()
 	if err := configureLogs(stateDirectory); err != nil {
@@ -180,7 +179,23 @@ func TailscaleStop() *C.char {
 func TailscaleFree(value *C.char) { C.free(unsafe.Pointer(value)) }
 
 func getStatus(client *local.Client) (*ipnstate.Status, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	return getStatusWithTimeout(client, 15*time.Second)
+}
+
+func waitForRunning(client *local.Client) bool {
+	deadline := time.Now().Add(statusWaitWindow)
+	for time.Now().Before(deadline) {
+		status, err := getStatusWithTimeout(client, statusPollTimeout)
+		if err == nil && status.BackendState == ipn.Running.String() {
+			return true
+		}
+		time.Sleep(statusPollDelay)
+	}
+	return false
+}
+
+func getStatusWithTimeout(client *local.Client, timeout time.Duration) (*ipnstate.Status, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return client.Status(ctx)
 }
@@ -222,6 +237,9 @@ func startRelayLocked(server *tsnet.Server, remoteHost string, remotePort int) r
 	}
 	entry.listener = listener
 	entry.done = make(chan struct{})
+	entry.relayMu.Lock()
+	entry.relayHealthy = true
+	entry.relayMu.Unlock()
 	entry.remoteHost = remoteHost
 	entry.remotePort = remotePort
 	current.value = entry
@@ -237,8 +255,19 @@ func readyResult(entry *instance) result {
 	return result{State: "ready", BaseURL: "http://" + entry.listener.Addr().String()}
 }
 
+func relayReady(entry *instance) bool {
+	entry.relayMu.RLock()
+	defer entry.relayMu.RUnlock()
+	return entry.listener != nil && entry.relayHealthy
+}
+
 func serve(entry *instance, remote string) {
-	defer close(entry.done)
+	defer func() {
+		entry.relayMu.Lock()
+		entry.relayHealthy = false
+		entry.relayMu.Unlock()
+		close(entry.done)
+	}()
 	for {
 		local, err := entry.listener.Accept()
 		if err != nil {
@@ -275,6 +304,9 @@ func stopRelayLocked(entry *instance) {
 	}
 	_ = entry.listener.Close()
 	<-entry.done
+	entry.relayMu.Lock()
+	entry.relayHealthy = false
+	entry.relayMu.Unlock()
 	entry.listener = nil
 	entry.done = nil
 }
