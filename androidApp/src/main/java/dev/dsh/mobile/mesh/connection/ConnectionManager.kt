@@ -327,10 +327,14 @@ class ConnectionManager @Inject constructor(
                 lifecycleMutex.withLock {
                     if (!lifecycle.accepts(target.token)) return@withLock
                     sshTunnel.stop()
-                    if (!reconnect && !preservePendingIdentity) meshTransport.stop()
+                    if (!reconnect && shouldStopMeshBeforeConnect(
+                            activeTransport = meshTransport.activeTransport(),
+                            nextTransport = target.value.host.meshTransport,
+                            preservePendingIdentity = preservePendingIdentity,
+                        )) meshTransport.stop()
                 }
                 if (!lifecycle.accepts(target.token)) return@launch
-                runConnectionOperation(target, reconnect, attempt)
+                runConnectionOperation(target, reconnect, attempt, preservePendingIdentity)
             }
             connectJob = job
         }
@@ -345,6 +349,7 @@ class ConnectionManager @Inject constructor(
         target: ConnectionLifecycleCoordinator.Target<ConnectionIntent>,
         reconnect: Boolean,
         attempt: Int,
+        preservePendingIdentity: Boolean,
     ) {
         val intent = target.value
         val config = intent.host
@@ -360,8 +365,10 @@ class ConnectionManager @Inject constructor(
         )
         try {
             val baseUrl = lifecycleMutex.withLock {
-                withTimeout(FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS) {
-                    if (reconnect) reconnectTransports(config) else startTransports(config)
+                val timeoutMs = if (preservePendingIdentity) AUTHORIZATION_RESUME_TIMEOUT_MS
+                else FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS
+                withTimeout(timeoutMs) {
+                    if (reconnect || preservePendingIdentity) reconnectTransports(config) else startTransports(config)
                 }
             }
             if (!lifecycle.accepts(target.token)) {
@@ -672,13 +679,15 @@ class ConnectionManager @Inject constructor(
     /** Retry the retained mesh identity after an embedded authorization page completes. */
     suspend fun resumeAuthorization() {
         authorizationResumeMutex.withLock {
-            if (_state.value.authorizationPending == null || !lifecycle.mayRun()) return
+            if (!shouldStartAuthorizationResume(
+                    authorizationPending = _state.value.authorizationPending != null,
+                    lifecycleMayRun = lifecycle.mayRun(),
+                    operationInFlight = synchronized(operationLock) { connectJob?.isActive == true },
+                )) return
             val target = lifecycle.retryToken() ?: return
             _state.value = _state.value.copy(
                 phase = ConnectionPhase.CONNECTING,
                 stage = ConnectStage.OpeningStreams,
-                authorizationPending = null,
-                tailscaleLoginUrl = null,
             )
             replaceOperation(target, reconnect = false, preservePendingIdentity = true)
         }
@@ -746,6 +755,7 @@ class ConnectionManager @Inject constructor(
         /** Bound the resume probe so fake green is replaced promptly, even for a black-holed TCP path. */
         const val FOREGROUND_PROBE_TIMEOUT_MS = 1_500L
         const val FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS = 10_000L
+        const val AUTHORIZATION_RESUME_TIMEOUT_MS = 2_500L
         const val TRANSPORT_READY_CALLBACK_TIMEOUT_MS = 15_000L
         const val FOREGROUND_RECOVERY_MAX_ATTEMPTS = 3
         const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 1_500L

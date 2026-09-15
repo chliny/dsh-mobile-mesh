@@ -259,7 +259,9 @@ class ConnectViewModel @Inject constructor(
                             ?: current.recentStatus,
                     )
                 }
-                if (conn.tailscaleLoginUrl != null) startTailscaleLoginPolling()
+                if (shouldPollTailscaleLogin(conn.tailscaleLoginUrl, tailscaleLoginJob?.isActive == true)) {
+                    startTailscaleLoginPolling()
+                }
                 else if (
                     conn.phase == ConnectionPhase.CONNECTED || conn.failure != null ||
                     (conn.phase == ConnectionPhase.DISCONNECTED && conn.authorizationPending == null)
@@ -730,12 +732,18 @@ class ConnectViewModel @Inject constructor(
     private fun startTailscaleLoginPolling() {
         if (tailscaleLoginJob?.isActive == true) return
         tailscaleLoginJob = viewModelScope.launch {
+            val startedAt = System.currentTimeMillis()
             while (true) {
-                delay(1_000)
+                delay(TAILSCALE_LOGIN_POLL_INTERVAL_MS)
                 connectionManager.resumeAuthorization()
                 val state = _state.value
-                if (state.stage == ConnectStage.Connected || state.failure != null ||
-                    (state.stage == ConnectStage.Idle && state.authorizationPending == null)) break
+                if (!dev.dsh.mobile.mesh.connection.shouldContinueAuthorizationPolling(
+                        elapsedMs = System.currentTimeMillis() - startedAt,
+                        authorizationPending = state.authorizationPending != null,
+                        connected = state.stage == ConnectStage.Connected,
+                        failed = state.failure != null,
+                        maxDurationMs = TAILSCALE_LOGIN_POLL_MAX_DURATION_MS,
+                    )) break
             }
         }
     }
@@ -909,5 +917,7 @@ class ConnectViewModel @Inject constructor(
     private companion object {
         const val LOOPBACK = "127.0.0.1"
         const val DEFAULT_PORT = 3080
+        const val TAILSCALE_LOGIN_POLL_INTERVAL_MS = 2_000L
+        const val TAILSCALE_LOGIN_POLL_MAX_DURATION_MS = 120_000L
     }
 }

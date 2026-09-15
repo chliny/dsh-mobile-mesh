@@ -64,6 +64,9 @@
     <string name="connect_zerotier_planet_base64_import" translatable="false">Import Base64 planet</string>
     <string name="connect_zerotier_planet_id" translatable="false">Custom planet SHA-256: %1$s…</string>
     <string name="connect_tailscale_hostname">Tailscale device name (optional)</string>
+    <string name="connect_tailscale_login_title">Sign in to Tailscale</string>
+    <string name="connect_tailscale_login_body">Complete Tailscale sign-in to finish connecting automatically.</string>
+    <string name="connect_tailscale_open_browser">Open in browser</string>
     <string name="connect_mesh_hint">Uses an app-private encrypted relay. It does not create a system VPN or change other apps\' traffic.</string>
     <string name="connect_ssh_enabled" translatable="false">Connect through SSH</string>
     <string name="connect_ssh_username" translatable="false">SSH username</string>
