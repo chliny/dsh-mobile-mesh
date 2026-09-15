@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -88,6 +89,7 @@ class ConnectionManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
     private val networkTracker = DefaultNetworkTracker(connectivity.activeNetwork)
+    private val networkRecoveryGate = NetworkRecoveryGate()
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             val connected = _state.value.phase == ConnectionPhase.CONNECTED
@@ -95,12 +97,19 @@ class ConnectionManager @Inject constructor(
             networkTracker.onAvailable(network, connected)
             defaultNetwork = networkTracker.current()
             networkLostWhileConnected = networkTracker.hasRecoveryNeeded()
-            Log.d("ConnectionManager", "Default network available: $network (previous=$previous, dirty=$networkLostWhileConnected)")
-            if (networkLostWhileConnected && appInForeground) {
-                networkTracker.consumeRecoveryNeeded()
-                networkLostWhileConnected = false
+            if (networkLostWhileConnected) networkRecoveryGate.markPending()
+            // A replacement network is also the event that unblocks a *stranded* recovery: the quick
+            // attempts may already have run against the dead carrier. Re-arm while a desired host is
+            // still unconnected, otherwise the app stays disconnected until the user intervenes.
+            if (shouldReArmOnReplacementNetwork(
+                    connected = connected,
+                    networkChanged = previous != network,
+                    hasDesiredHost = activeHost != null || suspendedHost != null,
+                )) networkRecoveryGate.markPending()
+            Log.d("ConnectionManager", "Default network available: $network (previous=$previous, dirty=${networkRecoveryGate.isPending()})")
+            if (appInForeground && networkRecoveryGate.isPending()) {
                 markCarrierRecoveryNeeded()
-                recoverTransportAfterCarrierLoss()
+                startPendingNetworkRecovery()
             }
         }
 
@@ -109,6 +118,7 @@ class ConnectionManager @Inject constructor(
             networkTracker.onLost(network, _state.value.phase == ConnectionPhase.CONNECTED)
             defaultNetwork = networkTracker.current()
             networkLostWhileConnected = networkTracker.hasRecoveryNeeded()
+            if (networkLostWhileConnected) networkRecoveryGate.markPending()
             if (before != network) {
                 Log.d("ConnectionManager", "Ignoring stale network lost: $network (current=$before)")
             } else {
@@ -211,6 +221,7 @@ class ConnectionManager @Inject constructor(
             loopFence.runIfCurrent(token) {
             this@ConnectionManager.generation = generation
             val host = activeHost
+            Log.d("ConnectionManager", "Connected generation published for ${host?.id}")
             if (host != null) scope.launch { hostsStore.touchHost(host.host, host.port) }
             _state.value = ConnectionUiState(
                 phase = ConnectionPhase.CONNECTED,
@@ -342,6 +353,12 @@ class ConnectionManager @Inject constructor(
             synchronized(operationLock) {
                 if (connectJob === job) connectJob = null
             }
+            // A handover noticed while this operation was already building its relay must not be
+            // dropped: that operation dialled the retired path, so re-arm recovery now the slot is free.
+            synchronized(recoveryLock) {
+                transportRecoveryInFlight = false
+            }
+            if (networkRecoveryGate.isPending() && appInForeground) startPendingNetworkRecovery()
         }
     }
 
@@ -412,7 +429,11 @@ class ConnectionManager @Inject constructor(
                 )
                 return
             }
-            val willRetry = reconnect && lifecycle.mayRun() && attempt + 1 < FOREGROUND_RECOVERY_MAX_ATTEMPTS
+            val willRetry = reconnect && lifecycle.mayRun()
+            Log.w(
+                "ConnectionManager",
+                "Connection operation failed (reconnect=$reconnect, timeout=${error is TimeoutCancellationException}): ${error.message}",
+            )
             activeBaseUrl = null
             api = null
             _state.value = ConnectionUiState(
@@ -421,9 +442,14 @@ class ConnectionManager @Inject constructor(
                 stage = if (willRetry) ConnectStage.OpeningStreams else ConnectStage.Idle,
                 failure = ConnectFailure.Other(error.message ?: "Unable to start private-network transport"),
                 hasConnected = _state.value.hasConnected,
+                authorizationPending = _state.value.authorizationPending,
+                tailscaleLoginUrl = _state.value.tailscaleLoginUrl,
             )
             cleanupResources()
-            if (willRetry) scheduleRetry(attempt + 1, target.token)
+            if (willRetry) scheduleRetry(
+                (attempt + 1).coerceAtMost(FOREGROUND_RECOVERY_FAST_ATTEMPTS),
+                target.token,
+            )
         } finally {
             if (lifecycle.accepts(target.token)) {
                 _state.value = _state.value.copy(foregroundCheckPending = false)
@@ -474,6 +500,9 @@ class ConnectionManager @Inject constructor(
     }
 
     private fun stopConnection() {
+        networkRecoveryGate.clear()
+        networkTracker.consumeRecoveryNeeded()
+        networkLostWhileConnected = false
         synchronized(operationLock) {
             val previousOperation = connectJob
             previousOperation?.cancel()
@@ -536,16 +565,35 @@ class ConnectionManager @Inject constructor(
      */
     fun reconnectIfNeeded() = startRecovery(0)
 
+    private fun startPendingNetworkRecovery() {
+        val canStart = synchronized(operationLock) { connectJob?.isActive != true }
+        if (!networkRecoveryGate.consumeIfCanStart(canStart)) {
+            Log.d("ConnectionManager", "Network handover recovery remains pending until operation slot is free")
+            return
+        }
+        networkTracker.consumeRecoveryNeeded()
+        networkLostWhileConnected = false
+        startRecovery(0)
+        // startRecovery can still lose a narrow race to a newly published operation. Re-arm rather
+        // than dropping the replacement-network event.
+        if (synchronized(operationLock) { connectJob?.isActive != true }) networkRecoveryGate.markPending()
+    }
+
     private fun startRecovery(attempt: Int) {
         if (synchronized(operationLock) { connectJob?.isActive == true }) {
             Log.d("ConnectionManager", "Connection operation already in flight")
             return
         }
         val target = lifecycle.retryToken() ?: return
+        synchronized(recoveryLock) {
+            if (transportRecoveryInFlight) {
+                Log.d("ConnectionManager", "Transport recovery already scheduled")
+                return
+            }
+            transportRecoveryInFlight = true
+        }
         Log.d("ConnectionManager", "Starting tokened transport recovery (attempt ${attempt + 1})")
-        transportRecoveryInFlight = true
         replaceOperation(target, reconnect = true, attempt = attempt)
-        transportRecoveryInFlight = false
     }
 
     private fun scheduleRetry(
@@ -554,7 +602,7 @@ class ConnectionManager @Inject constructor(
     ) {
         recoveryRetryJob?.cancel()
         recoveryRetryJob = scope.launch {
-            kotlinx.coroutines.delay(FOREGROUND_RECOVERY_RETRY_DELAY_MS)
+            kotlinx.coroutines.delay(recoveryRetryDelayMs(attempt))
             val current = lifecycle.current() ?: return@launch
             if (!lifecycle.mayRun() || current.token != failedToken) return@launch
             startRecovery(attempt)
@@ -586,7 +634,7 @@ class ConnectionManager @Inject constructor(
                 hasActiveHost = activeHost != null,
                 recoveryInFlight = connectJob?.isActive == true || foregroundProbeJob?.isActive == true,
                 backgroundDurationMs = backgroundDuration,
-                networkChanged = networkLostWhileConnected,
+                networkChanged = networkLostWhileConnected || networkRecoveryGate.isPending(),
                 foregroundCheckPending = current.foregroundCheckPending,
             ),
         )
@@ -610,10 +658,14 @@ class ConnectionManager @Inject constructor(
                         connectJob?.isActive == true,
                     )) return
                 _state.value = _state.value.copy(foregroundCheckPending = true)
-                networkTracker.consumeRecoveryNeeded()
-                networkLostWhileConnected = false
                 markCarrierRecoveryNeeded()
-                recoverTransportAfterCarrierLoss()
+                if (networkRecoveryGate.isPending()) {
+                    startPendingNetworkRecovery()
+                } else {
+                    networkTracker.consumeRecoveryNeeded()
+                    networkLostWhileConnected = false
+                    recoverTransportAfterCarrierLoss()
+                }
             }
             ForegroundRecoveryAction.VERIFY -> {
                 val expectedGeneration = generation
@@ -755,9 +807,7 @@ class ConnectionManager @Inject constructor(
         /** Bound the resume probe so fake green is replaced promptly, even for a black-holed TCP path. */
         const val FOREGROUND_PROBE_TIMEOUT_MS = 1_500L
         const val FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS = 10_000L
-        const val AUTHORIZATION_RESUME_TIMEOUT_MS = 2_500L
+        const val AUTHORIZATION_RESUME_TIMEOUT_MS = 8_000L
         const val TRANSPORT_READY_CALLBACK_TIMEOUT_MS = 15_000L
-        const val FOREGROUND_RECOVERY_MAX_ATTEMPTS = 3
-        const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 1_500L
     }
 }
