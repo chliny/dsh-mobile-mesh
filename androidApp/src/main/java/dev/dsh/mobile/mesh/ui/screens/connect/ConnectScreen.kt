@@ -890,11 +890,6 @@ internal fun TailscaleLoginDialog(
     onDismiss: () -> Unit,
 ) {
     DsDialog(title = stringResource(R.string.connect_tailscale_login_title), onDismiss = onDismiss) {
-        Text(
-            stringResource(R.string.connect_tailscale_login_body),
-            style = DsType.small13,
-            color = DsTheme.colors.labelSecondary,
-        )
         TailscaleLoginView(loginUrl)
     }
 }
