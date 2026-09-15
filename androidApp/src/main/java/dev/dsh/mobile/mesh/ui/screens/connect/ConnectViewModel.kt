@@ -259,7 +259,11 @@ class ConnectViewModel @Inject constructor(
                             ?: current.recentStatus,
                     )
                 }
-                if (shouldPollTailscaleLogin(conn.tailscaleLoginUrl, tailscaleLoginJob?.isActive == true)) {
+                if (shouldPollTailscaleLogin(
+                        loginUrl = conn.tailscaleLoginUrl,
+                        authorizationPending = conn.authorizationPending != null,
+                        pollActive = tailscaleLoginJob?.isActive == true,
+                    )) {
                     startTailscaleLoginPolling()
                 }
                 else if (
