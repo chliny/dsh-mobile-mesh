@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestReadyResultKeepsExistingRelayAddress(t *testing.T) {
@@ -34,6 +35,15 @@ func TestInstanceMatchesOnlyTheCurrentRelayTarget(t *testing.T) {
 	}
 	if entry.matchesTarget("other.tailnet.ts.net", 22) {
 		t.Fatal("a changed host must replace the relay")
+	}
+}
+
+func TestStatusWaitPolicyFitsAuthorizationResumeBudget(t *testing.T) {
+	if statusWaitWindow >= 2500*time.Millisecond {
+		t.Fatalf("status wait window = %s, must fit Android resume budget", statusWaitWindow)
+	}
+	if statusPollTimeout >= statusWaitWindow {
+		t.Fatalf("poll timeout = %s, must be shorter than wait window", statusPollTimeout)
 	}
 }
 
