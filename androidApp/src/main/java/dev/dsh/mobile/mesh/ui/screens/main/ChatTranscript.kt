@@ -85,6 +85,7 @@ internal fun shouldPageAtTop(
     if (firstVisible > LOAD_OLDER_THRESHOLD) return false
     // A filled viewport at index zero is also the normal post-reconnect layout. Only an active user
     // scroll may page it; a programmatic re-anchor must not walk the whole history.
+    if (fillsViewport && !userScrolling) return false
     return if (userScrolling) true else autoPages < maxAutoPages
 }
 
