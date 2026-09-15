@@ -11,6 +11,12 @@ class MeshTransportManager @Inject constructor(
 ) {
     private var active: MeshConnector? = null
 
+    fun activeTransport(): MeshTransport? = when (active) {
+        zeroTier -> MeshTransport.ZERO_TIER
+        tailscale -> MeshTransport.TAILSCALE
+        else -> null
+    }
+
     suspend fun start(config: HostConfig): MeshRelay? {
         val next = when (config.meshTransport) {
             MeshTransport.ZERO_TIER -> zeroTier
@@ -57,6 +63,12 @@ class MeshTransportManager @Inject constructor(
             // The node itself remains authorized and safe to retain, but its loopback TCP relay
             // may have been suspended in the background. Replace that Java relay on recovery.
             return zeroTier.renewRelay(config)
+        }
+        if (next === tailscale && active === tailscale) {
+            // tsnet owns a process-global server and its authorization transaction. Starting the
+            // same connector is its lightweight status/relay refresh path; stopping first blocks
+            // native shutdown and destroys an in-progress browser authorization.
+            return tailscale.start(config)
         }
         stop()
         return start(config)
