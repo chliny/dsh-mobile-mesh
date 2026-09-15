@@ -45,8 +45,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import android.content.Intent
-import android.net.Uri
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import dev.dsh.mobile.mesh.R
@@ -900,23 +898,15 @@ internal fun TailscaleLoginDialog(
             style = DsType.small13,
             color = DsTheme.colors.labelSecondary,
         )
-        val context = androidx.compose.ui.platform.LocalContext.current
-        DsButton(
-            text = stringResource(R.string.connect_tailscale_open_browser),
-            onClick = {
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(loginUrl)))
-            },
-            variant = DsButtonVariant.Info,
-            modifier = Modifier.fillMaxWidth(),
-        )
         AndroidView(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(480.dp),
+                .height(640.dp),
             factory = { webContext ->
                 WebView(webContext).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
+                    settings.javaScriptCanOpenWindowsAutomatically = true
                     webViewClient = WebViewClient()
                     loadUrl(loginUrl)
                 }

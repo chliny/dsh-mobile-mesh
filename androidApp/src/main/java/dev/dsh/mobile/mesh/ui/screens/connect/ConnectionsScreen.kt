@@ -171,8 +171,11 @@ fun ConnectionsScreen(
             }
         }
     }
-    connectionState.tailscaleLoginUrl?.let { loginUrl ->
-        TailscaleLoginDialog(loginUrl = loginUrl, onDismiss = onCancelConnection)
+    if (connectionState.tailscaleLoginUrl != null && connectionState.authorizationPending != null) {
+        TailscaleLoginDialog(
+            loginUrl = connectionState.tailscaleLoginUrl,
+            onDismiss = onCancelConnection,
+        )
     }
     menuHost?.let { host ->
         DsDialog(title = host.name, onDismiss = { menuHost = null }) {
