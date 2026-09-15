@@ -23,6 +23,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.Alignment
@@ -34,6 +36,9 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.connection.HostConfig
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
+import dev.dsh.mobile.mesh.ui.components.DsButtonSize
+import dev.dsh.mobile.mesh.ui.components.StateDot
+import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.components.DsDialog
 import dev.dsh.mobile.mesh.ui.components.SectionHeader
@@ -56,10 +61,16 @@ fun ConnectionsScreen(
     connectedHostId: String?,
     connectingHostId: String? = null,
     connectionPhase: ConnectionPhase = ConnectionPhase.DISCONNECTED,
+    connectionState: ConnectUiState = ConnectUiState(),
+    onCancelConnection: () -> Unit = {},
+    onRequestToken: () -> Unit = {},
+    onDismissToken: () -> Unit = {},
+    onSubmitToken: (String) -> Unit = {},
 ) {
     val hostsStore = rememberHostsStore()
     val hosts by hostsStore.hosts.collectAsStateWithLifecycle(initialValue = emptyList())
     val colors = DsTheme.colors
+    var tokenHost by remember { mutableStateOf<HostConfig?>(null) }
     var menuHost by remember { mutableStateOf<HostConfig?>(null) }
     var deleteHost by remember { mutableStateOf<HostConfig?>(null) }
     BackHandler(onBack = onClose)
@@ -98,7 +109,10 @@ fun ConnectionsScreen(
                     color = colors.labelCaption,
                 )
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(DsSpacing.small),
+                ) {
                     items(hosts, key = HostConfig::id) { host ->
                         Row(
                             modifier = Modifier
@@ -142,8 +156,23 @@ fun ConnectionsScreen(
                     }
                 }
             }
-            Spacer(Modifier.weight(1f))
+            if (connectionState.connecting) {
+                ConnectProgressRow(connectionState.stage, connectionState.attempted)
+            }
+            connectionState.authorizationPending?.let { message -> ConnectAuthorizationPendingBlock(message) }
+            connectionState.failure?.let { failure ->
+                ConnectFailureBlock(
+                    failure = failure,
+                    attempted = connectionState.attempted,
+                    retrying = connectionState.retrying,
+                    onCancel = onCancelConnection,
+                    onSignIn = onRequestToken,
+                )
+            }
         }
+    }
+    connectionState.tailscaleLoginUrl?.let { loginUrl ->
+        TailscaleLoginDialog(loginUrl = loginUrl, onDismiss = onCancelConnection)
     }
     menuHost?.let { host ->
         DsDialog(title = host.name, onDismiss = { menuHost = null }) {
@@ -160,6 +189,14 @@ fun ConnectionsScreen(
                 onClick = { menuHost = null; deleteHost = host },
             )
         }
+    }
+    if (connectionState.signInOpen) {
+        LaunchTokenDialog(
+            signingIn = connectionState.signingIn,
+            error = connectionState.signInError,
+            onDismiss = { onDismissToken() },
+            onSubmit = onSubmitToken,
+        )
     }
     deleteHost?.let { host ->
         DsDialog(

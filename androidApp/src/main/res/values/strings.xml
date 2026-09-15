@@ -93,10 +93,15 @@
     <string name="connect_failed">Could not reach a harness at %1$s:%2$s</string>
     <string name="connect_failed_fence">Connect using the computer\'s IP address instead of its name, or start the harness with --trusted-host.</string>
     <string name="connect_stage_validating">Checking the address…</string>
+    <string name="connect_stage_validating_detail">Validating the host address and port before opening a connection.</string>
     <string name="connect_stage_reaching">Reaching %1$s…</string>
+    <string name="connect_stage_reaching_detail">Waiting for the Harness endpoint to accept the connection.</string>
     <string name="connect_stage_streams">Opening event streams…</string>
+    <string name="connect_stage_streams_detail">Starting the live event and session streams.</string>
     <string name="connect_stage_verifying">Verifying the harness…</string>
+    <string name="connect_stage_verifying_detail">Checking the Harness handshake and protocol response.</string>
     <string name="connect_stage_connected">Connected</string>
+    <string name="connect_stage_connected_detail">The Harness is ready. Loading its session list.</string>
     <string name="connect_cancel">Cancel</string>
     <string name="connect_fail_invalid">Enter the computer\'s IP address and a port between 1 and 65535.</string>
     <string name="connect_fail_subnet">%1$s is not on this phone\'s network. This phone is on %2$s — connect both devices to the same router network. A guest or IoT Wi-Fi is usually kept separate, and Scan network only searches %2$s.</string>

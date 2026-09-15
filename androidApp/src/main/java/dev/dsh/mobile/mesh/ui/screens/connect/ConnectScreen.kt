@@ -488,7 +488,7 @@ fun ConnectScreen(
                         variant = DsButtonVariant.Outline,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    DsButton(
+                    if (editingHost == null) DsButton(
                         text = stringResource(R.string.connect_button),
                         onClick = {
                             val transport = meshTransport
@@ -508,35 +508,6 @@ fun ConnectScreen(
                         variant = DsButtonVariant.Info,
                         modifier = Modifier.fillMaxWidth(),
                     )
-            }
-
-            // Progress and failure are shared: an attempt reports the same way whichever mode
-            // started it, and duplicating the block per mode is how the two drift apart.
-            if (state.connecting) ConnectProgressRow(state.stage, state.attempted)
-            state.authorizationPending?.let { message -> ConnectAuthorizationPendingBlock(message) }
-            state.tailscaleLoginUrl?.let { loginUrl ->
-                TailscaleLoginDialog(
-                    loginUrl = loginUrl,
-                    onDismiss = viewModel::cancelTailscaleLogin,
-                )
-            }
-            state.failure?.let { failure ->
-                ConnectFailureBlock(
-                    failure = failure,
-                    attempted = state.attempted,
-                    retrying = state.retrying,
-                    onCancel = viewModel::cancelConnect,
-                    onSignIn = { viewModel.setSignInOpen(true) },
-                )
-            }
-
-            if (state.signInOpen) {
-                LaunchTokenDialog(
-                    signingIn = state.signingIn,
-                    error = state.signInError,
-                    onDismiss = { viewModel.setSignInOpen(false) },
-                    onSubmit = viewModel::signIn,
-                )
             }
 
             Spacer(Modifier.height(DsSpacing.large))
@@ -709,7 +680,7 @@ private fun statusLine(probe: HostProbe?, home: String?): String = when {
  * progress report — and when it stops, the stage it stopped on is itself a clue.
  */
 @Composable
-private fun ConnectProgressRow(stage: ConnectStage, attempted: String?) {
+internal fun ConnectProgressRow(stage: ConnectStage, attempted: String?) {
     val colors = DsTheme.colors
     val label = when (stage) {
         ConnectStage.Validating -> stringResource(R.string.connect_stage_validating)
@@ -719,18 +690,36 @@ private fun ConnectProgressRow(stage: ConnectStage, attempted: String?) {
         ConnectStage.Connected -> stringResource(R.string.connect_stage_connected)
         ConnectStage.Idle -> return
     }
-    Column(verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            StateDot(StateDotState.Running, size = 8.dp)
-            Spacer(Modifier.width(DsSpacing.xsmall))
-            Text(label, style = DsType.std14, color = colors.labelTertiary)
+    val detail = when (stage) {
+        ConnectStage.Validating -> stringResource(R.string.connect_stage_validating_detail)
+        ConnectStage.Reaching -> stringResource(R.string.connect_stage_reaching_detail)
+        ConnectStage.OpeningStreams -> stringResource(R.string.connect_stage_streams_detail)
+        ConnectStage.Verifying -> stringResource(R.string.connect_stage_verifying_detail)
+        ConnectStage.Connected -> stringResource(R.string.connect_stage_connected_detail)
+        ConnectStage.Idle -> return
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = colors.bgLayer2,
+    ) {
+        Column(
+            modifier = Modifier.padding(DsSpacing.medium),
+            verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StateDot(StateDotState.Running, size = 8.dp)
+                Spacer(Modifier.width(DsSpacing.xsmall))
+                Text(label, style = DsType.std14, color = colors.labelPrimary)
+            }
+            Text(detail, style = DsType.caption11, color = colors.labelTertiary)
+            LinearProgressIndicator(
+                progress = { stage.ordinal / (ConnectStage.entries.size - 1).toFloat() },
+                modifier = Modifier.fillMaxWidth(),
+                color = colors.accent,
+                trackColor = colors.hoverSolid,
+            )
         }
-        LinearProgressIndicator(
-            progress = { stage.ordinal / (ConnectStage.entries.size - 1).toFloat() },
-            modifier = Modifier.fillMaxWidth(),
-            color = colors.accent,
-            trackColor = colors.hoverSolid,
-        )
     }
 }
 
@@ -742,7 +731,7 @@ private fun ConnectProgressRow(stage: ConnectStage, attempted: String?) {
  * PowerShell.
  */
 @Composable
-private fun ConnectFailureBlock(
+internal fun ConnectFailureBlock(
     failure: ConnectFailure,
     attempted: String?,
     retrying: Boolean,
@@ -825,7 +814,7 @@ private fun ConnectFailureBlock(
 }
 
 @Composable
-private fun ConnectAuthorizationPendingBlock(message: String) {
+internal fun ConnectAuthorizationPendingBlock(message: String) {
     val colors = DsTheme.colors
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -899,7 +888,7 @@ internal fun LaunchTokenDialog(
  * node lets us close this dialog and continue the original connection as soon as it is running.
  */
 @Composable
-private fun TailscaleLoginDialog(
+internal fun TailscaleLoginDialog(
     loginUrl: String,
     onDismiss: () -> Unit,
 ) {

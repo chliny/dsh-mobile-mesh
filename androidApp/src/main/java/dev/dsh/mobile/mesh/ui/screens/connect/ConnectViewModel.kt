@@ -194,8 +194,11 @@ class ConnectViewModel @Inject constructor(
         // of trying to reuse a stale local endpoint.
         _state.update { it.copy(signInOpen = false, signInHostId = null, signInError = null) }
         viewModelScope.launch {
-            hostsStore.saveLaunchToken(host.id, input.trim())
-            connectTo(host, input)
+            val token = input.trim()
+            hostsStore.saveLaunchToken(host.id, token)
+            // Retry with the freshly entered token attached to the same host snapshot. This avoids
+            // the stale launchToken from the remembered list winning during a reconnect race.
+            connectTo(host.copy(launchToken = token), token)
         }
     }
 
@@ -828,7 +831,7 @@ class ConnectViewModel @Inject constructor(
                 is SessionExchange.Granted -> {
                     pendingLaunchToken = null
                     _state.update { it.copy(signingIn = false) }
-                    connectTo(host)
+                    connectTo(host.copy(launchToken = token))
                 }
                 is SessionExchange.Refused -> {
                     pendingLaunchToken = null
