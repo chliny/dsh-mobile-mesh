@@ -5,7 +5,9 @@ import android.util.Log
 import dev.dsh.mobile.mesh.connection.ConnectionManager
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.core.session.AssistantLiveState
+import dev.dsh.mobile.mesh.core.session.ChatBlock
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
+import dev.dsh.mobile.mesh.core.session.UserMessageNode
 import dev.dsh.mobile.mesh.core.session.EventFold
 import dev.dsh.mobile.mesh.core.session.QueueItem
 import dev.dsh.mobile.mesh.core.session.SessionEventEnvelope
@@ -128,6 +130,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -473,6 +476,9 @@ class SessionStore @Inject constructor(
     private var modelCatalogCache: ModelCatalog? = null
     /** Optimistic queue entries bridge the interval before the control stream echoes a prompt. */
     private val optimisticQueueBySession = mutableMapOf<String, MutableList<QueueItem>>()
+    /** User prompts rendered immediately while the follow stream catches up. */
+    private val optimisticPromptBySession = mutableMapOf<String, MutableList<OptimisticPrompt>>()
+    private data class OptimisticPrompt(val requestId: String, val text: String)
     private var agentPresetsCache: AgentPresetListValue? = null
     private var commandsCache: List<CommandDescriptor>? = null
 
@@ -854,7 +860,21 @@ class SessionStore @Inject constructor(
                 }
                 clearPendingInteraction(sessionId)
             }
-            "user/message" -> setBlank(sessionId, false)
+            "user/message" -> {
+                setBlank(sessionId, false)
+                synchronized(lock) {
+                    val text = envelope.data.jsonObject["content"]?.jsonArray
+                        ?.mapNotNull { it.jsonObject["text"]?.jsonPrimitive?.contentOrNull }
+                        ?.joinToString("\n")
+                        .orEmpty()
+                    if (text.isNotBlank()) {
+                        optimisticPromptBySession[sessionId]?.removeAll { it.text == text }
+                        if (optimisticPromptBySession[sessionId].isNullOrEmpty()) {
+                            optimisticPromptBySession.remove(sessionId)
+                        }
+                    }
+                }
+            }
             "session/title" -> {
                 val title = envelope.data.jsonObject["title"]?.jsonPrimitive?.contentOrNull
                 if (title != null) setTitle(sessionId, title)
@@ -1094,6 +1114,18 @@ class SessionStore @Inject constructor(
      * The rebuild is requested rather than performed — see [observeRebuildTicks].
      */
     private fun appendCurrentEventLocked(envelope: SessionEventEnvelope) {
+        if (envelope.type == "user/message") {
+            val text = envelope.data.jsonObject["content"]?.jsonArray
+                ?.mapNotNull { it.jsonObject["text"]?.jsonPrimitive?.contentOrNull }
+                ?.joinToString("\n")
+                .orEmpty()
+            if (text.isNotBlank()) {
+                optimisticPromptBySession[currentId]?.removeAll { it.text == text }
+                if (optimisticPromptBySession[currentId].isNullOrEmpty()) {
+                    currentId?.let { optimisticPromptBySession.remove(it) }
+                }
+            }
+        }
         val lastSeq = currentEvents.lastOrNull()?.seq
         if (lastSeq == null || envelope.seq > lastSeq) {
             currentEvents.add(envelope)
@@ -1120,9 +1152,19 @@ class SessionStore @Inject constructor(
         val sid = currentId ?: return
         val events = currentEvents.toList()
         val snapshot = EventFold(sid).fold(events, liveAssistant.transientEnvelopes())
-        val blank = if (events.isEmpty()) currentBlank else snapshot.blank
+        val optimistic = optimisticPromptBySession[sid].orEmpty()
+        val optimisticNodes = optimistic.mapIndexed { index, prompt ->
+            UserMessageNode(
+                seq = Long.MAX_VALUE - optimistic.size + index,
+                messageId = prompt.requestId,
+                blocks = listOf(ChatBlock(kind = "text", text = prompt.text)),
+                sourceKind = "user",
+            )
+        }
+        val blank = if (events.isEmpty() && optimistic.isEmpty()) currentBlank else false
         val running = runningBySession[sid] ?: snapshot.running
         val merged = snapshot.copy(
+            nodes = snapshot.nodes + optimisticNodes,
             blank = blank,
             running = running,
             hasMore = currentHasMore,
@@ -1597,9 +1639,13 @@ class SessionStore @Inject constructor(
         )
         return when (val r = api.sessionPrompt(request)) {
             is RpcResult.Ok -> {
-                // `queue` is a host-side deferred message while a turn runs. Render it immediately;
-                // the control stream replaces this optimistic entry when its authoritative item lands.
-                if (safeMode == "queue" && synchronized(lock) { runningBySession[sid] == true }) {
+                // The RPC is accepted before session/follow necessarily echoes the user event. Keep
+                // one local row visible immediately; the authoritative follow event removes it by
+                // request id or matching text.
+                val running = synchronized(lock) { runningBySession[sid] == true }
+                if (promptOptimisticDisplay(running) == PromptOptimisticDisplay.TRANSCRIPT) {
+                    addOptimisticPrompt(sid, request.requestId, content)
+                } else if (safeMode == "queue") {
                     addOptimisticQueue(sid, request.requestId, content)
                 }
                 PromptOutcome.Ok
@@ -1613,6 +1659,18 @@ class SessionStore @Inject constructor(
             } else {
                 setConnectionError(r.error.message)
                 PromptOutcome.Failed(r.error.message)
+            }
+        }
+    }
+
+    private fun addOptimisticPrompt(sessionId: String, requestId: String, content: List<PromptContentPart>) {
+        val text = content.filterIsInstance<PromptContentPart.Text>().joinToString("\n") { it.text }
+        if (text.isBlank()) return
+        synchronized(lock) {
+            val prompts = optimisticPromptBySession.getOrPut(sessionId) { mutableListOf() }
+            if (prompts.none { it.requestId == requestId }) {
+                prompts += OptimisticPrompt(requestId, text)
+                if (currentId == sessionId) rebuildCurrentLocked()
             }
         }
     }

@@ -91,6 +91,7 @@ fun ChatScreen(
     val colors = DsTheme.colors
     val context = LocalContext.current
     val toast = rememberDsToast()
+    val promptSubmissionGate = remember { PromptSubmissionGate() }
     val queueInsertedLabel = stringResource(R.string.chat_queue_inserted)
 
     val conversation by store.currentConversation.collectAsStateWithLifecycle()
@@ -276,7 +277,9 @@ fun ChatScreen(
 
     fun send(text: String) {
         val pending = attachments.toList()
+        val sessionId = currentSessionId
         if (text.isBlank() && pending.isEmpty()) return
+        if (sessionId != null && text.isNotBlank() && !promptSubmissionGate.tryAcquire(sessionId, text)) return
         val images = pending.filterIsInstance<PendingAttachment.Image>()
         val files = pending.filterIsInstance<PendingAttachment.File>()
         // A file without a receipt cannot be cited. The send affordance already waits for the
@@ -297,6 +300,7 @@ fun ChatScreen(
         // command gateway. A miss falls through to the prompt path — that is how skills work.
         when (val submission = adjudicate(text, commands, pending.size, store.commandAttachmentsSupported)) {
             is Submission.Refused -> {
+                sessionId?.let { promptSubmissionGate.release(it, text) }
                 // Nothing is sent and nothing is dropped. The composer clears the draft on its way
                 // here, so put it back, and leave the attachments alone — a refusal the user cannot
                 // act on without re-picking every one is not much of a refusal.
@@ -309,6 +313,7 @@ fun ChatScreen(
             }
 
             is Submission.Command -> {
+                sessionId?.let { promptSubmissionGate.release(it, text) }
                 attachments.clear()
                 val submitted = images.map { it.encoded().asSubmit() } +
                     receipts.map { CommandSubmitAttachment.File(it) }
@@ -342,6 +347,7 @@ fun ChatScreen(
                     } else {
                         store.promptWithAttachments(text, mode, images.map { it.encoded() }, receipts)
                     }
+                    sessionId?.let { promptSubmissionGate.release(it, text) }
                     if (outcome is PromptOutcome.Rejected) {
                         if (draft.isBlank()) draft = text
                         if (attachments.isEmpty()) attachments.addAll(pending)
