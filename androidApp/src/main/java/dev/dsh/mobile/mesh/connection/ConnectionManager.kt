@@ -23,6 +23,7 @@ import dev.dsh.mobile.mesh.core.wire.TransportFailures
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -125,8 +126,19 @@ class ConnectionManager @Inject constructor(
     private var activeBaseUrl: String? = null
     private var pendingTransportReady: (suspend (String) -> Unit)? = null
     private val authorizationResumeMutex = Mutex()
+    /** Serializes every mutation of the singleton mesh/SSH resource stack. */
     private val lifecycleMutex = Mutex()
+    /** Makes token validation and API/loop publication atomic against retirement. */
+    private val publicationLock = Any()
+    /** Protects replacement of the one manager-owned operation job. */
+    private val operationLock = Any()
+    private data class ConnectionIntent(
+        val host: HostConfig,
+        val afterTransportReady: suspend (String) -> Unit,
+    )
+    private val lifecycle = ConnectionLifecycleCoordinator<ConnectionIntent>()
     private var teardownJob: Job? = null
+    @Volatile private var connectJob: Job? = null
     @Volatile private var transportRecoveryInFlight = false
     @Volatile private var networkLostWhileConnected = false
     @Volatile private var defaultNetwork: Network? = null
@@ -139,6 +151,10 @@ class ConnectionManager @Inject constructor(
     @Volatile private var backgroundedAtMs = 0L
     @Volatile private var keepConnectedInBackground = false
     @Volatile private var foregroundProbeJob: Job? = null
+    /** Latest desired host retained across a background-disabled suspension. */
+    @Volatile private var suspendedHost: HostConfig? = null
+    private var suspendedTransportReady: (suspend (String) -> Unit)? = null
+    @Volatile private var suspendedForBackground = false
 
     init {
         // SSHJ only exposes a forwarder's terminal event by returning from listen(). Turn that into
@@ -154,6 +170,7 @@ class ConnectionManager @Inject constructor(
         scope.launch {
             hostsStore.settings.collect { settings ->
                 keepConnectedInBackground = settings.keepConnectedInBackground
+                lifecycle.setRetainInBackground(settings.keepConnectedInBackground)
                 if (settings.keepConnectedInBackground && _state.value.phase == ConnectionPhase.CONNECTED) {
                     startService()
                 } else if (!settings.keepConnectedInBackground) {
@@ -284,47 +301,99 @@ class ConnectionManager @Inject constructor(
         config: HostConfig,
         afterTransportReady: suspend (baseUrl: String) -> Unit = {},
     ) {
-        // Keep a pending mesh node alive: ZeroTier authorization is attached to that node identity,
-        // and the transport manager reuses it when the user retries after approval.
-        if (activeHost?.id != config.id || _state.value.authorizationPending == null) disconnect()
-        teardownJob?.join()
-        val epoch = lifecycleEpoch
-        lifecycleMutex.withLock { connectLocked(config, afterTransportReady, epoch) }
+        val target = lifecycle.request(ConnectionIntent(config, afterTransportReady))
+        suspendedHost = config
+        suspendedTransportReady = afterTransportReady
+        suspendedForBackground = !lifecycle.mayRun()
+        if (lifecycle.mayRun()) replaceOperation(target, reconnect = false)
     }
 
-    private suspend fun connectLocked(
-        config: HostConfig,
-        afterTransportReady: suspend (baseUrl: String) -> Unit,
-        epoch: Long,
+    private fun replaceOperation(
+        target: ConnectionLifecycleCoordinator.Target<ConnectionIntent>,
+        reconnect: Boolean,
+        attempt: Int = 0,
+        preservePendingIdentity: Boolean = false,
     ) {
-        activeHost = config
-        pendingTransportReady = afterTransportReady
-        val pending = _state.value.takeIf {
-            activeHost == config && it.authorizationPending != null
+        val job: Job
+        synchronized(operationLock) {
+            val previousOperation = connectJob
+            previousOperation?.cancel()
+            cancelAuxiliaryOperations()
+            retirePublishedConnection()
+            val previousTeardown = teardownJob
+            job = scope.launch {
+                previousOperation?.join()
+                previousTeardown?.join()
+                lifecycleMutex.withLock {
+                    if (!lifecycle.accepts(target.token)) return@withLock
+                    sshTunnel.stop()
+                    if (!reconnect && !preservePendingIdentity) meshTransport.stop()
+                }
+                if (!lifecycle.accepts(target.token)) return@launch
+                runConnectionOperation(target, reconnect, attempt)
+            }
+            connectJob = job
         }
-        _state.value = pending?.copy(
-            phase = ConnectionPhase.CONNECTING,
-            stage = ConnectStage.OpeningStreams,
-        ) ?: ConnectionUiState(
-            phase = ConnectionPhase.CONNECTING,
+        job.invokeOnCompletion {
+            synchronized(operationLock) {
+                if (connectJob === job) connectJob = null
+            }
+        }
+    }
+
+    private suspend fun runConnectionOperation(
+        target: ConnectionLifecycleCoordinator.Target<ConnectionIntent>,
+        reconnect: Boolean,
+        attempt: Int,
+    ) {
+        val intent = target.value
+        val config = intent.host
+        val epoch = lifecycleEpoch
+        activeHost = config
+        pendingTransportReady = intent.afterTransportReady
+        _state.value = ConnectionUiState(
+            phase = if (reconnect) ConnectionPhase.RECONNECTING else ConnectionPhase.CONNECTING,
             host = config,
             stage = ConnectStage.OpeningStreams,
+            hasConnected = _state.value.hasConnected,
+            foregroundCheckPending = reconnect,
         )
         try {
-            activeBaseUrl = startTransports(config)
-            if (epoch != lifecycleEpoch) return
+            val baseUrl = lifecycleMutex.withLock {
+                withTimeout(FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS) {
+                    if (reconnect) reconnectTransports(config) else startTransports(config)
+                }
+            }
+            if (!lifecycle.accepts(target.token)) {
+                cleanupResources()
+                return
+            }
+            activeBaseUrl = baseUrl
             _state.value = _state.value.copy(authorizationPending = null, tailscaleLoginUrl = null)
-            afterTransportReady(activeBaseUrl!!)
-            if (epoch != lifecycleEpoch) return
-            pendingTransportReady = null
-            api = clientFactory.clientFor(config, baseUrl = activeBaseUrl!!)
-            val token = loopFence.next()
-            val loop = ConnectionLoop(muxFactory(config, activeBaseUrl!!), sinksFor(token), LoopConfig())
-            this.loop = loop
-            loop.start()
+            if (!reconnect) withTimeout(TRANSPORT_READY_CALLBACK_TIMEOUT_MS) {
+                intent.afterTransportReady(baseUrl)
+            }
+            if (!lifecycle.accepts(target.token)) {
+                cleanupResources()
+                return
+            }
+            val nextApi = clientFactory.clientFor(config, baseUrl = baseUrl)
+            synchronized(publicationLock) {
+                if (!lifecycle.accepts(target.token)) return
+                pendingTransportReady = null
+                api = nextApi
+                val token = loopFence.next()
+                loop = ConnectionLoop(muxFactory(config, baseUrl), sinksFor(token), LoopConfig()).also { it.start() }
+            }
+            hostsStore.upsertHost(config)
+        } catch (error: CancellationException) {
+            cleanupResources()
+            throw error
         } catch (error: Throwable) {
-            if (epoch != lifecycleEpoch) return
-            sshTunnel.stop()
+            if (!lifecycle.accepts(target.token)) {
+                cleanupResources()
+                return
+            }
             if (error is MeshAuthorizationPending) {
                 hostsStore.upsertHost(config)
                 _state.value = ConnectionUiState(
@@ -336,22 +405,42 @@ class ConnectionManager @Inject constructor(
                 )
                 return
             }
-            meshTransport.stop()
-            pendingTransportReady = null
+            val willRetry = reconnect && lifecycle.mayRun() && attempt + 1 < FOREGROUND_RECOVERY_MAX_ATTEMPTS
             activeBaseUrl = null
-            activeHost = null
+            api = null
             _state.value = ConnectionUiState(
-                phase = ConnectionPhase.DISCONNECTED,
+                phase = if (willRetry) ConnectionPhase.RECONNECTING else ConnectionPhase.DISCONNECTED,
                 host = config,
-                stage = ConnectStage.Idle,
+                stage = if (willRetry) ConnectStage.OpeningStreams else ConnectStage.Idle,
                 failure = ConnectFailure.Other(error.message ?: "Unable to start private-network transport"),
+                hasConnected = _state.value.hasConnected,
             )
-            return
+            cleanupResources()
+            if (willRetry) scheduleRetry(attempt + 1, target.token)
+        } finally {
+            if (lifecycle.accepts(target.token)) {
+                _state.value = _state.value.copy(foregroundCheckPending = false)
+            }
+            Log.d("ConnectionManager", "Connection operation finished (reconnect=$reconnect, epoch=$epoch)")
         }
-        hostsStore.upsertHost(config)
+    }
+
+    private suspend fun cleanupResources() {
+        lifecycleMutex.withLock {
+            sshTunnel.stop()
+            meshTransport.stop()
+        }
     }
 
     fun disconnect() {
+        lifecycle.disconnect()
+        suspendedHost = null
+        suspendedTransportReady = null
+        suspendedForBackground = false
+        stopConnection()
+    }
+
+    private fun cancelAuxiliaryOperations() {
         lifecycleEpoch++
         foregroundProbeJob?.cancel()
         foregroundProbeJob = null
@@ -362,23 +451,39 @@ class ConnectionManager @Inject constructor(
             recoveryJob = null
             transportRecoveryInFlight = false
         }
-        loopFence.invalidate()
-        loop?.stop()
-        loop = null
-        api = null
-        activeBaseUrl = null
-        pendingTransportReady = null
-        generation = null
-        activeHost = null
-        val previousTeardown = teardownJob
-        teardownJob = scope.launch {
-            previousTeardown?.join()
-            lifecycleMutex.withLock {
-                sshTunnel.stop()
-                meshTransport.stop()
-            }
+    }
+
+    private fun retirePublishedConnection() {
+        synchronized(publicationLock) {
+            loopFence.invalidate()
+            loop?.stop()
+            loop = null
+            api = null
+            activeBaseUrl = null
+            generation = null
+            activeHost = null
         }
         stopService()
+    }
+
+    private fun stopConnection() {
+        synchronized(operationLock) {
+            val previousOperation = connectJob
+            previousOperation?.cancel()
+            cancelAuxiliaryOperations()
+            retirePublishedConnection()
+            pendingTransportReady = null
+            val previousTeardown = teardownJob
+            teardownJob = scope.launch {
+                previousOperation?.join()
+                previousTeardown?.join()
+                lifecycleMutex.withLock {
+                    sshTunnel.stop()
+                    meshTransport.stop()
+                }
+            }
+            connectJob = null
+        }
         _state.value = ConnectionUiState()
     }
 
@@ -425,90 +530,27 @@ class ConnectionManager @Inject constructor(
     fun reconnectIfNeeded() = startRecovery(0)
 
     private fun startRecovery(attempt: Int) {
-        val host = activeHost ?: return
-        synchronized(recoveryLock) {
-            if (recoveryJob?.isActive == true) {
-                Log.d("ConnectionManager", "Transport recovery already in flight")
-                return
-            }
-            Log.d("ConnectionManager", "Starting transport recovery (attempt ${attempt + 1})")
-            transportRecoveryInFlight = true
-            val epoch = lifecycleEpoch
-            recoveryJob = scope.launch {
-                var recovered = false
-                try {
-                    lifecycleMutex.withLock {
-                        if (epoch != lifecycleEpoch || activeHost?.id != host.id) return@withLock
-                        // Stop before rebuilding the relay. ConnectionLoop.stop closes its mux, and
-                        // its cancellation exceptions are deliberately not reported as failures.
-                        loopFence.invalidate()
-                        loop?.stop()
-                        loop = null
-                        generation = null
-                        // The old unary client points at the relay we are about to close. Exposing
-                        // it during RECONNECTING lets a session tap issue RPCs to a dead port and
-                        // race the new generation. SessionStore treats null as a local-only switch
-                        // and baseline reopens the selected session after CONNECTED.
-                        api = null
-                        try {
-                            activeBaseUrl = withTimeout(FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS) {
-                                reconnectTransports(host)
-                            }
-                            if (epoch != lifecycleEpoch || activeHost?.id != host.id) return@withLock
-                            api = clientFactory.clientFor(host, baseUrl = activeBaseUrl!!)
-                            val token = loopFence.next()
-                            loop = ConnectionLoop(muxFactory(host, activeBaseUrl!!), sinksFor(token), LoopConfig()).also { it.start() }
-                            recovered = true
-                        } catch (error: Throwable) {
-                            if (epoch != lifecycleEpoch) return@withLock
-                            if (error is MeshAuthorizationPending) {
-                                hostsStore.upsertHost(host)
-                                _state.value = _state.value.copy(
-                                    phase = ConnectionPhase.DISCONNECTED,
-                                    stage = ConnectStage.Idle,
-                                    authorizationPending = error.message.orEmpty(),
-                                )
-                                return@withLock
-                            }
-                            // A userspace peer path suspended by Android can take a whole connect
-                            // cycle to fail. While the user is looking at the app, retry a bounded
-                            // number of times instead of parking them on a dead connection.
-                            val willRetry = appInForeground && attempt + 1 < FOREGROUND_RECOVERY_MAX_ATTEMPTS
-                            Log.w("ConnectionManager", "Transport recovery failed (attempt ${attempt + 1}, retry=$willRetry)", error)
-                            // Do not stop the retained userspace mesh node after a failed renewal:
-                            // libzt remains process-global and a second initialization attempt is
-                            // invalid. A later foreground retry can safely replace just its relay.
-                            activeBaseUrl = null
-                            _state.value = _state.value.copy(
-                                phase = if (willRetry) ConnectionPhase.RECONNECTING else ConnectionPhase.DISCONNECTED,
-                                stage = if (willRetry) ConnectStage.OpeningStreams else ConnectStage.Idle,
-                                failure = ConnectFailure.Other(error.message ?: "Unable to restart private-network transport"),
-                            )
-                        }
-                    }
-                } finally {
-                    synchronized(recoveryLock) {
-                        transportRecoveryInFlight = false
-                        recoveryJob = null
-                    }
-                    if (appInForeground && activeHost?.id == host.id && epoch == lifecycleEpoch) {
-                        _state.value = _state.value.copy(foregroundCheckPending = false)
-                    }
-                    Log.d("ConnectionManager", "Transport recovery finished")
-                    if (!recovered && appInForeground && attempt + 1 < FOREGROUND_RECOVERY_MAX_ATTEMPTS && activeHost?.id == host.id) {
-                        val next = attempt + 1
-                        val expectedHostId = host.id
-                        val expectedEpoch = epoch
-                        recoveryRetryJob?.cancel()
-                        recoveryRetryJob = scope.launch {
-                            kotlinx.coroutines.delay(FOREGROUND_RECOVERY_RETRY_DELAY_MS)
-                            if (appInForeground && lifecycleEpoch == expectedEpoch && activeHost?.id == expectedHostId) {
-                                startRecovery(next)
-                            }
-                        }
-                    }
-                }
-            }
+        if (synchronized(operationLock) { connectJob?.isActive == true }) {
+            Log.d("ConnectionManager", "Connection operation already in flight")
+            return
+        }
+        val target = lifecycle.retryToken() ?: return
+        Log.d("ConnectionManager", "Starting tokened transport recovery (attempt ${attempt + 1})")
+        transportRecoveryInFlight = true
+        replaceOperation(target, reconnect = true, attempt = attempt)
+        transportRecoveryInFlight = false
+    }
+
+    private fun scheduleRetry(
+        attempt: Int,
+        failedToken: ConnectionLifecycleCoordinator.Token,
+    ) {
+        recoveryRetryJob?.cancel()
+        recoveryRetryJob = scope.launch {
+            kotlinx.coroutines.delay(FOREGROUND_RECOVERY_RETRY_DELAY_MS)
+            val current = lifecycle.current() ?: return@launch
+            if (!lifecycle.mayRun() || current.token != failedToken) return@launch
+            startRecovery(attempt)
         }
     }
 
@@ -519,6 +561,15 @@ class ConnectionManager @Inject constructor(
      */
     fun recoverForForeground() {
         appInForeground = true
+        val resumedTarget = lifecycle.foreground()
+        if (suspendedForBackground || (resumedTarget != null && activeHost == null && connectJob?.isActive != true)) {
+            suspendedForBackground = false
+            if (resumedTarget != null) {
+                Log.d("ConnectionManager", "Foreground resume starts latest desired connection for ${resumedTarget.value.host.id}")
+                replaceOperation(resumedTarget, reconnect = false)
+            }
+            return
+        }
         val current = _state.value
         val now = System.currentTimeMillis()
         val backgroundDuration = (now - backgroundedAtMs).coerceAtLeast(0L)
@@ -526,7 +577,7 @@ class ConnectionManager @Inject constructor(
             ForegroundRecoveryFacts(
                 phase = current.phase,
                 hasActiveHost = activeHost != null,
-                recoveryInFlight = transportRecoveryInFlight || foregroundProbeJob?.isActive == true,
+                recoveryInFlight = connectJob?.isActive == true || foregroundProbeJob?.isActive == true,
                 backgroundDurationMs = backgroundDuration,
                 networkChanged = networkLostWhileConnected,
                 foregroundCheckPending = current.foregroundCheckPending,
@@ -549,7 +600,7 @@ class ConnectionManager @Inject constructor(
                 // the authoritative signal that must re-arm recovery when no job is currently alive.
                 if (!shouldStartForegroundRecovery(
                         action,
-                        transportRecoveryInFlight || recoveryJob?.isActive == true,
+                        connectJob?.isActive == true,
                     )) return
                 _state.value = _state.value.copy(foregroundCheckPending = true)
                 networkTracker.consumeRecoveryNeeded()
@@ -596,21 +647,40 @@ class ConnectionManager @Inject constructor(
     /** Mark carrier callbacks as backgrounded; foreground recovery is resumed explicitly on resume. */
     fun onAppBackgrounded() {
         appInForeground = false
-        _state.value = _state.value.copy(foregroundCheckPending = false)
+        lifecycle.background()
         backgroundedAtMs = System.currentTimeMillis()
         foregroundProbeJob?.cancel()
         foregroundProbeJob = null
-        recoveryRetryJob?.cancel()
-        recoveryRetryJob = null
+        if (backgroundConnectionAction(keepConnectedInBackground) == BackgroundConnectionAction.SUSPEND) {
+            recoveryRetryJob?.cancel()
+            recoveryRetryJob = null
+            // Do not let a startup/recovery coroutine retain lifecycleMutex while Android suspends
+            // its network path. Invalidate it, tear every carrier down, then restart exactly the
+            // latest desired host from a clean generation on foreground.
+            val desiredHost = activeHost ?: suspendedHost
+            val desiredCallback = pendingTransportReady ?: suspendedTransportReady
+            Log.d("ConnectionManager", "Background retention disabled; suspending active connection")
+            stopConnection()
+            suspendedHost = desiredHost
+            suspendedTransportReady = desiredCallback
+            suspendedForBackground = desiredHost != null
+        } else {
+            _state.value = _state.value.copy(foregroundCheckPending = false)
+        }
     }
 
     /** Retry the retained mesh identity after an embedded authorization page completes. */
     suspend fun resumeAuthorization() {
         authorizationResumeMutex.withLock {
-            if (_state.value.authorizationPending == null) return
-            val host = activeHost ?: return
-            val afterTransportReady = pendingTransportReady ?: {}
-            connect(host, afterTransportReady)
+            if (_state.value.authorizationPending == null || !lifecycle.mayRun()) return
+            val target = lifecycle.retryToken() ?: return
+            _state.value = _state.value.copy(
+                phase = ConnectionPhase.CONNECTING,
+                stage = ConnectStage.OpeningStreams,
+                authorizationPending = null,
+                tailscaleLoginUrl = null,
+            )
+            replaceOperation(target, reconnect = false, preservePendingIdentity = true)
         }
     }
 
@@ -676,6 +746,7 @@ class ConnectionManager @Inject constructor(
         /** Bound the resume probe so fake green is replaced promptly, even for a black-holed TCP path. */
         const val FOREGROUND_PROBE_TIMEOUT_MS = 1_500L
         const val FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS = 10_000L
+        const val TRANSPORT_READY_CALLBACK_TIMEOUT_MS = 15_000L
         const val FOREGROUND_RECOVERY_MAX_ATTEMPTS = 3
         const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 1_500L
     }
