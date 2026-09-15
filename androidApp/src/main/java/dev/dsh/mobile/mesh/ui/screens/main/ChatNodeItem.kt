@@ -494,6 +494,7 @@ private fun ToolCallRow(node: ToolCallNode, context: ChatNodeContext) {
         viewTitle = null,
     )
     var expanded by remember(node.callId) { mutableStateOf(false) }
+    val directFilePath = directFilePathForTool(row.variant, card)
     // The leading slot carries the outcome: a red dot for a failed call, the tool glyph otherwise.
     val state = when {
         result?.isError == true -> DisclosureState.Error
@@ -503,7 +504,13 @@ private fun ToolCallRow(node: ToolCallNode, context: ChatNodeContext) {
     ToolCard(
         view = card,
         expanded = expanded,
-        onToggle = { expanded = !expanded },
+        onToggle = {
+            if (directFilePath != null && context.onOpenFile != null) {
+                openWorkspacePath(context, directFilePath, basename(directFilePath), context.onOpenFile)
+            } else {
+                expanded = !expanded
+            }
+        },
         titleOverride = row.title,
         summaryOverride = row.summary,
         iconOverride = row.variant.featherIcon(),
@@ -524,6 +531,15 @@ private fun ToolCallRow(node: ToolCallNode, context: ChatNodeContext) {
 // ---------------------------------------------------------------------------
 // Compaction / commands / workflow
 // ---------------------------------------------------------------------------
+
+internal fun directFilePathForTool(variant: ToolRowVariant, card: dev.dsh.mobile.mesh.ui.components.ToolCardView): String? = when (variant) {
+    ToolRowVariant.Read, ToolRowVariant.Write -> when (card) {
+        is dev.dsh.mobile.mesh.ui.components.ToolCardView.ReadCard -> card.path
+        is dev.dsh.mobile.mesh.ui.components.ToolCardView.DiffCard -> card.diffs.firstOrNull()?.path
+        else -> null
+    }
+    else -> null
+}
 
 @Composable
 private fun CompactionRow(node: CompactionNode) {
