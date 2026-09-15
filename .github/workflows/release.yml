@@ -1,0 +1,139 @@
+# Tag-triggered release pipeline.
+#
+# Pushing any tag builds a universal release APK (all four Android ABIs) and
+# publishes it to the GitHub Release for that tag. The release is created by
+# this workflow, so no manual "Draft a new release" step is needed.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   RELEASE_KEYSTORE           base64-encoded Android signing keystore
+#   RELEASE_KEYSTORE_PASSWORD  keystore password
+#   RELEASE_KEY_ALIAS          key alias
+#   RELEASE_KEY_PASSWORD       key password
+#
+# Without them the job fails rather than shipping a debug-signed APK named
+# "release", which would not be installable as a real release.
+name: Release Android APK
+
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish universal APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # Must match `ndkVersion` in androidApp/build.gradle.kts.
+      - name: Set up Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+          add-to-path: false
+          local-cache: true
+          link-to-sdk: true
+
+      # Must match the `cmake { version = ... }` block in androidApp/build.gradle.kts.
+      - name: Install required CMake version
+        run: sdkmanager "cmake;3.30.5"
+
+      # The Tailscale userspace node is a Go c-shared library, built by
+      # scripts/build-tsnet-android.sh from the preBuild task.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tailscale/go.mod
+          cache-dependency-path: tailscale/go.sum
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore release signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "RELEASE_KEYSTORE must contain the base64-encoded Android signing keystore." >&2
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+
+      # The tag is the single source of the shipped version; androidApp reads
+      # DSH_VERSION_NAME for versionName and derives versionCode from it.
+      # A leading "v" is stripped, and so is any non-numeric prefix such as
+      # "dsh-", so both "v1.2.3" and "dsh-v1.2.3" produce version 1.2.3.
+      - name: Derive version from tag
+        run: |
+          set -euo pipefail
+          raw="${GITHUB_REF_NAME#v}"
+          version="${raw#"${raw%%[0-9]*}"}"
+          [ -n "$version" ] || version="$raw"
+          echo "DSH_VERSION_NAME=$version" >> "$GITHUB_ENV"
+
+      - name: Build universal release APK
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+          DSH_ANDROID_ABIS: arm64-v8a,armeabi-v7a,x86,x86_64
+          DSH_GO_LDFLAGS: -s -w
+          DSH_KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
+          DSH_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          DSH_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          DSH_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew :androidApp:assembleRelease --stacktrace
+
+      # Guard against a silently ABI-split or native-stripped artifact: a
+      # "universal" release has to carry both native libraries for every ABI.
+      - name: Verify universal native libraries
+        run: |
+          set -euo pipefail
+          apk="androidApp/build/outputs/apk/release/androidApp-release.apk"
+          test -f "$apk"
+          listing="$(unzip -l "$apk")"
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            [[ "$listing" == *"lib/$abi/libdsh_tsnet.so"* ]] || {
+              echo "Missing lib/$abi/libdsh_tsnet.so in $apk" >&2
+              exit 1
+            }
+            [[ "$listing" == *"lib/$abi/libzt.so"* ]] || {
+              echo "Missing lib/$abi/libzt.so in $apk" >&2
+              exit 1
+            }
+          done
+
+      - name: Stage release files
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          # Tags may contain characters that are awkward in file names.
+          safe_tag="$(printf '%s' "$GITHUB_REF_NAME" | tr -c '[:alnum:]._-' '-')"
+          apk="androidApp/build/outputs/apk/release/androidApp-release.apk"
+          cp "$apk" "release/dsh-mobile-mesh-${safe_tag}-universal.apk"
+          ( cd release && sha256sum "dsh-mobile-mesh-${safe_tag}-universal.apk" > SHA256SUMS.txt )
+
+      - name: Create GitHub Release and upload APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            release/*.apk
+            release/SHA256SUMS.txt
