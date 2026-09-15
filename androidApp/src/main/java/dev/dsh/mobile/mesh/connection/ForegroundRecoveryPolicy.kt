@@ -28,7 +28,36 @@ internal fun foregroundRecoveryAction(facts: ForegroundRecoveryFacts): Foregroun
     else -> ForegroundRecoveryAction.VERIFY
 }
 
+/** A live generation must be published before the UI can claim an end-to-end connection. */
+internal fun shouldPublishConnectedGeneration(
+    generationReady: Boolean,
+    lifecycleCurrent: Boolean,
+): Boolean = generationReady && lifecycleCurrent
+
 internal const val FOREGROUND_VERIFY_AFTER_MS = 1_000L
+
+internal const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 1_500L
+/** Slower but unbounded cadence used once the quick retries are exhausted. */
+internal const val FOREGROUND_RECOVERY_STEADY_RETRY_DELAY_MS = 8_000L
+/** Number of fast retries before a stranded foreground recovery keeps trying more slowly. */
+internal const val FOREGROUND_RECOVERY_FAST_ATTEMPTS = 3
+
+/**
+ * A replacement network is the event that unblocks a stranded recovery: the quick attempts usually
+ * run while the old carrier is still the only one the process can see. Re-arm whenever a desired
+ * host exists and the session is not currently connected, so the app does not stay disconnected
+ * until the user taps something. `previous == null` counts as a change: the network can disappear
+ * entirely (Wi-Fi off with no cellular), and its return is still the moment recovery becomes possible.
+ */
+internal fun shouldReArmOnReplacementNetwork(
+    connected: Boolean,
+    networkChanged: Boolean,
+    hasDesiredHost: Boolean,
+): Boolean = !connected && networkChanged && hasDesiredHost
+
+internal fun recoveryRetryDelayMs(attempt: Int): Long =
+    if (attempt < FOREGROUND_RECOVERY_FAST_ATTEMPTS) FOREGROUND_RECOVERY_RETRY_DELAY_MS
+    else FOREGROUND_RECOVERY_STEADY_RETRY_DELAY_MS
 
 /**
  * A non-connected foreground state must always re-arm recovery when no job is active.
