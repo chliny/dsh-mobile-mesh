@@ -46,11 +46,13 @@ class ZeroTierConnector @Inject constructor(
         synchronized(lock) {
             val networkId = java.lang.Long.parseUnsignedLong(networkIdText, 16)
             val pendingNode = node
-            if (pendingNode != null && nodeNetworkId == networkIdText && isServiceOnline()) {
-                Log.d(TAG, "Reusing ZeroTier node for network $networkIdText")
-                // Keep the libzt service alive across a mobile-network handover. Reusing the node
-                // avoids the slow native stop/start path and prevents racing its global service
-                // teardown, which was the source of foreground-return crashes.
+            if (shouldReuseZeroTierNode(pendingNode != null, nodeNetworkId == networkIdText)) {
+                Log.d(TAG, "Reusing ZeroTier node for network $networkIdText (online=${isServiceOnline()})")
+                // libzt owns one process-global NodeService. During foreground churn it may briefly
+                // report offline while the same node's service thread is still starting. Calling
+                // initFromStorage again in that window returns ZTS_ERR_SERVICE (-2) and can never be
+                // repaired by another tap. Always wait on the retained node instead.
+                waitForOnline(pendingNode!!)
                 if (hasAddress(networkId)) return@synchronized relayFor(config)
                 waitForAddress(pendingNode, networkId)
                 return@synchronized relayFor(config)
