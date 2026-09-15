@@ -42,11 +42,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.connection.ConnectStage
 import dev.dsh.mobile.mesh.connection.ConnectionDraft
@@ -885,7 +882,7 @@ internal fun LaunchTokenDialog(
 
 /**
  * tsnet keeps the device identity alive while this page authenticates it. Polling the retained
- * node lets us close this dialog and continue the original connection as soon as it is running.
+ * node closes the full-screen system WebView only after the original connection is ready.
  */
 @Composable
 internal fun TailscaleLoginDialog(
@@ -898,20 +895,7 @@ internal fun TailscaleLoginDialog(
             style = DsType.small13,
             color = DsTheme.colors.labelSecondary,
         )
-        AndroidView(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(640.dp),
-            factory = { webContext ->
-                WebView(webContext).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.javaScriptCanOpenWindowsAutomatically = true
-                    webViewClient = WebViewClient()
-                    loadUrl(loginUrl)
-                }
-            },
-        )
+        TailscaleLoginView(loginUrl)
     }
 }
 
