@@ -53,6 +53,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 fun DsDialog(
     title: String?,
     onDismiss: () -> Unit,
+    fullScreen: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = DsTheme.colors
@@ -61,7 +62,7 @@ fun DsDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Surface(
-            modifier = Modifier.fillMaxSize(),
+            modifier = if (fullScreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth(0.92f),
             shape = DsShapes.dialog,
             color = colors.bgLayer2,
             border = BorderStroke(1.dp, colors.borderL1),

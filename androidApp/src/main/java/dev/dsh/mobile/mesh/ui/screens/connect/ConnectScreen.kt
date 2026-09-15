@@ -889,7 +889,11 @@ internal fun TailscaleLoginDialog(
     loginUrl: String,
     onDismiss: () -> Unit,
 ) {
-    DsDialog(title = stringResource(R.string.connect_tailscale_login_title), onDismiss = onDismiss) {
+    DsDialog(
+        title = stringResource(R.string.connect_tailscale_login_title),
+        onDismiss = onDismiss,
+        fullScreen = true,
+    ) {
         TailscaleLoginView(loginUrl)
     }
 }
