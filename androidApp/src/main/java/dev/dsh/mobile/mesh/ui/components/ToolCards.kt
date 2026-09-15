@@ -252,12 +252,7 @@ private fun DiffBody(card: ToolCardView.DiffCard, onOpenFile: ((String, String) 
                     .padding(top = 6.dp, bottom = 2.dp)
                     .clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(hunk.path, basename(hunk.path)) },
             )
-            hunk.oldText?.takeIf { it.isNotEmpty() }?.let { old ->
-                DiffBlock(old, colors.errorTertiary, colors.error, hunk.path)
-            }
-            hunk.newText?.takeIf { it.isNotEmpty() }?.let { new ->
-                DiffBlock(new, colors.successTertiary, colors.success, hunk.path)
-            }
+            CombinedDiffBlock(hunk)
         }
         Spacer(Modifier.height(2.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -270,22 +265,24 @@ private fun DiffBody(card: ToolCardView.DiffCard, onOpenFile: ((String, String) 
     }
 }
 
+/** One diff surface containing both removed and added lines, like a git diff hunk. */
 @Composable
-private fun DiffBlock(text: String, background: Color, border: Color, path: String) {
+private fun CombinedDiffBlock(hunk: DiffHunk) {
     val colors = DsTheme.colors
-    CompositionLocalProvider(
-        LocalTextStyle provides DsType.mdCode.copy(color = colors.labelPrimary),
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(DsShapes.block)
+            .border(1.dp, colors.borderL1, DsShapes.block)
+            .background(colors.codeBlockBg)
+            .padding(vertical = 6.dp),
     ) {
-        KodeViewCode(
-            code = text,
-            pathOrLanguage = path,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(DsShapes.block)
-                .background(background)
-                .border(1.dp, border, DsShapes.block)
-                .padding(8.dp),
-        )
+        hunk.oldText?.takeIf { it.isNotEmpty() }?.lineSequence()?.forEach { line ->
+            Text("- $line", style = DsType.mdCode, color = colors.error, modifier = Modifier.fillMaxWidth().background(colors.errorTertiary).padding(horizontal = 8.dp))
+        }
+        hunk.newText?.takeIf { it.isNotEmpty() }?.lineSequence()?.forEach { line ->
+            Text("+ $line", style = DsType.mdCode, color = colors.success, modifier = Modifier.fillMaxWidth().background(colors.successTertiary).padding(horizontal = 8.dp))
+        }
     }
 }
 
@@ -354,40 +351,19 @@ private fun SearchBody(card: ToolCardView.SearchCard, onOpenFile: ((String, Stri
 @Composable
 private fun ReadBody(card: ToolCardView.ReadCard, onOpenFile: ((String, String) -> Unit)?) {
     val colors = DsTheme.colors
-    if (card.path != null) {
-        Text(
-            card.path,
-            style = DsType.small13Strong.copy(fontFamily = DsType.codeFont),
-            color = colors.labelSecondary,
-            modifier = Modifier.clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(card.path, basename(card.path)) },
-        )
-    }
-    if (card.lines.isEmpty()) {
-        Text(
-            "(${card.totalLines} lines)",
-            style = DsType.caption11,
-            color = colors.labelCaption,
-        )
-        return
-    }
-    val lineStyle = DsType.mdCode
-    Row(Modifier.fillMaxWidth()) {
-        Column(Modifier.width(48.dp)) {
-            card.lines.forEach {
-                Text(
-                    "${it.number}",
-                    style = lineStyle,
-                    color = colors.labelCaption,
-                    textAlign = TextAlign.End,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            card.lines.forEach {
-                Text(it.text, style = lineStyle, color = colors.labelPrimary, modifier = Modifier.fillMaxWidth())
-            }
+    val path = card.path
+    if (path != null) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(DsShapes.block)
+                .background(colors.codeBlockBg)
+                .border(1.dp, colors.borderL1, DsShapes.block)
+                .clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(path, basename(path)) }
+                .padding(horizontal = 10.dp, vertical = 10.dp),
+        ) {
+            Text(path, style = DsType.small13Strong.copy(fontFamily = DsType.codeFont), color = colors.labelPrimary)
+            Text("${card.totalLines} lines · tap to open", style = DsType.caption11, color = colors.labelCaption)
         }
     }
 }
