@@ -317,7 +317,6 @@ func stopRelayLocked(entry *instance) {
 	listener := entry.listener
 	done := entry.done
 	entry.listener = nil
-	entry.done = nil
 	entry.relayHealthy = false
 	entry.relayMu.Unlock()
 	if listener == nil {
@@ -326,6 +325,11 @@ func stopRelayLocked(entry *instance) {
 	_ = listener.Close()
 	if done != nil {
 		<-done
+		entry.relayMu.Lock()
+		if entry.done == done {
+			entry.done = nil
+		}
+		entry.relayMu.Unlock()
 	}
 }
 
