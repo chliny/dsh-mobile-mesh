@@ -235,9 +235,9 @@ func startRelayLocked(server *tsnet.Server, remoteHost string, remotePort int) r
 	if entry == nil || entry.server != server {
 		entry = &instance{server: server}
 	}
+	entry.relayMu.Lock()
 	entry.listener = listener
 	entry.done = make(chan struct{})
-	entry.relayMu.Lock()
 	entry.relayHealthy = true
 	entry.relayMu.Unlock()
 	entry.remoteHost = remoteHost
@@ -252,6 +252,11 @@ func (entry *instance) matchesTarget(remoteHost string, remotePort int) bool {
 }
 
 func readyResult(entry *instance) result {
+	entry.relayMu.RLock()
+	defer entry.relayMu.RUnlock()
+	if entry.listener == nil {
+		return result{State: "error", Error: "Tailscale relay is no longer available"}
+	}
 	return result{State: "ready", BaseURL: "http://" + entry.listener.Addr().String()}
 }
 
@@ -265,11 +270,20 @@ func serve(entry *instance, remote string) {
 	defer func() {
 		entry.relayMu.Lock()
 		entry.relayHealthy = false
+		done := entry.done
 		entry.relayMu.Unlock()
-		close(entry.done)
+		if done != nil {
+			close(done)
+		}
 	}()
 	for {
-		local, err := entry.listener.Accept()
+		entry.relayMu.RLock()
+		listener := entry.listener
+		entry.relayMu.RUnlock()
+		if listener == nil {
+			return
+		}
+		local, err := listener.Accept()
 		if err != nil {
 			return
 		}
@@ -299,16 +313,20 @@ func stopLocked() {
 }
 
 func stopRelayLocked(entry *instance) {
-	if entry.listener == nil {
-		return
-	}
-	_ = entry.listener.Close()
-	<-entry.done
 	entry.relayMu.Lock()
-	entry.relayHealthy = false
-	entry.relayMu.Unlock()
+	listener := entry.listener
+	done := entry.done
 	entry.listener = nil
 	entry.done = nil
+	entry.relayHealthy = false
+	entry.relayMu.Unlock()
+	if listener == nil {
+		return
+	}
+	_ = listener.Close()
+	if done != nil {
+		<-done
+	}
 }
 
 func encode(value result) *C.char {
