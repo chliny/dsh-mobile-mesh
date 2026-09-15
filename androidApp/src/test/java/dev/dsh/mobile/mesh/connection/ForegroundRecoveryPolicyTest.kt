@@ -5,6 +5,13 @@ import org.junit.Test
 
 class ForegroundRecoveryPolicyTest {
     @Test
+    fun `connected generation publishes only after live generation and lifecycle checks`() {
+        assertEquals(true, shouldPublishConnectedGeneration(generationReady = true, lifecycleCurrent = true))
+        assertEquals(false, shouldPublishConnectedGeneration(generationReady = false, lifecycleCurrent = true))
+        assertEquals(false, shouldPublishConnectedGeneration(generationReady = true, lifecycleCurrent = false))
+    }
+
+    @Test
     fun `brief healthy task switch avoids probe and UI churn`() {
         assertEquals(
             ForegroundRecoveryAction.NONE,
@@ -94,6 +101,57 @@ class ForegroundRecoveryPolicyTest {
                     networkChanged = true,
                 ),
             ),
+        )
+    }
+
+    @Test
+    fun `quick retries stay fast before falling back to a slower cadence`() {
+        assertEquals(1_500L, recoveryRetryDelayMs(0))
+        assertEquals(1_500L, recoveryRetryDelayMs(1))
+        assertEquals(1_500L, recoveryRetryDelayMs(2))
+        assertEquals(8_000L, recoveryRetryDelayMs(3))
+        assertEquals(8_000L, recoveryRetryDelayMs(9))
+    }
+
+    @Test
+    fun `stranded recovery keeps a bounded slow cadence instead of stopping`() {
+        // The attempt counter saturates at the fast-retry budget, so the delay never grows unbounded
+        // and never becomes "stop retrying".
+        assertEquals(
+            recoveryRetryDelayMs(FOREGROUND_RECOVERY_FAST_ATTEMPTS),
+            recoveryRetryDelayMs(FOREGROUND_RECOVERY_FAST_ATTEMPTS + 20),
+        )
+    }
+
+    @Test
+    fun `replacement network rearms a stranded recovery`() {
+        assertEquals(
+            true,
+            shouldReArmOnReplacementNetwork(connected = false, networkChanged = true, hasDesiredHost = true),
+        )
+    }
+
+    @Test
+    fun `replacement network leaves a healthy session alone`() {
+        assertEquals(
+            false,
+            shouldReArmOnReplacementNetwork(connected = true, networkChanged = true, hasDesiredHost = true),
+        )
+    }
+
+    @Test
+    fun `same network again does not rearm`() {
+        assertEquals(
+            false,
+            shouldReArmOnReplacementNetwork(connected = false, networkChanged = false, hasDesiredHost = true),
+        )
+    }
+
+    @Test
+    fun `no desired host means no rearm`() {
+        assertEquals(
+            false,
+            shouldReArmOnReplacementNetwork(connected = false, networkChanged = true, hasDesiredHost = false),
         )
     }
 

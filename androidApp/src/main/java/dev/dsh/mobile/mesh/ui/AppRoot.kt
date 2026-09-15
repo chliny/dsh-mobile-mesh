@@ -53,6 +53,13 @@ internal fun shouldShowStartupConnections(hasConnected: Boolean, editingConnecti
 internal fun shouldRouteToSessionListAfterConnection(hasConnected: Boolean, editingConnection: Boolean): Boolean =
     hasConnected && !editingConnection
 
+internal fun shouldRouteSelectedConnection(
+    phaseConnected: Boolean,
+    selectedAuthority: String?,
+    activeAuthority: String?,
+    editing: Boolean,
+): Boolean = phaseConnected && !editing && selectedAuthority != null && selectedAuthority == activeAuthority
+
 internal fun shouldShowConnectionTokenPrompt(
     showingConnections: Boolean,
     startupConnections: Boolean,
@@ -68,6 +75,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
     val hosts by hostsStore.hosts.collectAsStateWithLifecycle(initialValue = emptyList())
     val connectViewModel: ConnectViewModel = hiltViewModel()
     val connectUiState by connectViewModel.state.collectAsStateWithLifecycle()
+    val sessionStore = rememberSessionStore()
     val themePreference = remember(settings.themePreference) {
         runCatching { ThemePreference.valueOf(settings.themePreference.uppercase()) }
             .getOrDefault(ThemePreference.SYSTEM)
@@ -87,8 +95,14 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         val showMain = connection.hasConnected
         val showConnect = showConnectPage
         val showStartupConnections = shouldShowStartupConnections(connection.hasConnected, editingHost != null) && !showSettings && !showConnectPage
-        LaunchedEffect(connection.hasConnected, connection.host?.id) {
-            if (shouldRouteToSessionListAfterConnection(connection.hasConnected, editingHost != null)) {
+        LaunchedEffect(connection.phase, connection.host?.id, connectUiState.attempted) {
+            val selectedConnectionIsReady = shouldRouteSelectedConnection(
+                phaseConnected = connection.phase == ConnectionPhase.CONNECTED,
+                selectedAuthority = connectUiState.attempted,
+                activeAuthority = connection.host?.authority,
+                editing = editingHost != null,
+            )
+            if (selectedConnectionIsReady && editingHost == null) {
                 showConnectPage = false
                 showConnections = false
                 showSessionList = true
@@ -102,6 +116,9 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     editingHost = null
                 },
                 onConnectHost = { host ->
+                    showSessionList = false
+                    showConnections = true
+                    sessionStore.prepareForConnection(host.id)
                     connectViewModel.connectTo(host)
                 },
                 onUpdateToken = connectViewModel::requestTokenUpdate,
@@ -137,6 +154,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 onOpenConnections = {
                     showSettings = false
                     showConnections = true
+                    showSessionList = false
                 },
             )
             showConnect -> key(editingHost?.id ?: "new", connectFormInstance) {

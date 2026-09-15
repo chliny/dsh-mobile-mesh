@@ -451,6 +451,7 @@ class SessionStore @Inject constructor(
      * screen when the user switches back to a session. The live stream remains authoritative and
      * replaces the cached value as soon as its snapshot arrives.
      */
+    private var connectionHostId: String? = null
     private val conversationCache = object : LinkedHashMap<String, ConversationSnapshot>(8, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ConversationSnapshot>?): Boolean = size > 8
     }
@@ -544,6 +545,35 @@ class SessionStore @Inject constructor(
     }
 
     // ------------------------------------------------------------------ connection lifecycle
+    /** Clear the visible session mirror before a user-selected host starts connecting. */
+    fun prepareForConnection(hostId: String) {
+        followJob?.cancel()
+        controlJob?.cancel()
+        workspaceJob?.cancel()
+        synchronized(lock) {
+            connectionHostId = hostId
+            sessionRows.clear()
+            runningBySession.clear()
+            titleBySession.clear()
+            workspaceRows.clear()
+            workspaceOrder.clear()
+            conversationCache.clear()
+            currentId = null
+            currentEvents.clear()
+            currentHasMore = false
+            currentBlank = true
+            currentProjections.clear()
+            currentQueue = emptyList()
+            followCursor = null
+            _sessions.value = emptyList()
+            _workspaces.value = emptyList()
+            _workspacesLoaded.value = false
+            _currentSessionId.value = null
+            _currentConversation.value = null
+            _hostInfo.value = null
+        }
+    }
+
     private fun observeConnection() {
         scope.launch {
             var prev = connectionManager.state.value
@@ -553,7 +583,10 @@ class SessionStore @Inject constructor(
                     prev.phase == ConnectionPhase.RECONNECTING &&
                     state.phase == ConnectionPhase.CONNECTED
                 prev = state
-                if (initialConnect || reconnect) triggerBaseline()
+                if (initialConnect || reconnect) {
+                    state.host?.id?.let { connectionHostId = it }
+                    triggerBaseline()
+                }
                 if (state.phase == ConnectionPhase.RECONNECTING || state.phase == ConnectionPhase.DISCONNECTED) {
                     _workspacesLoaded.value = false
                     // Cancel generation-bound stream collectors immediately. A dead mux may not
