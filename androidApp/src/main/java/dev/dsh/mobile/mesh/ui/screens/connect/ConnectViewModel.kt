@@ -796,6 +796,8 @@ class ConnectViewModel @Inject constructor(
             it.copy(
                 stage = ConnectStage.OpeningStreams,
                 failure = null,
+                authorizationPending = null,
+                tailscaleLoginUrl = null,
                 signInOpen = false,
                 signInHostId = null,
                 attempted = host.authority,
