@@ -369,7 +369,7 @@ class ConnectViewModel @Inject constructor(
                 // Startup restoration has exactly one candidate: the active/most recently used host.
                 // Do not fall through to another saved host when this one is offline.
                 if (last.sshEnabled) {
-                    if (!shouldSkipLegacySshRestore(last.meshTransport?.storedValue)) return
+                    if (shouldSkipLegacySshRestore(last.meshTransport?.storedValue)) return
                     // One migration path for releases that kept this field in the global editable
                     // draft: adopt it only when that draft describes this exact connection. New
                     // tokens are always stored on HostConfig, never shared across hosts.
