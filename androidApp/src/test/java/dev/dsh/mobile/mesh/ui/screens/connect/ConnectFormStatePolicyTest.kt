@@ -11,4 +11,11 @@ class ConnectFormStatePolicyTest {
         assertFalse(isEditingConnectedHost("host-a", "host-b"))
         assertFalse(isEditingConnectedHost(null, "host-a"))
     }
+
+    @Test
+    fun `connect action is available only for a new form`() {
+        assertTrue(shouldShowConnectAction(editingHostId = null, connectedHostId = "host-a"))
+        assertFalse(shouldShowConnectAction(editingHostId = "host-a", connectedHostId = "host-a"))
+        assertFalse(shouldShowConnectAction(editingHostId = "host-b", connectedHostId = "host-a"))
+    }
 }

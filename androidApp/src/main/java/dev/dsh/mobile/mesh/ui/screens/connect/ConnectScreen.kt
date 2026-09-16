@@ -509,7 +509,7 @@ fun ConnectScreen(
                                 sshDshHost, zeroTierPlanetId, launchToken,
                             )
                         },
-                        enabled = editingHost?.id != connectedHostId && fieldsEnabled && connectEnabled,
+                        enabled = shouldShowConnectAction(editingHost?.id, connectedHostId) && fieldsEnabled && connectEnabled,
                         variant = DsButtonVariant.Info,
                         modifier = Modifier.fillMaxWidth(),
                     )
