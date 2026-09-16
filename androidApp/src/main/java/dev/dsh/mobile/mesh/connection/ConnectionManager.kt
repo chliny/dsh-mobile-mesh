@@ -572,7 +572,13 @@ class ConnectionManager @Inject constructor(
      * converge on the same job: two concurrent libzt/SSH replacements can tear down the other's
      * socket while it is handshaking and were the source of foreground crashes.
      */
-    fun reconnectIfNeeded() = startRecovery(0)
+    fun reconnectIfNeeded() {
+        if (_state.value.authorizationPending != null) {
+            Log.d("ConnectionManager", "Reconnect skipped during authorization")
+            return
+        }
+        startRecovery(0)
+    }
 
     private fun startPendingNetworkRecovery() {
         val canStart = synchronized(operationLock) { connectJob?.isActive != true }
