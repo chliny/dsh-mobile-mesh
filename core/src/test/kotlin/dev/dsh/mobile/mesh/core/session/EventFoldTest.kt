@@ -23,6 +23,20 @@ class EventFoldTest {
         SessionEventEnvelope(type, seq, seq, data)
 
     @Test
+    fun `consecutive compaction events collapse into one node and keep summary`() {
+        val events = listOf(
+            event("compaction/start", 1, buildJsonObject { put("text", "Compacting") }),
+            event("compaction/summary", 2, buildJsonObject {
+                putJsonArray("summary") { add(buildJsonObject { put("text", "Important context") }) }
+            }),
+            event("compaction/end", 3, buildJsonObject { put("text", "Done") }),
+        )
+        val compacted = EventFold("s1").fold(events).nodes.single() as CompactionNode
+        assertEquals(3L, compacted.seq)
+        assertEquals("Important context", (compacted.data as kotlinx.serialization.json.JsonObject)["summary"]?.jsonArray?.single()?.jsonObject?.get("text")?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun consecutiveModelRetriesCollapseIntoOneUpdatedNode() {
         val events = listOf(
             event("llm/retry", 1, buildJsonObject {

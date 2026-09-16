@@ -38,6 +38,17 @@ private fun retryFailureText(data: JsonObject?): String? = data?.let { obj ->
         .firstOrNull { it.isNotBlank() }
 }
 
+private fun mergeCompactionData(previous: JsonElement, current: JsonElement): JsonElement {
+    val old = previous as? JsonObject ?: return current
+    val now = current as? JsonObject ?: return current
+    val summary = now["summary"] ?: old["summary"]
+    return kotlinx.serialization.json.buildJsonObject {
+        old.forEach { (key, value) -> put(key, value) }
+        now.forEach { (key, value) -> put(key, value) }
+        if (summary != null) put("summary", summary)
+    }
+}
+
 private fun retryMaxAttempts(data: JsonObject): Int = sequenceOf("maxAttempts", "maxRetries", "limit")
     .mapNotNull { key -> data[key]?.jsonPrimitive?.intOrNull }
     .firstOrNull { it > 0 }
@@ -296,8 +307,18 @@ private class FoldState(private val sessionId: String) {
 
             "plan/mode" -> nodes.add(PlanModeNode(event.seq, data.jsonObject["active"]?.jsonPrimitive?.booleanOrNull ?: false))
 
-            "compaction/start", "compaction/end", "compaction/prune" -> nodes.add(CompactionNode(event.seq, event.type, data))
-            "compaction/summary" -> nodes.add(CompactionNode(event.seq, event.type, data))
+            "compaction/start", "compaction/end", "compaction/prune", "compaction/summary" -> {
+                val previous = nodes.lastOrNull() as? CompactionNode
+                if (previous != null) {
+                    nodes[nodes.lastIndex] = previous.copy(
+                        seq = event.seq,
+                        kind = event.type,
+                        data = mergeCompactionData(previous.data, data),
+                    )
+                } else {
+                    nodes.add(CompactionNode(event.seq, event.type, data))
+                }
+            }
 
             "llm/retry", "llm/retry-started" -> {
                 val obj = data as? JsonObject
