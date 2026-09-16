@@ -824,7 +824,7 @@ class ConnectionManager @Inject constructor(
         /** Bound the resume probe so fake green is replaced promptly, even for a black-holed TCP path. */
         const val FOREGROUND_PROBE_TIMEOUT_MS = 1_500L
         const val FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS = 10_000L
-        const val AUTHORIZATION_RESUME_TIMEOUT_MS = 8_000L
-        const val TRANSPORT_READY_CALLBACK_TIMEOUT_MS = 15_000L
+        const val AUTHORIZATION_RESUME_TIMEOUT_MS = ConnectionTimeoutPolicy.authorizationResumeMs
+        const val TRANSPORT_READY_CALLBACK_TIMEOUT_MS = ConnectionTimeoutPolicy.transportReadyCallbackMs
     }
 }

@@ -121,7 +121,7 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 		return append([]netmon.Interface(nil), interfaces.values...), nil
 	})
 	registerAndroidSocketBinder()
-	if err := startServerWithTimeout(server); err != nil {
+	if err := server.Start(); err != nil {
 		return encode(result{State: "error", Error: err.Error()})
 	}
 	client, err := server.LocalClient()
@@ -194,17 +194,6 @@ func waitForRunning(client *local.Client) bool {
 	return false
 }
 
-func startServerWithTimeout(server *tsnet.Server) error {
-	result := make(chan error, 1)
-	go func() { result <- server.Start() }()
-	select {
-	case err := <-result:
-		return err
-	case <-time.After(10 * time.Second):
-		return context.DeadlineExceeded
-	}
-}
-
 func getStatusWithTimeout(client *local.Client, timeout time.Duration) (*ipnstate.Status, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -212,7 +201,7 @@ func getStatusWithTimeout(client *local.Client, timeout time.Duration) (*ipnstat
 }
 
 func loginURL(client *local.Client) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	watcher, err := client.WatchIPNBus(ctx, ipn.NotifyInitialState)
 	if err != nil {
