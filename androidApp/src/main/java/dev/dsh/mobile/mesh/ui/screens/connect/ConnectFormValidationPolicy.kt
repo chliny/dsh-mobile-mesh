@@ -10,6 +10,6 @@ internal fun isConnectFormValid(
     secret: String,
     tailscaleHostname: String = "",
 ): Boolean = host.isNotBlank() && port.toIntOrNull()?.let { it in 1..65535 } == true &&
-    (tailscaleHostname.isBlank() || tailscaleHostname.matches(Regex("[A-Za-z0-9-]{1,63}"))) &&
+    (tailscaleHostname.isBlank() || tailscaleHostname.matches(Regex("[A-Za-z0-9.-]{1,253}"))) &&
     (!sshEnabled || (sshUsername.isNotBlank() && sshPort.toIntOrNull()?.let { it in 1..65535 } == true &&
         sshDshHost.isNotBlank() && secret.isNotBlank()))
