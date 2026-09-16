@@ -135,23 +135,18 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 		return encode(result{State: "error", Error: err.Error()})
 	}
 	if status.BackendState != ipn.Running.String() {
+		// The local status may be warming up while the IPN bus has already emitted BrowseToURL.
+		// Watch first so the login URL is returned as soon as it exists instead of blocking on a
+		// second status call that can wait for control-plane readiness.
 		login, loginErr := loginURL(client)
-		if loginErr != nil {
-			_ = server.Close()
-			return encode(result{State: "error", Error: loginErr.Error()})
+		if loginErr == nil {
+			current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname,
+				remoteHost: targetHost, remotePort: targetPort, loginURL: login}
+			return encode(pendingLoginState(login))
 		}
-		if login == "" {
-			status, statusErr := getStatus(client)
-			if statusErr == nil && status.BackendState == ipn.Running.String() {
-				current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname}
-				return encode(startRelayLocked(server, targetHost, targetPort))
-			}
-		}
-		current.value = &instance{
-			server: server, stateDir: stateDirectory, hostname: deviceHostname,
-			remoteHost: targetHost, remotePort: targetPort, loginURL: login,
-		}
-		return encode(result{State: "needs_login", LoginURL: login})
+		current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname,
+			remoteHost: targetHost, remotePort: targetPort}
+		return encode(result{State: "error", Error: loginErr.Error()})
 	}
 	current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname}
 	return encode(startRelayLocked(server, targetHost, targetPort))
