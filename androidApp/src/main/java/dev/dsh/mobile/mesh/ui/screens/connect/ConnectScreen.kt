@@ -121,6 +121,16 @@ fun ConnectScreen(
     val formKey = editingHost?.id ?: "new"
     val connectedEditing = editingHost?.id == connectedHostId
     val fieldsEnabled = !connectedEditing
+    val connectEnabled = !state.connecting && isConnectFormValid(
+        host = host,
+        port = port,
+        sshEnabled = sshEnabled,
+        sshUsername = sshUsername,
+        sshPort = sshPort,
+        sshDshHost = sshDshHost,
+        secret = if (sshAuthentication == SshAuthentication.PASSWORD) sshPassword else sshPrivateKey,
+        tailscaleHostname = if (meshTransport == MeshTransport.TAILSCALE) tailscaleHostname else "",
+    )
     onOpenConnections?.let { openConnections ->
         BackHandler { openConnections() }
     }
@@ -499,9 +509,7 @@ fun ConnectScreen(
                                 sshDshHost, zeroTierPlanetId, launchToken,
                             )
                         },
-                        enabled = editingHost?.id != connectedHostId &&
-                            !state.connecting &&
-                            (!sshEnabled || sshPassword.isNotBlank() || sshPrivateKey.isNotBlank()),
+                        enabled = editingHost?.id != connectedHostId && fieldsEnabled && connectEnabled,
                         variant = DsButtonVariant.Info,
                         modifier = Modifier.fillMaxWidth(),
                     )
