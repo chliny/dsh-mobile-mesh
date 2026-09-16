@@ -95,6 +95,8 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         val showMain = connection.hasConnected
         val showConnect = showConnectPage
         val showStartupConnections = shouldShowStartupConnections(connection.hasConnected, editingHost != null) && !showSettings && !showConnectPage
+        val showTailscaleLogin = connectUiState.tailscaleLoginUrl?.isNotBlank() == true &&
+            connectUiState.attempted?.contains("gmk.tailscale.chliny.me") == true
         LaunchedEffect(connection.phase, connection.host?.id, connectUiState.attempted) {
             val selectedConnectionIsReady = shouldRouteSelectedConnection(
                 phaseConnected = connection.phase == ConnectionPhase.CONNECTED,
@@ -196,6 +198,13 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 error = connectUiState.signInError,
                 onDismiss = { connectViewModel.setSignInOpen(false) },
                 onSubmit = connectViewModel::signIn,
+            )
+        }
+
+        if (showTailscaleLogin) {
+            dev.dsh.mobile.mesh.ui.screens.connect.TailscaleLoginDialog(
+                loginUrl = connectUiState.tailscaleLoginUrl!!,
+                onDismiss = connectViewModel::cancelTailscaleLogin,
             )
         }
 

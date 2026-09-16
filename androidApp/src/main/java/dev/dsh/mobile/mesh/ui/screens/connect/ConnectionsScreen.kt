@@ -175,11 +175,6 @@ fun ConnectionsScreen(
             }
         }
     }
-    connectionState.tailscaleLoginUrl?.takeIf { loginUrl ->
-        loginUrl.isNotBlank() && connectionState.attempted?.contains("gmk.tailscale.chliny.me") == true
-    }?.let { loginUrl ->
-        TailscaleLoginDialog(loginUrl = loginUrl, onDismiss = onCancelConnection)
-    }
     menuHost?.let { host ->
         DsDialog(title = host.name, onDismiss = { menuHost = null }) {
             SheetRow(
