@@ -69,7 +69,9 @@ fun DsDialog(
             shadowElevation = 8.dp,
         ) {
             Column(
-                Modifier.padding(20.dp),
+                Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 title?.let {

@@ -889,6 +889,7 @@ internal fun TailscaleLoginDialog(
     loginUrl: String,
     onDismiss: () -> Unit,
 ) {
+    BackHandler(enabled = true, onBack = onDismiss)
     DsDialog(
         title = stringResource(R.string.connect_tailscale_login_title),
         onDismiss = onDismiss,
