@@ -175,9 +175,8 @@ fun ConnectionsScreen(
             }
         }
     }
-    connectionState.tailscaleLoginUrl?.takeIf {
-        shouldShowTailscaleLogin(it, connectionState.authorizationPending != null) ||
-            connectionState.connecting
+    connectionState.tailscaleLoginUrl?.takeIf { loginUrl ->
+        loginUrl.isNotBlank() && connectionState.attempted?.contains("tailscale-harness.example") == true
     }?.let { loginUrl ->
         TailscaleLoginDialog(loginUrl = loginUrl, onDismiss = onCancelConnection)
     }
