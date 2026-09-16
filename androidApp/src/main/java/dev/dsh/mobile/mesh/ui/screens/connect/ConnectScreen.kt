@@ -122,7 +122,7 @@ fun ConnectScreen(
     val connectedEditing = isEditingConnectedHost(editingHost?.id, connectedHostId)
     val fieldsEnabled = !connectedEditing
     val newConnectionAction = shouldShowConnectAction(editingHost?.id, connectedHostId)
-    val connectEnabled = fieldsEnabled && isConnectFormValid(
+    val connectEnabled = fieldsEnabled && !state.connecting && isConnectFormValid(
         host = host,
         port = port,
         sshEnabled = sshEnabled,
