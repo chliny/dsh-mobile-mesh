@@ -53,6 +53,16 @@ class ConnectionLifecycleCoordinatorTest {
     }
 
     @Test
+    fun `foreground exposes pending target after request made while backgrounded`() {
+        val coordinator = ConnectionLifecycleCoordinator<String>()
+        val requested = coordinator.request("tailscale-harness.example")
+        assertFalse(coordinator.accepts(requested.token))
+        val resumed = coordinator.foreground()
+        assertTrue(resumed!!.value == "tailscale-harness.example")
+        assertTrue(coordinator.accepts(resumed.token))
+    }
+
+    @Test
     fun `retry invalidates failed operation without changing target`() {
         val coordinator = foregroundCoordinator()
         val failed = coordinator.request("A")

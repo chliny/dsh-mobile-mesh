@@ -380,40 +380,7 @@ class ConnectionManager @Inject constructor(
             hasConnected = _state.value.hasConnected,
             foregroundCheckPending = reconnect,
         )
-        try {
-            val baseUrl = lifecycleMutex.withLock {
-                val timeoutMs = if (preservePendingIdentity) AUTHORIZATION_RESUME_TIMEOUT_MS
-                else FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS
-                withTimeout(timeoutMs) {
-                    if (reconnect || preservePendingIdentity) reconnectTransports(config) else startTransports(config)
-                }
-            }
-            if (!lifecycle.accepts(target.token)) {
-                cleanupResources()
-                return
-            }
-            activeBaseUrl = baseUrl
-            _state.value = _state.value.copy(authorizationPending = null, tailscaleLoginUrl = null)
-            if (!reconnect) withTimeout(TRANSPORT_READY_CALLBACK_TIMEOUT_MS) {
-                intent.afterTransportReady(baseUrl)
-            }
-            if (!lifecycle.accepts(target.token)) {
-                cleanupResources()
-                return
-            }
-            val nextApi = clientFactory.clientFor(config, baseUrl = baseUrl)
-            synchronized(publicationLock) {
-                if (!lifecycle.accepts(target.token)) return
-                pendingTransportReady = null
-                api = nextApi
-                val token = loopFence.next()
-                loop = ConnectionLoop(muxFactory(config, baseUrl), sinksFor(token), LoopConfig()).also { it.start() }
-            }
-            hostsStore.upsertHost(config)
-        } catch (error: CancellationException) {
-            cleanupResources()
-            throw error
-        } catch (error: Throwable) {
+        suspend fun handleOperationFailure(error: Throwable) {
             if (!lifecycle.accepts(target.token)) {
                 cleanupResources()
                 return
@@ -450,6 +417,42 @@ class ConnectionManager @Inject constructor(
                 (attempt + 1).coerceAtMost(FOREGROUND_RECOVERY_FAST_ATTEMPTS),
                 target.token,
             )
+        }
+        try {
+            val baseUrl = lifecycleMutex.withLock {
+                val timeoutMs = if (preservePendingIdentity) AUTHORIZATION_RESUME_TIMEOUT_MS
+                else FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS
+                withTimeout(timeoutMs) {
+                    if (reconnect || preservePendingIdentity) reconnectTransports(config) else startTransports(config)
+                }
+            }
+            if (!lifecycle.accepts(target.token)) {
+                cleanupResources()
+                return
+            }
+            activeBaseUrl = baseUrl
+            _state.value = _state.value.copy(authorizationPending = null, tailscaleLoginUrl = null)
+            if (!reconnect) withTimeout(TRANSPORT_READY_CALLBACK_TIMEOUT_MS) {
+                intent.afterTransportReady(baseUrl)
+            }
+            if (!lifecycle.accepts(target.token)) {
+                cleanupResources()
+                return
+            }
+            val nextApi = clientFactory.clientFor(config, baseUrl = baseUrl)
+            synchronized(publicationLock) {
+                if (!lifecycle.accepts(target.token)) return
+                pendingTransportReady = null
+                api = nextApi
+                val token = loopFence.next()
+                loop = ConnectionLoop(muxFactory(config, baseUrl), sinksFor(token), LoopConfig()).also { it.start() }
+            }
+            hostsStore.upsertHost(config)
+        } catch (error: CancellationException) {
+            cleanupResources()
+            throw error
+        } catch (error: Throwable) {
+            handleOperationFailure(error)
         } finally {
             if (lifecycle.accepts(target.token)) {
                 _state.value = _state.value.copy(foregroundCheckPending = false)
@@ -616,6 +619,18 @@ class ConnectionManager @Inject constructor(
      */
     fun recoverForForeground() {
         appInForeground = true
+        if (connectJob?.isActive != true && _state.value.phase == ConnectionPhase.DISCONNECTED) {
+            // A manual connect requested while the Activity was still starting can be stranded when
+            // lifecycle.mayRun() was false. Re-arm the latest desired intent on the first foreground.
+            val pending = lifecycle.current()
+            if (pending != null) {
+                Log.d("ConnectionManager", "Foreground resumes pending connection for ${pending.value.host.id}")
+                lifecycle.foreground()
+                replaceOperation(pending, reconnect = false)
+                suspendedForBackground = false
+                return
+            }
+        }
         val resumedTarget = lifecycle.foreground()
         if (suspendedForBackground || (resumedTarget != null && activeHost == null && connectJob?.isActive != true)) {
             suspendedForBackground = false
@@ -758,7 +773,9 @@ class ConnectionManager @Inject constructor(
     }
 
     private suspend fun startTransports(config: HostConfig): String {
+        Log.d("ConnectionManager", "Starting transports host=${config.host}:${config.port} mesh=${config.meshTransport} ssh=${config.sshEnabled}")
         val meshRelay = meshTransport.start(config)
+        Log.d("ConnectionManager", "Mesh transport returned relay=${meshRelay?.host}:${meshRelay?.port}")
         return finishTransportStart(config, meshRelay)
     }
 
