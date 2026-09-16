@@ -134,6 +134,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     if (host.id == connection.host?.id) viewModel.reconnect()
                 },
                 onAdd = {
+                    connectViewModel.cancelConnect()
                     editingHost = null
                     returnToConnections = true
                     connectFormInstance++
