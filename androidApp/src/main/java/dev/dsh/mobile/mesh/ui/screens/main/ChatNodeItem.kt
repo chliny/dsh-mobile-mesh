@@ -562,16 +562,22 @@ internal fun directFilePathForTool(variant: ToolRowVariant, card: dev.dsh.mobile
 
 @Composable
 private fun CompactionRow(node: CompactionNode) {
-    val summaryText = remember(node.seq) {
+    val summaryText = remember(node.data) {
         runCatching {
-            val array = (node.data as? JsonObject)?.get("summary") as? JsonArray
-            array?.mapNotNull { (it as? JsonObject)?.get("text").asString() }?.joinToString("\n")
+            val data = node.data as? JsonObject
+            val array = data?.get("summary") as? JsonArray
+            array?.mapNotNull { (it as? JsonObject)?.get("text").asString() }
+                ?.joinToString("\n")
+                ?.takeIf { it.isNotBlank() }
+                ?: data?.get("text").asString()
+                ?: data?.get("summaryText").asString()
         }.getOrNull()
     }
-    var expanded by remember(node.seq) { mutableStateOf(false) }
+    val summaryPreview = summaryText?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() }
+    var expanded by remember(node.data) { mutableStateOf(false) }
     DisclosureRow(
         title = stringResource(R.string.chat_compaction),
-        summary = stringResource(R.string.chat_compaction_summary),
+        summary = summaryPreview ?: stringResource(R.string.chat_compaction_summary),
         icon = FeatherIcons.Archive,
         expanded = expanded,
         onToggle = { expanded = !expanded },
