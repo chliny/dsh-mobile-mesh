@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -53,6 +54,7 @@ fun DsButton(
     variant: DsButtonVariant = DsButtonVariant.Primary,
     size: DsButtonSize = DsButtonSize.Normal,
     icon: ImageVector? = null,
+    testTag: String? = null,
 ) {
     val colors = DsTheme.colors
     val interaction = remember { MutableInteractionSource() }
@@ -95,7 +97,8 @@ fun DsButton(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-            },
+            }
+            .then(if (testTag == null) Modifier else Modifier.testTag(testTag)),
         enabled = enabled,
         shape = if (normal) DsShapes.buttonCapsule else DsShapes.buttonSmall,
         color = background,
