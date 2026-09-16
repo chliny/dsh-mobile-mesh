@@ -620,6 +620,10 @@ class ConnectionManager @Inject constructor(
             kotlinx.coroutines.delay(recoveryRetryDelayMs(attempt))
             val current = lifecycle.current() ?: return@launch
             if (!lifecycle.mayRun() || current.token != failedToken) return@launch
+            if (_state.value.authorizationPending != null) {
+                Log.d("ConnectionManager", "Scheduled recovery skipped during authorization")
+                return@launch
+            }
             startRecovery(attempt)
         }
     }
