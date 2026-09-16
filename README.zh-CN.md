@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/deepseek-mobile.svg" alt="DSH Mobile Mesh Logo" width="180"></p>
+<p align="center"><img src="assets/app-icon.svg" alt="DSH Mobile Mesh Logo" width="180"></p>
 <h1 align="center">DSH Mobile Mesh</h1>
 <p align="center"><a href="README.md">English</a> · <b>中文</b> · <a href="README.hi.md">हिन्दी</a> · <a href="README.es.md">Español</a> · <a href="README.fr.md">Français</a> · <a href="README.ar.md">العربية</a> · <a href="README.bn.md">বাংলা</a> · <a href="README.pt.md">Português</a> · <a href="README.ru.md">Русский</a> · <a href="README.ur.md">اردو</a> · <a href="README.th.md">ไทย</a></p>
 
@@ -16,7 +16,7 @@ DSH Mobile Mesh 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-h
 
 App 在 Android 内置运行 ZeroTier/libzt 或 Tailscale/tsnet 用户态网络，将 DeepSeek Harness 原生 HTTP/WebSocket 接口转发到手机。DeepSeek Harness 无需修改启动方式或安装插件，也不需要 Android 系统级 VPN。直连、ZeroTier 和 Tailscale 都可以叠加 SSH 转发，让 DeepSeek Harness 保持监听 127.0.0.1。
 
-![DSH Mobile Mesh 连接流程](assets/mesh-connection.svg)
+![DSH Mobile Mesh 连接流程](assets/mesh-connection-zh-CN.svg)
 
 ## 使用方法
 

@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/deepseek-mobile.svg" alt="Logo DSH Mobile Mesh" width="180"></p>
+<p align="center"><img src="assets/app-icon.svg" alt="Logo DSH Mobile Mesh" width="180"></p>
 <h1 align="center">DSH Mobile Mesh</h1>
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-CN.md">中文</a> · <a href="README.hi.md">हिन्दी</a> · <a href="README.es.md">Español</a> · <b>Français</b> · <a href="README.ar.md">العربية</a> · <a href="README.bn.md">বাংলা</a> · <a href="README.pt.md">Português</a> · <a href="README.ru.md">Русский</a> · <a href="README.ur.md">اردو</a> · <a href="README.th.md">ไทย</a></p>
 
@@ -15,7 +15,7 @@ DSH Mobile Mesh est un client Android non officiel pour [DeepSeek Harness](https
 
 L’application intègre sur Android un réseau userspace ZeroTier/libzt ou Tailscale/tsnet et relaie vers le téléphone l’interface HTTP/WebSocket native de DeepSeek Harness. DeepSeek Harness n’a besoin d’aucune modification de son mode de lancement ni d’aucun plugin, et aucun VPN système Android n’est requis. SSH peut s’ajouter à Direct, ZeroTier ou Tailscale, afin que DeepSeek Harness continue d’écouter sur `127.0.0.1`.
 
-![Flux de connexion DSH Mobile Mesh](assets/mesh-connection.svg)
+![Flux de connexion DSH Mobile Mesh](assets/mesh-connection-fr.svg)
 
 ## Utilisation
 
