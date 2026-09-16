@@ -625,6 +625,13 @@ class ConnectionManager @Inject constructor(
      */
     fun recoverForForeground() {
         appInForeground = true
+        // A Tailscale login is an intentional disconnected state. Foreground recovery must not
+        // mistake the pending authorization for a stale carrier and restart the relay underneath
+        // the embedded WebView; the dedicated authorization polling owns resume attempts.
+        if (_state.value.authorizationPending != null) {
+            Log.d("ConnectionManager", "Foreground recovery deferred during authorization")
+            return
+        }
         if (connectJob?.isActive != true && _state.value.phase == ConnectionPhase.DISCONNECTED) {
             // A manual connect requested while the Activity was still starting can be stranded when
             // lifecycle.mayRun() was false. Re-arm the latest desired intent on the first foreground.
