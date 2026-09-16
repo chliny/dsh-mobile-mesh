@@ -176,7 +176,8 @@ fun ConnectionsScreen(
         }
     }
     connectionState.tailscaleLoginUrl?.takeIf {
-        shouldShowTailscaleLogin(it, connectionState.authorizationPending != null)
+        shouldShowTailscaleLogin(it, connectionState.authorizationPending != null) ||
+            connectionState.connecting
     }?.let { loginUrl ->
         TailscaleLoginDialog(loginUrl = loginUrl, onDismiss = onCancelConnection)
     }
