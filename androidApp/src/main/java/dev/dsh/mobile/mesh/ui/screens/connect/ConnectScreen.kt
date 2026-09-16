@@ -121,7 +121,7 @@ fun ConnectScreen(
     val formKey = editingHost?.id ?: "new"
     val connectedEditing = isEditingConnectedHost(editingHost?.id, connectedHostId)
     val fieldsEnabled = !connectedEditing
-    val connectEnabled = !state.connecting && fieldsEnabled && isConnectFormValid(
+    val connectEnabled = fieldsEnabled && isConnectFormValid(
         host = host,
         port = port,
         sshEnabled = sshEnabled,
@@ -511,6 +511,7 @@ fun ConnectScreen(
                         },
                         enabled = shouldShowConnectAction(editingHost?.id, connectedHostId) &&
                             shouldEnableConnectAction(fieldsEnabled, connectEnabled),
+                        testTag = "connect-action",
                         variant = DsButtonVariant.Info,
                         modifier = Modifier.fillMaxWidth(),
                     )
