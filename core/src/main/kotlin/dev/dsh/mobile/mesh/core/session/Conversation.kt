@@ -97,7 +97,14 @@ data class TodoNode(override val seq: Long, val todos: JsonElement) : ChatNode
 data class GoalNode(override val seq: Long, val data: JsonElement) : ChatNode
 data class PlanModeNode(override val seq: Long, val active: Boolean) : ChatNode
 data class CompactionNode(override val seq: Long, val kind: String, val data: JsonElement) : ChatNode
-data class RetryNode(override val seq: Long, val kind: String, val data: JsonElement) : ChatNode
+data class RetryNode(
+    override val seq: Long,
+    val kind: String,
+    val data: JsonElement,
+    val attempts: Int = 1,
+    val maxAttempts: Int = 20,
+    val failures: List<String> = emptyList(),
+) : ChatNode
 data class TurnErrorNode(override val seq: Long, val message: String, val code: String?) : ChatNode
 data class CommandNode(override val seq: Long, val kind: String, val data: JsonElement) : ChatNode
 data class TitleNode(override val seq: Long, val title: String) : ChatNode

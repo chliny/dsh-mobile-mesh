@@ -80,6 +80,9 @@ private fun textBlocks(result: ToolResultNode): List<String> =
         ?.filter { it.isNotBlank() }
         .orEmpty()
 
+internal fun toolResultText(result: ToolResultNode): String? =
+    textBlocks(result).joinToString("\n").takeIf { it.isNotBlank() }
+
 private fun str(o: JsonObject, key: String): String? = o[key]?.jsonPrimitive?.contentOrNull
 private fun int(o: JsonObject, key: String): Int? = o[key]?.jsonPrimitive?.intOrNull
 private fun bool(o: JsonObject, key: String): Boolean? = o[key]?.jsonPrimitive?.booleanOrNull
