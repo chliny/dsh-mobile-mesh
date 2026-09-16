@@ -23,6 +23,25 @@ class EventFoldTest {
         SessionEventEnvelope(type, seq, seq, data)
 
     @Test
+    fun consecutiveModelRetriesCollapseIntoOneUpdatedNode() {
+        val events = listOf(
+            event("llm/retry", 1, buildJsonObject {
+                put("message", "provider unavailable")
+                put("maxAttempts", 20)
+            }),
+            event("llm/retry", 2, buildJsonObject {
+                put("message", "request timed out")
+                put("maxAttempts", 20)
+            }),
+        )
+        val retry = EventFold("s1").fold(events).nodes.single() as RetryNode
+        assertEquals(2, retry.attempts)
+        assertEquals(20, retry.maxAttempts)
+        assertEquals(listOf("provider unavailable", "request timed out"), retry.failures)
+        assertEquals(2L, retry.seq)
+    }
+
+    @Test
     fun foldsBasicTurn() {
         val events = listOf(
             event("turn/start", 0, buildJsonObject { put("turn", 1) }),

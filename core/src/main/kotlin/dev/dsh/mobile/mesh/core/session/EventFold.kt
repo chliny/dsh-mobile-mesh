@@ -32,6 +32,17 @@ import kotlinx.serialization.json.jsonPrimitive
  *
  * The fold is pure: same events → same snapshot.
  */
+private fun retryFailureText(data: JsonObject?): String? = data?.let { obj ->
+    sequenceOf("message", "error", "reason", "detail")
+        .mapNotNull { key -> obj[key]?.jsonPrimitive?.contentOrNull }
+        .firstOrNull { it.isNotBlank() }
+}
+
+private fun retryMaxAttempts(data: JsonObject): Int = sequenceOf("maxAttempts", "maxRetries", "limit")
+    .mapNotNull { key -> data[key]?.jsonPrimitive?.intOrNull }
+    .firstOrNull { it > 0 }
+    ?: 20
+
 class EventFold(private val sessionId: String) {
 
     /**
@@ -288,7 +299,24 @@ private class FoldState(private val sessionId: String) {
             "compaction/start", "compaction/end", "compaction/prune" -> nodes.add(CompactionNode(event.seq, event.type, data))
             "compaction/summary" -> nodes.add(CompactionNode(event.seq, event.type, data))
 
-            "llm/retry", "llm/retry-started" -> nodes.add(RetryNode(event.seq, event.type, data))
+            "llm/retry", "llm/retry-started" -> {
+                val obj = data as? JsonObject
+                val failure = retryFailureText(obj)
+                val maxAttempts = obj?.let { retryMaxAttempts(it) } ?: 20
+                val previous = nodes.lastOrNull() as? RetryNode
+                if (previous != null) {
+                    nodes[nodes.lastIndex] = previous.copy(
+                        seq = event.seq,
+                        kind = event.type,
+                        data = data,
+                        attempts = previous.attempts + 1,
+                        maxAttempts = maxAttempts,
+                        failures = previous.failures + listOfNotNull(failure),
+                    )
+                } else {
+                    nodes.add(RetryNode(event.seq, event.type, data, maxAttempts = maxAttempts, failures = listOfNotNull(failure)))
+                }
+            }
 
             "command/run", "command/done" -> nodes.add(CommandNode(event.seq, event.type, data))
 

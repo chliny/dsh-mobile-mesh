@@ -12,6 +12,7 @@ class ConnectionSwitchRoutingTest {
             selectedAuthority = "new-host:8080",
             activeAuthority = "old-host:8080",
             editing = false,
+            awaitingSelectedConnection = true,
         ))
     }
 
@@ -22,6 +23,18 @@ class ConnectionSwitchRoutingTest {
             selectedAuthority = "new-host:8080",
             activeAuthority = "new-host:8080",
             editing = false,
+            awaitingSelectedConnection = true,
+        ))
+    }
+
+    @Test
+    fun `background reconnect preserves the current page`() {
+        assertFalse(shouldRouteSelectedConnection(
+            phaseConnected = true,
+            selectedAuthority = "host:8080",
+            activeAuthority = "host:8080",
+            editing = false,
+            awaitingSelectedConnection = false,
         ))
     }
 }

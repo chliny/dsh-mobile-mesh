@@ -178,23 +178,7 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
 
         is CompactionNode -> CompactionRow(node)
 
-        is RetryNode -> {
-            val delayMs = (node.data as? JsonObject)?.let { obj ->
-                obj["delayMs"].asLong() ?: obj["ms"].asLong() ?: obj["providerRetryAfterMs"].asLong()
-            }
-            val label = if (delayMs != null && delayMs > 0) {
-                stringResource(R.string.chat_retry_scheduled, (delayMs / 1000).toInt().coerceAtLeast(1))
-            } else {
-                // A retry with no stated delay used to read "Loading…", which says nothing about
-                // what happened; four of them in a row before a failure is a story worth telling.
-                stringResource(R.string.chat_retrying)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                StateDot(StateDotState.Warning, size = 8.dp)
-                Spacer(Modifier.width(6.dp))
-                Text(label, style = DsType.caption11, color = colors.labelTertiary)
-            }
-        }
+        is RetryNode -> RetryRow(node)
 
         is TurnErrorNode -> Row(verticalAlignment = Alignment.CenterVertically) {
             StateDot(StateDotState.Error, size = 8.dp)
@@ -222,6 +206,32 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
         // `step/end` between every tool call buried the actual work in noise.
         is OtherNode -> if (node.type !in STRUCTURAL_EVENT_TYPES) {
             Text(node.type, style = DsType.caption11, color = colors.labelCaption)
+        }
+    }
+}
+
+@Composable
+private fun RetryRow(node: RetryNode) {
+    var expanded by remember(node.seq) { mutableStateOf(false) }
+    DisclosureRow(
+        title = stringResource(R.string.chat_model_request_retried, node.attempts, node.maxAttempts),
+        icon = FeatherIcons.AlertTriangle,
+        expanded = expanded,
+        onToggle = { expanded = !expanded },
+        state = DisclosureState.Idle,
+    ) {
+        val details = node.failures.ifEmpty { listOf(node.data.toString()) }
+        Column(
+            Modifier.fillMaxWidth().padding(start = 26.dp, top = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            details.forEachIndexed { index, failure ->
+                Text(
+                    if (details.size > 1) "${index + 1}. $failure" else failure,
+                    style = DsType.caption11,
+                    color = DsTheme.colors.error,
+                )
+            }
         }
     }
 }
@@ -440,29 +450,38 @@ private fun ActionIcon(
     )
 }
 
+internal fun producedFileRows(paths: List<String>): List<String> = paths.filter { it.isNotBlank() }
+
 @Composable
 private fun ProducedFilesRow(paths: List<String>, context: ChatNodeContext) {
-    if (paths.isEmpty()) return
-    Row(
+    val rows = producedFileRows(paths)
+    if (rows.isEmpty()) return
+    Column(
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(stringResource(R.string.chat_produced_files), style = DsType.caption11, color = DsTheme.colors.labelTertiary)
-        paths.take(6).forEach { path ->
+        rows.forEach { path ->
             Row(
                 modifier = Modifier
-                    .clip(DsShapes.pillFull)
+                    .fillMaxWidth()
+                    .clip(DsShapes.block)
                     .background(DsTheme.colors.bgModulePlatform)
                     .clickable(enabled = context.onOpenFile != null && path.isNotBlank()) { openWorkspacePath(context, path, basename(path), context.onOpenFile) }
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(14.dp), tint = DsTheme.colors.labelSecondary)
-                Text(basename(path), style = DsType.caption11, color = DsTheme.colors.labelSecondary, modifier = Modifier.padding(start = 4.dp))
+                Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp), tint = DsTheme.colors.labelSecondary)
+                Text(
+                    path,
+                    style = DsType.small13,
+                    color = DsTheme.colors.labelSecondary,
+                    modifier = Modifier.padding(start = 8.dp).weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
-        if (paths.size > 6) Text(stringResource(R.string.chat_more_files, paths.size - 6), style = DsType.caption11, color = DsTheme.colors.labelTertiary)
     }
 }
 
@@ -518,9 +537,9 @@ private fun ToolCallRow(node: ToolCallNode, context: ChatNodeContext) {
         onOpenFile = { path, title -> openWorkspacePath(context, path, title, context.onOpenFile) },
     )
     if (result?.isError == true) {
-        // The dot is colour-only, so the word stays — but without a second dot beside it.
+        // Tool failures are actionable only when the host's full message survives to the transcript.
         Text(
-            stringResource(R.string.common_error),
+            toolResultText(result) ?: stringResource(R.string.common_error),
             style = DsType.caption11,
             color = colors.error,
             modifier = Modifier.padding(start = 26.dp),
