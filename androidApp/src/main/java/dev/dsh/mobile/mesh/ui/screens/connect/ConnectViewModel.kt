@@ -926,7 +926,10 @@ class ConnectViewModel @Inject constructor(
     private companion object {
         const val LOOPBACK = "127.0.0.1"
         const val DEFAULT_PORT = 3080
-        const val TAILSCALE_LOGIN_POLL_INTERVAL_MS = 2_000L
+        // Tailscale's retained tsnet identity is polled conservatively while the WebView is open;
+        // a short interval repeatedly tears down and rebuilds the SSH relay before authorization can
+        // complete.
+        const val TAILSCALE_LOGIN_POLL_INTERVAL_MS = 10_000L
         const val TAILSCALE_LOGIN_POLL_MAX_DURATION_MS = 120_000L
     }
 }
