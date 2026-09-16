@@ -5,3 +5,6 @@ internal fun isEditingConnectedHost(editingHostId: String?, connectedHostId: Str
 
 internal fun shouldShowConnectAction(editingHostId: String?, connectedHostId: String?): Boolean =
     editingHostId == null
+
+internal fun shouldEnableConnectAction(fieldsEnabled: Boolean, formValid: Boolean): Boolean =
+    fieldsEnabled && formValid
