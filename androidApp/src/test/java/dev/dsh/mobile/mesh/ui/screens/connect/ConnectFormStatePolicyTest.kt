@@ -17,5 +17,7 @@ class ConnectFormStatePolicyTest {
         assertTrue(shouldShowConnectAction(editingHostId = null, connectedHostId = "host-a"))
         assertFalse(shouldShowConnectAction(editingHostId = "host-a", connectedHostId = "host-a"))
         assertFalse(shouldShowConnectAction(editingHostId = "host-b", connectedHostId = "host-a"))
+        assertTrue(shouldEnableConnectAction(fieldsEnabled = true, formValid = true))
+        assertFalse(shouldEnableConnectAction(fieldsEnabled = true, formValid = false))
     }
 }
