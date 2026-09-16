@@ -379,6 +379,8 @@ class ConnectionManager @Inject constructor(
             stage = ConnectStage.OpeningStreams,
             hasConnected = _state.value.hasConnected,
             foregroundCheckPending = reconnect,
+            authorizationPending = _state.value.authorizationPending,
+            tailscaleLoginUrl = _state.value.tailscaleLoginUrl,
         )
         suspend fun handleOperationFailure(error: Throwable) {
             if (!lifecycle.accepts(target.token)) {
@@ -387,6 +389,9 @@ class ConnectionManager @Inject constructor(
             }
             if (error is MeshAuthorizationPending) {
                 hostsStore.upsertHost(config)
+                // Keep the retained tsnet identity and its login URL. A pending authorization is
+                // not a failed connection and must not enter the reconnect loop; the ViewModel's
+                // single polling job is the only code allowed to request a resume.
                 _state.value = ConnectionUiState(
                     phase = ConnectionPhase.DISCONNECTED,
                     host = config,
