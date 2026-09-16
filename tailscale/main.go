@@ -131,6 +131,15 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 	}
 	status, err := getStatus(client)
 	if err != nil {
+		// tsnet can return a transient status error while the login URL has already been
+		// published on the IPN bus. Keep the server alive and let the authorization watcher
+		// surface that URL instead of converting the attempt into a dead connection.
+		login, loginErr := loginURL(client)
+		if loginErr == nil {
+			current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname,
+				remoteHost: targetHost, remotePort: targetPort, loginURL: login}
+			return encode(pendingLoginState(login))
+		}
 		_ = server.Close()
 		return encode(result{State: "error", Error: err.Error()})
 	}
