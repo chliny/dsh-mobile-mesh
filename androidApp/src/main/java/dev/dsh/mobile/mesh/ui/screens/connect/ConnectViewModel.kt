@@ -2,6 +2,7 @@ package dev.dsh.mobile.mesh.ui.screens.connect
 
 import dev.dsh.mobile.mesh.core.wire.SessionExchange
 import dev.dsh.mobile.mesh.connection.HarnessSessionStore
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.dsh.mobile.mesh.connection.ConnectStage
@@ -611,6 +612,7 @@ class ConnectViewModel @Inject constructor(
             return
         }
         val authority = "${input.host}:$portInt"
+        Log.d("ConnectViewModel", "Starting mesh connection to $authority transport=${transport.storedValue} ssh=$sshEnabled")
         localStage = ConnectStage.Reaching
         _state.update { it.copy(stage = ConnectStage.Reaching, failure = null, attempted = authority) }
         viewModelScope.launch {
