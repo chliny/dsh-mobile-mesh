@@ -115,6 +115,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     showConnectPage = false
                     editingHost = null
                 },
+                onConnectAttempt = { connectViewModel.cancelConnect() },
                 onConnectHost = { host ->
                     showSessionList = false
                     showConnections = true

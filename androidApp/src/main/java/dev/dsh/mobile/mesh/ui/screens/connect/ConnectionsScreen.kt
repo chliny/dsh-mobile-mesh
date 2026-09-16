@@ -53,6 +53,7 @@ import dev.dsh.mobile.mesh.connection.ConnectionPhase
 @OptIn(ExperimentalFoundationApi::class)
 fun ConnectionsScreen(
     onClose: () -> Unit,
+    onConnectAttempt: () -> Unit = {},
     onConnectHost: (HostConfig) -> Unit,
     onUpdateToken: (HostConfig) -> Unit,
     onEditHost: (HostConfig) -> Unit,
@@ -118,7 +119,10 @@ fun ConnectionsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .combinedClickable(
-                                    onClick = { onConnectHost(host) },
+                                    onClick = {
+                                        if (shouldResetBeforeSelectingHost(connectionState.connecting)) onConnectAttempt()
+                                        onConnectHost(host)
+                                    },
                                     onLongClick = { menuHost = host },
                                 )
                                 .padding(vertical = DsSpacing.small),
