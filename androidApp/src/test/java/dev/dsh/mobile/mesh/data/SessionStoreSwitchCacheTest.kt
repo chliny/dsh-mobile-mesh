@@ -20,6 +20,12 @@ import org.junit.Test
  */
 class SessionStoreSwitchCacheTest {
     @Test
+    fun `connected state without published api is a publication race`() {
+        assertTrue(requiresApiPublication(dev.dsh.mobile.mesh.connection.ConnectionPhase.CONNECTED, apiPresent = false))
+        assertFalse(requiresApiPublication(dev.dsh.mobile.mesh.connection.ConnectionPhase.CONNECTED, apiPresent = true))
+    }
+
+    @Test
     fun `first open without cache has no conversation until follow snapshot arrives`() {
         val model = SessionSwitchCacheModel()
 
