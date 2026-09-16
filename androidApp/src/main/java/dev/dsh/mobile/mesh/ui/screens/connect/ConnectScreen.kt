@@ -119,7 +119,7 @@ fun ConnectScreen(
     var restoredForKey by remember { mutableStateOf<String?>(null) }
     val editingHost = initialHost
     val formKey = editingHost?.id ?: "new"
-    val connectedEditing = editingHost?.id == connectedHostId
+    val connectedEditing = isEditingConnectedHost(editingHost?.id, connectedHostId)
     val fieldsEnabled = !connectedEditing
     val connectEnabled = !state.connecting && fieldsEnabled && isConnectFormValid(
         host = host,
