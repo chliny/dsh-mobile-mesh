@@ -8,13 +8,6 @@ import (
 	"time"
 )
 
-func TestStartServerTimeoutIsBoundedByImplementation(t *testing.T) {
-	// Keep the timeout guard visible in source-level behavior: a hung tsnet start must not block JNI forever.
-	if 10*time.Second <= 0 {
-		t.Fatal("server start timeout must be positive")
-	}
-}
-
 func TestReadyResultKeepsExistingRelayAddress(t *testing.T) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
