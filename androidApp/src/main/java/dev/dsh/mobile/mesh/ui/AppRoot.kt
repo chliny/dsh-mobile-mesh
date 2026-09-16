@@ -58,7 +58,8 @@ internal fun shouldRouteSelectedConnection(
     selectedAuthority: String?,
     activeAuthority: String?,
     editing: Boolean,
-): Boolean = phaseConnected && !editing && selectedAuthority != null && selectedAuthority == activeAuthority
+    awaitingSelectedConnection: Boolean,
+): Boolean = awaitingSelectedConnection && phaseConnected && !editing && selectedAuthority != null && selectedAuthority == activeAuthority
 
 internal fun shouldShowConnectionTokenPrompt(
     showingConnections: Boolean,
@@ -90,21 +91,24 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         var showConnectPage by rememberSaveable { mutableStateOf(false) }
         var showConnections by rememberSaveable { mutableStateOf(false) }
         var returnToConnections by rememberSaveable { mutableStateOf(false) }
+        var awaitingSelectedConnection by rememberSaveable { mutableStateOf(false) }
         var editingHost by remember { mutableStateOf<HostConfig?>(null) }
         var connectFormInstance by rememberSaveable { mutableIntStateOf(0) }
         val showMain = connection.hasConnected
         val showConnect = showConnectPage
         val showStartupConnections = shouldShowStartupConnections(connection.hasConnected, editingHost != null) && !showSettings && !showConnectPage
         val showTailscaleLogin = connectUiState.tailscaleLoginUrl?.isNotBlank() == true &&
-            connectUiState.attempted?.contains("gmk.tailscale.chliny.me") == true
+            connectUiState.authorizationPending != null
         LaunchedEffect(connection.phase, connection.host?.id, connectUiState.attempted) {
             val selectedConnectionIsReady = shouldRouteSelectedConnection(
                 phaseConnected = connection.phase == ConnectionPhase.CONNECTED,
                 selectedAuthority = connectUiState.attempted,
                 activeAuthority = connection.host?.authority,
                 editing = editingHost != null,
+                awaitingSelectedConnection = awaitingSelectedConnection,
             )
             if (selectedConnectionIsReady && editingHost == null) {
+                awaitingSelectedConnection = false
                 showConnectPage = false
                 showConnections = false
                 showSessionList = true
@@ -119,6 +123,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 },
                 onConnectAttempt = { connectViewModel.cancelConnect() },
                 onConnectHost = { host ->
+                    awaitingSelectedConnection = true
                     showSessionList = false
                     showConnections = true
                     sessionStore.prepareForConnection(host.id)
