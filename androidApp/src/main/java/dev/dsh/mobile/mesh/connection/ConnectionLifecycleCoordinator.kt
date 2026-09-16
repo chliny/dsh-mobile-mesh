@@ -16,6 +16,7 @@ internal class ConnectionLifecycleCoordinator<T> {
     private var foreground = false
     private var retainInBackground = false
     private var desired: T? = null
+    private var authorizationPaused = false
 
     @Synchronized
     fun request(value: T): Target<T> {
@@ -27,6 +28,7 @@ internal class ConnectionLifecycleCoordinator<T> {
 
     @Synchronized
     fun disconnect(): Token {
+        authorizationPaused = false
         desired = null
         targetRevision += 1
         runEpoch += 1
@@ -64,16 +66,29 @@ internal class ConnectionLifecycleCoordinator<T> {
 
     @Synchronized
     fun retryToken(): Target<T>? {
+        if (authorizationPaused) return null
         val value = desired ?: return null
         runEpoch += 1
         return target(value)
     }
 
     @Synchronized
+    fun pauseForAuthorization() {
+        authorizationPaused = true
+        runEpoch += 1
+    }
+
+    @Synchronized
+    fun resumeAfterAuthorization(): Target<T>? {
+        authorizationPaused = false
+        return desired?.let(::target)
+    }
+
+    @Synchronized
     fun current(): Target<T>? = desired?.let(::target)
 
     @Synchronized
-    fun mayRun(): Boolean = mayRunLocked()
+    fun mayRun(): Boolean = mayRunLocked() && !authorizationPaused
 
     @Synchronized
     fun accepts(token: Token): Boolean =
@@ -81,5 +96,5 @@ internal class ConnectionLifecycleCoordinator<T> {
             token.targetRevision == targetRevision && token.runEpoch == runEpoch
 
     private fun target(value: T) = Target(value, Token(targetRevision, runEpoch))
-    private fun mayRunLocked(): Boolean = foreground || retainInBackground
+    private fun mayRunLocked(): Boolean = (foreground || retainInBackground) && !authorizationPaused
 }

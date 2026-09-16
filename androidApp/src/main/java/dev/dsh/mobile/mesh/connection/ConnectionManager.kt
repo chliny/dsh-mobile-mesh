@@ -392,6 +392,7 @@ class ConnectionManager @Inject constructor(
                 // Keep the retained tsnet identity and its login URL. A pending authorization is
                 // not a failed connection and must not enter the reconnect loop; the ViewModel's
                 // single polling job is the only code allowed to request a resume.
+                lifecycle.pauseForAuthorization()
                 _state.value = ConnectionUiState(
                     phase = ConnectionPhase.DISCONNECTED,
                     host = config,
@@ -774,6 +775,7 @@ class ConnectionManager @Inject constructor(
                     lifecycleMayRun = lifecycle.mayRun(),
                     operationInFlight = synchronized(operationLock) { connectJob?.isActive == true },
                 )) return
+            lifecycle.resumeAfterAuthorization()
             val target = lifecycle.retryToken() ?: return
             _state.value = _state.value.copy(
                 phase = ConnectionPhase.CONNECTING,
