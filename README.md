@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/deepseek-mobile.svg" alt="DSH Mobile Mesh logo" width="180">
+  <img src="assets/app-icon.svg" alt="DSH Mobile Mesh logo" width="180">
 </p>
 
 <h1 align="center">DSH Mobile Mesh</h1>
@@ -46,7 +46,7 @@ DSH Mobile Mesh is an unofficial Android remote for [DeepSeek Harness](https://g
 
 The app embeds ZeroTier/libzt or Tailscale/tsnet userspace networking on Android and forwards the native HTTP/WebSocket interface of DeepSeek Harness to the phone. DeepSeek Harness needs no launch-mode changes or plugin, and no Android system VPN is required. SSH forwarding can be layered on Direct, ZeroTier, or Tailscale, allowing DeepSeek Harness to keep listening on `127.0.0.1`.
 
-![DSH Mobile Mesh connection flow](assets/mesh-connection.svg)
+![DSH Mobile Mesh connection flow](assets/mesh-connection-en.svg)
 
 ## Usage
 

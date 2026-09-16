@@ -1,0 +1,10 @@
+<svg width="108" height="108" viewBox="0 0 108 108" role="img" aria-labelledby="title desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="title">DSH Mobile Mesh app icon</title>
+  <desc id="desc">Four colored nodes connected in a diamond-shaped mesh.</desc>
+  <rect width="108" height="108" rx="24" fill="#FFFFFF"/>
+  <path d="M31 64L54 33L77 64L54 76Z" fill="none" stroke="#0E2E4D" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="54" cy="33" r="11" fill="#15C8A0"/>
+  <circle cx="31" cy="64" r="11" fill="#2F80ED"/>
+  <circle cx="77" cy="64" r="11" fill="#2F80ED"/>
+  <circle cx="54" cy="76" r="11" fill="#15C8A0"/>
+</svg>

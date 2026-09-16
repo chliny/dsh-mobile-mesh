@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/deepseek-mobile.svg" alt="โลโก้ DSH Mobile Mesh" width="180"></p>
+<p align="center"><img src="assets/app-icon.svg" alt="โลโก้ DSH Mobile Mesh" width="180"></p>
 <h1 align="center">DSH Mobile Mesh</h1>
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-CN.md">中文</a> · <a href="README.hi.md">हिन्दी</a> · <a href="README.es.md">Español</a> · <a href="README.fr.md">Français</a> · <a href="README.ar.md">العربية</a> · <a href="README.bn.md">বাংলা</a> · <a href="README.pt.md">Português</a> · <a href="README.ru.md">Русский</a> · <a href="README.ur.md">اردو</a> · <b>ไทย</b></p>
 
@@ -15,7 +15,7 @@ DSH Mobile Mesh คือรีโมต Android แบบไม่เป็น�
 
 แอปมีเครือข่าย ZeroTier/libzt หรือ Tailscale/tsnet แบบ userspace ใน Android และส่งต่อ native HTTP/WebSocket interface ของ DeepSeek Harness ไปยังโทรศัพท์ ไม่ต้องเปลี่ยนวิธีเริ่มทำงานของ DeepSeek Harness หรือติดตั้ง plugin และไม่ต้องใช้ VPN ระดับระบบของ Android สามารถเพิ่ม SSH บน Direct, ZeroTier หรือ Tailscale ได้ ทำให้ DeepSeek Harness ยังคงรับฟังที่ `127.0.0.1`
 
-![แผนผังการเชื่อมต่อ DSH Mobile Mesh](assets/mesh-connection.svg)
+![แผนผังการเชื่อมต่อ DSH Mobile Mesh](assets/mesh-connection-th.svg)
 
 ## วิธีใช้
 

@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/deepseek-mobile.svg" alt="شعار DSH Mobile Mesh" width="180"></p>
+<p align="center"><img src="assets/app-icon.svg" alt="شعار DSH Mobile Mesh" width="180"></p>
 <h1 align="center">DSH Mobile Mesh</h1>
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-CN.md">中文</a> · <a href="README.hi.md">हिन्दी</a> · <a href="README.es.md">Español</a> · <a href="README.fr.md">Français</a> · <b>العربية</b> · <a href="README.bn.md">বাংলা</a> · <a href="README.pt.md">Português</a> · <a href="README.ru.md">Русский</a> · <a href="README.ur.md">اردو</a> · <a href="README.th.md">ไทย</a></p>
 
@@ -15,7 +15,7 @@ DSH Mobile Mesh هو تطبيق Android غير رسمي للتحكم عن بُع
 
 يُشغّل التطبيق داخل Android شبكة ZeroTier/libzt أو Tailscale/tsnet بوضع userspace، ويحوّل واجهة HTTP/WebSocket الأصلية لـ DeepSeek Harness إلى الهاتف. لا يحتاج DeepSeek Harness إلى تغيير طريقة التشغيل أو تثبيت إضافة، ولا يلزم استخدام VPN على مستوى نظام Android. يمكن إضافة SSH إلى Direct أو ZeroTier أو Tailscale، مع إبقاء DeepSeek Harness مستمعاً على `127.0.0.1`.
 
-![مسار اتصال DSH Mobile Mesh](assets/mesh-connection.svg)
+![مسار اتصال DSH Mobile Mesh](assets/mesh-connection-ar.svg)
 
 ## الاستخدام
 

@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/deepseek-mobile.svg" alt="DSH Mobile Mesh logo" width="180"></p>
+<p align="center"><img src="assets/app-icon.svg" alt="DSH Mobile Mesh logo" width="180"></p>
 <h1 align="center">DSH Mobile Mesh</h1>
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-CN.md">中文</a> · <b>हिन्दी</b> · <a href="README.es.md">Español</a> · <a href="README.fr.md">Français</a> · <a href="README.ar.md">العربية</a> · <a href="README.bn.md">বাংলা</a> · <a href="README.pt.md">Português</a> · <a href="README.ru.md">Русский</a> · <a href="README.ur.md">اردو</a> · <a href="README.th.md">ไทย</a></p>
 
@@ -15,7 +15,7 @@ DSH Mobile Mesh, [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 App Android में ZeroTier/libzt या Tailscale/tsnet userspace नेटवर्क अंतर्निर्मित रूप से चलाता है और DeepSeek Harness के native HTTP/WebSocket interface को फोन तक forward करता है। DeepSeek Harness के launch mode में बदलाव या plugin की आवश्यकता नहीं है और Android system VPN भी आवश्यक नहीं है। Direct, ZeroTier और Tailscale तीनों पर SSH forwarding जोड़ी जा सकती है, जिससे DeepSeek Harness `127.0.0.1` पर सुनता रह सकता है।
 
-![DSH Mobile Mesh connection flow](assets/mesh-connection.svg)
+![DSH Mobile Mesh connection flow](assets/mesh-connection-hi.svg)
 
 ## उपयोग
 
