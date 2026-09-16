@@ -21,7 +21,7 @@ internal fun TailscaleLoginView(loginUrl: String) {
             }
         },
         update = { webView ->
-            if (webView.url != loginUrl) webView.loadUrl(loginUrl)
+            if (shouldLoadTailscaleLoginUrl(webView.url)) webView.loadUrl(loginUrl)
         },
     )
 }
