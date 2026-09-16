@@ -64,7 +64,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun TodoDock(todos: List<TodoEntry>, modifier: Modifier = Modifier) {
     if (todos.isEmpty()) return
-    var expanded by remember(todos) { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
     val completed = todos.count { it.status == "completed" }
     DisclosureRow(
         title = stringResource(R.string.chat_todo_title),
