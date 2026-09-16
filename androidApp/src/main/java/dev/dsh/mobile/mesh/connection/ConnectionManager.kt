@@ -396,6 +396,7 @@ class ConnectionManager @Inject constructor(
                     phase = ConnectionPhase.DISCONNECTED,
                     host = config,
                     stage = ConnectStage.Idle,
+                    hasConnected = _state.value.hasConnected,
                     authorizationPending = error.message.orEmpty(),
                     tailscaleLoginUrl = (error as? TailscaleLoginRequired)?.loginUrl,
                 )
