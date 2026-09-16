@@ -500,6 +500,7 @@ fun ConnectScreen(
                         text = stringResource(R.string.connect_button),
                         onClick = {
                             val transport = meshTransport
+                            android.util.Log.d("ConnectScreen", "Connect clicked transport=${transport?.storedValue} host=$host")
                             if (transport == null) viewModel.connectManual(
                                 connectionName, host, port, sshEnabled, sshPort, sshUsername, sshAuthentication,
                                 sshPassword, sshPrivateKey, sshPrivateKeyPassphrase, sshDshHost, launchToken,
