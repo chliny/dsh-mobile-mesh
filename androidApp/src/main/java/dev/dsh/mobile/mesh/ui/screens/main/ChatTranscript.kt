@@ -51,6 +51,9 @@ import dev.dsh.mobile.mesh.ui.theme.DsType
  */
 private const val LOAD_OLDER_THRESHOLD = 2
 
+/** Placement animation is disabled because disclosure expansion must not animate every sibling. */
+internal fun transcriptItemsAnimatePlacement(): Boolean = false
+
 /**
  * How many pages the transcript may fetch on its own before it needs to be asked.
  *
@@ -234,9 +237,10 @@ internal fun ChatTranscript(
             }
         } else {
             items(nodes, key = { it.seq }) { node ->
-                Column(Modifier.animateItem()) {
-                    ChatNodeItem(node = node, context = context)
-                }
+                // Disclosure expansion changes only this item's height. Avoid animateItem here:
+                // animating every sibling during a height change causes the whole transcript to
+                // briefly disappear on Android, especially for the todo dock.
+                ChatNodeItem(node = node, context = context)
             }
         }
     }

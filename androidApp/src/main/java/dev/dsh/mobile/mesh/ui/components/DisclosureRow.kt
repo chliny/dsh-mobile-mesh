@@ -1,11 +1,6 @@
 package dev.dsh.mobile.mesh.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -156,14 +151,10 @@ fun DisclosureRow(
                 )
             }
         }
-        // Every disclosure in the app routes through here — tool cards, compaction, workflows,
-        // archived sessions, the todo dock — so animating this one place animates all of them.
-        AnimatedVisibility(
-            visible = expanded && content != null,
-            enter = expandVertically(DsAnimations.expand) + fadeIn(DsAnimations.fade),
-            exit = shrinkVertically(DsAnimations.expand) + fadeOut(DsAnimations.fade),
-        ) {
-            Column { content?.invoke() }
+        // Keep the expanded subtree mounted and only toggle its visibility. This avoids the
+        // remove/reinsert pass that made the LazyColumn briefly blank while a disclosure opened.
+        if (expanded && content != null) {
+            Column { content() }
         }
     }
 }
