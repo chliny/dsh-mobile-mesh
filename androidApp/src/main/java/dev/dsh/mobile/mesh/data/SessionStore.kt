@@ -245,6 +245,9 @@ data class PendingQuestions(
 internal fun nextHasMore(freshCount: Int, hostHasMore: Boolean, overDelivered: Boolean): Boolean =
     freshCount > 0 && (hostHasMore || overDelivered)
 
+internal fun requiresApiPublication(phase: ConnectionPhase, apiPresent: Boolean): Boolean =
+    phase == ConnectionPhase.CONNECTED && !apiPresent
+
 /**
  * Single source of truth for the connected harness's live state. All public surface is
  * [StateFlow]; every RPC error becomes [connectionError] and never throws. The store survives
@@ -1660,7 +1663,10 @@ class SessionStore @Inject constructor(
 
     private suspend fun promptContent(mode: String, content: List<PromptContentPart>): PromptOutcome {
         val sid = currentSessionId.value ?: return PromptOutcome.Failed("no open session")
-        val api = apiOrNull() ?: return PromptOutcome.Failed("not connected")
+        // The UI can observe CONNECTED one frame before the newly published API is visible after
+        // a carrier recovery. Wait for the same generation instead of turning that publication race
+        // into a misleading "not connected" error.
+        val api = awaitConnectedApi() ?: return PromptOutcome.Failed("not connected")
         val safeMode = if (mode == "steer") "steer" else "queue"
         val zone = TimeZone.getDefault().id
         val request = SessionPromptRequest(
