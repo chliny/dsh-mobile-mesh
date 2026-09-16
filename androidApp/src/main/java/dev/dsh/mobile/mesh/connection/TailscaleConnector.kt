@@ -70,6 +70,7 @@ class TailscaleConnector @Inject constructor(
         // startNative may wait for tsnet's control-plane state. Do not hold the callback lock
         // across that synchronous JNI call: Android network callbacks must remain able to rebind
         // the native socket while authorization is completing.
+        android.util.Log.d("TailscaleConnector", "Starting tsnet remote=${config.host}:${if (config.sshEnabled) config.sshPort else config.port} hostname=$hostname")
         val result = Json.decodeFromString<TailscaleStartResult>(
             TailscaleNative.startNative(
                 stateDirectory.absolutePath,
@@ -78,6 +79,7 @@ class TailscaleConnector @Inject constructor(
                 if (config.sshEnabled) config.sshPort else config.port,
             ),
         )
+        android.util.Log.d("TailscaleConnector", "tsnet result state=${result.state} hasBase=${result.baseUrl != null} hasLogin=${result.loginUrl != null} error=${result.error}")
         result.baseUrl?.let { baseUrl ->
             val parsed = Uri.parse(baseUrl)
             MeshRelay(parsed.host ?: "127.0.0.1", parsed.port.takeIf { it > 0 } ?: 80)
