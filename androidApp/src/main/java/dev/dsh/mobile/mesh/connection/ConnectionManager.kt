@@ -402,7 +402,7 @@ class ConnectionManager @Inject constructor(
                 )
                 return
             }
-            val willRetry = reconnect && lifecycle.mayRun()
+            val willRetry = reconnect && lifecycle.mayRun() && error !is MeshAuthorizationPending
             Log.w(
                 "ConnectionManager",
                 "Connection operation failed (reconnect=$reconnect, timeout=${error is TimeoutCancellationException}): ${error.message}",
@@ -419,7 +419,7 @@ class ConnectionManager @Inject constructor(
                 tailscaleLoginUrl = _state.value.tailscaleLoginUrl,
             )
             cleanupResources()
-            if (willRetry && error !is MeshAuthorizationPending) scheduleRetry(
+            if (willRetry) scheduleRetry(
                 (attempt + 1).coerceAtMost(FOREGROUND_RECOVERY_FAST_ATTEMPTS),
                 target.token,
             )
