@@ -419,7 +419,7 @@ class ConnectionManager @Inject constructor(
                 tailscaleLoginUrl = _state.value.tailscaleLoginUrl,
             )
             cleanupResources()
-            if (willRetry) scheduleRetry(
+            if (willRetry && error !is MeshAuthorizationPending) scheduleRetry(
                 (attempt + 1).coerceAtMost(FOREGROUND_RECOVERY_FAST_ATTEMPTS),
                 target.token,
             )
