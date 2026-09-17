@@ -77,6 +77,9 @@ import kotlinx.coroutines.withContext
 internal fun shouldRestoreConnectionDraft(editingHost: HostConfig?, restoreDraft: Boolean, draftAvailable: Boolean): Boolean =
     editingHost == null && restoreDraft && draftAvailable
 
+internal fun shouldEnableConnectButton(connectInFlight: Boolean, formValid: Boolean): Boolean =
+    !connectInFlight && formValid
+
 /**
  * Choose how to reach a harness, then reach one.
  *
@@ -128,7 +131,7 @@ fun ConnectScreen(
             connectInFlight = false
         }
     }
-    val connectEnabled = fieldsEnabled && !connectInFlight && isConnectFormValid(
+    val formValid = isConnectFormValid(
         host = host,
         port = port,
         sshEnabled = sshEnabled,
@@ -138,6 +141,7 @@ fun ConnectScreen(
         secret = if (sshAuthentication == SshAuthentication.PASSWORD) sshPassword else sshPrivateKey,
         tailscaleHostname = if (meshTransport == MeshTransport.TAILSCALE) tailscaleHostname else "",
     )
+    val connectEnabled = fieldsEnabled && shouldEnableConnectButton(connectInFlight, formValid)
     onOpenConnections?.let { openConnections ->
         BackHandler { openConnections() }
     }
