@@ -45,6 +45,7 @@ import dev.dsh.mobile.mesh.data.CommandOutcome
 import dev.dsh.mobile.mesh.data.PromptOutcome
 import dev.dsh.mobile.mesh.data.QuestionOutcome
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
+import dev.dsh.mobile.mesh.data.DirectoryLevel
 import dev.dsh.mobile.mesh.data.SessionStore
 import dev.dsh.mobile.mesh.ui.components.ApprovalPanel
 import dev.dsh.mobile.mesh.ui.components.ConnectionBanner
@@ -134,11 +135,15 @@ fun ChatScreen(
     val trajectoryListState = rememberLazyListState()
 
     val workspaceFiles = rememberWorkspaceFilesStore()
+    val fileState by workspaceFiles.state.collectAsStateWithLifecycle()
     val workspaces by store.workspaces.collectAsStateWithLifecycle()
     val workspaceKey = currentSessionId?.let { sid ->
         workspaces.firstOrNull { sid in it.sessionIds }?.workspaceId
     } ?: currentSessionId?.let { "session:$it" }
-    val fileCandidates = workspaceKey?.let(workspaceFiles::cachedEntries).orEmpty()
+    val fileCandidates = workspaceKey?.let { key ->
+        val referenceEntries = (fileState.levels["@"] as? DirectoryLevel.Ready)?.listing?.entries
+        referenceEntries?.takeIf { it.isNotEmpty() } ?: workspaceFiles.cachedEntries(key)
+    }.orEmpty()
     fun queryFileReferences(query: String) {
         val key = workspaceKey ?: return
         val sid = currentSessionId ?: return

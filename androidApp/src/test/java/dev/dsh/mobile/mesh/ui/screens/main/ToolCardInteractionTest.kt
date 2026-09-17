@@ -1,6 +1,7 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
 import dev.dsh.mobile.mesh.core.session.ToolResultNode
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryEntry
 import dev.dsh.mobile.mesh.ui.components.ToolCardView
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -16,6 +17,14 @@ class ToolCardInteractionTest {
         assertEquals("src", mentionQueryForDraft("@src"))
         assertEquals("", mentionQueryForDraft("@"))
         assertEquals(null, mentionQueryForDraft("@src/main.kt "))
+    }
+
+    @Test
+    fun `mention matching supports nested slash paths and limits results`() {
+        val candidates = (1..9).map { WorkspaceDirectoryEntry("src/lib/File$it.kt", "file") } +
+            WorkspaceDirectoryEntry("docs/File.md", "file")
+        assertEquals("src/lib/File1.kt", matchingMentionFiles(candidates, "src/lib/File1").single().name)
+        assertEquals(8, matchingMentionFiles(candidates, "src/lib/File").size)
     }
 
     @Test
