@@ -5,6 +5,7 @@ import dev.dsh.mobile.mesh.core.wire.decodeFromString
 import dev.dsh.mobile.mesh.core.wire.encodeToJsonElement
 import dev.dsh.mobile.mesh.core.wire.dto.SessionEvent
 import dev.dsh.mobile.mesh.core.wire.dto.SessionEventSerializer
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -35,6 +36,23 @@ class EventFoldTest {
         val compacted = EventFold("s1").fold(events).nodes.single() as CompactionNode
         assertEquals(3L, compacted.seq)
         assertEquals("Important context", (compacted.data as kotlinx.serialization.json.JsonObject)["summary"]?.jsonArray?.single()?.jsonObject?.get("text")?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `separated events for one compaction stay in one expandable node`() {
+        val events = listOf(
+            event("compaction/start", 1, buildJsonObject { put("compactionId", "c1") }),
+            event("assistant/message", 2, buildJsonObject { put("message", buildJsonObject { put("content", "after") }) }),
+            event("compaction/summary", 3, buildJsonObject {
+                put("compactionId", "c1")
+                putJsonArray("summary") { add(buildJsonObject { put("text", "Full summary") }) }
+            }),
+            event("compaction/end", 4, buildJsonObject { put("compactionId", "c1") }),
+        )
+        val nodes = EventFold("s1").fold(events).nodes
+        assertEquals(1, nodes.count { it is CompactionNode })
+        val compacted = nodes.filterIsInstance<CompactionNode>().single()
+        assertEquals("Full summary", (compacted.data as JsonObject)["summary"]?.jsonArray?.single()?.jsonObject?.get("text")?.jsonPrimitive?.content)
     }
 
     @Test
