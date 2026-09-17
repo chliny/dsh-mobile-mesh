@@ -100,6 +100,7 @@ internal data class ChatNodeContext(
     val onOpenSubagent: (String) -> Unit,
     val onBranchFrom: (Long) -> Unit,
     val onFeedback: (Long, Boolean) -> Unit,
+    val onActionFeedback: (String) -> Unit = {},
 )
 
 /**
@@ -450,6 +451,9 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
 @Composable
 private fun MessageActionsRow(node: AssistantMessageNode, context: ChatNodeContext) {
     val colors = DsTheme.colors
+    val copiedLabel = stringResource(R.string.common_copied)
+    val forkLabel = stringResource(R.string.chat_fork_created)
+    val feedbackLabel = stringResource(R.string.chat_feedback_sent)
     val clipboard = LocalClipboardManager.current
     Row(
         modifier = Modifier.padding(top = 2.dp),
@@ -458,15 +462,19 @@ private fun MessageActionsRow(node: AssistantMessageNode, context: ChatNodeConte
     ) {
         ActionIcon(Icons.Filled.ContentCopy, stringResource(R.string.chat_copy_message)) {
             clipboard.setText(AnnotatedString(node.plainText))
+            context.onActionFeedback(copiedLabel)
         }
         ActionIcon(Icons.AutoMirrored.Outlined.CallSplit, stringResource(R.string.chat_branch_message)) {
             context.onBranchFrom(node.seq)
+            context.onActionFeedback(forkLabel)
         }
         ActionIcon(Icons.Filled.ThumbUp, stringResource(R.string.chat_feedback_up)) {
             context.onFeedback(node.seq, true)
+            context.onActionFeedback(feedbackLabel)
         }
         ActionIcon(Icons.Filled.ThumbDown, stringResource(R.string.chat_feedback_down)) {
             context.onFeedback(node.seq, false)
+            context.onActionFeedback(feedbackLabel)
         }
     }
 }

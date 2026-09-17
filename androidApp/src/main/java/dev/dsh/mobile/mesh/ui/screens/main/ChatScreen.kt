@@ -417,6 +417,7 @@ fun ChatScreen(
                 onFeedback = { _, positive ->
                     scope.launch { report(store.runCommand(if (positive) "/feedback +1" else "/feedback -1")) }
                 },
+                onActionFeedback = { message -> toast.second(message) },
             )
 
             AnimatedContent(

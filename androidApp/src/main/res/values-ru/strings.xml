@@ -7,7 +7,7 @@
     <string name="common_discard">Отбросить</string>
     <string name="common_delete">Удалить</string>
     <string name="common_copy">Копировать</string>
-    <string name="common_copied">Скопировано</string>
+    \1Успешно скопировано\2
     <string name="common_retry">Повторить</string>
     <string name="common_search">Поиск</string>
     <string name="common_loading">Загрузка…</string>
@@ -465,4 +465,5 @@
     <string name="tool_expanded_body">Развёрнутое содержимое</string>
     <string name="chat_deep_diving">DeepSeek работает…</string>
     <string name="chat_waiting_seconds">%1$d с</string>
+    <string name="chat_feedback_sent">Отзыв отправлен</string>
 </resources>
