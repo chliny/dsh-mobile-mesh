@@ -117,12 +117,18 @@ fun ConnectScreen(
     var launchToken by rememberSaveable { mutableStateOf("") }
     var sshDshHost by rememberSaveable { mutableStateOf("127.0.0.1") }
     var restoredForKey by remember { mutableStateOf<String?>(null) }
+    var connectInFlight by rememberSaveable { mutableStateOf(false) }
     val editingHost = initialHost
     val formKey = editingHost?.id ?: "new"
     val connectedEditing = isEditingConnectedHost(editingHost?.id, connectedHostId)
     val fieldsEnabled = !connectedEditing
     val newConnectionAction = shouldShowConnectAction(editingHost?.id, connectedHostId)
-    val connectEnabled = fieldsEnabled && isConnectFormValid(
+    LaunchedEffect(state.attempted, state.failure, state.authorizationPending) {
+        if (state.attempted == null || state.failure != null || state.authorizationPending != null) {
+            connectInFlight = false
+        }
+    }
+    val connectEnabled = fieldsEnabled && !connectInFlight && isConnectFormValid(
         host = host,
         port = port,
         sshEnabled = sshEnabled,
@@ -499,6 +505,8 @@ fun ConnectScreen(
                     if (editingHost == null) DsButton(
                         text = stringResource(R.string.connect_button),
                         onClick = {
+                            if (connectInFlight) return@DsButton
+                            connectInFlight = true
                             val transport = meshTransport
                             android.util.Log.d("ConnectScreen", "Connect clicked transport=${transport?.storedValue} host=$host valid=$connectEnabled")
                             if (!connectEnabled) {
@@ -513,7 +521,7 @@ fun ConnectScreen(
                                 sshDshHost, zeroTierPlanetId, launchToken,
                             )
                         },
-                        enabled = true,
+                        enabled = connectEnabled,
                         testTag = "connect-action",
                         variant = DsButtonVariant.Info,
                         modifier = Modifier.fillMaxWidth(),
@@ -906,7 +914,7 @@ internal fun TailscaleLoginDialog(
     DsDialog(
         title = stringResource(R.string.connect_tailscale_login_title),
         onDismiss = onDismiss,
-        fullScreen = true,
+        fullScreen = false,
     ) {
         TailscaleLoginView(loginUrl)
     }
