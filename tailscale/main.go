@@ -135,13 +135,13 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 		// published on the IPN bus. Keep the server alive and let the authorization watcher
 		// surface that URL instead of converting the attempt into a dead connection.
 		login, loginErr := loginURL(client)
-		if loginErr == nil {
+		if loginErr == nil && login != "" {
 			current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname,
 				remoteHost: targetHost, remotePort: targetPort, loginURL: login}
 			return encode(pendingLoginState(login))
 		}
 		_ = server.Close()
-		return encode(result{State: "error", Error: err.Error()})
+		return encode(result{State: "error", Error: firstError(err, loginErr).Error()})
 	}
 	if status.BackendState != ipn.Running.String() {
 		// The local status may be warming up while the IPN bus has already emitted BrowseToURL.
@@ -183,7 +183,7 @@ func TailscaleStop() *C.char {
 func TailscaleFree(value *C.char) { C.free(unsafe.Pointer(value)) }
 
 func getStatus(client *local.Client) (*ipnstate.Status, error) {
-	return getStatusWithTimeout(client, 15*time.Second)
+	return getStatusWithTimeout(client, 3*time.Second)
 }
 
 func waitForRunning(client *local.Client) bool {
@@ -196,6 +196,13 @@ func waitForRunning(client *local.Client) bool {
 		time.Sleep(statusPollDelay)
 	}
 	return false
+}
+
+func firstError(primary, secondary error) error {
+	if primary != nil {
+		return primary
+	}
+	return secondary
 }
 
 func getStatusWithTimeout(client *local.Client, timeout time.Duration) (*ipnstate.Status, error) {
