@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
+import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonSize
@@ -99,6 +100,33 @@ internal fun shouldPageAtTop(
  * long transcript while a turn streams should not keep yanking the view down. Scrolling the other
  * way pages history in without a button.
  */
+internal fun waitingForFirstResponse(running: Boolean, hasAssistant: Boolean): Boolean = running && !hasAssistant
+
+@Composable
+private fun WaitingForModelRow() {
+    var elapsedSeconds by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        val started = System.currentTimeMillis()
+        while (true) {
+            elapsedSeconds = ((System.currentTimeMillis() - started) / 1000L).toInt()
+            kotlinx.coroutines.delay(1000L)
+        }
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        dev.dsh.mobile.mesh.ui.components.StateDot(
+            dev.dsh.mobile.mesh.ui.components.StateDotState.Running,
+            size = 8.dp,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(stringResource(R.string.chat_deep_diving), style = DsType.small13, color = DsTheme.colors.labelSecondary)
+        Spacer(Modifier.width(8.dp))
+        Text(stringResource(R.string.chat_waiting_seconds, elapsedSeconds), style = DsType.caption11, color = DsTheme.colors.labelCaption)
+    }
+}
+
 @Composable
 internal fun ChatTranscript(
     conversation: ConversationSnapshot?,
@@ -118,6 +146,10 @@ internal fun ChatTranscript(
     val hasMore = conversation?.hasMore == true
     val itemCount = nodes.size + if (hasMore) 1 else 0
     val sessionId = conversation?.sessionId
+    val waitingForFirstResponse = waitingForFirstResponse(
+        running = conversation?.running == true,
+        hasAssistant = nodes.any { it is AssistantMessageNode },
+    )
 
     // Both keyed on the session so a freshly opened one starts from a clean assumption rather than
     // inheriting the previous transcript's position — and so the collector always writes to the
@@ -241,6 +273,11 @@ internal fun ChatTranscript(
                 // animating every sibling during a height change causes the whole transcript to
                 // briefly disappear on Android, especially for the todo dock.
                 ChatNodeItem(node = node, context = context)
+            }
+            if (waitingForFirstResponse) {
+                item(key = "waiting-for-model") {
+                    WaitingForModelRow()
+                }
             }
         }
     }

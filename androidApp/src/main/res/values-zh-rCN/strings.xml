@@ -134,6 +134,8 @@
     <string name="chat_loading_older">正在加载更早的消息…</string>
     <string name="chat_load_older_retry">无法加载更早的消息 — 点按重试</string>
     <string name="chat_thinking">思考中</string>
+    <string name="chat_deep_diving">深度求索中…</string>
+    <string name="chat_waiting_seconds">%1$d 秒</string>
     <string name="chat_stopped">已停止</string>
     <string name="chat_stopped_aborted">回合已中止</string>
     <string name="chat_error_turn">回合失败</string>

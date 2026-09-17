@@ -203,6 +203,8 @@
     <string name="chat_loading_older">Loading earlier messages…</string>
     <string name="chat_load_older_retry">Couldn\'t load earlier messages — tap to retry</string>
     <string name="chat_thinking">Thinking</string>
+    <string name="chat_deep_diving">DeepSeek is working…</string>
+    <string name="chat_waiting_seconds">%1$d s</string>
     <string name="chat_stopped">Stopped</string>
     <string name="chat_stopped_aborted">Turn aborted</string>
     <string name="chat_error_turn">Turn failed</string>
@@ -228,6 +230,12 @@
     <string name="chat_context_system">System</string>
     <string name="chat_context_tools">Tools</string>
     <string name="chat_context_messages">Messages</string>
+    <string name="chat_preview_badge">Preview</string>
+    <string name="tool_files_count">· %1$d file(s)</string>
+    <string name="tool_search_showing">Showing %1$d of %2$d</string>
+    <string name="tool_read_lines_tap">%1$d lines · tap to open</string>
+    <string name="tool_calls_title">Tool calls</string>
+    <string name="tool_expanded_body">Expanded body</string>
     <string name="chat_context_injection">Context injection</string>
     <string name="chat_compaction">Compacted</string>
     <string name="chat_compaction_summary">Summary</string>

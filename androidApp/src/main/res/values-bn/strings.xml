@@ -455,4 +455,6 @@
     <string name="tool_read_lines_tap">%1$d lines · tap to open</string>
     <string name="tool_calls_title">Tool calls</string>
     <string name="tool_expanded_body">Expanded body</string>
+    <string name="chat_deep_diving">DeepSeek কাজ করছে…</string>
+    <string name="chat_waiting_seconds">%1$d সেকেন্ড</string>
 </resources>

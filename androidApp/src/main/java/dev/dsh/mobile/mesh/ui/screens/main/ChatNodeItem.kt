@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +40,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import dev.dsh.mobile.mesh.R
@@ -351,6 +353,26 @@ internal fun FileChip(name: String, bytes: Long, modifier: Modifier = Modifier) 
 // ---------------------------------------------------------------------------
 // Assistant messages
 // ---------------------------------------------------------------------------
+
+@Composable
+private fun WaitingForModel(context: ChatNodeContext) {
+    var elapsedSeconds by remember { mutableStateOf(0L) }
+    LaunchedEffect(context.running) {
+        if (!context.running) return@LaunchedEffect
+        val started = System.currentTimeMillis()
+        while (true) {
+            elapsedSeconds = ((System.currentTimeMillis() - started) / 1000L).coerceAtLeast(0L)
+            delay(1000L)
+        }
+    }
+    ThinkingRow(
+        summary = stringResource(R.string.chat_deep_diving),
+        elapsedLabel = stringResource(R.string.chat_waiting_seconds, elapsedSeconds),
+        expanded = false,
+        onToggle = {},
+        streaming = true,
+    )
+}
 
 @Composable
 private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContext) {

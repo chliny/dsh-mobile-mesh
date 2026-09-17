@@ -20,6 +20,13 @@ class ToolCardInteractionTest {
     }
 
     @Test
+    fun `waiting indicator is shown while running without assistant content`() {
+        assertTrue(waitingForFirstResponse(running = true, hasAssistant = false))
+        assertTrue(!waitingForFirstResponse(running = true, hasAssistant = true))
+        assertTrue(!waitingForFirstResponse(running = false, hasAssistant = false))
+    }
+
+    @Test
     fun `mention matching supports nested slash paths and limits results`() {
         val candidates = (1..9).map { WorkspaceDirectoryEntry("src/lib/File$it.kt", "file") } +
             WorkspaceDirectoryEntry("docs/File.md", "file")
