@@ -285,7 +285,7 @@
     <string name="questions_submitting">Submitting…</string>
     <string name="questions_progress">%1$d / %2$d</string>
     <string name="questions_answer_refused">The harness would not accept that answer (%1$s).</string>
-    <string name="questions_answer_unsent">Could not reach the harness.</string>
+    <string name="questions_answer_unsent">Question response could not be submitted: %1$s</string>
     <string name="subagents_title">Subagents</string>
     <string name="subagents_empty">No subagents</string>
     <string name="subagents_running">Running</string>

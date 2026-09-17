@@ -203,8 +203,8 @@ sealed interface QuestionOutcome {
      */
     data class Refused(val reason: String) : QuestionOutcome
 
-    /** The POST never completed, so nothing is known about the wait. */
-    data object Unsent : QuestionOutcome
+    /** The response failed; the reason preserves the Gateway code and message. */
+    data class Unsent(val reason: String) : QuestionOutcome
 }
 
 /** Wire workspace -> renderable row, parsing the ISO-8601 stamp once at the boundary. */
@@ -1848,8 +1848,10 @@ class SessionStore @Inject constructor(
      */
     suspend fun answerQuestions(sessionId: String, answer: AskUserQuestionAnswer): QuestionOutcome {
         val eventId = pendingQuestionEvent(sessionId) ?: return QuestionOutcome.Refused("not-pending")
-        val clientId = pendingQuestionClientId(sessionId) ?: return QuestionOutcome.Unsent
-        val api = connectionManager.apiForEvent(clientId) ?: return QuestionOutcome.Unsent
+        val clientId = pendingQuestionClientId(sessionId)
+            ?: return QuestionOutcome.Unsent("no event generation is available")
+        val api = connectionManager.apiForEvent(clientId)
+            ?: return QuestionOutcome.Unsent("event generation $clientId is no longer available")
         // The waterfall returns the answer object itself; there is no envelope around it now.
         val outcome = answerOutcome(
             api.answerEvent(
@@ -1891,8 +1893,10 @@ class SessionStore @Inject constructor(
      */
     suspend fun dismissQuestions(sessionId: String): QuestionOutcome {
         val eventId = pendingQuestionEvent(sessionId) ?: return QuestionOutcome.Refused("not-pending")
-        val clientId = pendingQuestionClientId(sessionId) ?: return QuestionOutcome.Unsent
-        val api = connectionManager.apiForEvent(clientId) ?: return QuestionOutcome.Unsent
+        val clientId = pendingQuestionClientId(sessionId)
+            ?: return QuestionOutcome.Unsent("no event generation is available")
+        val api = connectionManager.apiForEvent(clientId)
+            ?: return QuestionOutcome.Unsent("event generation $clientId is no longer available")
         // A rejection, not an empty answer, and not `next`: `next` would delegate to the host's
         // own later listeners, which is a different thing from the user closing the prompt.
         return answerOutcome(
@@ -1936,11 +1940,13 @@ class SessionStore @Inject constructor(
     ): QuestionOutcome = when (result) {
         is RpcResult.Ok -> QuestionOutcome.Accepted
         is RpcResult.Err -> {
-            log("$what failed for $sessionId: ${result.error.message}")
-            if (result.error.code == "not-pending") {
-                QuestionOutcome.Refused("not-pending")
+            val error = result.error
+            val reason = "${error.code}: ${error.message}"
+            log("$what failed for $sessionId: $reason")
+            if (error.code == "not-pending") {
+                QuestionOutcome.Refused(reason)
             } else {
-                QuestionOutcome.Unsent
+                QuestionOutcome.Unsent(reason)
             }
         }
     }
