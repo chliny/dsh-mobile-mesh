@@ -141,7 +141,6 @@ class NotificationObserver @Inject constructor(
                 Spec(
                     channel = DshNotifications.CHANNEL_ACTION,
                     title = context.getString(R.string.notif_review_requested, event.toolName),
-                    actionLabel = context.getString(R.string.notif_open),
                 )
             }
             is CompletionEvent.QuestionRequested -> {
@@ -162,15 +161,13 @@ class NotificationObserver @Inject constructor(
 
         if (isDuplicate(event.dedupKey)) return
 
-        val text = context.getString(R.string.notif_open)
         val id = notificationId(event.sessionId, spec.channel)
-        notifications.postSession(spec.channel, id, spec.title, text, event.sessionId, spec.actionLabel)
+        notifications.postSession(spec.channel, id, spec.title, "", event.sessionId)
     }
 
     private data class Spec(
         val channel: String,
         val title: String,
-        val actionLabel: String? = null,
     )
 
     private fun sessionTitle(sessionId: String): String? =
