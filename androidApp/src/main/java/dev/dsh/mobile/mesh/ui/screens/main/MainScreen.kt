@@ -14,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,23 +50,6 @@ private sealed interface MainPage {
     data class Preview(val path: String, val title: String, val returnPage: MainPage) : MainPage
 }
 
-private val mainPageSaver = Saver<MainPage, List<String>>(
-    save = { page ->
-        when (page) {
-            MainPage.Chat -> listOf("chat")
-            is MainPage.Files -> listOf("files", page.path, page.rootTitle.orEmpty())
-            is MainPage.Preview -> listOf("preview", page.path, page.title, "chat")
-        }
-    },
-    restore = { parts ->
-        when (parts.firstOrNull()) {
-            "files" -> MainPage.Files(parts.getOrNull(1).orEmpty().ifBlank { "." }, parts.getOrNull(2).orEmpty().ifBlank { null })
-            "preview" -> MainPage.Preview(parts.getOrNull(1).orEmpty(), parts.getOrNull(2).orEmpty(), MainPage.Chat)
-            else -> MainPage.Chat
-        }
-    },
-)
-
 /**
  * Session conversation shell:
  *  - the session list is a previous full-screen page, reached with the top-left button or Back
@@ -85,7 +67,7 @@ fun MainScreen(
     reconnectAttempt: Int,
     onReconnect: () -> Unit,
 ) {
-    var page by rememberSaveable(stateSaver = mainPageSaver) { mutableStateOf<MainPage>(MainPage.Chat) }
+    var page by remember { mutableStateOf<MainPage>(MainPage.Chat) }
 
     var detailsOpen by remember { mutableStateOf(false) }
     val detailsWidth = 300.dp
