@@ -33,6 +33,12 @@ import kotlinx.serialization.json.jsonPrimitive
  * The fold is pure: same events → same snapshot.
  */
 private fun retryFailureText(data: JsonObject?): String? = data?.let { obj ->
+    val failure = obj["failure"]
+    if (failure is JsonObject) {
+        val status = failure["status"]?.jsonPrimitive?.contentOrNull
+        val raw = JsonObject(failure.filterKeys { it != "status" }).toString()
+        return@let if (status.isNullOrBlank()) raw else "$status: $raw"
+    }
     sequenceOf("message", "error", "reason", "detail")
         .mapNotNull { key -> obj[key]?.jsonPrimitive?.contentOrNull }
         .firstOrNull { it.isNotBlank() }
@@ -53,6 +59,12 @@ private fun retryMaxAttempts(data: JsonObject): Int = sequenceOf("maxAttempts", 
     .mapNotNull { key -> data[key]?.jsonPrimitive?.intOrNull }
     .firstOrNull { it > 0 }
     ?: 20
+
+private fun sameRetryChain(previous: RetryNode, current: JsonObject?): Boolean {
+    val previousId = (previous.data as? JsonObject)?.get("retryId")?.jsonPrimitive?.contentOrNull
+    val currentId = current?.get("retryId")?.jsonPrimitive?.contentOrNull
+    return previousId != null && currentId != null && previousId == currentId
+}
 
 class EventFold(private val sessionId: String) {
 
@@ -320,12 +332,12 @@ private class FoldState(private val sessionId: String) {
                 }
             }
 
-            "llm/retry", "llm/retry-started" -> {
+            "llm/retry" -> {
                 val obj = data as? JsonObject
                 val failure = retryFailureText(obj)
                 val maxAttempts = obj?.let { retryMaxAttempts(it) } ?: 20
                 val previous = nodes.lastOrNull() as? RetryNode
-                if (previous != null) {
+                if (previous != null && sameRetryChain(previous, obj)) {
                     nodes[nodes.lastIndex] = previous.copy(
                         seq = event.seq,
                         kind = event.type,
@@ -338,6 +350,8 @@ private class FoldState(private val sessionId: String) {
                     nodes.add(RetryNode(event.seq, event.type, data, maxAttempts = maxAttempts, failures = listOfNotNull(failure)))
                 }
             }
+
+            "llm/retry-started" -> Unit
 
             "command/run", "command/done" -> nodes.add(CommandNode(event.seq, event.type, data))
 

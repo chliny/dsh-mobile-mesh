@@ -39,6 +39,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ChatNode
@@ -210,11 +212,23 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
     }
 }
 
+private fun retryDelayMs(node: RetryNode): Long? =
+    (node.data as? kotlinx.serialization.json.JsonObject)
+        ?.get("delayMs")
+        ?.jsonPrimitive
+        ?.longOrNull
+
 @Composable
 private fun RetryRow(node: RetryNode) {
     var expanded by remember(node.seq) { mutableStateOf(false) }
+    val delayMs = retryDelayMs(node)
+    val title = if (delayMs != null) {
+        stringResource(R.string.chat_model_request_retried_with_delay, node.attempts, node.maxAttempts, delayMs)
+    } else {
+        stringResource(R.string.chat_model_request_retried, node.attempts, node.maxAttempts)
+    }
     DisclosureRow(
-        title = stringResource(R.string.chat_model_request_retried, node.attempts, node.maxAttempts),
+        title = title,
         icon = FeatherIcons.AlertTriangle,
         expanded = expanded,
         onToggle = { expanded = !expanded },

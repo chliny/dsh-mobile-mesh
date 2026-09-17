@@ -9,6 +9,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -40,10 +41,12 @@ class EventFoldTest {
     fun consecutiveModelRetriesCollapseIntoOneUpdatedNode() {
         val events = listOf(
             event("llm/retry", 1, buildJsonObject {
+                put("retryId", "r1")
                 put("message", "provider unavailable")
                 put("maxAttempts", 20)
             }),
             event("llm/retry", 2, buildJsonObject {
+                put("retryId", "r1")
                 put("message", "request timed out")
                 put("maxAttempts", 20)
             }),
@@ -53,6 +56,27 @@ class EventFoldTest {
         assertEquals(20, retry.maxAttempts)
         assertEquals(listOf("provider unavailable", "request timed out"), retry.failures)
         assertEquals(2L, retry.seq)
+    }
+
+    @Test
+    fun retryStartedDoesNotIncreaseRetryCountAndStructuredFailureIncludesStatus() {
+        val events = listOf(
+            event("llm/retry", 1, buildJsonObject {
+                put("retry", 1)
+                put("maxRetries", 20)
+                put("delayMs", 29_753)
+                putJsonObject("failure") {
+                    put("status", 503)
+                    put("message", "auth_unavailable")
+                    put("code", "internal_server_error")
+                }
+            }),
+            event("llm/retry-started", 2, buildJsonObject { put("retry", 1) }),
+        )
+        val retry = EventFold("s1").fold(events).nodes.single() as RetryNode
+        assertEquals(1, retry.attempts)
+        assertEquals(29_753L, retry.data.jsonObject["delayMs"]?.jsonPrimitive?.longOrNull)
+        assertEquals("503: {\"message\":\"auth_unavailable\",\"code\":\"internal_server_error\"}", retry.failures.single())
     }
 
     @Test
