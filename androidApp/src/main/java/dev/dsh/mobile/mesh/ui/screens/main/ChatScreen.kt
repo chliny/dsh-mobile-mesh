@@ -141,8 +141,7 @@ fun ChatScreen(
         workspaces.firstOrNull { sid in it.sessionIds }?.workspaceId
     } ?: currentSessionId?.let { "session:$it" }
     val fileCandidates = workspaceKey?.let { key ->
-        val referenceEntries = (fileState.levels["@"] as? DirectoryLevel.Ready)?.listing?.entries
-        referenceEntries?.takeIf { it.isNotEmpty() } ?: workspaceFiles.cachedEntries(key)
+        (fileState.levels["@"] as? DirectoryLevel.Ready)?.listing?.entries.orEmpty()
     }.orEmpty()
     fun queryFileReferences(query: String) {
         val key = workspaceKey ?: return

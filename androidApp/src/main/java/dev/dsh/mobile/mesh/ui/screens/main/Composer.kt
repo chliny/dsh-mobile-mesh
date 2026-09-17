@@ -150,20 +150,16 @@ internal fun mentionQueryForDraft(draft: String): String? {
     return token.takeIf { it.startsWith("@") }?.removePrefix("@")
 }
 
+/**
+ * Keep the host's file-reference result intact; filtering and ranking belong to the server.
+ *
+ * The composer still caps the number of rows rendered, but it must not turn the workspace listing
+ * into a second client-side search implementation. `WorkspaceFilesStore.searchReferences` already
+ * sends the complete mention query to `fileReferences/list`.
+ */
 internal fun matchingMentionFiles(
     fileCandidates: List<WorkspaceDirectoryEntry>,
-    mentionQuery: String,
-): List<WorkspaceDirectoryEntry> {
-    val normalized = mentionQuery.trimStart('/')
-    val prefix = normalized.substringBeforeLast('/', "")
-    val leaf = normalized.substringAfterLast('/')
-    return fileCandidates.filter { file ->
-        val name = file.name.trimStart('/')
-        if (prefix.isBlank()) name.substringAfterLast('/').contains(leaf, ignoreCase = true)
-        else name.startsWith("$prefix/", ignoreCase = true) &&
-            name.substringAfterLast('/').contains(leaf, ignoreCase = true)
-    }.take(8)
-}
+): List<WorkspaceDirectoryEntry> = fileCandidates.take(8)
 
 @Composable
 internal fun Composer(
@@ -206,9 +202,7 @@ internal fun Composer(
         filePickerOpen = mentionActive
         if (mentionActive) onFileQueryChange(mentionQuery)
     }
-    val matchingFiles = remember(fileCandidates, mentionQuery) {
-        matchingMentionFiles(fileCandidates, mentionQuery)
-    }
+    val matchingFiles = remember(fileCandidates) { matchingMentionFiles(fileCandidates) }
     val commandQuery = draft.removePrefix("/").takeIf { draft.startsWith("/") && !draft.contains(' ') }.orEmpty()
     val matchingCommands = remember(commands, commandQuery) {
         commands.filter { it.name.startsWith(commandQuery, ignoreCase = true) }
