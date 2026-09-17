@@ -44,6 +44,9 @@ private fun retryFailureText(data: JsonObject?): String? = data?.let { obj ->
         .firstOrNull { it.isNotBlank() }
 }
 
+private fun compactionId(data: JsonElement): String? =
+    (data as? JsonObject)?.get("compactionId")?.jsonPrimitive?.contentOrNull
+
 private fun mergeCompactionData(previous: JsonElement, current: JsonElement): JsonElement {
     val old = previous as? JsonObject ?: return current
     val now = current as? JsonObject ?: return current
@@ -133,6 +136,7 @@ private class FoldState(private val sessionId: String) {
     }
 
     private val openByKey = linkedMapOf<String, OpenAssistant>()
+    private val compactionNodeById = mutableMapOf<String, Int>()
 
     fun snapshot(): ConversationSnapshot = ConversationSnapshot(
         sessionId = sessionId,
@@ -320,15 +324,21 @@ private class FoldState(private val sessionId: String) {
             "plan/mode" -> nodes.add(PlanModeNode(event.seq, data.jsonObject["active"]?.jsonPrimitive?.booleanOrNull ?: false))
 
             "compaction/start", "compaction/end", "compaction/prune", "compaction/summary" -> {
-                val previous = nodes.lastOrNull() as? CompactionNode
-                if (previous != null) {
-                    nodes[nodes.lastIndex] = previous.copy(
+                val id = compactionId(data)
+                val index = id?.let { compactionNodeById[it] }
+                    ?: nodes.indexOfLast { it is CompactionNode && (id == null || compactionId(it.data) == id) }
+                if (index >= 0) {
+                    val previous = nodes[index] as CompactionNode
+                    nodes[index] = previous.copy(
                         seq = event.seq,
                         kind = event.type,
                         data = mergeCompactionData(previous.data, data),
                     )
+                    if (id != null) compactionNodeById[id] = index
                 } else {
+                    val newIndex = nodes.size
                     nodes.add(CompactionNode(event.seq, event.type, data))
+                    if (id != null) compactionNodeById[id] = newIndex
                 }
             }
 
