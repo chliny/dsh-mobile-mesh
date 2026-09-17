@@ -220,6 +220,7 @@ class ConnectionManager @Inject constructor(
         override fun onConnected(generation: HostGeneration) {
             loopFence.runIfCurrent(token) {
             this@ConnectionManager.generation = generation
+            retainedClientId = generation.clientId
             val host = activeHost
             Log.d("ConnectionManager", "Connected generation published for ${host?.id}")
             if (host != null) scope.launch { hostsStore.touchHost(host.host, host.port) }
@@ -294,6 +295,11 @@ class ConnectionManager @Inject constructor(
     }
 
     val connectedApi: DshApiClient? get() = api
+
+    /** Last ready client identity, retained while the unary API remains usable during reconnect. */
+    val connectedClientId: String? get() = generation?.clientId ?: retainedClientId
+
+    @Volatile private var retainedClientId: String? = null
 
     /** Effective origin for pairing while the active mesh/SSH relay is alive. */
     fun pairingBaseUrl(config: HostConfig): String =
@@ -476,6 +482,7 @@ class ConnectionManager @Inject constructor(
     }
 
     fun disconnect() {
+        retainedClientId = null
         lifecycle.disconnect()
         suspendedHost = null
         suspendedTransportReady = null
