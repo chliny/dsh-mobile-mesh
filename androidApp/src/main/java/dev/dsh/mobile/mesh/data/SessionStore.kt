@@ -440,6 +440,7 @@ class SessionStore @Inject constructor(
     // separate approval id.
     private val approvalRequests = HashMap<String, ApprovalRequest>() // eventId -> request
     private val questionEventBySession = HashMap<String, String>() // sessionId -> eventId
+    private val questionClientBySession = HashMap<String, String>() // sessionId -> generation clientId
 
     // Open-session fold state.
     private var currentId: String? = null
@@ -744,7 +745,7 @@ class SessionStore @Inject constructor(
                 val request = runCatching {
                     decodeFromJsonElement(AskUserQuestionRequestEvent.serializer(), frame.request)
                 }.getOrNull() ?: return
-                handleQuestionRequested(frame.eventId, frame.agentId, request.questions)
+                handleQuestionRequested(frame.eventId, frame.agentId, request.questions, frame.clientId)
             }
             else -> log("unhandled waterfall ${frame.event}")
         }
@@ -772,6 +773,7 @@ class SessionStore @Inject constructor(
         } ?: return
         synchronized(lock) {
             questionEventBySession.remove(sessionId)
+            questionClientBySession.remove(sessionId)
             removePendingLocked(sessionId, "question")
             removePendingLocked(sessionId, "plan-review")
             emitSessionsLocked()
@@ -968,9 +970,11 @@ class SessionStore @Inject constructor(
         eventId: String,
         sessionId: String,
         questions: List<AskUserQuestionItem>,
+        clientId: String?,
     ) {
         synchronized(lock) {
             questionEventBySession[sessionId] = eventId
+            if (clientId != null) questionClientBySession[sessionId] = clientId
             val kind = if (questions.any { it.intent is AskUserQuestionIntent.PlanReview }) {
                 "plan-review"
             } else {
@@ -1836,8 +1840,8 @@ class SessionStore @Inject constructor(
      */
     suspend fun answerQuestions(sessionId: String, answer: AskUserQuestionAnswer): QuestionOutcome {
         val eventId = pendingQuestionEvent(sessionId) ?: return QuestionOutcome.Refused("not-pending")
-        val api = apiOrNull() ?: return QuestionOutcome.Unsent
-        val clientId = connectionManager.generation?.clientId ?: connectionManager.connectedClientId ?: return QuestionOutcome.Unsent
+        val clientId = pendingQuestionClientId(sessionId) ?: return QuestionOutcome.Unsent
+        val api = connectionManager.apiForEvent(clientId) ?: return QuestionOutcome.Unsent
         // The waterfall returns the answer object itself; there is no envelope around it now.
         val outcome = answerOutcome(
             api.answerEvent(
@@ -1859,6 +1863,7 @@ class SessionStore @Inject constructor(
         synchronized(lock) {
             if (questionEventBySession[sessionId] != eventId) return
             questionEventBySession.remove(sessionId)
+            questionClientBySession.remove(sessionId)
             removePendingLocked(sessionId, "question")
             removePendingLocked(sessionId, "plan-review")
             emitSessionsLocked()
@@ -1878,8 +1883,8 @@ class SessionStore @Inject constructor(
      */
     suspend fun dismissQuestions(sessionId: String): QuestionOutcome {
         val eventId = pendingQuestionEvent(sessionId) ?: return QuestionOutcome.Refused("not-pending")
-        val api = apiOrNull() ?: return QuestionOutcome.Unsent
-        val clientId = connectionManager.generation?.clientId ?: connectionManager.connectedClientId ?: return QuestionOutcome.Unsent
+        val clientId = pendingQuestionClientId(sessionId) ?: return QuestionOutcome.Unsent
+        val api = connectionManager.apiForEvent(clientId) ?: return QuestionOutcome.Unsent
         // A rejection, not an empty answer, and not `next`: `next` would delegate to the host's
         // own later listeners, which is a different thing from the user closing the prompt.
         return answerOutcome(
@@ -1903,6 +1908,10 @@ class SessionStore @Inject constructor(
         val eventId = synchronized(lock) { questionEventBySession[sessionId] }
         if (eventId == null) log("no pending question for session $sessionId")
         return eventId
+    }
+
+    private fun pendingQuestionClientId(sessionId: String): String? = synchronized(lock) {
+        questionClientBySession[sessionId]
     }
 
     /**

@@ -194,7 +194,7 @@ class ConnectionLoop(
                     attempt = 0
                     safeSink { sinks.onConnected(opened.generation) }
                     safeSink { sinks.onStateChange(ConnectionState.CONNECTED) }
-                    consumeEvents(opened.events, opened.generation.mux)
+                    consumeEvents(opened.events, opened.generation.mux, opened.generation.clientId)
                     closeGeneration()
                 }
 
@@ -308,7 +308,7 @@ class ConnectionLoop(
     }
 
     /** Forward `$events` frames until its carrier fails. */
-    private suspend fun consumeEvents(events: RemoteStream, mux: RemoteStreamMux) {
+    private suspend fun consumeEvents(events: RemoteStream, mux: RemoteStreamMux, clientId: String) {
         try {
             while (true) {
                 val value = events.receive()
@@ -322,7 +322,12 @@ class ConnectionLoop(
                 // One unparseable frame is not worth ending a generation over: the allowlist
                 // upstream grows and the union already passes unknown kinds through, so only a
                 // frame that is not an object at all lands here.
-                if (frame != null) safeSink { sinks.onEventFrame(frame) }
+                if (frame != null) {
+                    val bound = if (frame is RemoteEventFrame.Waterfall) {
+                        frame.copy(clientId = clientId)
+                    } else frame
+                    safeSink { sinks.onEventFrame(bound) }
+                }
             }
         } catch (e: CancellationException) {
             // A transport replacement cancels the old loop. It is not a carrier failure and must

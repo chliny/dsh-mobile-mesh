@@ -8,6 +8,7 @@ import dev.dsh.mobile.mesh.core.wire.encodeToJsonElement
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.buildClassSerialDescriptor
@@ -237,6 +238,8 @@ sealed class RemoteEventFrame {
         @SerialName("eventId") val eventId: String,
         @SerialName("agentId") val agentId: String,
         @SerialName("request") val request: JsonObject,
+        /** Local generation identity captured when the frame was received; never serialized. */
+        @Transient val clientId: String? = null,
     ) : RemoteEventFrame()
 
     /**
