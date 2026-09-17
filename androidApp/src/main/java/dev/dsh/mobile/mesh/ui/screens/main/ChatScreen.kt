@@ -466,7 +466,7 @@ fun ChatScreen(
                         store = store,
                         onInsertQueued = { item ->
                             draft = item.messageText
-                            currentSessionId?.let { draftStore.set(it, item.messageText) }
+                            currentSessionId?.let { sessionId -> draftStore.set(sessionId, item.messageText) }
                             toast.second(queueInsertedLabel)
                         },
                     )
