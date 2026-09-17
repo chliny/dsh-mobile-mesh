@@ -120,7 +120,9 @@ fun ConnectScreen(
     var launchToken by rememberSaveable { mutableStateOf("") }
     var sshDshHost by rememberSaveable { mutableStateOf("127.0.0.1") }
     var restoredForKey by remember { mutableStateOf<String?>(null) }
-    var connectInFlight by rememberSaveable { mutableStateOf(false) }
+    // This is ephemeral UI feedback, not connection state; never restore a stale disabled button
+    // after the activity/process is recreated.
+    var connectInFlight by remember { mutableStateOf(false) }
     val editingHost = initialHost
     val formKey = editingHost?.id ?: "new"
     val connectedEditing = isEditingConnectedHost(editingHost?.id, connectedHostId)
