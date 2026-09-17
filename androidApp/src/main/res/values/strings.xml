@@ -210,7 +210,7 @@
     <string name="chat_retry_scheduled">Retry scheduled in %1$ds</string>
     <string name="chat_retrying">Retrying…</string>
     <string name="chat_model_request_retried">Retried model request (%1$d/%2$d)</string>
-    <string name="chat_model_request_retried_with_delay">Retried model request (%1$d/%2$d) · %3$d ms</string>
+    <string name="chat_model_request_retried_with_delay">Retried model request (%1$d/%2$d) · %3$d s</string>
     <string name="chat_copy_message">Copy message</string>
     <string name="chat_branch_message">Branch from here</string>
     <string name="chat_stats_line">%1$d turns · %2$d steps · %3$s · %4$s</string>

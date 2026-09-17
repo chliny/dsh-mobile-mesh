@@ -19,6 +19,13 @@ class ToolCardInteractionTest {
     }
 
     @Test
+    fun `retry delay is displayed as rounded-up seconds`() {
+        assertEquals(1L, retryDelaySeconds(1L))
+        assertEquals(2L, retryDelaySeconds(1_001L))
+        assertEquals(3L, retryDelaySeconds(3_000L))
+    }
+
+    @Test
     fun `produced files retain one row per file without a mobile cap`() {
         val paths = (1..8).map { "outputs/file-$it.txt" }
         assertEquals(paths, producedFileRows(paths))
