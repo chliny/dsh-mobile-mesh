@@ -7,7 +7,7 @@
     <string name="common_discard">ละทิ้ง</string>
     <string name="common_delete">ลบ</string>
     <string name="common_copy">คัดลอก</string>
-    <string name="common_copied">คัดลอกแล้ว</string>
+    \1คัดลอกสำเร็จ\2
     <string name="common_retry">ลองอีกครั้ง</string>
     <string name="common_search">ค้นหา</string>
     <string name="common_loading">กำลังโหลด…</string>
@@ -457,4 +457,5 @@
     <string name="tool_expanded_body">Expanded body</string>
     <string name="chat_deep_diving">DeepSeek กำลังทำงาน…</string>
     <string name="chat_waiting_seconds">%1$d วินาที</string>
+    <string name="chat_feedback_sent">ส่งความคิดเห็นแล้ว</string>
 </resources>

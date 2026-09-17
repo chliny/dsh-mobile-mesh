@@ -8,7 +8,8 @@
     <string name="common_discard">Discard</string>
     <string name="common_delete">Delete</string>
     <string name="common_copy">Copy</string>
-    <string name="common_copied">Copied</string>
+    <string name="common_copied">Copied successfully</string>
+    <string name="chat_feedback_sent">Feedback sent</string>
     <string name="common_retry">Retry</string>
     <string name="common_search">Search</string>
     <string name="common_loading">Loading…</string>

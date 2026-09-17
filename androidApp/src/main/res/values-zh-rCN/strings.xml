@@ -7,7 +7,7 @@
     <string name="common_discard">放弃</string>
     <string name="common_delete">删除</string>
     <string name="common_copy">复制</string>
-    <string name="common_copied">已复制</string>
+    \1已复制成功\2
     <string name="common_retry">重试</string>
     <string name="common_search">搜索</string>
     <string name="common_loading">加载中…</string>
@@ -488,4 +488,5 @@
     <string name="tool_read_lines_tap">%1$d 行 · 点按打开</string>
     <string name="tool_calls_title">工具调用</string>
     <string name="tool_expanded_body">展开内容</string>
+    <string name="chat_feedback_sent">反馈已发送</string>
 </resources>
