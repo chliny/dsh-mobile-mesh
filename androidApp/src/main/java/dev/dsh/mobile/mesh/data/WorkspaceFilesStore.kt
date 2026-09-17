@@ -75,19 +75,6 @@ class WorkspaceFilesStore @Inject constructor(
         now - (refreshedAt[workspaceKey] ?: 0L) >= CACHE_TTL_MS
     }
 
-    fun cachedEntries(workspaceKey: String): List<WorkspaceDirectoryEntry> {
-        val cached = synchronized(cacheLock) { listingCache[workspaceKey].orEmpty().toMap() }
-        val treeEntries = cached.filterKeys { it != "@" }.values.flatMap { ready ->
-            ready.listing.entries.map { entry ->
-                val path = ready.listing.path.trimEnd('/').takeUnless { it.isNullOrBlank() || it == "." }
-                entry.copy(name = if (path == null) entry.name else "$path/${entry.name}")
-            }
-        }
-        return (cached["@"]?.listing?.entries.orEmpty() + treeEntries)
-            .distinctBy { it.name }
-            .sortedBy { it.name }
-    }
-
     fun searchReferences(workspaceKey: String, sessionId: String, query: String) {
         val api = connectionManager.connectedApi ?: return
         referenceSearchJob?.cancel()

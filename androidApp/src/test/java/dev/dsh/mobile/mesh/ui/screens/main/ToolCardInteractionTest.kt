@@ -27,11 +27,11 @@ class ToolCardInteractionTest {
     }
 
     @Test
-    fun `mention matching supports nested slash paths and limits results`() {
-        val candidates = (1..9).map { WorkspaceDirectoryEntry("src/lib/File$it.kt", "file") } +
-            WorkspaceDirectoryEntry("docs/File.md", "file")
-        assertEquals("src/lib/File1.kt", matchingMentionFiles(candidates, "src/lib/File1").single().name)
-        assertEquals(8, matchingMentionFiles(candidates, "src/lib/File").size)
+    fun `mention candidates preserve server order and only cap rendered rows`() {
+        val candidates = listOf(WorkspaceDirectoryEntry("server-ranked.txt", "file")) +
+            (1..9).map { WorkspaceDirectoryEntry("src/lib/File$it.kt", "file") }
+        assertEquals("server-ranked.txt", matchingMentionFiles(candidates).first().name)
+        assertEquals(8, matchingMentionFiles(candidates).size)
     }
 
     @Test
