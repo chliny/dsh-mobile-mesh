@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -186,6 +187,10 @@ internal fun Composer(
     var filePickerOpen by remember { mutableStateOf(false) }
     val mentionQuery = mentionQueryForDraft(draft).orEmpty()
     val mentionActive = mentionQueryForDraft(draft) != null
+    LaunchedEffect(mentionActive, mentionQuery) {
+        filePickerOpen = mentionActive
+        if (mentionActive) onFileQueryChange(mentionQuery)
+    }
     val matchingFiles = remember(fileCandidates, mentionQuery) {
         val normalized = mentionQuery.trimStart('/')
         val prefix = normalized.substringBeforeLast('/', "")
