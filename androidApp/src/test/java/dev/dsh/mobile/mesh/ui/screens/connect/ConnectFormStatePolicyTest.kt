@@ -20,4 +20,11 @@ class ConnectFormStatePolicyTest {
         assertTrue(shouldEnableConnectAction(fieldsEnabled = true, formValid = true))
         assertFalse(shouldEnableConnectAction(fieldsEnabled = true, formValid = false))
     }
+
+    @Test
+    fun `connect action is disabled while a request is in flight`() {
+        assertFalse(shouldEnableConnectButton(connectInFlight = true, formValid = true))
+        assertTrue(shouldEnableConnectButton(connectInFlight = false, formValid = true))
+        assertFalse(shouldEnableConnectButton(connectInFlight = false, formValid = false))
+    }
 }
