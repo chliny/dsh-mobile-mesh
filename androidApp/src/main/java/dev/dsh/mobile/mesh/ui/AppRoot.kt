@@ -20,6 +20,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
@@ -96,6 +98,9 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         var connectFormInstance by rememberSaveable { mutableIntStateOf(0) }
         val showMain = connection.hasConnected
         val showConnect = showConnectPage
+        LifecycleEventEffect(Lifecycle.Event.ON_START) {
+            if (!showConnections && !showConnectPage && !showSettings) viewModel.reconnect()
+        }
         val showStartupConnections = shouldShowStartupConnections(connection.hasConnected, editingHost != null) && !showSettings && !showConnectPage
         val showTailscaleLogin = connectUiState.tailscaleLoginUrl?.isNotBlank() == true &&
             connectUiState.authorizationPending != null
