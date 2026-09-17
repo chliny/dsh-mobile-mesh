@@ -930,6 +930,7 @@ class ConnectViewModel @Inject constructor(
         // a short interval repeatedly tears down and rebuilds the SSH relay before authorization can
         // complete.
         const val TAILSCALE_LOGIN_POLL_INTERVAL_MS = 10_000L
-        const val TAILSCALE_LOGIN_POLL_MAX_DURATION_MS = 120_000L
+        // Keep the WebView open until authorization settles; this is only a long safety bound.
+        const val TAILSCALE_LOGIN_POLL_MAX_DURATION_MS = 300_000L
     }
 }
