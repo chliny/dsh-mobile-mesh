@@ -449,6 +449,7 @@ class SessionStore @Inject constructor(
     private var currentBlank = true
     private val currentProjections = HashMap<String, ProjectionValue>()
     private var currentQueue = emptyList<QueueItem>()
+    private val queueBySession = mutableMapOf<String, List<QueueItem>>()
 
     /**
      * Recently rendered conversations, kept by session id so a slow follow snapshot never blanks the
@@ -568,6 +569,7 @@ class SessionStore @Inject constructor(
             currentBlank = true
             currentProjections.clear()
             currentQueue = emptyList()
+            queueBySession.clear()
             followCursor = null
             _sessions.value = emptyList()
             _workspaces.value = emptyList()
@@ -791,8 +793,12 @@ class SessionStore @Inject constructor(
     private fun handleControlFrame(frame: SessionControlFrame) {
         when (frame) {
             is SessionControlFrame.Baseline -> {
+                // The Web client installs the complete baseline for every session before the UI
+                // chooses one. Keeping only currentId drops queues that arrive while another
+                // session is open, so switching to that session shows an empty queue until a later
+                // mutation happens.
+                frame.value.queues.forEach { (sid, items) -> applyQueue(sid, items) }
                 val sid = synchronized(lock) { currentId } ?: return
-                frame.value.queues[sid]?.let { items -> applyQueue(sid, items) }
                 frame.value.jobs[sid]?.let { jobs -> applyJobs(sid, jobs) }
                 frame.value.projections[sid]?.let { block -> applyProjectionBaseline(sid, block) }
             }
@@ -810,8 +816,10 @@ class SessionStore @Inject constructor(
 
     private fun applyQueue(sessionId: String, items: List<QueuedInboxItem>) {
         synchronized(lock) {
+            val nextQueue = items.map { queuedInboxItemToQueueItem(it) }
+            queueBySession[sessionId] = nextQueue
             if (sessionId == currentId) {
-                currentQueue = items.map { queuedInboxItemToQueueItem(it) }
+                currentQueue = nextQueue
                 // A control snapshot is authoritative once it contains a matching submitted text.
                 // Drop only echoed optimistic rows; a snapshot that raced ahead of propagation must
                 // leave the local entry visible instead of making a newly queued message disappear.
@@ -1344,7 +1352,7 @@ class SessionStore @Inject constructor(
                 cachedSnapshot?.projections?.forEach { (key, value) ->
                     currentProjections[key] = ProjectionValue(cachedSnapshot.lastSeq.toInt(), value)
                 }
-                currentQueue = cachedSnapshot?.queue ?: emptyList()
+                currentQueue = queueBySession[sessionId] ?: cachedSnapshot?.queue ?: emptyList()
                 liveAssistant.clear()
                 _currentConversation.value = cachedSnapshot
                 _jobs.value = emptyList()
