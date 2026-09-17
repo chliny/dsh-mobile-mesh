@@ -232,6 +232,16 @@
     <string name="chat_context_tools">Tools</string>
     <string name="chat_context_messages">Messages</string>
     <string name="chat_preview_badge">Preview</string>
+    <string name="tool_title_search">Search</string>
+    <string name="tool_title_read">Read</string>
+    <string name="tool_title_bash">Bash</string>
+    <string name="tool_title_write">Write</string>
+    <string name="tool_title_edit">Edit</string>
+    <string name="tool_title_code">Code</string>
+    <string name="tool_title_generic">Tool call</string>
+    <string name="tool_section_input">IN</string>
+    <string name="tool_section_locations">LOCATIONS</string>
+    <string name="tool_section_output">OUT</string>
     <string name="tool_files_count">· %1$d file(s)</string>
     <string name="tool_search_showing">Showing %1$d of %2$d</string>
     <string name="tool_read_lines_tap">%1$d lines · tap to open</string>

@@ -73,13 +73,14 @@ fun ToolCard(
 
 // ---- Header helpers ---------------------------------------------------------
 
+@Composable
 private fun ToolCardView.displayTitle(): String = when (this) {
-    is ToolCardView.GenericCard -> title ?: kind ?: "Tool"
-    is ToolCardView.TerminalCard -> title ?: "Terminal"
-    is ToolCardView.DiffCard -> title ?: "Diff"
-    is ToolCardView.SearchCard -> title ?: "Search"
+    is ToolCardView.GenericCard -> title ?: kind ?: stringResource(dev.dsh.mobile.mesh.R.string.tool_title_generic)
+    is ToolCardView.TerminalCard -> title ?: stringResource(dev.dsh.mobile.mesh.R.string.tool_title_bash)
+    is ToolCardView.DiffCard -> title ?: stringResource(dev.dsh.mobile.mesh.R.string.tool_title_edit)
+    is ToolCardView.SearchCard -> title ?: stringResource(dev.dsh.mobile.mesh.R.string.tool_title_search)
     is ToolCardView.ReadCard -> label
-    is ToolCardView.WebCard -> title ?: "Web"
+    is ToolCardView.WebCard -> title ?: stringResource(dev.dsh.mobile.mesh.R.string.tool_title_read)
 }
 
 private fun ToolCardView.summary(): String? = when (this) {
@@ -454,7 +455,7 @@ private fun GenericBody(card: ToolCardView.GenericCard) {
     val colors = DsTheme.colors
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         card.rawInput?.let { raw ->
-            SectionLabel("IN")
+            SectionLabel(stringResource(dev.dsh.mobile.mesh.R.string.tool_section_input))
             Text(
                 prettyJson(raw),
                 style = DsType.mdCode,
@@ -468,7 +469,7 @@ private fun GenericBody(card: ToolCardView.GenericCard) {
             )
         }
         card.locations?.takeIf { it.isNotEmpty() }?.let { locations ->
-            SectionLabel("LOCATIONS")
+            SectionLabel(stringResource(dev.dsh.mobile.mesh.R.string.tool_section_locations))
             locations.forEach { location ->
                 Text(
                     location,
@@ -480,7 +481,7 @@ private fun GenericBody(card: ToolCardView.GenericCard) {
             }
         }
         card.content?.takeIf { it.isNotEmpty() }?.let { blocks ->
-            SectionLabel("OUT")
+            SectionLabel(stringResource(dev.dsh.mobile.mesh.R.string.tool_section_output))
             blocks.forEach { block ->
                 when (block) {
                     is ContentBlockView.TextBlock -> Text(

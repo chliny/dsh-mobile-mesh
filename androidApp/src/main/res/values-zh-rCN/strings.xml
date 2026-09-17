@@ -483,6 +483,16 @@
     <string name="connect_stage_connected_detail">Harness 已就绪，正在加载会话列表。</string>
 
     <string name="chat_preview_badge">预览</string>
+    <string name="tool_title_search">搜索</string>
+    <string name="tool_title_read">读取</string>
+    <string name="tool_title_bash">Bash</string>
+    <string name="tool_title_write">写入</string>
+    <string name="tool_title_edit">编辑</string>
+    <string name="tool_title_code">代码</string>
+    <string name="tool_title_generic">工具调用</string>
+    <string name="tool_section_input">输入</string>
+    <string name="tool_section_locations">位置</string>
+    <string name="tool_section_output">输出</string>
     <string name="tool_files_count">· %1$d 个文件</string>
     <string name="tool_search_showing">显示 %1$d / %2$d</string>
     <string name="tool_read_lines_tap">%1$d 行 · 点按打开</string>

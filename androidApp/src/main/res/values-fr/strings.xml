@@ -458,6 +458,16 @@
     <string name="settings_open_connection">Ouvrir les paramètres de connexion</string>
 <string name="workspace_files_title">Workspace files</string><string name="workspace_files_refresh">Refresh files</string><string name="workspace_files_binary">This file cannot be previewed as text.</string><string name="connect_connections">Connections</string><string name="connect_current">Connected</string><string name="connect_connecting">Connecting…</string><string name="connect_add_connection">Add connection</string><string name="connect_name_label">Connection name (optional)</string><string name="connect_name_hint">Home server</string><string name="connect_save">Save</string><string name="connect_delete_title">Delete connection?</string><string name="connect_delete_message">This will remove the saved connection and its SSH credentials from this device.</string><string name="connect_tailscale_login_title">Sign in to Tailscale</string><string name="connect_tailscale_login_body">Complete Tailscale sign-in to finish connecting automatically.</string><string name="connect_tailscale_open_browser">Open in browser</string><string name="connect_launch_token">Harness startup link or token (first connection)</string><string name="connect_launch_token_hint">Optional; paste the dsh web startup link</string><string name="connect_update_token">Update DSH Web token</string><string name="connect_stage_validating_detail">Validating the host address and port before opening a connection.</string><string name="connect_stage_reaching_detail">Waiting for the Harness endpoint to accept the connection.</string><string name="connect_stage_streams_detail">Starting the live event and session streams.</string><string name="connect_stage_verifying_detail">Checking the Harness handshake and protocol response.</string><string name="connect_stage_connected_detail">The Harness is ready. Loading its session list.</string>
     <string name="chat_preview_badge">Aperçu</string>
+    <string name="tool_title_search">Rechercher</string>
+    <string name="tool_title_read">Lire</string>
+    <string name="tool_title_bash">Bash</string>
+    <string name="tool_title_write">Écrire</string>
+    <string name="tool_title_edit">Modifier</string>
+    <string name="tool_title_code">Code</string>
+    <string name="tool_title_generic">Appel d’outil</string>
+    <string name="tool_section_input">ENTRÉE</string>
+    <string name="tool_section_locations">EMPLACEMENTS</string>
+    <string name="tool_section_output">SORTIE</string>
     <string name="tool_files_count">· %1$d fichier(s)</string>
     <string name="tool_search_showing">Affichage de %1$d sur %2$d</string>
     <string name="tool_read_lines_tap">%1$d lignes · toucher pour ouvrir</string>
