@@ -55,7 +55,6 @@ class DshNotifications @Inject constructor(
         title: String,
         text: String,
         sessionId: String?,
-        actionLabel: String? = null,
     ) {
         if (!canPost()) return
         val open = Intent(context, MainActivity::class.java).apply {
@@ -78,9 +77,6 @@ class DshNotifications @Inject constructor(
             .setContentIntent(pending)
             .setAutoCancel(true)
             .setPriority(if (channel == CHANNEL_ACTION) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
-        if (actionLabel != null) {
-            builder.addAction(0, actionLabel, pending)
-        }
         NotificationManagerCompat.from(context).notify(id, builder.build())
     }
 
