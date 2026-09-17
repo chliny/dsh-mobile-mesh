@@ -144,6 +144,11 @@ internal sealed interface FileUploadState {
  *
  * The model selector sits below the input beside the permission control, matching the web composer.
  */
+internal fun mentionQueryForDraft(draft: String): String? {
+    val token = draft.substringAfterLast(" ").substringAfterLast("\n")
+    return token.takeIf { it.startsWith("@") }?.removePrefix("@")
+}
+
 @Composable
 internal fun Composer(
     draft: String,
@@ -179,8 +184,8 @@ internal fun Composer(
     val currentOnSend by rememberUpdatedState(onSend)
     var commandPickerOpen by remember { mutableStateOf(false) }
     var filePickerOpen by remember { mutableStateOf(false) }
-    val mentionQuery = draft.substringAfterLast('@').takeIf { '@' in draft && !draft.substringAfterLast('@').contains(' ') }.orEmpty()
-    val mentionActive = '@' in draft && !draft.substringAfterLast('@').contains(' ')
+    val mentionQuery = mentionQueryForDraft(draft).orEmpty()
+    val mentionActive = mentionQueryForDraft(draft) != null
     val matchingFiles = remember(fileCandidates, mentionQuery) {
         val normalized = mentionQuery.trimStart('/')
         val prefix = normalized.substringBeforeLast('/', "")
@@ -215,10 +220,9 @@ internal fun Composer(
                 onValueChange = {
                     onDraftChange(it)
                     commandPickerOpen = it.startsWith("/") && !it.contains(' ')
-                    filePickerOpen = '@' in it && !it.substringAfterLast('@').contains(' ')
-                    if ('@' in it && !it.substringAfterLast('@').contains(' ')) {
-                        onFileQueryChange(it.substringAfterLast('@'))
-                    }
+                    val token = it.substringAfterLast(" ").substringAfterLast("\n")
+                    filePickerOpen = token.startsWith("@")
+                    if (token.startsWith("@")) onFileQueryChange(token.removePrefix("@"))
                 },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,

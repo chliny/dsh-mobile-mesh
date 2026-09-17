@@ -11,6 +11,13 @@ import org.junit.Test
 
 class ToolCardInteractionTest {
     @Test
+    fun `mention matching remains active for the latest whitespace-delimited token`() {
+        assertEquals("src/main.kt", mentionQueryForDraft("please inspect @src/main.kt"))
+        assertEquals("src", mentionQueryForDraft("@src"))
+        assertEquals(null, mentionQueryForDraft("@src/main.kt "))
+    }
+
+    @Test
     fun `produced files retain one row per file without a mobile cap`() {
         val paths = (1..8).map { "outputs/file-$it.txt" }
         assertEquals(paths, producedFileRows(paths))

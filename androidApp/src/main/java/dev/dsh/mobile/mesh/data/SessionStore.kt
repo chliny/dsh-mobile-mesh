@@ -1714,6 +1714,14 @@ class SessionStore @Inject constructor(
         }
     }
 
+    private fun removeOptimisticPrompt(sessionId: String, requestId: String) {
+        synchronized(lock) {
+            optimisticPromptBySession[sessionId]?.removeAll { it.requestId == requestId }
+            if (optimisticPromptBySession[sessionId].isNullOrEmpty()) optimisticPromptBySession.remove(sessionId)
+            if (currentId == sessionId) rebuildCurrentLocked()
+        }
+    }
+
     private fun addOptimisticQueue(sessionId: String, requestId: String, content: List<PromptContentPart>) {
         val messageText = content.filterIsInstance<PromptContentPart.Text>().joinToString("\n") { it.text }
         synchronized(lock) {
@@ -1756,7 +1764,19 @@ class SessionStore @Inject constructor(
             else -> QueueAction.Edit(listOf(ContentBlock.Text(contentText.orEmpty())))
         }
         when (val r = api.sessionUpdateQueue(SessionUpdateQueueRequest(sid, itemId, queueAction))) {
-            is RpcResult.Ok -> Unit
+            is RpcResult.Ok -> {
+                if (action == "steer") {
+                    val item = currentQueue.firstOrNull { it.id == itemId }
+                    if (item != null) {
+                        val optimisticId = "queue:$itemId"
+                        addOptimisticPrompt(sid, optimisticId, listOf(PromptContentPart.Text(item.messageText)))
+                        scope.launch {
+                            delay(OPTIMISTIC_QUEUE_PROMPT_TIMEOUT_MS)
+                            removeOptimisticPrompt(sid, optimisticId)
+                        }
+                    }
+                }
+            }
             is RpcResult.Err -> setConnectionError(r.error.message)
         }
     }
@@ -1815,9 +1835,9 @@ class SessionStore @Inject constructor(
      * typed answer deleted in transit with nothing to show for it.
      */
     suspend fun answerQuestions(sessionId: String, answer: AskUserQuestionAnswer): QuestionOutcome {
-        val api = apiOrNull() ?: return QuestionOutcome.Unsent
         val eventId = pendingQuestionEvent(sessionId) ?: return QuestionOutcome.Refused("not-pending")
-        val clientId = connectionManager.generation?.clientId ?: return QuestionOutcome.Unsent
+        val api = apiOrNull() ?: return QuestionOutcome.Unsent
+        val clientId = connectionManager.generation?.clientId ?: connectionManager.connectedClientId ?: return QuestionOutcome.Unsent
         // The waterfall returns the answer object itself; there is no envelope around it now.
         val outcome = answerOutcome(
             api.answerEvent(
@@ -1857,9 +1877,9 @@ class SessionStore @Inject constructor(
      * `ok:false` carrying any other.
      */
     suspend fun dismissQuestions(sessionId: String): QuestionOutcome {
-        val api = apiOrNull() ?: return QuestionOutcome.Unsent
         val eventId = pendingQuestionEvent(sessionId) ?: return QuestionOutcome.Refused("not-pending")
-        val clientId = connectionManager.generation?.clientId ?: return QuestionOutcome.Unsent
+        val api = apiOrNull() ?: return QuestionOutcome.Unsent
+        val clientId = connectionManager.generation?.clientId ?: connectionManager.connectedClientId ?: return QuestionOutcome.Unsent
         // A rejection, not an empty answer, and not `next`: `next` would delegate to the host's
         // own later listeners, which is a different thing from the user closing the prompt.
         return answerOutcome(
@@ -2467,6 +2487,7 @@ class SessionStore @Inject constructor(
         /** Recent visible messages requested on open/reconnect and per history page. */
         const val HISTORY_PAGE_SIZE = 40
         const val RPC_TIMEOUT_MS = 8_000L
+        const val OPTIMISTIC_QUEUE_PROMPT_TIMEOUT_MS = 15_000L
 
         /** Ceiling on events folded per page, whatever the host sends. */
         const val MAX_PAGE_EVENTS = 4_000
