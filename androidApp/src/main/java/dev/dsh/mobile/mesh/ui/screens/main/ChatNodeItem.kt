@@ -218,12 +218,14 @@ private fun retryDelayMs(node: RetryNode): Long? =
         ?.jsonPrimitive
         ?.longOrNull
 
+internal fun retryDelaySeconds(delayMs: Long): Long = (delayMs + 999L).coerceAtLeast(0L) / 1_000L
+
 @Composable
 private fun RetryRow(node: RetryNode) {
     var expanded by remember(node.seq) { mutableStateOf(false) }
     val delayMs = retryDelayMs(node)
     val title = if (delayMs != null) {
-        stringResource(R.string.chat_model_request_retried_with_delay, node.attempts, node.maxAttempts, delayMs)
+        stringResource(R.string.chat_model_request_retried_with_delay, node.attempts, node.maxAttempts, retryDelaySeconds(delayMs))
     } else {
         stringResource(R.string.chat_model_request_retried, node.attempts, node.maxAttempts)
     }
