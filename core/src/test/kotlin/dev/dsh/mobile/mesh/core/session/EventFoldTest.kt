@@ -56,6 +56,23 @@ class EventFoldTest {
     }
 
     @Test
+    fun `repeated retry failures appear once in expanded details`() {
+        val events = listOf(
+            event("llm/retry", 1, buildJsonObject {
+                put("retryId", "r1")
+                put("message", "provider unavailable")
+            }),
+            event("llm/retry", 2, buildJsonObject {
+                put("retryId", "r1")
+                put("message", "provider unavailable")
+            }),
+        )
+        val retry = EventFold("s1").fold(events).nodes.filterIsInstance<RetryNode>().single()
+        assertEquals(2, retry.attempts)
+        assertEquals(listOf("provider unavailable"), retry.failures)
+    }
+
+    @Test
     fun consecutiveModelRetriesCollapseIntoOneUpdatedNode() {
         val events = listOf(
             event("llm/retry", 1, buildJsonObject {

@@ -354,7 +354,7 @@ private class FoldState(private val sessionId: String) {
                         data = data,
                         attempts = previous.attempts + 1,
                         maxAttempts = maxAttempts,
-                        failures = previous.failures + listOfNotNull(failure),
+                        failures = (previous.failures + listOfNotNull(failure)).distinct(),
                     )
                 } else {
                     nodes.add(RetryNode(event.seq, event.type, data, maxAttempts = maxAttempts, failures = listOfNotNull(failure)))
