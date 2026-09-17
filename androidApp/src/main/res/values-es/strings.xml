@@ -463,4 +463,6 @@
     <string name="tool_read_lines_tap">%1$d líneas · toca para abrir</string>
     <string name="tool_calls_title">Llamadas de herramientas</string>
     <string name="tool_expanded_body">Contenido expandido</string>
+    <string name="chat_deep_diving">DeepSeek está trabajando…</string>
+    <string name="chat_waiting_seconds">%1$d s</string>
 </resources>

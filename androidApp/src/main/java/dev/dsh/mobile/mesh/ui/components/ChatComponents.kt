@@ -77,6 +77,7 @@ fun UserBubble(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun ThinkingRow(
     summary: String?,
+    elapsedLabel: String? = null,
     expanded: Boolean,
     onToggle: () -> Unit,
     streaming: Boolean = false,
@@ -103,6 +104,10 @@ fun ThinkingRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        elapsedLabel?.let {
+            Text(it, style = DsType.caption11, color = colors.labelCaption)
+            Spacer(Modifier.width(6.dp))
+        }
         val rotation by animateFloatAsState(
             targetValue = if (expanded) 180f else 0f,
             animationSpec = DsAnimations.chevron,
