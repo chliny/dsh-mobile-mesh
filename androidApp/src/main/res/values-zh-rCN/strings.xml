@@ -479,4 +479,11 @@
     <string name="connect_stage_streams_detail">正在启动实时事件和会话流。</string>
     <string name="connect_stage_verifying_detail">正在检查 Harness 握手和协议响应。</string>
     <string name="connect_stage_connected_detail">Harness 已就绪，正在加载会话列表。</string>
+
+    <string name="chat_preview_badge">预览</string>
+    <string name="tool_files_count">· %1$d 个文件</string>
+    <string name="tool_search_showing">显示 %1$d / %2$d</string>
+    <string name="tool_read_lines_tap">%1$d 行 · 点按打开</string>
+    <string name="tool_calls_title">工具调用</string>
+    <string name="tool_expanded_body">展开内容</string>
 </resources>

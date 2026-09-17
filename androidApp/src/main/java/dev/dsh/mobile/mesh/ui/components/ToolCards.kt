@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import dev.dsh.mobile.mesh.ui.theme.DsShapes
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
@@ -260,7 +261,7 @@ private fun DiffBody(card: ToolCardView.DiffCard, onOpenFile: ((String, String) 
             Spacer(Modifier.width(4.dp))
             Text("-$removed", style = DsType.caption11Strong, color = colors.error)
             Spacer(Modifier.width(4.dp))
-            Text("· $files file(s)", style = DsType.caption11, color = colors.labelCaption)
+            Text(stringResource(dev.dsh.mobile.mesh.R.string.tool_files_count, files), style = DsType.caption11, color = colors.labelCaption)
         }
     }
 }
@@ -340,7 +341,7 @@ private fun SearchBody(card: ToolCardView.SearchCard, onOpenFile: ((String, Stri
         }
         if (card.truncated) {
             Text(
-                "showing $shown of ${card.total ?: shown}",
+                stringResource(dev.dsh.mobile.mesh.R.string.tool_search_showing, shown, card.total ?: shown),
                 style = DsType.caption11,
                 color = colors.labelCaption,
             )
@@ -363,7 +364,7 @@ private fun ReadBody(card: ToolCardView.ReadCard, onOpenFile: ((String, String) 
                 .padding(horizontal = 10.dp, vertical = 10.dp),
         ) {
             Text(path, style = DsType.small13Strong.copy(fontFamily = DsType.codeFont), color = colors.labelPrimary)
-            Text("${card.totalLines} lines · tap to open", style = DsType.caption11, color = colors.labelCaption)
+            Text(stringResource(dev.dsh.mobile.mesh.R.string.tool_read_lines_tap, card.totalLines), style = DsType.caption11, color = colors.labelCaption)
         }
     }
 }

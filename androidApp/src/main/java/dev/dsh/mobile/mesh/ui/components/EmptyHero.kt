@@ -35,6 +35,7 @@ import dev.dsh.mobile.mesh.ui.theme.DshTheme
 fun EmptyHero(
     headline: String,
     subtitle: String?,
+    previewLabel: String = "Preview",
     chips: List<String> = emptyList(),
     onChipClick: (String) -> Unit = {},
 ) {
@@ -60,7 +61,7 @@ fun EmptyHero(
             )
         }
         Text(
-            "Preview",
+            previewLabel,
             style = DsType.xsmall12.copy(fontFamily = DsType.codeFont, color = colors.accent),
             color = colors.accent,
             modifier = Modifier
