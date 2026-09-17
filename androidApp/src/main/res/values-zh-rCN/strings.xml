@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <resources>
     <string name="app_long_name" translatable="false">DSH Mobile Mesh</string>
     <string name="common_cancel">取消</string>
@@ -465,4 +465,18 @@
     <string name="err_file_not_staged">harness 已不再保留该文件，请重新附加。</string>
     <string name="err_file_subagent_unsupported">子代理会话不接受文件。</string>
     <string name="err_file_send_failed">发送文件失败（%1$s）。请重新附加。</string>
+    <string name="common_reconnecting_attempt">正在重连 · 第 %1$d 次尝试</string>
+    <string name="workspace_files_binary">此文件无法以文本预览。</string>
+    <string name="chat_queue_inserted">已将队列消息插入输入框</string>
+    <string name="chat_fork_created">分支已创建</string>
+    <string name="connect_tailscale_login_title">登录 Tailscale</string>
+    <string name="connect_tailscale_login_body">完成 Tailscale 登录后将自动完成连接。</string>
+    <string name="connect_tailscale_open_browser">在浏览器中打开</string>
+    <string name="connect_launch_token">Harness 启动链接或令牌（首次连接）</string>
+    <string name="connect_launch_token_hint">可选；粘贴 dsh Web 启动链接</string>
+    <string name="connect_stage_validating_detail">正在验证主机地址和端口，然后打开连接。</string>
+    <string name="connect_stage_reaching_detail">正在等待 Harness 端点接受连接。</string>
+    <string name="connect_stage_streams_detail">正在启动实时事件和会话流。</string>
+    <string name="connect_stage_verifying_detail">正在检查 Harness 握手和协议响应。</string>
+    <string name="connect_stage_connected_detail">Harness 已就绪，正在加载会话列表。</string>
 </resources>
