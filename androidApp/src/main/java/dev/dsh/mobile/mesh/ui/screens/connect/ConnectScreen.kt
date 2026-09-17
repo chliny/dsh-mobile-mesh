@@ -127,7 +127,7 @@ fun ConnectScreen(
     val fieldsEnabled = !connectedEditing
     val newConnectionAction = shouldShowConnectAction(editingHost?.id, connectedHostId)
     LaunchedEffect(state.attempted, state.failure, state.authorizationPending) {
-        if (state.attempted == null || state.failure != null || state.authorizationPending != null) {
+        if (state.attempted == null || state.failure != null) {
             connectInFlight = false
         }
     }
@@ -514,6 +514,7 @@ fun ConnectScreen(
                             val transport = meshTransport
                             android.util.Log.d("ConnectScreen", "Connect clicked transport=${transport?.storedValue} host=$host valid=$connectEnabled")
                             if (!connectEnabled) {
+                                connectInFlight = false
                                 android.util.Log.w("ConnectScreen", "Connect rejected by form validation")
                             } else if (transport == null) viewModel.connectManual(
                                 connectionName, host, port, sshEnabled, sshPort, sshUsername, sshAuthentication,
@@ -532,6 +533,19 @@ fun ConnectScreen(
                     )
             }
 
+            if (connectInFlight) {
+                ConnectProgressRow(state.stage, state.attempted)
+            }
+            state.authorizationPending?.let { message -> ConnectAuthorizationPendingBlock(message) }
+            state.failure?.let { failure ->
+                ConnectFailureBlock(
+                    failure = failure,
+                    attempted = state.attempted,
+                    retrying = state.retrying,
+                    onCancel = viewModel::cancelConnect,
+                    onSignIn = { viewModel.setSignInOpen(true) },
+                )
+            }
             Spacer(Modifier.height(DsSpacing.large))
         }
     }
