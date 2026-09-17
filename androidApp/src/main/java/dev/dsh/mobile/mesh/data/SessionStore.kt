@@ -1666,7 +1666,7 @@ class SessionStore @Inject constructor(
         // The UI can observe CONNECTED one frame before the newly published API is visible after
         // a carrier recovery. Wait for the same generation instead of turning that publication race
         // into a misleading "not connected" error.
-        val api = awaitConnectedClient()?.api ?: return PromptOutcome.Failed("not connected")
+        val api = awaitConnectedApi() ?: return PromptOutcome.Failed("not connected")
         val safeMode = if (mode == "steer") "steer" else "queue"
         val zone = TimeZone.getDefault().id
         val request = SessionPromptRequest(
@@ -1815,10 +1815,9 @@ class SessionStore @Inject constructor(
      * typed answer deleted in transit with nothing to show for it.
      */
     suspend fun answerQuestions(sessionId: String, answer: AskUserQuestionAnswer): QuestionOutcome {
-        val connected = awaitConnectedClient() ?: return QuestionOutcome.Unsent
-        val api = connected.api
+        val api = apiOrNull() ?: return QuestionOutcome.Unsent
         val eventId = pendingQuestionEvent(sessionId) ?: return QuestionOutcome.Refused("not-pending")
-        val clientId = connected.clientId
+        val clientId = connectionManager.generation?.clientId ?: return QuestionOutcome.Unsent
         // The waterfall returns the answer object itself; there is no envelope around it now.
         val outcome = answerOutcome(
             api.answerEvent(
@@ -1858,10 +1857,9 @@ class SessionStore @Inject constructor(
      * `ok:false` carrying any other.
      */
     suspend fun dismissQuestions(sessionId: String): QuestionOutcome {
-        val connected = awaitConnectedClient() ?: return QuestionOutcome.Unsent
-        val api = connected.api
+        val api = apiOrNull() ?: return QuestionOutcome.Unsent
         val eventId = pendingQuestionEvent(sessionId) ?: return QuestionOutcome.Refused("not-pending")
-        val clientId = connected.clientId
+        val clientId = connectionManager.generation?.clientId ?: return QuestionOutcome.Unsent
         // A rejection, not an empty answer, and not `next`: `next` would delegate to the host's
         // own later listeners, which is a different thing from the user closing the prompt.
         return answerOutcome(
@@ -2425,24 +2423,18 @@ class SessionStore @Inject constructor(
      */
     val commandAttachmentsSupported: Boolean get() = connectionManager.connectedApi != null
 
-    private data class ConnectedClient(val api: DshApiClient, val clientId: String)
-
-    private suspend fun awaitConnectedClient(timeoutMs: Long = 2_000L): ConnectedClient? {
+    private suspend fun awaitConnectedApi(timeoutMs: Long = 2_000L): DshApiClient? {
+        val current = connectionManager.connectedApi
+        if (current != null && connectionManager.state.value.phase == ConnectionPhase.CONNECTED) return current
         val deadline = System.nanoTime() + timeoutMs * 1_000_000L
         while (System.nanoTime() < deadline) {
-            val generation = connectionManager.generation
-            val api = connectionManager.connectedApi
-            if (api != null && generation != null && connectionManager.state.value.phase == ConnectionPhase.CONNECTED) {
-                return ConnectedClient(api, generation.clientId)
-            }
             kotlinx.coroutines.delay(100L)
+            val candidate = connectionManager.connectedApi
+            if (candidate != null && connectionManager.state.value.phase == ConnectionPhase.CONNECTED) return candidate
         }
         log("not connected — ignoring request")
         return null
     }
-
-    private suspend fun awaitConnectedApi(timeoutMs: Long = 2_000L): DshApiClient? =
-        awaitConnectedClient(timeoutMs)?.api
 
     private fun apiOrNull(): DshApiClient? {
         val api = connectionManager.connectedApi
