@@ -482,6 +482,7 @@ class SessionStore @Inject constructor(
     private var modelCatalogCache: ModelCatalog? = null
     /** Optimistic queue entries bridge the interval before the control stream echoes a prompt. */
     private val optimisticQueueBySession = mutableMapOf<String, MutableList<QueueItem>>()
+    private val optimisticQueueEdits = mutableMapOf<String, MutableMap<String, QueueItem>>()
     /** User prompts rendered immediately while the follow stream catches up. */
     private val optimisticPromptBySession = mutableMapOf<String, MutableList<OptimisticPrompt>>()
     private data class OptimisticPrompt(val requestId: String, val text: String)
@@ -570,6 +571,7 @@ class SessionStore @Inject constructor(
             currentProjections.clear()
             currentQueue = emptyList()
             queueBySession.clear()
+            optimisticQueueEdits.clear()
             followCursor = null
             _sessions.value = emptyList()
             _workspaces.value = emptyList()
@@ -819,15 +821,22 @@ class SessionStore @Inject constructor(
             val nextQueue = items
                 .filter { it.placement == "queued" }
                 .map { queuedInboxItemToQueueItem(it) }
-            queueBySession[sessionId] = nextQueue
+            val edited = optimisticQueueEdits[sessionId].orEmpty()
+            val reconciledQueue = nextQueue.map { edited[it.id] ?: it }
+            queueBySession[sessionId] = reconciledQueue
             if (sessionId == currentId) {
-                currentQueue = nextQueue
+                currentQueue = reconciledQueue
                 // A control snapshot is authoritative once it contains a matching submitted text.
                 // Drop only echoed optimistic rows; a snapshot that raced ahead of propagation must
                 // leave the local entry visible instead of making a newly queued message disappear.
                 optimisticQueueBySession[sessionId]?.let { optimistic ->
                     val echoed = currentQueue.map { it.messageText }.toHashSet()
-                    optimistic.removeAll { it.messageText in echoed }
+                    optimistic.removeAll { optimisticItem ->
+                    currentQueue.any { queuedItem ->
+                        queuedItem.messageText == optimisticItem.messageText ||
+                            (queuedItem.messageText != optimisticItem.messageText && queuedItem.id == optimisticItem.id.removePrefix("local:"))
+                    }
+                }
                     if (optimistic.isEmpty()) optimisticQueueBySession.remove(sessionId)
                 }
                 rebuildCurrentLocked()
@@ -1779,6 +1788,25 @@ class SessionStore @Inject constructor(
         }
         when (val r = api.sessionUpdateQueue(SessionUpdateQueueRequest(sid, itemId, queueAction))) {
             is RpcResult.Ok -> {
+                if (action == "edit") {
+                    val edited = currentQueue.firstOrNull { it.id == itemId }
+                    if (edited != null) {
+                        val next = edited.copy(
+                            previewText = contentText.orEmpty().take(120),
+                            messageText = contentText.orEmpty(),
+                            content = encodeToJsonElement(
+                                ListSerializer(PromptContentPart.serializer()),
+                                listOf(PromptContentPart.Text(contentText.orEmpty())),
+                            ),
+                        )
+                        synchronized(lock) {
+                            optimisticQueueEdits.getOrPut(sid) { mutableMapOf() }[itemId] = next
+                            currentQueue = currentQueue.map { if (it.id == itemId) next else it }
+                            queueBySession[sid] = currentQueue
+                            rebuildCurrentLocked()
+                        }
+                    }
+                }
                 if (action == "steer") {
                     val item = currentQueue.firstOrNull { it.id == itemId }
                     if (item != null) {
