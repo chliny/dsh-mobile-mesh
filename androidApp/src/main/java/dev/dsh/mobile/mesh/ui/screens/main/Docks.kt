@@ -207,21 +207,22 @@ internal fun QueueDock(
     onInsertQueued: (QueueItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (queue.isEmpty()) return
+    val pendingQueue = queue.filter { it.placement == "queued" }
+    if (pendingQueue.isEmpty()) return
     val scope = rememberCoroutineScope()
     val colors = DsTheme.colors
-    var expanded by remember(queue.size) { mutableStateOf(false) }
+    var expanded by remember(pendingQueue.size) { mutableStateOf(false) }
     var editingId by remember { mutableStateOf<String?>(null) }
     var editText by remember { mutableStateOf("") }
 
     DisclosureRow(
         title = stringResource(R.string.chat_queue_title),
-        summary = queue.size.toString(),
+        summary = pendingQueue.size.toString(),
         expanded = expanded,
         onToggle = { expanded = !expanded },
         modifier = modifier,
     ) {
-        queue.forEach { item ->
+        pendingQueue.forEach { item ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
