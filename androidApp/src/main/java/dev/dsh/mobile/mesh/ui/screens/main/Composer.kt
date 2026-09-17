@@ -150,6 +150,21 @@ internal fun mentionQueryForDraft(draft: String): String? {
     return token.takeIf { it.startsWith("@") }?.removePrefix("@")
 }
 
+internal fun matchingMentionFiles(
+    fileCandidates: List<WorkspaceDirectoryEntry>,
+    mentionQuery: String,
+): List<WorkspaceDirectoryEntry> {
+    val normalized = mentionQuery.trimStart('/')
+    val prefix = normalized.substringBeforeLast('/', "")
+    val leaf = normalized.substringAfterLast('/')
+    return fileCandidates.filter { file ->
+        val name = file.name.trimStart('/')
+        if (prefix.isBlank()) name.substringAfterLast('/').contains(leaf, ignoreCase = true)
+        else name.startsWith("$prefix/", ignoreCase = true) &&
+            name.substringAfterLast('/').contains(leaf, ignoreCase = true)
+    }.take(8)
+}
+
 @Composable
 internal fun Composer(
     draft: String,
@@ -192,15 +207,7 @@ internal fun Composer(
         if (mentionActive) onFileQueryChange(mentionQuery)
     }
     val matchingFiles = remember(fileCandidates, mentionQuery) {
-        val normalized = mentionQuery.trimStart('/')
-        val prefix = normalized.substringBeforeLast('/', "")
-        val leaf = normalized.substringAfterLast('/')
-        fileCandidates.filter { file ->
-            val name = file.name.trimStart('/')
-            if (prefix.isBlank()) name.substringAfterLast('/').contains(leaf, ignoreCase = true)
-            else name.startsWith("$prefix/", ignoreCase = true) &&
-                name.substringAfterLast('/').contains(leaf, ignoreCase = true)
-        }.take(8)
+        matchingMentionFiles(fileCandidates, mentionQuery)
     }
     val commandQuery = draft.removePrefix("/").takeIf { draft.startsWith("/") && !draft.contains(' ') }.orEmpty()
     val matchingCommands = remember(commands, commandQuery) {
