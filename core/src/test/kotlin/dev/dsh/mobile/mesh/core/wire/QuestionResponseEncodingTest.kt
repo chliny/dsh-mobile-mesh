@@ -76,7 +76,7 @@ class QuestionResponseEncodingTest {
         assertEquals("/api/\$events/result", transport.lastPath)
         val envelope = body(transport)
         assertEquals("client-request", envelope["type"]!!.jsonPrimitive.content)
-        val payload = envelope["payload"]!!.jsonObject
+        val payload = envelope["payload"]!!.jsonObject["args"]!!.jsonObject
         assertEquals("client-1", payload["clientId"]!!.jsonPrimitive.content)
         assertEquals("evt-1", payload["eventId"]!!.jsonPrimitive.content)
         val outcome = payload["outcome"]!!.jsonObject
@@ -118,7 +118,7 @@ class QuestionResponseEncodingTest {
             ),
         )
 
-        val outcome = body(transport)["payload"]!!.jsonObject["outcome"]!!.jsonObject
+        val outcome = body(transport)["payload"]!!.jsonObject["args"]!!.jsonObject["outcome"]!!.jsonObject
         assertEquals("rejected", outcome["kind"]!!.jsonPrimitive.content)
         val error = outcome["error"]!!.jsonObject
         assertEquals("cancelled", error["code"]!!.jsonPrimitive.content)

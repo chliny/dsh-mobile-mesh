@@ -894,7 +894,7 @@ class DshApiClient(
         clientId: String,
         eventId: String,
         outcome: RemoteEventOutcome,
-    ): RpcResult<JsonElement> = unary(
+    ): RpcResult<JsonElement> = call(
         REMOTE_EVENT_RESULT_ENDPOINT,
         buildJsonObject {
             put("clientId", JsonPrimitive(clientId))
