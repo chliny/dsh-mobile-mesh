@@ -2,10 +2,6 @@ package dev.dsh.mobile.mesh.data
 
 import android.util.Base64
 import android.util.Log
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.dsh.mobile.mesh.connection.ConnectionManager
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.core.session.AssistantLiveState
@@ -16,7 +12,6 @@ import dev.dsh.mobile.mesh.core.session.EventFold
 import dev.dsh.mobile.mesh.core.session.QueueItem
 import dev.dsh.mobile.mesh.core.session.SessionEventEnvelope
 import dev.dsh.mobile.mesh.core.wire.DshApiClient
-import dev.dsh.mobile.mesh.core.wire.WireJson
 import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.decodeFromJsonElement
 import dev.dsh.mobile.mesh.core.wire.dto.APPROVAL_REQUEST_EVENT
@@ -105,16 +100,12 @@ import java.io.OutputStream
 import java.time.Instant
 import java.util.TimeZone
 import javax.inject.Inject
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.builtins.MapSerializer
-import kotlinx.serialization.builtins.serializer
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -144,17 +135,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
-import kotlinx.serialization.Serializable
-
-@Serializable
-private data class PersistedQueueItem(
-    val id: String,
-    val placement: String,
-    val previewText: String,
-    val messageText: String,
-    val content: JsonElement,
-)
-
 /** One renderable session list row (manual order, live). */
 data class SessionRow(
     val sessionId: String,
@@ -275,7 +255,6 @@ internal fun requiresApiPublication(phase: ConnectionPhase, apiPresent: Boolean)
 @Singleton
 class SessionStore @Inject constructor(
     private val connectionManager: ConnectionManager,
-    private val dataStore: DataStore<Preferences>,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lock = Any()
@@ -500,12 +479,7 @@ class SessionStore @Inject constructor(
     /** Session-scoped metadata caches keep sheets usable while a weak network refresh is pending. */
     private val skillsCache = LinkedHashMap<String, List<SkillEntry>>()
     private var modelCatalogCache: ModelCatalog? = null
-    /** Optimistic queue entries bridge the interval before the control stream echoes a prompt. */
-    private val optimisticQueueBySession = mutableMapOf<String, MutableList<QueueItem>>()
-    private val persistedQueueKey = stringPreferencesKey("pending_queue_json")
-    private var persistedQueuesLoaded = false
-    private val persistedQueuesReady = CompletableDeferred<Unit>()
-    private val optimisticQueueEdits = mutableMapOf<String, MutableMap<String, QueueItem>>()
+
     /** User prompts rendered immediately while the follow stream catches up. */
     private val optimisticPromptBySession = mutableMapOf<String, MutableList<OptimisticPrompt>>()
     private data class OptimisticPrompt(val requestId: String, val text: String)
@@ -530,24 +504,6 @@ class SessionStore @Inject constructor(
     private data class ProjectionValue(val seq: Int, val value: JsonElement)
 
     init {
-        scope.launch {
-            val stored = dataStore.data.first()[persistedQueueKey]
-            if (!stored.isNullOrBlank()) runCatching {
-                val decoded = WireJson.decodeFromString(
-                    MapSerializer(String.serializer(), ListSerializer(PersistedQueueItem.serializer())), stored,
-                )
-                synchronized(lock) {
-                    decoded.forEach { (sid, items) ->
-                        optimisticQueueBySession[sid] = items.map { it.toQueueItem() }.toMutableList()
-                    }
-                    persistedQueuesLoaded = true
-                    currentId?.let { rebuildCurrentLocked() }
-                }
-            } else {
-                synchronized(lock) { persistedQueuesLoaded = true }
-            }
-            persistedQueuesReady.complete(Unit)
-        }
         observeConnection()
         observeEvents()
         observePermissionSettlement()
@@ -612,7 +568,6 @@ class SessionStore @Inject constructor(
             currentProjections.clear()
             currentQueue = emptyList()
             queueBySession.clear()
-            optimisticQueueEdits.clear()
             followCursor = null
             _sessions.value = emptyList()
             _workspaces.value = emptyList()
@@ -862,24 +817,12 @@ class SessionStore @Inject constructor(
             val nextQueue = items
                 .filter { it.placement == "queued" }
                 .map { queuedInboxItemToQueueItem(it) }
-            val edited = optimisticQueueEdits[sessionId].orEmpty()
-            val reconciledQueue = nextQueue.map { edited[it.id] ?: it }
-            queueBySession[sessionId] = reconciledQueue
+            queueBySession[sessionId] = nextQueue
             if (sessionId == currentId) {
-                currentQueue = reconciledQueue
+                currentQueue = nextQueue
                 // A control snapshot is authoritative once it contains a matching submitted text.
                 // Drop only echoed optimistic rows; a snapshot that raced ahead of propagation must
                 // leave the local entry visible instead of making a newly queued message disappear.
-                optimisticQueueBySession[sessionId]?.let { optimistic ->
-                    val echoed = currentQueue.map { it.messageText }.toHashSet()
-                    optimistic.removeAll { optimisticItem ->
-                    currentQueue.any { queuedItem ->
-                        queuedItem.messageText == optimisticItem.messageText ||
-                            (queuedItem.messageText != optimisticItem.messageText && queuedItem.id == optimisticItem.id.removePrefix("local:"))
-                    }
-                }
-                    if (optimistic.isEmpty()) optimisticQueueBySession.remove(sessionId)
-                }
                 rebuildCurrentLocked()
             }
         }
@@ -953,7 +896,6 @@ class SessionStore @Inject constructor(
             "turn/end" -> {
                 setRunning(sessionId, false)
                 synchronized(lock) {
-                    optimisticQueueBySession.remove(sessionId)
                     if (currentId == sessionId) rebuildCurrentLocked()
                 }
                 clearPendingInteraction(sessionId)
@@ -1268,7 +1210,7 @@ class SessionStore @Inject constructor(
             blank = blank,
             running = running,
             hasMore = currentHasMore,
-            queue = currentQueue + optimisticQueueBySession[sid].orEmpty(),
+            queue = currentQueue,
             projections = currentProjections.mapValues { it.value.value },
         )
         _currentConversation.value = merged
@@ -1364,7 +1306,6 @@ class SessionStore @Inject constructor(
     private fun applyWorkspaceValue(value: WorkspaceValue) = upsertWorkspace(value.workspace)
 
     suspend fun openSession(sessionId: String) {
-        persistedQueuesReady.await()
         pendingSessionId = sessionId
         if (sessionSwitchJob?.isActive == true) return
         sessionSwitchJob = scope.launch {
@@ -1749,8 +1690,6 @@ class SessionStore @Inject constructor(
                 val running = synchronized(lock) { runningBySession[sid] == true }
                 if (promptOptimisticDisplay(running) == PromptOptimisticDisplay.TRANSCRIPT) {
                     addOptimisticPrompt(sid, request.requestId, content)
-                } else if (safeMode == "queue") {
-                    addOptimisticQueue(sid, request.requestId, content)
                 }
                 PromptOutcome.Ok
             }
@@ -1787,39 +1726,6 @@ class SessionStore @Inject constructor(
         }
     }
 
-    private fun PersistedQueueItem.toQueueItem() = QueueItem(id, placement, previewText, messageText, content)
-
-    private fun persistOptimisticQueuesLocked() {
-        if (!persistedQueuesLoaded) return
-        val value = optimisticQueueBySession.mapValues { (_, items) ->
-            items.map { PersistedQueueItem(it.id, it.placement, it.previewText, it.messageText, it.content) }
-        }
-        scope.launch {
-            dataStore.edit { prefs ->
-                if (value.isEmpty()) prefs.remove(persistedQueueKey)
-                else prefs[persistedQueueKey] = WireJson.encodeToString(
-                    MapSerializer(String.serializer(), ListSerializer(PersistedQueueItem.serializer())), value,
-                )
-            }
-        }
-    }
-
-    private fun addOptimisticQueue(sessionId: String, requestId: String, content: List<PromptContentPart>) {
-        val messageText = content.filterIsInstance<PromptContentPart.Text>().joinToString("\n") { it.text }
-        synchronized(lock) {
-            optimisticQueueBySession.getOrPut(sessionId) { mutableListOf() }.add(
-                QueueItem(
-                    id = "local:$requestId",
-                    placement = "queued",
-                    previewText = messageText.take(120),
-                    messageText = messageText,
-                    content = encodeToJsonElement(ListSerializer(PromptContentPart.serializer()), content),
-                ),
-            )
-            persistOptimisticQueuesLocked()
-            if (currentId == sessionId) rebuildCurrentLocked()
-        }
-    }
 
     suspend fun cancelTurn() {
         val sid = currentSessionId.value ?: return
@@ -1832,15 +1738,6 @@ class SessionStore @Inject constructor(
 
     suspend fun updateQueue(itemId: String, action: String, contentText: String? = null) {
         val sid = currentSessionId.value ?: return
-        if (itemId.startsWith("local:")) {
-            synchronized(lock) {
-                optimisticQueueBySession[sid]?.removeAll { it.id == itemId }
-                if (optimisticQueueBySession[sid].isNullOrEmpty()) optimisticQueueBySession.remove(sid)
-                persistOptimisticQueuesLocked()
-                if (currentId == sid) rebuildCurrentLocked()
-            }
-            return
-        }
         val api = apiOrNull() ?: return
         val queueAction: QueueAction = when (action) {
             "remove" -> QueueAction.Remove()
@@ -1849,25 +1746,6 @@ class SessionStore @Inject constructor(
         }
         when (val r = api.sessionUpdateQueue(SessionUpdateQueueRequest(sid, itemId, queueAction))) {
             is RpcResult.Ok -> {
-                if (action == "edit") {
-                    val edited = currentQueue.firstOrNull { it.id == itemId }
-                    if (edited != null) {
-                        val next = edited.copy(
-                            previewText = contentText.orEmpty().take(120),
-                            messageText = contentText.orEmpty(),
-                            content = encodeToJsonElement(
-                                ListSerializer(PromptContentPart.serializer()),
-                                listOf(PromptContentPart.Text(contentText.orEmpty())),
-                            ),
-                        )
-                        synchronized(lock) {
-                            optimisticQueueEdits.getOrPut(sid) { mutableMapOf() }[itemId] = next
-                            currentQueue = currentQueue.map { if (it.id == itemId) next else it }
-                            queueBySession[sid] = currentQueue
-                            rebuildCurrentLocked()
-                        }
-                    }
-                }
                 if (action == "steer") {
                     val item = currentQueue.firstOrNull { it.id == itemId }
                     if (item != null) {
