@@ -15,6 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -210,6 +212,8 @@ internal fun QueueDock(
     val pendingQueue = queue.filter { it.placement == "queued" }
     if (pendingQueue.isEmpty()) return
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val queueInsertedLabel = stringResource(R.string.chat_queue_inserted)
     val colors = DsTheme.colors
     var expanded by remember(pendingQueue.size) { mutableStateOf(false) }
     var editingId by remember { mutableStateOf<String?>(null) }
@@ -227,7 +231,10 @@ internal fun QueueDock(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 28.dp, top = 2.dp)
-                    .clickable { onInsertQueued(item) },
+                    .clickable {
+                        onInsertQueued(item)
+                        Toast.makeText(context, queueInsertedLabel, Toast.LENGTH_SHORT).show()
+                    },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
