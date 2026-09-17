@@ -555,9 +555,9 @@ private fun ToolCallRow(node: ToolCallNode, context: ChatNodeContext) {
         toolName = node.name,
         argumentsJson = node.arguments,
         cwd = context.cwd,
-        // Derived from the call itself now: 0.1.2 sends no presenter title to prefer over it.
         viewTitle = null,
     )
+    val localizedToolTitle = stringResource(row.variant.titleResource())
     var expanded by remember(node.callId) { mutableStateOf(false) }
     val directFilePath = directFilePathForTool(row.variant, card)
     // The leading slot carries the outcome: a red dot for a failed call, the tool glyph otherwise.
@@ -576,7 +576,7 @@ private fun ToolCallRow(node: ToolCallNode, context: ChatNodeContext) {
                 expanded = !expanded
             }
         },
-        titleOverride = row.title,
+        titleOverride = row.title ?: localizedToolTitle,
         summaryOverride = row.summary,
         iconOverride = row.variant.featherIcon(),
         state = state,

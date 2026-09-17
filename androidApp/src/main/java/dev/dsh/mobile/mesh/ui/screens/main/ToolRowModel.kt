@@ -1,6 +1,7 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
 import androidx.compose.ui.graphics.vector.ImageVector
+import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -16,18 +17,16 @@ import kotlinx.serialization.json.JsonObject
  * session's working directory. Deriving it here (instead of printing whatever title the tool's
  * presenter happened to emit) is what keeps the verb column consistent and the paths short.
  *
- * The verb labels are deliberately not string resources: they are the harness's own tool
- * vocabulary, which it leaves untranslated in every locale, and a translated verb here would stop
- * matching the desktop UI it mirrors.
+ * The variant is stable protocol data; its visible title is localized at the UI boundary.
  */
-internal enum class ToolRowVariant(val title: String) {
-    Search("Search"),
-    Read("Read"),
-    Bash("Bash"),
-    Write("Write"),
-    Edit("Edit"),
-    Code("Code"),
-    Other("Tool call"),
+internal enum class ToolRowVariant {
+    Search,
+    Read,
+    Bash,
+    Write,
+    Edit,
+    Code,
+    Other,
 }
 
 /** Tool name -> variant. Unlisted tools fall to [ToolRowVariant.Other]. */
@@ -70,7 +69,7 @@ private val LENIENT_JSON = Json { ignoreUnknownKeys = true; isLenient = true }
 /** The header a tool row shows: a verb plus the argument that identifies the call. */
 internal data class ToolRowModel(
     val variant: ToolRowVariant,
-    val title: String,
+    val title: String?,
     val summary: String?,
     /** Set when the summary names a file the host could open. */
     val filePath: String?,
@@ -86,6 +85,16 @@ internal fun classifyTool(toolName: String): ToolRowVariant =
  * with the verb column: a `web_fetch` reads `Read` and gets the page glyph, not whatever card the
  * host chose to render its result in.
  */
+internal fun ToolRowVariant.titleResource(): Int = when (this) {
+    ToolRowVariant.Search -> R.string.tool_title_search
+    ToolRowVariant.Read -> R.string.tool_title_read
+    ToolRowVariant.Bash -> R.string.tool_title_bash
+    ToolRowVariant.Write -> R.string.tool_title_write
+    ToolRowVariant.Edit -> R.string.tool_title_edit
+    ToolRowVariant.Code -> R.string.tool_title_code
+    ToolRowVariant.Other -> R.string.tool_title_generic
+}
+
 internal fun ToolRowVariant.featherIcon(): ImageVector = when (this) {
     ToolRowVariant.Search -> FeatherIcons.Search
     ToolRowVariant.Read -> FeatherIcons.FileText
@@ -126,7 +135,7 @@ internal fun toolRowModel(
     }
     return ToolRowModel(
         variant = variant,
-        title = viewTitle?.takeIf { it.isNotBlank() } ?: variant.title,
+        title = viewTitle?.takeIf { it.isNotBlank() },
         summary = summary,
         filePath = filePathOf(variant, arguments),
     )

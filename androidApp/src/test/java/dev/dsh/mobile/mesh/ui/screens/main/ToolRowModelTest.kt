@@ -44,7 +44,7 @@ class ToolRowModelTest {
             argumentsJson = """{"file_path":"D:\\LabTeto\\deepseek-mobile\\app\\build.gradle.kts"}""",
             cwd = "D:\\LabTeto\\deepseek-mobile",
         )
-        assertEquals("Read", row.title)
+        assertNull(row.title)
         assertEquals("app\\build.gradle.kts", row.summary)
         assertEquals("D:\\LabTeto\\deepseek-mobile\\app\\build.gradle.kts", row.filePath)
     }
@@ -56,7 +56,7 @@ class ToolRowModelTest {
             argumentsJson = """{"path":"/home/me/project/src/main.kt"}""",
             cwd = "/home/me/project",
         )
-        assertEquals("Edit", row.title)
+        assertNull(row.title)
         assertEquals("src/main.kt", row.summary)
     }
 
@@ -87,21 +87,21 @@ class ToolRowModelTest {
     @Test
     fun `a shell without a description falls back to the command`() {
         val row = toolRowModel("bash", """{"command":"./gradlew test"}""", cwd = null)
-        assertEquals("Bash", row.title)
+        assertNull(row.title)
         assertEquals("./gradlew test", row.summary)
     }
 
     @Test
     fun `an unclassified tool still identifies itself`() {
         val row = toolRowModel("some_new_tool", """{"whatever":1}""", cwd = null)
-        assertEquals("Tool call", row.title)
+        assertNull(row.title)
         assertEquals("some_new_tool", row.summary)
     }
 
     @Test
     fun `malformed arguments degrade to no summary rather than throwing`() {
         val row = toolRowModel("read", "{not json", cwd = null)
-        assertEquals("Read", row.title)
+        assertNull(row.title)
         assertNull(row.summary)
     }
 
