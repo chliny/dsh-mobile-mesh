@@ -177,7 +177,7 @@ fun ChatScreen(
     fun refusalOf(outcome: QuestionOutcome): String? = when (outcome) {
         is QuestionOutcome.Accepted -> null
         is QuestionOutcome.Refused -> answerRefused.format(outcome.reason)
-        is QuestionOutcome.Unsent -> answerUnsent
+        is QuestionOutcome.Unsent -> answerUnsent.format(outcome.reason)
     }
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
