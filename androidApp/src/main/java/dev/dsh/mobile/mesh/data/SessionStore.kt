@@ -482,6 +482,8 @@ class SessionStore @Inject constructor(
 
     /** User prompts rendered immediately while the follow stream catches up. */
     private val optimisticPromptBySession = mutableMapOf<String, MutableList<OptimisticPrompt>>()
+    /** Accepted prompt awaiting the first authoritative turn event. */
+    private val pendingPromptBySession = mutableSetOf<String>()
     private data class OptimisticPrompt(val requestId: String, val text: String)
     private var agentPresetsCache: AgentPresetListValue? = null
     private var commandsCache: List<CommandDescriptor>? = null
@@ -890,10 +892,12 @@ class SessionStore @Inject constructor(
     private fun handleSessionEvent(sessionId: String, envelope: SessionEventEnvelope) {
         when (envelope.type) {
             "turn/start" -> {
+                synchronized(lock) { pendingPromptBySession.remove(sessionId) }
                 setRunning(sessionId, true)
                 setBlank(sessionId, false)
             }
             "turn/end" -> {
+                synchronized(lock) { pendingPromptBySession.remove(sessionId) }
                 setRunning(sessionId, false)
                 synchronized(lock) {
                     if (currentId == sessionId) rebuildCurrentLocked()
@@ -1041,6 +1045,7 @@ class SessionStore @Inject constructor(
 
     private fun onSessionRemoved(sessionId: String) {
         synchronized(lock) {
+            pendingPromptBySession.remove(sessionId)
             sessionRows.remove(sessionId)
             pendingKinds.remove(sessionId)
             runningBySession.remove(sessionId)
@@ -1205,10 +1210,11 @@ class SessionStore @Inject constructor(
         }
         val blank = if (events.isEmpty() && optimistic.isEmpty()) currentBlank else false
         val running = runningBySession[sid] ?: snapshot.running
+        val pending = pendingPromptBySession.contains(sid)
         val merged = snapshot.copy(
             nodes = snapshot.nodes + optimisticNodes,
             blank = blank,
-            running = running,
+            running = running || pending,
             hasMore = currentHasMore,
             queue = currentQueue,
             projections = currentProjections.mapValues { it.value.value },
@@ -1688,9 +1694,11 @@ class SessionStore @Inject constructor(
                 // one local row visible immediately; the authoritative follow event removes it by
                 // request id or matching text.
                 val running = synchronized(lock) { runningBySession[sid] == true }
+                synchronized(lock) { pendingPromptBySession += sid }
                 if (promptOptimisticDisplay(running) == PromptOptimisticDisplay.TRANSCRIPT) {
                     addOptimisticPrompt(sid, request.requestId, content)
                 }
+                synchronized(lock) { if (currentId == sid) rebuildCurrentLocked() }
                 PromptOutcome.Ok
             }
             is RpcResult.Err -> if (r.error.code == ATTACHMENT_INVALID) {

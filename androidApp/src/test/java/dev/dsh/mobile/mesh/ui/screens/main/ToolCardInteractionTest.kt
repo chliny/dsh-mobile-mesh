@@ -27,6 +27,11 @@ class ToolCardInteractionTest {
     }
 
     @Test
+    fun `an accepted prompt with no transcript nodes still renders waiting state`() {
+        assertTrue(waitingForFirstResponse(running = true, hasAssistant = false))
+    }
+
+    @Test
     fun `mention candidates preserve server order and only cap rendered rows`() {
         val candidates = listOf(WorkspaceDirectoryEntry("server-ranked.txt", "file")) +
             (1..9).map { WorkspaceDirectoryEntry("src/lib/File$it.kt", "file") }
