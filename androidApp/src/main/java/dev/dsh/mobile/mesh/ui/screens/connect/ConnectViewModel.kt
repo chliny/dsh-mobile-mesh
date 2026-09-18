@@ -810,15 +810,21 @@ class ConnectViewModel @Inject constructor(
                 // Keep the token pending until the exchange is granted. The transport startup can
                 // fail before this callback runs (or be cancelled by a lifecycle recovery), and
                 // clearing it early otherwise turns the next 401 into an unrecoverable retry loop.
-                val tokenToPair = pendingLaunchToken ?: return@connect
+                val tokenToPair = pendingLaunchToken ?: run {
+                    Log.w("ConnectViewModel", "Transport ready without a pending launch token")
+                    return@connect
+                }
+                Log.d("ConnectViewModel", "Transport ready; pairing DSH launch token through relay")
                 _state.update { it.copy(signingIn = true, signInError = null) }
-                when (harnessSessions.pair(host.id, baseUrl, tokenToPair, host.harnessAuthority)) {
+                when (val exchange = harnessSessions.pair(host.id, baseUrl, tokenToPair, host.harnessAuthority)) {
                     is SessionExchange.Granted -> {
+                        Log.d("ConnectViewModel", "DSH launch token pairing granted")
                         if (!connectFence.accepts(requestId)) return@connect
                         pendingLaunchToken = null
                         _state.update { it.copy(signingIn = false) }
                     }
                     is SessionExchange.Refused -> {
+                        Log.w("ConnectViewModel", "DSH launch token pairing refused status=${exchange.status}")
                         if (!connectFence.accepts(requestId)) return@connect
                         pendingLaunchToken = null
                         _state.update {
@@ -827,6 +833,7 @@ class ConnectViewModel @Inject constructor(
                         throw IllegalArgumentException("Harness launch token was refused")
                     }
                     is SessionExchange.Unreachable -> {
+                        Log.w("ConnectViewModel", "DSH launch token pairing unreachable kind=${exchange.kind}")
                         if (!connectFence.accepts(requestId)) return@connect
                         _state.update {
                             it.copy(signingIn = false, signInOpen = true, signInError = SignInError.Unreachable)
