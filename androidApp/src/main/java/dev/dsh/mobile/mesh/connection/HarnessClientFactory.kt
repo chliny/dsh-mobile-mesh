@@ -61,8 +61,11 @@ class HarnessClientFactory @Inject constructor(
      */
     suspend fun muxFor(config: HostConfig, baseUrl: String = config.baseUrl): RemoteStreamMux {
         val cookie = cookieFor(config)
+        val websocketClient = okHttpClient.newBuilder()
+            .pingInterval(webSocketPingIntervalMs(config.meshTransport), java.util.concurrent.TimeUnit.MILLISECONDS)
+            .build()
         return RemoteStreamMux { sink ->
-            WsChannel("$baseUrl$REMOTE_STREAM_MUX_PATH", okHttpClient, sink, cookie, config.harnessAuthority)
+            WsChannel("$baseUrl$REMOTE_STREAM_MUX_PATH", websocketClient, sink, cookie, config.harnessAuthority)
         }
     }
 
