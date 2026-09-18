@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.FULL_ACCESS_PRESET
 import dev.dsh.mobile.mesh.core.wire.dto.PermissionSelect
-import dev.dsh.mobile.mesh.core.wire.dto.displayPermissionPreset
+
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
@@ -59,7 +59,7 @@ internal fun PermissionMenu(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        displayPermissionPreset(option.value, option.name),
+                        permissionPresetLabel(option.value, option.name),
                         style = DsType.std14Strong,
                         color = if (selected) colors.accent else colors.labelPrimary,
                     )
@@ -92,6 +92,14 @@ internal fun PermissionMenu(
             )
         }
     }
+}
+
+@Composable
+internal fun permissionPresetLabel(value: String, wireName: String): String = when (value) {
+    "read-only", "read_only" -> stringResource(R.string.permission_read_only)
+    "workspace-write", "workspace_write" -> stringResource(R.string.permission_workspace_write)
+    FULL_ACCESS_PRESET -> stringResource(R.string.permission_full_access)
+    else -> wireName
 }
 
 /**
