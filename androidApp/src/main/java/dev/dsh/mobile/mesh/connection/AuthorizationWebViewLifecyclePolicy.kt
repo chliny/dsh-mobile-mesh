@@ -14,3 +14,9 @@ internal fun shouldPreserveAuthorizationOnBackground(
     authorizationPending: Boolean,
     loginUrl: String?,
 ): Boolean = shouldDeferForegroundRecoveryForAuthorization(authorizationPending, loginUrl)
+
+/** A pending native identity should be checked immediately when returning from external sign-in. */
+internal fun shouldResumeAuthorizationOnForeground(
+    authorizationPending: Boolean,
+    loginUrl: String?,
+): Boolean = authorizationPending && loginUrl?.isNotBlank() == true

@@ -655,6 +655,15 @@ class ConnectionManager @Inject constructor(
                 loginUrl = _state.value.tailscaleLoginUrl,
             )) {
             Log.d("ConnectionManager", "Foreground recovery deferred during authorization")
+            // The WebView may complete Google sign-in while this Activity is stopped. Kick one
+            // immediate native status check on return instead of waiting for the ViewModel polling
+            // coroutine to be recreated; a successful check clears the URL and closes the dialog.
+            if (shouldResumeAuthorizationOnForeground(
+                    authorizationPending = _state.value.authorizationPending != null,
+                    loginUrl = _state.value.tailscaleLoginUrl,
+                )) {
+                scope.launch { resumeAuthorization() }
+            }
             return
         }
         if (connectJob?.isActive != true && _state.value.phase == ConnectionPhase.DISCONNECTED) {
