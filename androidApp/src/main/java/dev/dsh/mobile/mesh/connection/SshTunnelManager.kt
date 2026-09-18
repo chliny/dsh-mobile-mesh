@@ -81,12 +81,12 @@ class SshTunnelManager @Inject constructor(
             // native node becomes ready. Retry only the transport handshake; authentication is
             // never repeated blindly and remains below this block.
             var lastConnectError: Throwable? = null
-            repeat(SSH_CONNECT_ATTEMPTS) { attempt ->
+            for (attempt in 0 until SSH_CONNECT_ATTEMPTS) {
                 if (attempt > 0) client = newClient()
                 try {
                     client.connect(sshHost, sshPort)
                     lastConnectError = null
-                    return@repeat
+                    break
                 } catch (error: Throwable) {
                     lastConnectError = error
                     runCatching { client.close() }
