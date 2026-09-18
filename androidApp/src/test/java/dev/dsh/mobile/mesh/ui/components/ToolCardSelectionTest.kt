@@ -14,4 +14,11 @@ class ToolCardSelectionTest {
         val body = source.substring(bodyStart, bodyEnd)
         assertTrue(body.contains("SelectionContainer"))
     }
+
+    @Test
+    fun `chat transcript provides a tap-away selection reset`() {
+        val source = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/ChatTranscript.kt").readText()
+        assertTrue(source.contains("SelectionContainer"))
+        assertTrue(source.contains("LazyColumn"))
+    }
 }
