@@ -288,9 +288,17 @@ class ConnectionManager @Inject constructor(
                 failure = ConnectFailure.from(failure),
                 attempts = attempt,
             )
-            // Do not recreate libzt/SSH from this callback while Android has the activity in the
-            // background. The loop's own retries are safe there; recovery is intentionally driven
-            // when foreground/network lifecycle signals say the carrier can be used again.
+            // A loop-level mux retry cannot revive a stale ZeroTier/SSH relay. Renew the physical
+            // carrier too, including while the foreground service retains the process in background.
+            if (shouldRenewCarrierAfterGenerationFailure(
+                    hasActiveHost = activeHost != null,
+                    appInForeground = appInForeground,
+                    retainInBackground = keepConnectedInBackground,
+                    recoveryInFlight = synchronized(recoveryLock) { transportRecoveryInFlight },
+                )) {
+                markCarrierRecoveryNeeded()
+                recoverTransportAfterCarrierLoss()
+            }
             }
         }
     }

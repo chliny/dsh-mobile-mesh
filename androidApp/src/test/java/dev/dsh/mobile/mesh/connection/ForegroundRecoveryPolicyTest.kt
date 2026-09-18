@@ -67,6 +67,14 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `generation failure renews retained carrier in foreground or service background`() {
+        assertTrue(shouldRenewCarrierAfterGenerationFailure(true, true, false, false))
+        assertTrue(shouldRenewCarrierAfterGenerationFailure(true, false, true, false))
+        assertFalse(shouldRenewCarrierAfterGenerationFailure(true, false, false, false))
+        assertFalse(shouldRenewCarrierAfterGenerationFailure(true, true, true, true))
+    }
+
+    @Test
     fun `duplicate lifecycle callbacks are ignored`() {
         assertTrue(shouldHandleLifecycleTransition(false, true))
         assertTrue(shouldHandleLifecycleTransition(true, false))
