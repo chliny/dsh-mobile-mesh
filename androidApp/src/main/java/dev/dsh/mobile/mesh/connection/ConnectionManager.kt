@@ -453,10 +453,14 @@ class ConnectionManager @Inject constructor(
             activeBaseUrl = baseUrl
             Log.d("ConnectionManager", "Transport ready callback about to run baseUrl=$baseUrl reconnect=$reconnect")
             _state.value = _state.value.copy(authorizationPending = null, tailscaleLoginUrl = null)
-            withTimeout(TRANSPORT_READY_CALLBACK_TIMEOUT_MS) {
-                intent.afterTransportReady(baseUrl)
+            if (shouldRunTransportReadyCallback(reconnect, preservePendingIdentity)) {
+                withTimeout(TRANSPORT_READY_CALLBACK_TIMEOUT_MS) {
+                    intent.afterTransportReady(baseUrl)
+                }
+                Log.d("ConnectionManager", "Transport ready callback finished")
+            } else {
+                Log.d("ConnectionManager", "Transport ready callback skipped for ordinary carrier recovery")
             }
-            Log.d("ConnectionManager", "Transport ready callback finished")
             if (!lifecycle.accepts(target.token)) {
                 cleanupResources()
                 return
