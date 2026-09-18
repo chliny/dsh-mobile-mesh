@@ -265,11 +265,15 @@ class SessionStore @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lock = Any()
     private val baselineMutex = Mutex()
+    private val baselineStateLock = Any()
+    private var baselineRunning = false
+    private var baselineDirty = false
     /** Serialize session selection so rapid taps cannot interleave follow/metadata replacement. */
     private val sessionSwitchMutex = Mutex()
     /** Latest-wins queue: rapid drawer taps must not backlog one network switch per tap. */
-    @Volatile private var pendingSessionId: String? = null
-    @Volatile private var sessionSwitchJob: Job? = null
+    private val sessionSwitchStateLock = Any()
+    private var pendingSessionId: String? = null
+    private var sessionSwitchJob: Job? = null
 
     /** Coalesces transcript rebuilds during a stream; see [observeRebuildTicks]. */
     private val rebuildTicks = Channel<Unit>(Channel.CONFLATED)
@@ -665,14 +669,34 @@ class SessionStore @Inject constructor(
         runCatching { decodeFromJsonElement(serializer, item) }.getOrNull()
 
     private fun triggerBaseline() {
+        val shouldStart = synchronized(baselineStateLock) {
+            baselineDirty = true
+            if (baselineRunning) false else {
+                baselineRunning = true
+                true
+            }
+        }
+        if (!shouldStart) return
         scope.launch {
-            if (!baselineMutex.tryLock()) return@launch
             try {
-                baseline()
-            } catch (e: Exception) {
-                log("baseline failed", e)
+                while (true) {
+                    synchronized(baselineStateLock) {
+                        if (!baselineDirty) {
+                            baselineRunning = false
+                            return@launch
+                        }
+                        baselineDirty = false
+                    }
+                    baselineMutex.withLock {
+                        try {
+                            baseline()
+                        } catch (e: Exception) {
+                            log("baseline failed", e)
+                        }
+                    }
+                }
             } finally {
-                baselineMutex.unlock()
+                synchronized(baselineStateLock) { baselineRunning = false }
             }
         }
     }
@@ -1354,13 +1378,20 @@ class SessionStore @Inject constructor(
     private fun applyWorkspaceValue(value: WorkspaceValue) = upsertWorkspace(value.workspace)
 
     suspend fun openSession(sessionId: String) {
-        pendingSessionId = sessionId
-        if (sessionSwitchJob?.isActive == true) return
-        sessionSwitchJob = scope.launch {
-            while (true) {
-                val next = pendingSessionId ?: break
-                pendingSessionId = null
-                openSessionOnce(next)
+        synchronized(sessionSwitchStateLock) {
+            pendingSessionId = sessionId
+            if (sessionSwitchJob?.isActive == true) return
+            sessionSwitchJob = scope.launch {
+                while (true) {
+                    val next = synchronized(sessionSwitchStateLock) {
+                        pendingSessionId?.also { pendingSessionId = null }
+                            ?: run {
+                                sessionSwitchJob = null
+                                return@launch
+                            }
+                    }
+                    openSessionOnce(next)
+                }
             }
         }
     }

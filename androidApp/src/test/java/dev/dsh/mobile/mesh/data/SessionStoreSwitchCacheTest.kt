@@ -104,6 +104,18 @@ class SessionStoreSwitchCacheTest {
     }
 
     @Test
+    fun `selection received while the switch worker finishes is processed next`() {
+        val model = SessionSwitchCacheModel()
+
+        model.enqueue("first")
+        assertEquals("first", model.drainLatest())
+        model.enqueue("second")
+
+        assertEquals("second", model.drainLatest())
+        assertEquals(listOf("first", "second"), model.openedSessions)
+    }
+
+    @Test
     fun `cache evicts least recently used conversation after eight entries`() {
         val model = SessionSwitchCacheModel()
         repeat(8) { index -> model.seed(snapshot("s$index", lastSeq = index.toLong())) }
