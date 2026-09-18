@@ -25,4 +25,11 @@ class AuthorizationWebViewLifecyclePolicyTest {
         assertTrue(shouldPreserveAuthorizationOnBackground(false, "https://login.tailscale.com/a/example"))
         assertFalse(shouldPreserveAuthorizationOnBackground(false, null))
     }
+
+    @Test
+    fun `returning with pending URL requests immediate native status check`() {
+        assertTrue(shouldResumeAuthorizationOnForeground(true, "https://login.tailscale.com/a/example"))
+        assertFalse(shouldResumeAuthorizationOnForeground(true, null))
+        assertFalse(shouldResumeAuthorizationOnForeground(false, "https://login.tailscale.com/a/example"))
+    }
 }
