@@ -250,6 +250,9 @@ internal fun requiresApiPublication(phase: ConnectionPhase, apiPresent: Boolean)
 internal fun shouldOpenControlBaseline(phase: ConnectionPhase): Boolean =
     phase == ConnectionPhase.CONNECTED
 
+internal fun correlateCancelledSession(eventId: String, visibleEventId: String?, visibleSessionId: String?): String? =
+    visibleSessionId?.takeIf { visibleEventId == eventId }
+
 /**
  * Single source of truth for the connected harness's live state. All public surface is
  * [StateFlow]; every RPC error becomes [connectionError] and never throws. The store survives
@@ -772,18 +775,25 @@ class SessionStore @Inject constructor(
      * checked.
      */
     private fun handleWaterfallCancelled(eventId: String) {
+        // A Web client can answer before Android has finished publishing its local registry. Use the
+        // visible state as a second correlation source so a remote answer cannot leave a stale panel.
+        val visibleApproval = _pendingApproval.value
         val approval = synchronized(lock) { approvalRequests.remove(eventId) }
-        if (approval != null) {
+        val approvalSessionId = approval?.sessionId
+            ?: visibleApproval?.takeIf { it.approvalId == eventId }?.sessionId
+        if (approvalSessionId != null) {
             synchronized(lock) {
-                removePendingLocked(approval.sessionId, "approval")
+                removePendingLocked(approvalSessionId, "approval")
                 emitSessionsLocked()
             }
             if (_pendingApproval.value?.approvalId == eventId) _pendingApproval.value = null
             return
         }
+        val visibleQuestions = _pendingQuestions.value
         val sessionId = synchronized(lock) {
             questionEventBySession.entries.firstOrNull { it.value == eventId }?.key
-        } ?: return
+        } ?: visibleQuestions?.takeIf { it.rpcId == eventId }?.sessionId
+        if (sessionId == null) return
         synchronized(lock) {
             questionEventBySession.remove(sessionId)
             questionClientBySession.remove(sessionId)
@@ -791,7 +801,9 @@ class SessionStore @Inject constructor(
             removePendingLocked(sessionId, "plan-review")
             emitSessionsLocked()
         }
-        if (_pendingQuestions.value?.sessionId == sessionId) _pendingQuestions.value = null
+        if (_pendingQuestions.value?.let { it.sessionId == sessionId && it.rpcId == eventId } == true) {
+            _pendingQuestions.value = null
+        }
     }
 
     // ------------------------------------------------------------------ control stream
