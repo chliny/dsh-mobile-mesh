@@ -32,6 +32,12 @@ class SessionStoreSwitchCacheTest {
     }
 
     @Test
+    fun `remote cancellation can correlate against the visible interaction`() {
+        assertEquals("session-1", correlateCancelledSession("event-1", "event-1", "session-1"))
+        assertNull(correlateCancelledSession("event-2", "event-1", "session-1"))
+    }
+
+    @Test
     fun `first open without cache has no conversation until follow snapshot arrives`() {
         val model = SessionSwitchCacheModel()
 
