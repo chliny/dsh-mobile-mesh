@@ -444,6 +444,7 @@ class ConnectionManager @Inject constructor(
             }
             Log.d("ConnectionManager", "Transport stack returned; entering callback boundary reconnect=$reconnect preserve=$preservePendingIdentity")
             val acceptsTransport = lifecycle.accepts(target.token)
+            Log.d("ConnectionManager", "Transport acceptance=$acceptsTransport target=${target.token} epoch=$lifecycleEpoch")
             Log.d("ConnectionManager", "Transport stack returned baseUrl=$baseUrl accepts=$acceptsTransport reconnect=$reconnect")
             if (!acceptsTransport) {
                 Log.w("ConnectionManager", "Transport ready discarded because lifecycle target is stale")
