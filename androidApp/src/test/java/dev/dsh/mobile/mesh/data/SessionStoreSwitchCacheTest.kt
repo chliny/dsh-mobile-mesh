@@ -26,6 +26,12 @@ class SessionStoreSwitchCacheTest {
     }
 
     @Test
+    fun `session creation notification requests an authoritative list refresh`() {
+        assertTrue(shouldRefreshSessionsForNotification("api-session/added"))
+        assertFalse(shouldRefreshSessionsForNotification("api-session/activity"))
+    }
+
+    @Test
     fun `already connected store must open control baseline`() {
         assertTrue(shouldOpenControlBaseline(dev.dsh.mobile.mesh.connection.ConnectionPhase.CONNECTED))
         assertFalse(shouldOpenControlBaseline(dev.dsh.mobile.mesh.connection.ConnectionPhase.RECONNECTING))

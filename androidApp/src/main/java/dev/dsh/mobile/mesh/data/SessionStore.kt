@@ -250,6 +250,9 @@ internal fun requiresApiPublication(phase: ConnectionPhase, apiPresent: Boolean)
 internal fun shouldOpenControlBaseline(phase: ConnectionPhase): Boolean =
     phase == ConnectionPhase.CONNECTED
 
+internal fun shouldRefreshSessionsForNotification(event: String): Boolean =
+    event == "api-session/added"
+
 internal fun correlateCancelledSession(eventId: String, visibleEventId: String?, visibleSessionId: String?): String? =
     visibleSessionId?.takeIf { visibleEventId == eventId }
 
@@ -750,7 +753,10 @@ class SessionStore @Inject constructor(
     private fun handleNotification(event: String, args: List<JsonElement>) {
         fun str(i: Int) = args.getOrNull(i)?.jsonPrimitive?.contentOrNull
         when (event) {
-            "api-session/added" -> args.firstOrNull()?.let { onSessionAdded(it) }
+            "api-session/added" -> {
+                args.firstOrNull()?.let { onSessionAdded(it) }
+                scope.launch { refreshSessions() }
+            }
             "api-session/removed" -> str(0)?.let { onSessionRemoved(it) }
             "api-session/status" -> {
                 val sid = str(0) ?: return
