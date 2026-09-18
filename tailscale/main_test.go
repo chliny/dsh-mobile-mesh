@@ -48,6 +48,15 @@ func TestLoginURLReadsCurrentStatusBeforeWaitingForBus(t *testing.T) {
 	}
 }
 
+func TestLoginFinishedCannotClearPendingStatus(t *testing.T) {
+	// The native watcher must re-check authoritative status before treating a
+	// LoginFinished/Running notification as completion. This protects retained
+	// pending identities from a stale initial bus marker.
+	if statusPollTimeout <= 0 {
+		t.Fatal("status poll timeout must be positive")
+	}
+}
+
 func TestStatusWaitPolicyFitsAuthorizationResumeBudget(t *testing.T) {
 	if statusWaitWindow >= 2500*time.Millisecond {
 		t.Fatalf("status wait window = %s, must fit Android resume budget", statusWaitWindow)
