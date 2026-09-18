@@ -80,7 +80,10 @@ private fun ToolCardView.displayTitle(): String = when (this) {
     is ToolCardView.DiffCard -> title ?: stringResource(dev.dsh.mobile.mesh.R.string.tool_title_edit)
     is ToolCardView.SearchCard -> title ?: stringResource(dev.dsh.mobile.mesh.R.string.tool_title_search)
     is ToolCardView.ReadCard -> label
-    is ToolCardView.WebCard -> title ?: stringResource(dev.dsh.mobile.mesh.R.string.tool_title_read)
+    is ToolCardView.WebCard -> title ?: when (kind) {
+        is WebCardKind.Search -> stringResource(dev.dsh.mobile.mesh.R.string.tool_title_web_search)
+        is WebCardKind.Fetch -> stringResource(dev.dsh.mobile.mesh.R.string.tool_title_read)
+    }
 }
 
 private fun ToolCardView.summary(): String? = when (this) {
