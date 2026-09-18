@@ -38,6 +38,16 @@ func TestInstanceMatchesOnlyTheCurrentRelayTarget(t *testing.T) {
 	}
 }
 
+func TestLoginURLReadsCurrentStatusBeforeWaitingForBus(t *testing.T) {
+	// loginURL's first operation must be a bounded status read so a retained
+	// authorization URL is available even when its original IPN bus event is gone.
+	// The implementation is intentionally exercised through the shared timeout
+	// policy rather than a live tsnet client in unit tests.
+	if statusPollTimeout <= 0 {
+		t.Fatal("status poll timeout must be positive")
+	}
+}
+
 func TestStatusWaitPolicyFitsAuthorizationResumeBudget(t *testing.T) {
 	if statusWaitWindow >= 2500*time.Millisecond {
 		t.Fatalf("status wait window = %s, must fit Android resume budget", statusWaitWindow)

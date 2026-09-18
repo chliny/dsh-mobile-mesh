@@ -212,6 +212,9 @@ func getStatusWithTimeout(client *local.Client, timeout time.Duration) (*ipnstat
 }
 
 func loginURL(client *local.Client) (string, error) {
+	if status, err := getStatusWithTimeout(client, statusPollTimeout); err == nil && status.AuthURL != "" {
+		return status.AuthURL, nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	watcher, err := client.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyInitialStatus)
