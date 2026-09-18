@@ -26,6 +26,12 @@ class SessionStoreSwitchCacheTest {
     }
 
     @Test
+    fun `already connected store must open control baseline`() {
+        assertTrue(shouldOpenControlBaseline(dev.dsh.mobile.mesh.connection.ConnectionPhase.CONNECTED))
+        assertFalse(shouldOpenControlBaseline(dev.dsh.mobile.mesh.connection.ConnectionPhase.RECONNECTING))
+    }
+
+    @Test
     fun `first open without cache has no conversation until follow snapshot arrives`() {
         val model = SessionSwitchCacheModel()
 

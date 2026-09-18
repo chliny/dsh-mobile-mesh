@@ -247,6 +247,9 @@ internal fun nextHasMore(freshCount: Int, hostHasMore: Boolean, overDelivered: B
 internal fun requiresApiPublication(phase: ConnectionPhase, apiPresent: Boolean): Boolean =
     phase == ConnectionPhase.CONNECTED && !apiPresent
 
+internal fun shouldOpenControlBaseline(phase: ConnectionPhase): Boolean =
+    phase == ConnectionPhase.CONNECTED
+
 /**
  * Single source of truth for the connected harness's live state. All public surface is
  * [StateFlow]; every RPC error becomes [connectionError] and never throws. The store survives
@@ -510,6 +513,12 @@ class SessionStore @Inject constructor(
         observeEvents()
         observePermissionSettlement()
         observeRebuildTicks()
+        // SessionStore can be created after the Activity has already connected. In that case the
+        // StateFlow collector sees no transition and the control baseline would never be opened,
+        // leaving queues created by another client invisible until a reconnect.
+        if (shouldOpenControlBaseline(connectionManager.state.value.phase)) {
+            triggerBaseline()
+        }
     }
 
     /**
