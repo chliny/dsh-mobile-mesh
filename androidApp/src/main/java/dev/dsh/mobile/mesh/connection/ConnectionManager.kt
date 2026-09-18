@@ -251,9 +251,8 @@ class ConnectionManager @Inject constructor(
                 // dead relay. A new loop also announces RECONNECTING as its first state.
                 if (current.phase == ConnectionPhase.CONNECTED) {
                     markCarrierRecoveryNeeded()
-                    // A loop callback may arrive after Activity.onStop. Rebuilding native/SSH
-                    // carriers there made background recovery race Doze; foreground will perform
-                    // the serialized renewal when the user actually returns.
+                    // A foreground carrier failure must recover immediately. Background recovery is
+                    // still deferred to onStart, where the network path is stable and serialized.
                     if (appInForeground) recoverTransportAfterCarrierLoss()
                 }
             }
