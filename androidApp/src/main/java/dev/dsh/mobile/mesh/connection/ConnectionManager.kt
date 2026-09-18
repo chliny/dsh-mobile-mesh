@@ -434,13 +434,15 @@ class ConnectionManager @Inject constructor(
             )
         }
         try {
+            val transportStartedAt = System.nanoTime()
             val baseUrl = lifecycleMutex.withLock {
                 val timeoutMs = transportOperationTimeoutMs(config, preservePendingIdentity)
                 withTimeout(timeoutMs) {
                     if (reconnect || preservePendingIdentity) reconnectTransports(config) else startTransports(config)
                 }
             }
-            Log.d("ConnectionManager", "Transport stack returned; entering callback boundary reconnect=$reconnect preserve=$preservePendingIdentity")
+            val transportLatencyMs = heartbeatLatencySample(transportStartedAt, System.nanoTime())
+            Log.d("ConnectionManager", "Transport stack returned; entering callback boundary reconnect=$reconnect preserve=$preservePendingIdentity latencyMs=$transportLatencyMs")
             val acceptsTransport = lifecycle.accepts(target.token)
             Log.d("ConnectionManager", "Transport acceptance=$acceptsTransport target=${target.token} epoch=$lifecycleEpoch")
             Log.d("ConnectionManager", "Transport stack returned baseUrl=$baseUrl accepts=$acceptsTransport reconnect=$reconnect")
@@ -471,7 +473,7 @@ class ConnectionManager @Inject constructor(
                 api = nextApi
                 eventApis.clear()
                 val token = loopFence.next()
-                loop = ConnectionLoop(muxFactory(config, baseUrl), sinksFor(token), LoopConfig()).also { it.start() }
+                loop = ConnectionLoop(muxFactory(config, baseUrl, transportLatencyMs), sinksFor(token), LoopConfig()).also { it.start() }
             }
             hostsStore.upsertHost(config)
         } catch (error: CancellationException) {
@@ -829,8 +831,12 @@ class ConnectionManager @Inject constructor(
      * [reconnectIfNeeded] rebuilds its client: a relay token can rotate while the app is
      * backgrounded, and a socket built with the old one is refused at the upgrade.
      */
-    private fun muxFactory(host: HostConfig, baseUrl: String): suspend () -> RemoteStreamMux = {
-        clientFactory.muxFor(host, baseUrl)
+    private fun muxFactory(
+        host: HostConfig,
+        baseUrl: String,
+        initialLatencyMs: Long? = null,
+    ): suspend () -> RemoteStreamMux = {
+        clientFactory.muxFor(host, baseUrl, initialLatencyMs)
     }
 
     private suspend fun startTransports(config: HostConfig): String {

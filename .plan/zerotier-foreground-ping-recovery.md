@@ -1,6 +1,6 @@
 # 原始需求
 
-zerotier 连接不稳定，在前台会断连，提示 `sent ping but didn't receive pong within 10000ms (after 0 successful ping/pongs)`，界面显示“A 正在重连·第1次尝试”。需要定位并修复 ZeroTier 前台连接断开、WebSocket ping/pong 超时和重连慢的问题，同时不能影响已经验证正常的 Tailscale 连接、Tailscale/ZeroTier 切换，以及后台恢复行为。
+zerotier 连接不稳定，在前台会断连，提示 `sent ping but didn't receive pong within 10000ms (after 0 successful ping/pongs)`，界面显示“A 正在重连·第1次尝试”。需要定位并修复 ZeroTier 前台连接断开、WebSocket ping/pong 超时和重连慢的问题，同时不能影响已经验证正常的 Tailscale 连接、Tailscale/ZeroTier 切换，以及后台恢复行为。固定的短超时不适合弱网络：应使用足够长的基础超时，并根据首次连接/首次有效 RTT（用户称为首次 TTL 耗时）动态计算合理的 pong 超时，避免弱网络下过早断连和无限重连失败。
 
 ## 目标理解
 
