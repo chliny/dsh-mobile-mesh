@@ -124,11 +124,20 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 },
                 onConnectAttempt = { connectViewModel.cancelConnect() },
                 onConnectHost = { host ->
-                    awaitingSelectedConnection = true
-                    showSessionList = false
-                    showConnections = true
-                    sessionStore.prepareForConnection(host.id)
-                    connectViewModel.connectTo(host)
+                    if (connection.phase == ConnectionPhase.CONNECTED && connection.host?.id == host.id) {
+                        // Settings -> connection list is also a navigation surface. Selecting the
+                        // already-live host must not tear down its carrier and start a duplicate
+                        // handshake; return directly to the session list.
+                        showConnections = false
+                        showConnectPage = false
+                        showSessionList = true
+                    } else {
+                        awaitingSelectedConnection = true
+                        showSessionList = false
+                        showConnections = true
+                        sessionStore.prepareForConnection(host.id)
+                        connectViewModel.connectTo(host)
+                    }
                 },
                 onUpdateToken = connectViewModel::requestTokenUpdate,
                 onEditHost = { host ->
