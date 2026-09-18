@@ -436,8 +436,7 @@ class ConnectionManager @Inject constructor(
         }
         try {
             val baseUrl = lifecycleMutex.withLock {
-                val timeoutMs = if (preservePendingIdentity) AUTHORIZATION_RESUME_TIMEOUT_MS
-                else FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS
+                val timeoutMs = transportOperationTimeoutMs(config, preservePendingIdentity)
                 withTimeout(timeoutMs) {
                     if (reconnect || preservePendingIdentity) reconnectTransports(config) else startTransports(config)
                 }
