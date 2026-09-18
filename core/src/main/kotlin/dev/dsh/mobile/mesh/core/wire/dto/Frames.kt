@@ -24,6 +24,8 @@ data class QueuedInboxItem(
     @SerialName("id") val id: String,
     /** Agent-resolved FIFO placement ('queued' | 'steering' | 'context'). */
     @SerialName("placement") val placement: String,
+    /** Prompt-RPC identity copied from the queued user source. */
+    @SerialName("rpcId") val rpcId: String? = null,
     /** Complete pending message; it is not durable until the Agent claims it. */
     @SerialName("message") val message: MessageData,
 )
