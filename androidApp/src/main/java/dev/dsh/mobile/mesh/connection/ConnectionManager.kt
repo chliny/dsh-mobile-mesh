@@ -443,7 +443,9 @@ class ConnectionManager @Inject constructor(
                     if (reconnect || preservePendingIdentity) reconnectTransports(config) else startTransports(config)
                 }
             }
-            if (!lifecycle.accepts(target.token)) {
+            val acceptsTransport = lifecycle.accepts(target.token)
+            Log.d("ConnectionManager", "Transport stack returned baseUrl=$baseUrl accepts=$acceptsTransport reconnect=$reconnect")
+            if (!acceptsTransport) {
                 Log.w("ConnectionManager", "Transport ready discarded because lifecycle target is stale")
                 cleanupResources()
                 return
