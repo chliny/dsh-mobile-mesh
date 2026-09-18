@@ -207,9 +207,8 @@ private class ZeroTierRelay(
                 runCatching { remote.inputStream.copyTo(client.getOutputStream()) }
             } finally {
                 directionFinished()
-                // The native close is now serialized after both stream operations have left JNI.
-                // If a suspended native read ignores local close, leave that socket for libzt's
-                // eventual callback instead of closing it concurrently and crashing the process.
+                // Close only after both copy directions have left native read/write. This preserves
+                // the ordering that avoids the Pixel 3 libzt callback race.
                 if (finished.await(2, java.util.concurrent.TimeUnit.SECONDS)) {
                     sockets.remove(remote)
                     runCatching { remote.close() }

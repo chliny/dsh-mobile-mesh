@@ -6,14 +6,16 @@ import org.junit.Test
 class WebSocketHeartbeatPolicyTest {
     @Test
     fun `ZeroTier starts with a long heartbeat window`() {
-        assertEquals(60_000L, webSocketPingIntervalMs(MeshTransport.ZERO_TIER))
+        assertEquals(180_000L, webSocketPingIntervalMs(MeshTransport.ZERO_TIER))
     }
 
     @Test
-    fun `ZeroTier derives a bounded interval from first latency`() {
-        assertEquals(40_000L, zeroTierPingIntervalMs(1_250L))
-        assertEquals(30_008L, zeroTierPingIntervalMs(1L))
-        assertEquals(180_000L, zeroTierPingIntervalMs(60_000L))
+    fun `all transports derive a bounded interval from first latency`() {
+        assertEquals(40_000L, webSocketPingIntervalMs(MeshTransport.ZERO_TIER, 1_250L))
+        assertEquals(40_000L, webSocketPingIntervalMs(MeshTransport.TAILSCALE, 1_250L))
+        assertEquals(40_000L, webSocketPingIntervalMs(null, 1_250L))
+        assertEquals(30_008L, adaptivePingIntervalMs(1L))
+        assertEquals(180_000L, adaptivePingIntervalMs(60_000L))
     }
 
     @Test
@@ -22,8 +24,8 @@ class WebSocketHeartbeatPolicyTest {
     }
 
     @Test
-    fun `Tailscale and direct transports retain default heartbeat`() {
-        assertEquals(10_000L, webSocketPingIntervalMs(MeshTransport.TAILSCALE))
-        assertEquals(10_000L, webSocketPingIntervalMs(null))
+    fun `all transports use the same long default heartbeat`() {
+        assertEquals(180_000L, webSocketPingIntervalMs(MeshTransport.TAILSCALE))
+        assertEquals(180_000L, webSocketPingIntervalMs(null))
     }
 }
