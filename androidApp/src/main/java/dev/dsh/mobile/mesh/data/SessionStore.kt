@@ -489,6 +489,8 @@ class SessionStore @Inject constructor(
 
     /** User prompts rendered immediately while the follow stream catches up. */
     private val optimisticPromptBySession = mutableMapOf<String, MutableList<OptimisticPrompt>>()
+    /** Accepted prompt echoes shown in the queue until the authoritative row arrives. */
+    private val pendingQueueBySession = mutableMapOf<String, MutableList<QueueItem>>()
     /** Accepted prompt awaiting the first authoritative turn event. */
     private val pendingPromptBySession = mutableSetOf<String>()
     private data class OptimisticPrompt(val requestId: String, val text: String)
@@ -843,8 +845,15 @@ class SessionStore @Inject constructor(
                 .filter { it.placement == "queued" }
                 .map { queuedInboxItemToQueueItem(it) }
             queueBySession[sessionId] = nextQueue
+            pendingQueueBySession[sessionId]?.removeAll { pending ->
+                nextQueue.any { authoritative ->
+                    (pending.rpcId != null && pending.rpcId == authoritative.rpcId) ||
+                        pending.messageText == authoritative.messageText
+                }
+            }
+            if (pendingQueueBySession[sessionId].isNullOrEmpty()) pendingQueueBySession.remove(sessionId)
             if (sessionId == currentId) {
-                currentQueue = nextQueue
+                currentQueue = mergePendingQueue(nextQueue, pendingQueueBySession[sessionId].orEmpty())
                 // A control snapshot is authoritative once it contains a matching submitted text.
                 // Drop only echoed optimistic rows; a snapshot that raced ahead of propagation must
                 // leave the local entry visible instead of making a newly queued message disappear.
@@ -1364,7 +1373,8 @@ class SessionStore @Inject constructor(
             synchronized(lock) {
                 currentId = sessionId
                 _currentSessionId.value = sessionId
-                currentQueue = queueBySession[sessionId] ?: cached?.queue ?: emptyList()
+                currentQueue = queueBySession[sessionId]?.let { mergePendingQueue(it, pendingQueueBySession[sessionId].orEmpty()) }
+                    ?: cached?.queue ?: emptyList()
                 _currentConversation.value = cached?.copy(queue = currentQueue)
             }
             return@withContext
@@ -1386,7 +1396,8 @@ class SessionStore @Inject constructor(
                 cachedSnapshot?.projections?.forEach { (key, value) ->
                     currentProjections[key] = ProjectionValue(cachedSnapshot.lastSeq.toInt(), value)
                 }
-                currentQueue = queueBySession[sessionId] ?: cachedSnapshot?.queue ?: emptyList()
+                currentQueue = queueBySession[sessionId]?.let { mergePendingQueue(it, pendingQueueBySession[sessionId].orEmpty()) }
+                    ?: cachedSnapshot?.queue ?: emptyList()
                 liveAssistant.clear()
                 _currentConversation.value = cachedSnapshot?.copy(queue = currentQueue)
                 _jobs.value = emptyList()
@@ -1728,11 +1739,45 @@ class SessionStore @Inject constructor(
                 // one local row visible immediately; the authoritative follow event removes it by
                 // request id or matching text.
                 val running = synchronized(lock) { runningBySession[sid] == true }
-                synchronized(lock) { pendingPromptBySession += sid }
-                if (promptOptimisticDisplay(running) == PromptOptimisticDisplay.TRANSCRIPT) {
-                    addOptimisticPrompt(sid, request.requestId, content)
+                synchronized(lock) {
+                    pendingPromptBySession += sid
+                    if (safeMode == "queue" && promptOptimisticDisplay(running) == PromptOptimisticDisplay.QUEUE) {
+                        val text = content.filterIsInstance<PromptContentPart.Text>().joinToString("\n") { it.text }
+                        if (text.isNotBlank()) {
+                            val pending = QueueItem(
+                                id = "local:${request.requestId}",
+                                placement = "queued",
+                                previewText = text.take(120),
+                                messageText = text,
+                                content = kotlinx.serialization.json.JsonPrimitive(text),
+                                rpcId = request.requestId,
+                            )
+                            pendingQueueBySession.getOrPut(sid) { mutableListOf() }.add(pending)
+                        }
+                    } else {
+                        addOptimisticPrompt(sid, request.requestId, content)
+                    }
+                    if (currentId == sid) {
+                        currentQueue = mergePendingQueue(
+                            queueBySession[sid].orEmpty(),
+                            pendingQueueBySession[sid].orEmpty(),
+                        )
+                        rebuildCurrentLocked()
+                    }
                 }
-                synchronized(lock) { if (currentId == sid) rebuildCurrentLocked() }
+                if (safeMode == "queue" && promptOptimisticDisplay(running) == PromptOptimisticDisplay.QUEUE) {
+                    scope.launch {
+                        delay(OPTIMISTIC_QUEUE_PROMPT_TIMEOUT_MS)
+                        synchronized(lock) {
+                            pendingQueueBySession[sid]?.removeAll { it.rpcId == request.requestId }
+                            if (pendingQueueBySession[sid].isNullOrEmpty()) pendingQueueBySession.remove(sid)
+                            if (currentId == sid) {
+                                currentQueue = mergePendingQueue(queueBySession[sid].orEmpty(), pendingQueueBySession[sid].orEmpty())
+                                rebuildCurrentLocked()
+                            }
+                        }
+                    }
+                }
                 PromptOutcome.Ok
             }
             is RpcResult.Err -> if (r.error.code == ATTACHMENT_INVALID) {
