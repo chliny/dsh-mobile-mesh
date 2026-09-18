@@ -72,7 +72,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.EncodedImageAttachment
 import dev.dsh.mobile.mesh.core.wire.dto.FileAttachmentRef
 import dev.dsh.mobile.mesh.core.wire.dto.PermissionSelect
 import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
-import dev.dsh.mobile.mesh.core.wire.dto.displayPermissionPreset
+import dev.dsh.mobile.mesh.ui.screens.main.permissionPresetLabel
 import dev.dsh.mobile.mesh.ui.components.ContextMeter
 import dev.dsh.mobile.mesh.ui.components.skeleton
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
@@ -442,7 +442,7 @@ private fun PermissionChip(
     val effective = pending ?: select.currentValue
     val option = select.options.firstOrNull { it.value == effective }
     val label = if (option != null) {
-        displayPermissionPreset(option.value, option.name)
+        permissionPresetLabel(option.value, option.name)
     } else {
         stringResource(R.string.permission_custom)
     }
