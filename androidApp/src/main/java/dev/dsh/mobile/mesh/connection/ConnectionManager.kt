@@ -436,13 +436,13 @@ class ConnectionManager @Inject constructor(
         }
         try {
             val baseUrl = lifecycleMutex.withLock {
-                Log.d("ConnectionManager", "Transport stack ready; entering callback boundary reconnect=$reconnect preserve=$preservePendingIdentity")
                 val timeoutMs = if (preservePendingIdentity) AUTHORIZATION_RESUME_TIMEOUT_MS
                 else FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS
                 withTimeout(timeoutMs) {
                     if (reconnect || preservePendingIdentity) reconnectTransports(config) else startTransports(config)
                 }
             }
+            Log.d("ConnectionManager", "Transport stack returned; entering callback boundary reconnect=$reconnect preserve=$preservePendingIdentity")
             val acceptsTransport = lifecycle.accepts(target.token)
             Log.d("ConnectionManager", "Transport stack returned baseUrl=$baseUrl accepts=$acceptsTransport reconnect=$reconnect")
             if (!acceptsTransport) {
