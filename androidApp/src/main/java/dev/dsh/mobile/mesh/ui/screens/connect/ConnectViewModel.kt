@@ -805,7 +805,7 @@ class ConnectViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            connectionManager.connect(host) { baseUrl ->
+            connectionManager.connect(host, afterTransportReady = { baseUrl ->
                 if (!connectFence.accepts(requestId)) return@connect
                 // Keep the token pending until the exchange is granted. The transport startup can
                 // fail before this callback runs (or be cancelled by a lifecycle recovery), and
@@ -834,7 +834,7 @@ class ConnectViewModel @Inject constructor(
                         throw IllegalArgumentException("Harness could not be reached for token pairing")
                     }
                 }
-            }
+            })
         }
     }
 
