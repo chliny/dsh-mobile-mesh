@@ -59,7 +59,8 @@ internal fun shouldRouteSelectedConnection(
     activeAuthority: String?,
     editing: Boolean,
     awaitingSelectedConnection: Boolean,
-): Boolean = awaitingSelectedConnection && phaseConnected && !editing && selectedAuthority != null && selectedAuthority == activeAuthority
+): Boolean = (awaitingSelectedConnection || selectedAuthority != null) &&
+    phaseConnected && !editing && selectedAuthority != null && selectedAuthority == activeAuthority
 
 internal fun shouldShowConnectionTokenPrompt(
     showingConnections: Boolean,
