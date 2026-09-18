@@ -114,7 +114,9 @@ class ToolRowModelTest {
     }
 
     @Test
-    fun `basename handles both separators`() {
+    fun `basename handles both separators for file display`() {
+        assertEquals("main.kt", basename("D:\\LabTeto\\deepseek-mobile\\src\\main.kt"))
+        assertEquals("main.kt", basename("/home/me/project/src/main.kt"))
         assertEquals("deepseek-mobile", basename("D:\\LabTeto\\deepseek-mobile"))
         assertEquals("project", basename("/home/me/project/"))
         assertEquals("plain", basename("plain"))

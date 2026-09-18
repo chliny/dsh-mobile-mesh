@@ -247,7 +247,7 @@ private fun DiffBody(card: ToolCardView.DiffCard, onOpenFile: ((String, String) 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         card.diffs.forEach { hunk ->
             Text(
-                hunk.path,
+                basename(hunk.path),
                 style = DsType.small13Strong,
                 color = colors.labelSecondary,
                 modifier = Modifier
@@ -300,7 +300,7 @@ private fun SearchBody(card: ToolCardView.SearchCard, onOpenFile: ((String, Stri
             is SearchMatches.FileMatches -> matches.files.forEach { file ->
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        file.path,
+                        basename(file.path),
                         style = DsType.small13Strong.copy(fontFamily = DsType.codeFont),
                         color = colors.labelSecondary,
                         modifier = Modifier.clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(file.path, basename(file.path)) },
@@ -329,7 +329,7 @@ private fun SearchBody(card: ToolCardView.SearchCard, onOpenFile: ((String, Stri
             }
             is SearchMatches.PathList -> matches.paths.forEach { path ->
                 Text(
-                    path,
+                    basename(path),
                     style = DsType.mdCode,
                     color = colors.labelSecondary,
                     modifier = Modifier
@@ -364,7 +364,7 @@ private fun ReadBody(card: ToolCardView.ReadCard, onOpenFile: ((String, String) 
                 .clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(path, basename(path)) }
                 .padding(horizontal = 10.dp, vertical = 10.dp),
         ) {
-            Text(path, style = DsType.small13Strong.copy(fontFamily = DsType.codeFont), color = colors.labelPrimary)
+            Text(basename(path), style = DsType.small13Strong.copy(fontFamily = DsType.codeFont), color = colors.labelPrimary)
             Text(stringResource(dev.dsh.mobile.mesh.R.string.tool_read_lines_tap, card.totalLines), style = DsType.caption11, color = colors.labelCaption)
         }
     }
