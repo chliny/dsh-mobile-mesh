@@ -160,6 +160,7 @@ class ConnectionManager @Inject constructor(
     @Volatile private var recoveryRetryJob: Job? = null
     @Volatile private var appInForeground = false
     @Volatile private var backgroundedAtMs = 0L
+    private val lifecycleTransitionLock = Any()
     @Volatile private var keepConnectedInBackground = false
     @Volatile private var foregroundProbeJob: Job? = null
     /** Latest desired host retained across a background-disabled suspension. */
@@ -659,7 +660,10 @@ class ConnectionManager @Inject constructor(
      * immediately rebuild the stale relay path. The cooldown absorbs duplicate activity resumes.
      */
     fun recoverForForeground() {
-        appInForeground = true
+        synchronized(lifecycleTransitionLock) {
+            if (!shouldHandleLifecycleTransition(appInForeground, targetForeground = true)) return
+            appInForeground = true
+        }
         // Returning from Google sign-in can recreate the Activity while tsnet is still waiting for
         // authorization. Re-publish the retained login URL and keep the pending identity alive; do
         // not let ordinary foreground recovery replace it with the settings screen.
@@ -780,7 +784,10 @@ class ConnectionManager @Inject constructor(
 
     /** Mark carrier callbacks as backgrounded; foreground recovery is resumed explicitly on resume. */
     fun onAppBackgrounded() {
-        appInForeground = false
+        synchronized(lifecycleTransitionLock) {
+            if (!shouldHandleLifecycleTransition(appInForeground, targetForeground = false)) return
+            appInForeground = false
+        }
         lifecycle.background()
         backgroundedAtMs = System.currentTimeMillis()
         foregroundProbeJob?.cancel()
