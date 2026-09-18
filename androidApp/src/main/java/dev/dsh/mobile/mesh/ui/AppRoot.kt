@@ -136,7 +136,9 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                         showSessionList = false
                         showConnections = true
                         sessionStore.prepareForConnection(host.id)
-                        connectViewModel.connectTo(host)
+                        // Selecting another row is an explicit handover: forget the old active
+                        // connection immediately, even if the replacement later fails.
+                        connectViewModel.selectHost(host)
                     }
                 },
                 onUpdateToken = connectViewModel::requestTokenUpdate,
