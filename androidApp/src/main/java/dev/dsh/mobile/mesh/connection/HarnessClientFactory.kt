@@ -59,10 +59,17 @@ class HarnessClientFactory @Inject constructor(
      * connection loop builds a new one per attempt and closes it when the generation ends, while
      * the unary client outlives both.
      */
-    suspend fun muxFor(config: HostConfig, baseUrl: String = config.baseUrl): RemoteStreamMux {
+    suspend fun muxFor(
+        config: HostConfig,
+        baseUrl: String = config.baseUrl,
+        initialLatencyMs: Long? = null,
+    ): RemoteStreamMux {
         val cookie = cookieFor(config)
         val websocketClient = okHttpClient.newBuilder()
-            .pingInterval(webSocketPingIntervalMs(config.meshTransport), java.util.concurrent.TimeUnit.MILLISECONDS)
+            .pingInterval(
+                webSocketPingIntervalMs(config.meshTransport, initialLatencyMs),
+                java.util.concurrent.TimeUnit.MILLISECONDS,
+            )
             .build()
         return RemoteStreamMux { sink ->
             WsChannel("$baseUrl$REMOTE_STREAM_MUX_PATH", websocketClient, sink, cookie, config.harnessAuthority)
