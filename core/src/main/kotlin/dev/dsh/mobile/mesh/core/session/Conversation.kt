@@ -119,6 +119,8 @@ data class QueueItem(
     val previewText: String,
     val messageText: String = previewText,
     val content: JsonElement,
+    /** Host request id echoed by an authoritative queue row, when available. */
+    val rpcId: String? = null,
 )
 
 /**
