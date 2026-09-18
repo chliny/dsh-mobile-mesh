@@ -227,6 +227,12 @@ func loginURL(client *local.Client) (string, error) {
 		if notify.BrowseToURL != nil {
 			return *notify.BrowseToURL, nil
 		}
+		// Google/Tailscale may complete login while the Android WebView is in another
+		// Activity. LoginFinished is the authoritative event; keep the URL caller-owned
+		// so Android can perform one final status poll and close its dialog itself.
+		if notify.LoginFinished != nil {
+			return "", nil
+		}
 		if notify.State != nil && *notify.State == ipn.Running {
 			return "", nil
 		}
