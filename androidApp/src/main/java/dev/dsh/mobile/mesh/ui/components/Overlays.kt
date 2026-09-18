@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -62,7 +65,15 @@ fun DsDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Surface(
-            modifier = if (fullScreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth(0.92f),
+            modifier = if (fullScreen) {
+                Modifier.fillMaxSize()
+            } else {
+                Modifier
+                    .wrapContentWidth()
+                    .wrapContentHeight()
+                    .widthIn(min = 280.dp, max = 420.dp)
+                    .heightIn(max = 680.dp)
+            },
             shape = DsShapes.dialog,
             color = colors.bgLayer2,
             border = BorderStroke(1.dp, colors.borderL1),
@@ -70,7 +81,7 @@ fun DsDialog(
         ) {
             Column(
                 Modifier
-                    .fillMaxSize()
+                    .then(if (fullScreen) Modifier.fillMaxSize() else Modifier.wrapContentHeight())
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
