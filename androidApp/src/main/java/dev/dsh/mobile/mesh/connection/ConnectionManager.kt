@@ -629,6 +629,10 @@ class ConnectionManager @Inject constructor(
     }
 
     private fun startRecovery(attempt: Int) {
+        if (recoveryRetryJob?.isActive == true) {
+            Log.d("ConnectionManager", "Transport recovery retry already scheduled")
+            return
+        }
         if (synchronized(operationLock) { connectJob?.isActive == true }) {
             Log.d("ConnectionManager", "Connection operation already in flight")
             return
