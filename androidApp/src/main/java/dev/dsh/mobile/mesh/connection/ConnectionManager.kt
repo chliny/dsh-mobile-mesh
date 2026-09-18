@@ -443,14 +443,17 @@ class ConnectionManager @Inject constructor(
                 }
             }
             if (!lifecycle.accepts(target.token)) {
+                Log.w("ConnectionManager", "Transport ready discarded because lifecycle target is stale")
                 cleanupResources()
                 return
             }
             activeBaseUrl = baseUrl
+            Log.d("ConnectionManager", "Transport ready callback about to run baseUrl=$baseUrl reconnect=$reconnect")
             _state.value = _state.value.copy(authorizationPending = null, tailscaleLoginUrl = null)
             if (!reconnect) withTimeout(TRANSPORT_READY_CALLBACK_TIMEOUT_MS) {
                 intent.afterTransportReady(baseUrl)
             }
+            Log.d("ConnectionManager", "Transport ready callback finished")
             if (!lifecycle.accepts(target.token)) {
                 cleanupResources()
                 return
