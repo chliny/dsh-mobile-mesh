@@ -113,8 +113,10 @@ class HostsStore @Inject constructor(
 
     suspend fun upsertHost(config: HostConfig) {
         val current = hosts.first().toMutableList()
-        current.removeAll { it.host == config.host && it.port == config.port }
-        current.add(0, config)
+        val existing = current.firstOrNull { it.id == config.id || (it.host == config.host && it.port == config.port) }
+        val merged = mergeRememberedHost(existing, config)
+        current.removeAll { it.id == config.id || (it.host == config.host && it.port == config.port) }
+        current.add(0, merged)
         persist(current)
     }
 
