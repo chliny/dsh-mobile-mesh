@@ -97,8 +97,9 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         val showMain = connection.hasConnected
         val showConnect = showConnectPage
         val showStartupConnections = shouldShowStartupConnections(connection.hasConnected, editingHost != null) && !showSettings && !showConnectPage
-        val showTailscaleLogin = connectUiState.tailscaleLoginUrl?.isNotBlank() == true &&
-            connectUiState.authorizationPending != null
+        // The native login URL is the authoritative signal for showing authorization. A fast
+        // state emission must not leave the user on the connection form with a valid URL pending.
+        val showTailscaleLogin = connectUiState.tailscaleLoginUrl?.isNotBlank() == true
         LaunchedEffect(connection.phase, connection.host?.id, connectUiState.attempted) {
             val selectedConnectionIsReady = shouldRouteSelectedConnection(
                 phaseConnected = connection.phase == ConnectionPhase.CONNECTED,

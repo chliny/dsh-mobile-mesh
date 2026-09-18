@@ -1,12 +1,12 @@
 package dev.dsh.mobile.mesh.ui.screens.connect
 
-/** The login page is visible only while the retained tsnet identity still needs authorization. */
+/** A native login URL is authoritative: show it until the URL is cleared after authorization or dismissal. */
 internal fun shouldShowTailscaleLogin(loginUrl: String?, authorizationPending: Boolean): Boolean =
-    loginUrl != null && authorizationPending
+    loginUrl?.isNotBlank() == true
 
 /** A login URL means tsnet retained a pending identity and the client must poll it automatically. */
 internal fun shouldPollTailscaleLogin(
     loginUrl: String?,
     authorizationPending: Boolean,
     pollActive: Boolean,
-): Boolean = shouldShowTailscaleLogin(loginUrl, authorizationPending) && !pollActive
+): Boolean = shouldShowTailscaleLogin(loginUrl, authorizationPending) && authorizationPending && !pollActive

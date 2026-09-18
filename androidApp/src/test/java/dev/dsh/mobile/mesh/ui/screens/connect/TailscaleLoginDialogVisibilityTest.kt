@@ -11,8 +11,9 @@ class TailscaleLoginDialogVisibilityTest {
     }
 
     @Test
-    fun `dialog closes after authorization state settles`() {
-        assertFalse(shouldShowTailscaleLogin("https://login.tailscale.com/a/example", authorizationPending = false))
+    fun `dialog remains visible until login URL is cleared`() {
+        assertTrue(shouldShowTailscaleLogin("https://login.tailscale.com/a/example", authorizationPending = false))
+        assertFalse(shouldShowTailscaleLogin(null, authorizationPending = false))
     }
 
     @Test
