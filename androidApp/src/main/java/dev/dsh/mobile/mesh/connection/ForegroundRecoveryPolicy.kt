@@ -16,6 +16,9 @@ internal enum class ForegroundRecoveryAction {
     RECOVER,
 }
 
+internal fun shouldHandleLifecycleTransition(isForeground: Boolean, targetForeground: Boolean): Boolean =
+    isForeground != targetForeground
+
 /**
  * Brief task switches keep the live generation without a visible verification cycle. Longer
  * background stays and network handovers actively verify or recover before accepting user input.
