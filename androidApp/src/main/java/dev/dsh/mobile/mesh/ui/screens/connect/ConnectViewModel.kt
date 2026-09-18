@@ -298,9 +298,9 @@ class ConnectViewModel @Inject constructor(
                 _state.update { it.copy(remembered = hosts) }
             }
         }
-        // Restore only the single most recently active host. Other remembered hosts stay dormant
-        // until the user explicitly selects them from the connection list.
-        viewModelScope.launch { autoConnect() }
+        // Restore only the explicitly active host. Other remembered hosts stay dormant until the
+        // user selects them; a saved host list alone must never cause an unsolicited connection.
+        viewModelScope.launch { restoreActiveConnection() }
     }
 
     /**
@@ -358,7 +358,17 @@ class ConnectViewModel @Inject constructor(
         viewModelScope.launch { probeRemembered() }
     }
 
-    /** Connect without being asked to the most recently used reachable harness. */
+    /** Reconnect only the host explicitly marked active by the last successful connection. */
+    private suspend fun restoreActiveConnection() {
+        val activeId = hostsStore.activeConnectionId() ?: return
+        val host = hostsStore.hosts.first().firstOrNull { it.id == activeId } ?: run {
+            hostsStore.setActiveConnectionId(null)
+            return
+        }
+        connectTo(host.copy(launchToken = host.launchToken.takeIf { it.isNotBlank() } ?: ""))
+    }
+
+    /** Legacy/manual auto-discovery path retained for explicit callers and settings behavior. */
     private suspend fun autoConnect() {
         val settings = hostsStore.settingsOnce()
         if (settings.autoConnectLast) {
@@ -676,15 +686,17 @@ class ConnectViewModel @Inject constructor(
         sshDshHost: String,
         launchToken: String,
         onSaved: () -> Unit = {},
+        onFailed: (Throwable) -> Unit = {},
     ) {
         viewModelScope.launch {
-            val input = parseHostInput(host) ?: return@launch
-            val portInt = input.port ?: port.trim().toIntOrNull() ?: return@launch
-            if (portInt !in 1..65535) return@launch
-            val importedPlanetId = if (transport == MeshTransport.ZERO_TIER && planetBase64.isNotBlank()) {
-                zeroTierPlanets.importBase64(planetBase64).also { }
-            } else planetId
-            val config = HostConfig(
+            runCatching {
+                val input = parseHostInput(host) ?: error("invalid host address")
+                val portInt = input.port ?: port.trim().toIntOrNull() ?: error("invalid port")
+                if (portInt !in 1..65535) error("port must be between 1 and 65535")
+                val importedPlanetId = if (transport == MeshTransport.ZERO_TIER && planetBase64.isNotBlank()) {
+                    zeroTierPlanets.importBase64(planetBase64).also { }
+                } else planetId
+                val config = HostConfig(
                 id = existing?.id ?: UUID.randomUUID().toString(),
                 name = name.trim().ifEmpty { input.host },
                 host = input.host,
@@ -715,7 +727,8 @@ class ConnectViewModel @Inject constructor(
             } else {
                 sshSecrets.remove(config.id)
             }
-            onSaved()
+                onSaved()
+            }.onFailure(onFailed)
         }
     }
 
@@ -782,6 +795,11 @@ class ConnectViewModel @Inject constructor(
      * `init` folds in — so a tap on a dead Recent entry reports the same diagnosis as a manual
      * attempt instead of looking like an inert button.
      */
+    fun selectHost(host: HostConfig) {
+        viewModelScope.launch { hostsStore.setActiveConnectionId(host.id) }
+        connectTo(host)
+    }
+
     fun connectTo(host: HostConfig, launchToken: String? = null) {
         val requestId = connectFence.next()
         val token = launchToken?.trim()?.takeIf { it.isNotEmpty() }

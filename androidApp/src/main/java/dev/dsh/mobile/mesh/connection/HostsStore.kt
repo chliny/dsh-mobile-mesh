@@ -43,6 +43,7 @@ class HostsStore @Inject constructor(
         val UPDATE_CHECK = booleanPreferencesKey("update_check")
         val DISMISSED_UPDATE = stringPreferencesKey("dismissed_update")
         val CONNECTION_DRAFT = stringPreferencesKey("connection_draft_json")
+        val ACTIVE_CONNECTION_ID = stringPreferencesKey("active_connection_id")
     }
 
     private val hostsSerializer = ListSerializer(HostConfig.serializer())
@@ -204,6 +205,17 @@ class HostsStore @Inject constructor(
 
     suspend fun removeHost(id: String) {
         persist(hosts.first().filterNot { it.id == id })
+        dataStore.edit { prefs ->
+            if (prefs[Keys.ACTIVE_CONNECTION_ID] == id) prefs.remove(Keys.ACTIVE_CONNECTION_ID)
+        }
+    }
+
+    suspend fun activeConnectionId(): String? = dataStore.data.first()[Keys.ACTIVE_CONNECTION_ID]
+
+    suspend fun setActiveConnectionId(id: String?) {
+        dataStore.edit { prefs ->
+            if (id == null) prefs.remove(Keys.ACTIVE_CONNECTION_ID) else prefs[Keys.ACTIVE_CONNECTION_ID] = id
+        }
     }
 
     /**

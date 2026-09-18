@@ -476,6 +476,7 @@ class ConnectionManager @Inject constructor(
                 loop = ConnectionLoop(muxFactory(config, baseUrl, transportLatencyMs), sinksFor(token), LoopConfig()).also { it.start() }
             }
             hostsStore.upsertHost(config)
+            hostsStore.setActiveConnectionId(config.id)
         } catch (error: CancellationException) {
             cleanupResources()
             throw error
@@ -498,6 +499,7 @@ class ConnectionManager @Inject constructor(
 
     fun disconnect() {
         lifecycle.disconnect()
+        scope.launch { hostsStore.setActiveConnectionId(null) }
         suspendedHost = null
         suspendedTransportReady = null
         suspendedForBackground = false
