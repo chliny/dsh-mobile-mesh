@@ -763,7 +763,11 @@ class ConnectionManager @Inject constructor(
         backgroundedAtMs = System.currentTimeMillis()
         foregroundProbeJob?.cancel()
         foregroundProbeJob = null
-        if (backgroundConnectionAction(keepConnectedInBackground) == BackgroundConnectionAction.SUSPEND) {
+        if (backgroundConnectionAction(keepConnectedInBackground) == BackgroundConnectionAction.SUSPEND &&
+            !shouldPreserveAuthorizationOnBackground(
+                authorizationPending = _state.value.authorizationPending != null,
+                loginUrl = _state.value.tailscaleLoginUrl,
+            )) {
             recoveryRetryJob?.cancel()
             recoveryRetryJob = null
             // Do not let a startup/recovery coroutine retain lifecycleMutex while Android suspends

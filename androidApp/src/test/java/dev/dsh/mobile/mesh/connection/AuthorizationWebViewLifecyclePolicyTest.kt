@@ -19,4 +19,10 @@ class AuthorizationWebViewLifecyclePolicyTest {
     fun `ordinary disconnected state can recover`() {
         assertFalse(shouldDeferForegroundRecoveryForAuthorization(false, null))
     }
+
+    @Test
+    fun `external sign in does not suspend pending authorization`() {
+        assertTrue(shouldPreserveAuthorizationOnBackground(false, "https://login.tailscale.com/a/example"))
+        assertFalse(shouldPreserveAuthorizationOnBackground(false, null))
+    }
 }
