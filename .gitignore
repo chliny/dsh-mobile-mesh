@@ -17,3 +17,6 @@ captures/
 /.plan/
 /AGENTS.md
 local.properties
+.KEYSTORE_ENV
+dsh-mobile-mesh-release.keystore
+.plan/
