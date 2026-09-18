@@ -65,28 +65,31 @@ class SshTunnelManager @Inject constructor(
                 DHG14.Factory(),
             )
         }
-        val client = SSHClient(sshConfig)
-        client.addHostKeyVerifier(AcceptAllHostKeyVerifier)
+        fun newClient(): SSHClient = SSHClient(sshConfig).also {
+            it.addHostKeyVerifier(AcceptAllHostKeyVerifier)
+            it.setConnectTimeout(SSH_CONNECT_TIMEOUT_MS)
+            it.setTimeout(SSH_HANDSHAKE_TIMEOUT_MS)
+            it.transport.setTimeoutMs(SSH_HANDSHAKE_TIMEOUT_MS)
+        }
+        var client = newClient()
         var keyFile: File? = null
         try {
-            // The ZeroTier path can reach a sleeping SSH host before sshd finishes its key
-            // exchange. Keep the TCP connect bounded, but allow the transport handshake ample time
-            // instead of aborting a valid but slow tunnel after SSHJ's 30s default.
-            client.setConnectTimeout(SSH_CONNECT_TIMEOUT_MS)
-            client.setTimeout(SSH_HANDSHAKE_TIMEOUT_MS)
-            client.transport.setTimeoutMs(SSH_HANDSHAKE_TIMEOUT_MS)
+            // Recreate SSHJ after a failed handshake: SSHJ's transport thread cannot be restarted
+            // after a banner read reset (reusing it raises IllegalThreadStateException).
             val connectStartedAt = System.nanoTime()
             // tsnet's local relay can take a moment to expose the remote SSH banner after the
             // native node becomes ready. Retry only the transport handshake; authentication is
             // never repeated blindly and remains below this block.
             var lastConnectError: Throwable? = null
             repeat(SSH_CONNECT_ATTEMPTS) { attempt ->
+                if (attempt > 0) client = newClient()
                 try {
                     client.connect(sshHost, sshPort)
                     lastConnectError = null
                     return@repeat
                 } catch (error: Throwable) {
                     lastConnectError = error
+                    runCatching { client.close() }
                     if (attempt + 1 < SSH_CONNECT_ATTEMPTS) {
                         Log.w(TAG, "SSH transport attempt ${attempt + 1} failed; retrying", error)
                         Thread.sleep(SSH_CONNECT_RETRY_DELAY_MS)
