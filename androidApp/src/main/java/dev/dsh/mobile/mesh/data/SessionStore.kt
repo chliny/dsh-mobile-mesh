@@ -1331,7 +1331,8 @@ class SessionStore @Inject constructor(
             synchronized(lock) {
                 currentId = sessionId
                 _currentSessionId.value = sessionId
-                _currentConversation.value = cached
+                currentQueue = queueBySession[sessionId] ?: cached?.queue ?: emptyList()
+                _currentConversation.value = cached?.copy(queue = currentQueue)
             }
             return@withContext
         }
@@ -1354,7 +1355,7 @@ class SessionStore @Inject constructor(
                 }
                 currentQueue = queueBySession[sessionId] ?: cachedSnapshot?.queue ?: emptyList()
                 liveAssistant.clear()
-                _currentConversation.value = cachedSnapshot
+                _currentConversation.value = cachedSnapshot?.copy(queue = currentQueue)
                 _jobs.value = emptyList()
                 _skills.value = emptyList()
                 // Keep the host-scoped model catalog while switching sessions. Clearing it makes the
