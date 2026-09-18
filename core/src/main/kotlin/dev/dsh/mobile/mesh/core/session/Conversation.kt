@@ -131,6 +131,8 @@ data class ConversationSnapshot(
     val queue: List<QueueItem> = emptyList(),
     val projections: Map<String, JsonElement> = emptyMap(),
     val running: Boolean = false,
+    /** Epoch milliseconds when the currently running turn was accepted, if any. */
+    val turnStartedAtMillis: Long? = null,
     val blank: Boolean = true,
     val hasMore: Boolean = false,
     val lastSeq: Long = -1,

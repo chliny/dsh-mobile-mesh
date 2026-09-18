@@ -104,13 +104,20 @@ internal fun shouldPageAtTop(
  */
 internal fun waitingForFirstResponse(running: Boolean, hasAssistant: Boolean): Boolean = running && !hasAssistant
 
+internal fun deepDivingVisible(running: Boolean, turnStartedAtMillis: Long?): Boolean =
+    running && turnStartedAtMillis != null
+
+internal fun elapsedTurnSeconds(turnStartedAtMillis: Long, nowMillis: Long): Int =
+    ((nowMillis - turnStartedAtMillis).coerceAtLeast(0L) / 1000L).toInt()
+
 @Composable
-private fun WaitingForModelRow() {
-    var elapsedSeconds by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        val started = System.currentTimeMillis()
+private fun WaitingForModelRow(turnStartedAtMillis: Long) {
+    var elapsedSeconds by remember(turnStartedAtMillis) {
+        mutableIntStateOf(elapsedTurnSeconds(turnStartedAtMillis, System.currentTimeMillis()))
+    }
+    LaunchedEffect(turnStartedAtMillis) {
         while (true) {
-            elapsedSeconds = ((System.currentTimeMillis() - started) / 1000L).toInt()
+            elapsedSeconds = elapsedTurnSeconds(turnStartedAtMillis, System.currentTimeMillis())
             kotlinx.coroutines.delay(1000L)
         }
     }
@@ -148,6 +155,8 @@ internal fun ChatTranscript(
     val hasMore = conversation?.hasMore == true
     val itemCount = nodes.size + if (hasMore) 1 else 0
     val sessionId = conversation?.sessionId
+    val turnStartedAtMillis = conversation?.turnStartedAtMillis
+    val deepDiving = deepDivingVisible(conversation?.running == true, turnStartedAtMillis)
     val waitingForFirstResponse = waitingForFirstResponse(
         running = conversation?.running == true,
         hasAssistant = nodes.any { it is AssistantMessageNode },
@@ -268,7 +277,7 @@ internal fun ChatTranscript(
                 )
             }
         }
-        if (nodes.isEmpty() && !waitingForFirstResponse) {
+        if (nodes.isEmpty() && !deepDiving) {
             item(key = "empty") {
                 EmptyHero(
                     headline = stringResource(R.string.chat_empty_title),
@@ -282,9 +291,9 @@ internal fun ChatTranscript(
                 // briefly disappear on Android, especially for the todo dock.
                 ChatNodeItem(node = node, context = context)
             }
-            if (waitingForFirstResponse) {
+            if (deepDiving && turnStartedAtMillis != null) {
                 item(key = "waiting-for-model") {
-                    WaitingForModelRow()
+                    WaitingForModelRow(turnStartedAtMillis)
                 }
             }
         }

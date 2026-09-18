@@ -431,6 +431,7 @@ class SessionStore @Inject constructor(
     // ------------------------------------------------------------------ internal state (guarded by `lock`)
     private val sessionRows = LinkedHashMap<String, SessionRow>()
     private val runningBySession = HashMap<String, Boolean>()
+    private val turnStartedAtBySession = HashMap<String, Long>()
     private val titleBySession = HashMap<String, String>()
     private val workspaceRows = LinkedHashMap<String, WorkspaceRow>()
     private val workspaceOrder = ArrayList<String>()
@@ -568,6 +569,7 @@ class SessionStore @Inject constructor(
             connectionHostId = hostId
             sessionRows.clear()
             runningBySession.clear()
+            turnStartedAtBySession.clear()
             titleBySession.clear()
             workspaceRows.clear()
             workspaceOrder.clear()
@@ -901,12 +903,18 @@ class SessionStore @Inject constructor(
     private fun handleSessionEvent(sessionId: String, envelope: SessionEventEnvelope) {
         when (envelope.type) {
             "turn/start" -> {
-                synchronized(lock) { pendingPromptBySession.remove(sessionId) }
+                synchronized(lock) {
+                    pendingPromptBySession.remove(sessionId)
+                    turnStartedAtBySession[sessionId] = System.currentTimeMillis()
+                }
                 setRunning(sessionId, true)
                 setBlank(sessionId, false)
             }
             "turn/end" -> {
-                synchronized(lock) { pendingPromptBySession.remove(sessionId) }
+                synchronized(lock) {
+                    pendingPromptBySession.remove(sessionId)
+                    turnStartedAtBySession.remove(sessionId)
+                }
                 setRunning(sessionId, false)
                 synchronized(lock) {
                     if (currentId == sessionId) rebuildCurrentLocked()
@@ -1058,6 +1066,7 @@ class SessionStore @Inject constructor(
             sessionRows.remove(sessionId)
             pendingKinds.remove(sessionId)
             runningBySession.remove(sessionId)
+            turnStartedAtBySession.remove(sessionId)
             questionEventBySession.remove(sessionId)
             emitSessionsLocked()
         }
@@ -1220,10 +1229,13 @@ class SessionStore @Inject constructor(
         val blank = if (events.isEmpty() && optimistic.isEmpty()) currentBlank else false
         val running = runningBySession[sid] ?: snapshot.running
         val pending = pendingPromptBySession.contains(sid)
+        val turnStartedAt = turnStartedAtBySession[sid]
+            ?: if (pending) System.currentTimeMillis().also { turnStartedAtBySession[sid] = it } else null
         val merged = snapshot.copy(
             nodes = snapshot.nodes + optimisticNodes,
             blank = blank,
             running = running || pending,
+            turnStartedAtMillis = turnStartedAt,
             hasMore = currentHasMore,
             queue = currentQueue,
             projections = currentProjections.mapValues { it.value.value },
