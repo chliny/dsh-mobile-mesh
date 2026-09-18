@@ -260,7 +260,7 @@ internal fun ChatTranscript(
                 )
             }
         }
-        if (nodes.isEmpty()) {
+        if (nodes.isEmpty() && !waitingForFirstResponse) {
             item(key = "empty") {
                 EmptyHero(
                     headline = stringResource(R.string.chat_empty_title),
