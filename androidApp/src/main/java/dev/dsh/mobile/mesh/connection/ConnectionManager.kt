@@ -662,6 +662,7 @@ class ConnectionManager @Inject constructor(
                 Log.d("ConnectionManager", "Scheduled recovery skipped during authorization")
                 return@launch
             }
+            recoveryRetryJob = null
             startRecovery(attempt)
         }
     }
