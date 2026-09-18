@@ -76,7 +76,24 @@ class SshTunnelManager @Inject constructor(
             client.setTimeout(SSH_HANDSHAKE_TIMEOUT_MS)
             client.transport.setTimeoutMs(SSH_HANDSHAKE_TIMEOUT_MS)
             val connectStartedAt = System.nanoTime()
-            client.connect(sshHost, sshPort)
+            // tsnet's local relay can take a moment to expose the remote SSH banner after the
+            // native node becomes ready. Retry only the transport handshake; authentication is
+            // never repeated blindly and remains below this block.
+            var lastConnectError: Throwable? = null
+            repeat(SSH_CONNECT_ATTEMPTS) { attempt ->
+                try {
+                    client.connect(sshHost, sshPort)
+                    lastConnectError = null
+                    return@repeat
+                } catch (error: Throwable) {
+                    lastConnectError = error
+                    if (attempt + 1 < SSH_CONNECT_ATTEMPTS) {
+                        Log.w(TAG, "SSH transport attempt ${attempt + 1} failed; retrying", error)
+                        Thread.sleep(SSH_CONNECT_RETRY_DELAY_MS)
+                    }
+                }
+            }
+            lastConnectError?.let { throw it }
             Log.d(TAG, "SSH transport ready in ${elapsedMs(connectStartedAt)}ms to $sshHost:$sshPort")
             // NATs commonly discard an idle SSH TCP mapping long before the app's next RPC. SSHJ's
             // transport-level keepalive both refreshes that mapping and makes a dead forward fail
@@ -168,6 +185,8 @@ class SshTunnelManager @Inject constructor(
         /** Below typical mobile NAT idle expiry without needlessly waking the radio. */
         const val KEEP_ALIVE_INTERVAL_SECONDS = 20
         const val SSH_CONNECT_TIMEOUT_MS = 10_000
+        const val SSH_CONNECT_ATTEMPTS = 3
+        const val SSH_CONNECT_RETRY_DELAY_MS = 750L
         /**
          * Long enough for a slow userspace path, far short of sshj's default.
          *
