@@ -81,8 +81,8 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         android.util.Log.d("MainActivity", "onStart: requesting foreground recovery")
-        // Android may defer network delivery while backgrounded. Ask the manager to bypass the
-        // reconnect loop's next backoff slot as soon as the user returns to the app.
+        // Returning from Google sign-in must also reattach the authorization WebView; the manager
+        // preserves the pending tsnet identity and the root observes its retained login URL.
         connectionManager.recoverForForeground()
     }
 

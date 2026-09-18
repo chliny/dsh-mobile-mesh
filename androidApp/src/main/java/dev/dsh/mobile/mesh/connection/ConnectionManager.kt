@@ -647,10 +647,13 @@ class ConnectionManager @Inject constructor(
      */
     fun recoverForForeground() {
         appInForeground = true
-        // A Tailscale login is an intentional disconnected state. Foreground recovery must not
-        // mistake the pending authorization for a stale carrier and restart the relay underneath
-        // the embedded WebView; the dedicated authorization polling owns resume attempts.
-        if (_state.value.authorizationPending != null) {
+        // Returning from Google sign-in can recreate the Activity while tsnet is still waiting for
+        // authorization. Re-publish the retained login URL and keep the pending identity alive; do
+        // not let ordinary foreground recovery replace it with the settings screen.
+        if (shouldDeferForegroundRecoveryForAuthorization(
+                authorizationPending = _state.value.authorizationPending != null,
+                loginUrl = _state.value.tailscaleLoginUrl,
+            )) {
             Log.d("ConnectionManager", "Foreground recovery deferred during authorization")
             return
         }
