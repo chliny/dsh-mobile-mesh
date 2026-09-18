@@ -78,6 +78,6 @@ fun queuedInboxItemToQueueItem(item: QueuedInboxItem): QueueItem {
         previewText = preview,
         messageText = messageText,
         content = content,
-        rpcId = item.message.source.rpcId,
+        rpcId = item.rpcId ?: item.message.source.rpcId,
     )
 }
