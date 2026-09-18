@@ -106,7 +106,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 selectedAuthority = connectUiState.attempted,
                 activeAuthority = connection.host?.authority,
                 editing = editingHost != null,
-                awaitingSelectedConnection = awaitingSelectedConnection,
+                awaitingSelectedConnection = awaitingSelectedConnection || showConnectPage,
             )
             if (selectedConnectionIsReady && editingHost == null) {
                 awaitingSelectedConnection = false
