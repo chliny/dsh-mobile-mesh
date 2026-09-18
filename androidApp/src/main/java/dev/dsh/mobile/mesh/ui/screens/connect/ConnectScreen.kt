@@ -37,6 +37,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,6 +60,8 @@ import dev.dsh.mobile.mesh.ui.components.DsCard
 import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.DsSegment
 import dev.dsh.mobile.mesh.ui.components.DsSegmented
+import dev.dsh.mobile.mesh.ui.components.DsToastHost
+import dev.dsh.mobile.mesh.ui.components.rememberDsToast
 import dev.dsh.mobile.mesh.ui.components.ToggleRow
 import dev.dsh.mobile.mesh.ui.components.MeshMark
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
@@ -84,6 +87,9 @@ internal fun shouldEnableConnectButton(connectInFlight: Boolean, formValid: Bool
  * Choose how to reach a harness, then reach one.
  *
  */
+internal fun connectionSaveFeedback(error: Throwable?, success: String, failurePrefix: String): String =
+    error?.let { "$failurePrefix: ${it.message ?: it.javaClass.simpleName}" } ?: success
+
 @Composable
 fun ConnectScreen(
     onOpenSettings: () -> Unit,
@@ -97,6 +103,7 @@ fun ConnectScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val persistedDraft by viewModel.draft.collectAsStateWithLifecycle(initialValue = null)
     val colors = DsTheme.colors
+    val context = LocalContext.current
     // Saveable: a rotation mid-connect used to wipe a hand-typed address.
     var connectionName by rememberSaveable { mutableStateOf("") }
     var host by rememberSaveable { mutableStateOf("") }
@@ -228,6 +235,7 @@ fun ConnectScreen(
         )
     }
     val scope = rememberCoroutineScope()
+    val toast = rememberDsToast()
     val planetPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             viewModel.importZeroTierPlanet(uri).fold(
@@ -503,7 +511,11 @@ fun ConnectScreen(
                                 sshAuthentication = sshAuthentication, sshPassword = sshPassword,
                                 sshPrivateKey = sshPrivateKey, sshPrivateKeyPassphrase = sshPrivateKeyPassphrase,
                                 sshDshHost = sshDshHost, launchToken = launchToken,
-                            ) { /* Stay on this form so Save is immediately followed by Connect. */ }
+                                onSaved = { toast.second(connectionSaveFeedback(null, context.getString(R.string.connect_save_success), context.getString(R.string.connect_save_failed, ""))) },
+                                onFailed = { error ->
+                                    toast.second(connectionSaveFeedback(error, context.getString(R.string.connect_save_success), context.getString(R.string.connect_save_failed, "").removeSuffix(": ")))
+                                },
+                            )
                         },
                         variant = DsButtonVariant.Outline,
                         modifier = Modifier.fillMaxWidth(),
@@ -552,6 +564,7 @@ fun ConnectScreen(
         }
     }
     val pendingDeletion = editingHost
+    DsToastHost(toast, modifier = Modifier.fillMaxWidth())
     if (confirmDelete && pendingDeletion != null) {
         DsDialog(
             title = stringResource(R.string.connect_delete_title),
