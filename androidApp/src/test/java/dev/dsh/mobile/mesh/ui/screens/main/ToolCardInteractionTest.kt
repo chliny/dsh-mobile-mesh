@@ -32,6 +32,19 @@ class ToolCardInteractionTest {
     }
 
     @Test
+    fun `deep diving remains visible throughout a started turn`() {
+        assertTrue(deepDivingVisible(running = true, turnStartedAtMillis = 1_000L))
+        assertTrue(!deepDivingVisible(running = false, turnStartedAtMillis = 1_000L))
+        assertTrue(!deepDivingVisible(running = true, turnStartedAtMillis = null))
+    }
+
+    @Test
+    fun `deep diving elapsed time uses the current turn start`() {
+        assertEquals(12, elapsedTurnSeconds(turnStartedAtMillis = 10_000L, nowMillis = 22_500L))
+        assertEquals(0, elapsedTurnSeconds(turnStartedAtMillis = 30_000L, nowMillis = 29_000L))
+    }
+
+    @Test
     fun `mention candidates preserve server order and only cap rendered rows`() {
         val candidates = listOf(WorkspaceDirectoryEntry("server-ranked.txt", "file")) +
             (1..9).map { WorkspaceDirectoryEntry("src/lib/File$it.kt", "file") }
