@@ -484,6 +484,7 @@
 
     <string name="chat_preview_badge">预览</string>
     <string name="tool_title_search">搜索</string>
+    <string name="tool_title_web_search">网页搜索</string>
     <string name="tool_title_read">读取</string>
     <string name="tool_title_bash">Bash</string>
     <string name="tool_title_write">写入</string>

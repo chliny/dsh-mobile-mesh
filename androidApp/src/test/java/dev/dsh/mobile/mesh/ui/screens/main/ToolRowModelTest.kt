@@ -11,6 +11,12 @@ import org.junit.Test
 class ToolRowModelTest {
 
     @Test
+    fun `web search keeps the search variant distinct from read`() {
+        assertEquals(ToolRowVariant.Search, classifyTool("web_search"))
+        assertEquals(ToolRowVariant.Read, classifyTool("web_fetch"))
+    }
+
+    @Test
     fun `a web search shows its queries, however many the model asked for`() {
         // Harness 0.1.0-rc.8 turned `web_search`'s single `query` into a 1-4 element `queries`
         // array. Reading only the old key left the row saying "Search" and nothing else.
