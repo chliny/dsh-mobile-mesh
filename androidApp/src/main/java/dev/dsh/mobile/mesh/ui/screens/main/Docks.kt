@@ -249,7 +249,6 @@ internal fun QueueDock(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.width(8.dp))
-                DsPill(text = item.placement)
                 if (canMutateQueueItem(item)) DsMenu(
                     anchor = { onOpen ->
                         Icon(
