@@ -35,6 +35,14 @@ data class TurnStartNode(override val seq: Long, val turn: Int) : ChatNode
 data class TurnEndNode(override val seq: Long, val turn: Int, val reasonKind: String, val reasonDetail: JsonElement? = null) : ChatNode
 data class ProducedFilesNode(override val seq: Long, val turn: Int, val paths: List<String>) : ChatNode
 
+data class PresentedFilesNode(
+    override val seq: Long,
+    val turn: Int,
+    val files: List<PresentedFile>,
+) : ChatNode
+
+data class PresentedFile(val path: String, val description: String? = null)
+
 data class UserMessageNode(
     override val seq: Long,
     val messageId: String?,

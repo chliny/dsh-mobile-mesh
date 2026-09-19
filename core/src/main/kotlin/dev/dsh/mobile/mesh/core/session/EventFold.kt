@@ -291,12 +291,15 @@ private class FoldState(private val sessionId: String) {
 
             "deliverables/presented" -> {
                 val turn = data.jsonObject["turn"]?.jsonPrimitive?.intOrNull ?: 0
-                val paths = (data.jsonObject["files"] as? JsonArray).orEmpty()
+                val files = (data.jsonObject["files"] as? JsonArray).orEmpty()
                     .mapNotNull { file ->
-                        (file as? JsonObject)?.get("path")?.jsonPrimitive?.contentOrNull
+                        val fileObject = file as? JsonObject ?: return@mapNotNull null
+                        val path = fileObject["path"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+                            ?: return@mapNotNull null
+                        PresentedFile(path, fileObject["description"]?.jsonPrimitive?.contentOrNull)
                     }
-                    .distinct()
-                if (paths.isNotEmpty()) nodes.add(ProducedFilesNode(event.seq, turn, paths))
+                    .distinctBy { it.path }
+                if (files.isNotEmpty()) nodes.add(PresentedFilesNode(event.seq, turn, files))
             }
 
             "tool/result" -> {
