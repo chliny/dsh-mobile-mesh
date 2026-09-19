@@ -6,4 +6,4 @@ internal fun shouldKeepSessionPageDuringRecovery(
     hasConnectedBefore: Boolean,
     activeHostId: String?,
     phase: ConnectionPhase,
-): Boolean = hasConnectedBefore && activeHostId != null && phase != ConnectionPhase.DISCONNECTED
+): Boolean = hasConnectedBefore && activeHostId != null
