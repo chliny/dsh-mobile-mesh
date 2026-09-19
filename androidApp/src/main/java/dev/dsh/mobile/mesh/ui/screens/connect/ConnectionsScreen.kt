@@ -121,7 +121,7 @@ fun ConnectionsScreen(
                                 .combinedClickable(
                                     onClick = {
                                         if (shouldOpenSessionsForCurrentHost(host.id, connectedHostId, connectionPhase)) {
-                                            onClose()
+                                            onConnectHost(host)
                                         } else {
                                             if (shouldResetBeforeSelectingHost(connectionState.connecting)) onConnectAttempt()
                                             onConnectHost(host)
