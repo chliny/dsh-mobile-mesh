@@ -24,6 +24,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
+internal fun normalizeWorkspaceFilesRequestPath(path: String): String = path.trim().ifBlank { "." }
+
 sealed interface DirectoryLevel {
     data object Loading : DirectoryLevel
     data class Ready(val listing: WorkspaceDirectoryListing) : DirectoryLevel
@@ -103,28 +105,29 @@ class WorkspaceFilesStore @Inject constructor(
     }
 
     fun list(workspaceKey: String, sessionId: String, path: String, reload: Boolean = false) {
+        val safePath = normalizeWorkspaceFilesRequestPath(path)
         if (_state.value.workspaceKey != workspaceKey) reset(workspaceKey)
-        if (!reload && _state.value.levels[path] is DirectoryLevel.Ready) return
+        if (!reload && _state.value.levels[safePath] is DirectoryLevel.Ready) return
         val api = connectionManager.connectedApi ?: return
         val existing = treeRequest
-        if (existing?.workspaceKey == workspaceKey && existing.sessionId == sessionId && existing.path == path) return
+        if (existing?.workspaceKey == workspaceKey && existing.sessionId == sessionId && existing.path == safePath) return
         treeJob?.cancel()
-        val request = TreeRequest(workspaceKey, sessionId, path, ++requestSerial)
+        val request = TreeRequest(workspaceKey, sessionId, safePath, ++requestSerial)
         treeRequest = request
-        _state.value = _state.value.copy(levels = _state.value.levels + (path to DirectoryLevel.Loading))
+        _state.value = _state.value.copy(levels = _state.value.levels + (safePath to DirectoryLevel.Loading))
         treeJob = scope.launch {
             try {
-                when (val result = api.workspaceFilesList(sessionId, path)) {
+                when (val result = api.workspaceFilesList(sessionId, safePath)) {
                     is RpcResult.Ok -> {
                         val ready = DirectoryLevel.Ready(result.value)
                         synchronized(cacheLock) {
-                            listingCache.getOrPut(workspaceKey) { mutableMapOf() }[path] = ready
+                            listingCache.getOrPut(workspaceKey) { mutableMapOf() }[safePath] = ready
                             refreshedAt[workspaceKey] = System.currentTimeMillis()
                         }
-                        updateIfCurrent(request) { copy(levels = levels + (path to ready)) }
+                        updateIfCurrent(request) { copy(levels = levels + (safePath to ready)) }
                     }
                     is RpcResult.Err -> updateIfCurrent(request) {
-                        copy(levels = levels + (path to DirectoryLevel.Failed(result.error.code, result.error.message)))
+                        copy(levels = levels + (safePath to DirectoryLevel.Failed(result.error.code, result.error.message)))
                     }
                 }
             } finally {

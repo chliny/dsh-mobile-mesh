@@ -52,7 +52,7 @@ fun WorkspaceFilesScreen(
 ) {
     val store = rememberWorkspaceFilesStore()
     val state by store.state.collectAsStateWithLifecycle()
-    var currentPath by remember { mutableStateOf(initialPath) }
+    var currentPath by remember { mutableStateOf(normalizeWorkspaceFilesPath(initialPath)) }
     val level = state.levels[currentPath]
     val refreshing = level is DirectoryLevel.Loading
 
@@ -64,11 +64,11 @@ fun WorkspaceFilesScreen(
     }
     LaunchedEffect(workspaceKey, sessionId, initialPath) {
         store.reset(workspaceKey)
-        currentPath = initialPath
+        currentPath = normalizeWorkspaceFilesPath(initialPath)
         // The workspace-files Remote accepts a workspace-relative path, but the root is
         // represented by "." rather than an empty file_path. Keep the UI's root sentinel
-        // separate from the wire request so opening this screen never sends a blank path.
-        store.list(workspaceKey, sessionId, normalizeWorkspaceFilesPath(initialPath))
+        // separate from the wire request so opening this screen never sends a blank file_path.
+        store.list(workspaceKey, sessionId, currentPath)
     }
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
         Row(
