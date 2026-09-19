@@ -122,7 +122,10 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 editing = editingHost != null,
                 awaitingSelectedConnection = awaitingSelectedConnection || showConnectPage,
             )
-            if (selectedConnectionIsReady && editingHost == null) {
+            // Recovery republishes the same active host; it must not route an existing detail page
+            // through the session list. Only an explicit selection/form flow should do that.
+            if (selectedConnectionIsReady && editingHost == null &&
+                (shouldRouteAfterRecovery(keepSessionPageDuringRecovery, awaitingSelectedConnection))) {
                 awaitingSelectedConnection = false
                 showConnectPage = false
                 showConnections = false

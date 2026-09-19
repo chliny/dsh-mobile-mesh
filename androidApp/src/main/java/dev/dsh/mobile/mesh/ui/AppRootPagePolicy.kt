@@ -7,3 +7,8 @@ internal fun shouldKeepSessionPageDuringRecovery(
     activeHostId: String?,
     phase: ConnectionPhase,
 ): Boolean = hasConnectedBefore && activeHostId != null
+
+internal fun shouldRouteAfterRecovery(
+    keepingExistingPage: Boolean,
+    explicitSelectionPending: Boolean,
+): Boolean = !keepingExistingPage || explicitSelectionPending
