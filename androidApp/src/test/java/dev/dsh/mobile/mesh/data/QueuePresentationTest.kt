@@ -18,18 +18,27 @@ class QueuePresentationTest {
     }
 
     @Test
-    fun `removes a local row when matching authoritative text is present`() {
+    fun `keeps a local row when only message text matches`() {
         val authoritative = listOf(queue("host-1", "same"))
         val pending = listOf(queue("local:req-1", "same"))
+
+        assertEquals(listOf("host-1", "local:req-1"), mergePendingQueue(authoritative, pending).map { it.id })
+    }
+
+    @Test
+    fun `removes a local row only when request id matches`() {
+        val authoritative = listOf(queue("host-1", "same", rpcId = "req-1"))
+        val pending = listOf(queue("local:req-1", "same", rpcId = "req-1"))
 
         assertEquals(listOf("host-1"), mergePendingQueue(authoritative, pending).map { it.id })
     }
 
-    private fun queue(id: String, text: String) = QueueItem(
+    private fun queue(id: String, text: String, rpcId: String? = null) = QueueItem(
         id = id,
         placement = "queued",
         previewText = text,
         messageText = text,
         content = JsonPrimitive(text),
+        rpcId = rpcId,
     )
 }
