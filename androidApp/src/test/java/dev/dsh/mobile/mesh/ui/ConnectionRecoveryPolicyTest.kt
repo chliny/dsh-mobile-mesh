@@ -16,4 +16,13 @@ class ConnectionRecoveryPolicyTest {
         assertFalse(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.CONNECTED, false))
         assertFalse(shouldShowConnectionRecoveryOverlay(false, ConnectionPhase.RECONNECTING, false))
     }
+
+    @Test
+    fun `retained in-flight recovery is visible after foreground resume re-arms pending`() {
+        // The manager clears pending while the retained transport continues in background, then
+        // restores it when the activity resumes into that already-running recovery.
+        assertTrue(shouldRearmConnectionRecoveryOverlay(hasConnected = true, recoveryInFlight = true))
+        assertFalse(shouldRearmConnectionRecoveryOverlay(hasConnected = false, recoveryInFlight = true))
+        assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, true))
+    }
 }

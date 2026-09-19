@@ -7,3 +7,8 @@ internal fun shouldShowConnectionRecoveryOverlay(
     phase: ConnectionPhase,
     foregroundCheckPending: Boolean,
 ): Boolean = hasConnected && foregroundCheckPending
+
+internal fun shouldRearmConnectionRecoveryOverlay(
+    hasConnected: Boolean,
+    recoveryInFlight: Boolean,
+): Boolean = hasConnected && recoveryInFlight
