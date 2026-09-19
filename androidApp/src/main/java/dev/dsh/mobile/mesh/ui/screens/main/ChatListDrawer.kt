@@ -691,7 +691,13 @@ private fun SessionRowItem(
                 .combinedClickable(
                     onClick = {
                         onClose()
-                        scope.launch { store.openSession(session.sessionId) }
+                        scope.launch {
+                            if (session.origin == "subagent" && session.parentSessionId != null) {
+                                store.openSubagentSession(session.parentSessionId, session.sessionId)
+                            } else {
+                                store.openSession(session.sessionId)
+                            }
+                        }
                     },
                     onLongClick = { menuOpen = true },
                 )
@@ -717,10 +723,9 @@ private fun SessionRowItem(
                     contentDescription = stringResource(R.string.chatlist_subagents),
                     tint = colors.labelTertiary,
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(16.dp)
                         .graphicsLayer { rotationZ = chevronRotation }
-                        .clickable(onClick = onToggleChildren)
-                        .padding(12.dp),
+                        .clickable(onClick = onToggleChildren),
                 )
             } else {
                 Spacer(Modifier.width(16.dp))

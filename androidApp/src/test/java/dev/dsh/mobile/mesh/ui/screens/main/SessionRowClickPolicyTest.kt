@@ -6,6 +6,11 @@ import org.junit.Test
 
 class SessionRowClickPolicyTest {
     @Test
+    fun `child row click opens its own session rather than toggling parent`() {
+        assertTrue(shouldOpenSessionOnSessionClick(childCount = 0, isSubagent = true))
+    }
+
+    @Test
     fun `parent row click expands when it has collapsed children`() {
         assertTrue(shouldExpandChildrenOnSessionClick(childCount = 1, childrenExpanded = false))
     }

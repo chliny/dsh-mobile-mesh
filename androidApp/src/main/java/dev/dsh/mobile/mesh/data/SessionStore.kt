@@ -1415,6 +1415,36 @@ class SessionStore @Inject constructor(
 
     suspend fun openSession(sessionId: String) {
         val address = resolveSessionAddress(sessionId) ?: return
+        openSessionAtAddress(sessionId, address)
+    }
+
+    /** Open a child through its direct parent, matching the Web session-controller API. */
+    suspend fun openSubagentSession(parentSessionId: String, childSessionId: String) {
+        val api = apiOrNull() ?: return
+        val mode = when (val result = api.subagentList(parentSessionId)) {
+            is RpcResult.Ok -> result.value.entries.firstOrNull { subagentEntryId(it) == childSessionId }?.let {
+                when (it) {
+                    is SubagentListEntry.ChildOneShot -> it.mode
+                    is SubagentListEntry.ChildContinuable -> it.mode
+                    else -> null
+                }
+            }
+            is RpcResult.Err -> {
+                setConnectionError(result.error.message)
+                null
+            }
+        } ?: return
+        openSessionAtAddress(
+            childSessionId,
+            SessionAddress.Subagent(
+                parentSessionId = parentSessionId,
+                childSessionId = childSessionId,
+                mode = mode,
+            ),
+        )
+    }
+
+    private suspend fun openSessionAtAddress(sessionId: String, address: SessionAddress) {
         synchronized(sessionSwitchStateLock) {
             pendingSessionId = sessionId
             pendingSessionAddress = address
