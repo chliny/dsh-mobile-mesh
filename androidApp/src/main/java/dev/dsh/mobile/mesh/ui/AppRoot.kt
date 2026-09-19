@@ -185,7 +185,14 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     showConnections = false
                 },
                 connectedHostId = connection.host?.id,
-                connectingHostId = connection.host?.takeIf { connection.phase == ConnectionPhase.CONNECTING || connection.phase == ConnectionPhase.RECONNECTING }?.id,
+                // The ViewModel marks the selected row as connecting immediately, before the
+                // manager publishes CONNECTING. Keep feedback attached to the tapped connection.
+                connectingHostId = connectUiState.attempted
+                    ?.let { attempted -> hosts.firstOrNull { it.authority == attempted }?.id }
+                    ?.takeIf { connectUiState.connecting }
+                    ?: connection.host?.takeIf {
+                        connection.phase == ConnectionPhase.CONNECTING || connection.phase == ConnectionPhase.RECONNECTING
+                    }?.id,
                 connectionPhase = connection.phase,
                 connectionState = connectUiState,
                 onCancelConnection = connectViewModel::cancelConnect,
