@@ -32,6 +32,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.QueueItem
+import dev.dsh.mobile.mesh.data.canMutateQueueItem
+import dev.dsh.mobile.mesh.data.canSteerQueueItem
 import dev.dsh.mobile.mesh.core.wire.dto.GoalPhase
 import dev.dsh.mobile.mesh.core.wire.dto.GoalSnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.SessionStatsView
@@ -207,6 +209,7 @@ internal fun QueueDock(
     queue: List<QueueItem>,
     store: SessionStore,
     onInsertQueued: (QueueItem) -> Unit,
+    running: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val pendingQueue = queue.filter { it.placement == "queued" }
@@ -247,7 +250,7 @@ internal fun QueueDock(
                 )
                 Spacer(Modifier.width(8.dp))
                 DsPill(text = item.placement)
-                DsMenu(
+                if (canMutateQueueItem(item)) DsMenu(
                     anchor = { onOpen ->
                         Icon(
                             Icons.Filled.MoreVert,
@@ -265,7 +268,7 @@ internal fun QueueDock(
                             scope.launch { store.updateQueue(item.id, "remove") }
                         },
                         MenuItem(stringResource(R.string.chat_queue_steer)) {
-                            scope.launch { store.updateQueue(item.id, "steer") }
+                            if (canSteerQueueItem(item, running)) scope.launch { store.updateQueue(item.id, "steer") }
                         },
                     ),
                 )

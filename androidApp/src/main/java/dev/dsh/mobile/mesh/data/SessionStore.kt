@@ -147,6 +147,7 @@ data class SessionRow(
     val agentPreset: String?,
     val updatedAt: Long,
     val pendingInteraction: String?, // "approval" | "plan-review" | "question" | null
+    val queuedCount: Int = 0,
 )
 
 /** One renderable workspace row. */
@@ -1892,15 +1893,15 @@ class SessionStore @Inject constructor(
         }
     }
 
-    suspend fun updateQueue(itemId: String, action: String, contentText: String? = null) {
-        val sid = currentSessionId.value ?: return
-        val api = apiOrNull() ?: return
+    suspend fun updateQueue(itemId: String, action: String, contentText: String? = null): String? {
+        val sid = currentSessionId.value ?: return "no open session"
+        val api = apiOrNull() ?: return "not connected"
         val queueAction: QueueAction = when (action) {
             "remove" -> QueueAction.Remove()
             "steer" -> QueueAction.Steer()
             else -> QueueAction.Edit(listOf(ContentBlock.Text(contentText.orEmpty())))
         }
-        when (val r = api.sessionUpdateQueue(SessionUpdateQueueRequest(sid, itemId, queueAction))) {
+        return when (val r = api.sessionUpdateQueue(SessionUpdateQueueRequest(sid, itemId, queueAction))) {
             is RpcResult.Ok -> {
                 if (action == "steer") {
                     val item = currentQueue.firstOrNull { it.id == itemId }
@@ -1913,8 +1914,12 @@ class SessionStore @Inject constructor(
                         }
                     }
                 }
+                null
             }
-            is RpcResult.Err -> setConnectionError(r.error.message)
+            is RpcResult.Err -> {
+                setConnectionError(r.error.message)
+                r.error.message
+            }
         }
     }
 
