@@ -873,9 +873,7 @@ class SessionStore @Inject constructor(
 
     private fun applyQueue(sessionId: String, items: List<QueuedInboxItem>) {
         synchronized(lock) {
-            val nextQueue = items
-                .filter { it.placement == "queued" }
-                .map { queuedInboxItemToQueueItem(it) }
+            val nextQueue = items.map { queuedInboxItemToQueueItem(it) }
             queueBySession[sessionId] = nextQueue
             pendingQueueBySession[sessionId]?.removeAll { pending ->
                 nextQueue.any { authoritative ->

@@ -1,8 +1,7 @@
 package dev.dsh.mobile.mesh.data
 
 import dev.dsh.mobile.mesh.core.wire.dto.ContentBlock
-import dev.dsh.mobile.mesh.core.wire.dto.MessageData
-import dev.dsh.mobile.mesh.core.wire.dto.MessageSource
+import dev.dsh.mobile.mesh.core.wire.dto.QueuedMessage
 import dev.dsh.mobile.mesh.core.wire.dto.QueuedInboxItem
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -14,11 +13,9 @@ class FrameParserQueueTest {
             id = "queue-1",
             placement = "queued",
             rpcId = "rpc-1",
-            message = MessageData(
+            message = QueuedMessage(
                 id = "message-1",
-                role = "user",
                 content = listOf(ContentBlock.Text("hello")),
-                source = MessageSource(kind = "user"),
             ),
         )
 

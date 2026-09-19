@@ -5,7 +5,7 @@ import dev.dsh.mobile.mesh.core.session.SessionEventEnvelope
 import dev.dsh.mobile.mesh.core.wire.decodeFromJsonElement
 import dev.dsh.mobile.mesh.core.wire.encodeToJsonElement
 import dev.dsh.mobile.mesh.core.wire.dto.ContentBlock
-import dev.dsh.mobile.mesh.core.wire.dto.MessageData
+import dev.dsh.mobile.mesh.core.wire.dto.QueuedMessage
 import dev.dsh.mobile.mesh.core.wire.dto.QueuedInboxItem
 import dev.dsh.mobile.mesh.core.wire.dto.SessionWireEvent
 import dev.dsh.mobile.mesh.core.wire.dto.SessionEvent
@@ -68,16 +68,26 @@ fun parseSessionEventEnvelope(eventJson: JsonElement): SessionEventEnvelope? =
 /** Convert one authoritative queue snapshot item into the renderer-facing [QueueItem]. */
 fun queuedInboxItemToQueueItem(item: QueuedInboxItem): QueueItem {
     val messageText = item.message.content
-        .filterIsInstance<ContentBlock.Text>()
-        .joinToString("\n") { it.text }
-    val preview = messageText.take(120)
-    val content = encodeToJsonElement(MessageData.serializer(), item.message)
+        .joinToString("\n") { queueBlockPreview(it) }
+        .trim()
+    val preview = messageText.take(200)
+    val content = encodeToJsonElement(QueuedMessage.serializer(), item.message)
     return QueueItem(
         id = item.id,
         placement = item.placement,
         previewText = preview,
         messageText = messageText,
         content = content,
-        rpcId = item.rpcId ?: item.message.source.rpcId,
+        rpcId = item.rpcId,
     )
+}
+
+private fun queueBlockPreview(block: ContentBlock): String = when (block) {
+    is ContentBlock.Text -> block.text
+    is ContentBlock.Reasoning -> block.text
+    is ContentBlock.Image -> "[image]"
+    is ContentBlock.File -> "[file]"
+    is ContentBlock.ToolCall -> "[tool call]"
+    is ContentBlock.ToolResult -> "[tool result]"
+    is dev.dsh.mobile.mesh.core.wire.dto.UnknownContentBlock -> "[${block.type}]"
 }
