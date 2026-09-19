@@ -309,8 +309,10 @@
     <string name="chat_composer_mode_steer_hint">แทรกเข้าไปในเทิร์นที่กำลังทำงาน</string>
     <string name="chat_composer_steer_idle">การแทรกต้องมีเทิร์นที่กำลังทำงาน</string>
     <string name="chat_tab">แชท</string>
-    <string name="chat_todo_title">สิ่งที่ต้องทำ</string>
-    <string name="chat_todo_progress">%1$d/%2$d</string>
+    <string name="chat_todo_title">งาน</string>
+    <string name="chat_todo_progress_done">%1$d completed</string>
+    <string name="chat_todo_progress_active">%1$d in progress</string>
+    <string name="chat_todo_progress_pending">%1$d pending</string>
     <string name="chat_commands_empty">เซสชันนี้ไม่มีคำสั่ง</string>
     <string name="chat_commands_unavailable">Harness นี้ไม่ได้เปิดเผยรายการคำสั่ง</string>
     <string name="chat_image_open">เปิดรูปภาพ</string>

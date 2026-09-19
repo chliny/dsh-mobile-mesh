@@ -310,7 +310,9 @@
     <string name="chat_composer_steer_idle">L’orientation exige un tour en cours</string>
     <string name="chat_tab">Discussion</string>
     <string name="chat_todo_title">Tâches</string>
-    <string name="chat_todo_progress">%1$d/%2$d</string>
+    <string name="chat_todo_progress_done">%1$d completed</string>
+    <string name="chat_todo_progress_active">%1$d in progress</string>
+    <string name="chat_todo_progress_pending">%1$d pending</string>
     <string name="chat_commands_empty">Cette session n’a aucune commande</string>
     <string name="chat_commands_unavailable">Ce Harness n’expose pas de liste de commandes</string>
     <string name="chat_image_open">Ouvrir l’image</string>

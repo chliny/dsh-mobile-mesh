@@ -310,7 +310,9 @@
     <string name="chat_composer_steer_idle">Для вмешательства нужен идущий ход</string>
     <string name="chat_tab">Чат</string>
     <string name="chat_todo_title">Задачи</string>
-    <string name="chat_todo_progress">%1$d/%2$d</string>
+    <string name="chat_todo_progress_done">%1$d completed</string>
+    <string name="chat_todo_progress_active">%1$d in progress</string>
+    <string name="chat_todo_progress_pending">%1$d pending</string>
     <string name="chat_commands_empty">В этом сеансе нет команд</string>
     <string name="chat_commands_unavailable">Этот Harness не предоставляет список команд</string>
     <string name="chat_image_open">Открыть изображение</string>

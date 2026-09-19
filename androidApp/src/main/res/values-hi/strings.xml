@@ -310,7 +310,9 @@
     <string name="chat_composer_steer_idle">हस्तक्षेप के लिए चल रहा टर्न चाहिए</string>
     <string name="chat_tab">चैट</string>
     <string name="chat_todo_title">कार्य</string>
-    <string name="chat_todo_progress">%1$d/%2$d</string>
+    <string name="chat_todo_progress_done">%1$d completed</string>
+    <string name="chat_todo_progress_active">%1$d in progress</string>
+    <string name="chat_todo_progress_pending">%1$d pending</string>
     <string name="chat_commands_empty">इस सेशन में कोई कमांड नहीं है</string>
     <string name="chat_commands_unavailable">यह Harness कमांड सूची नहीं देता</string>
     <string name="chat_image_open">छवि खोलें</string>
