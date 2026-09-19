@@ -410,7 +410,7 @@ fun ChatListDrawer(
                             onClose = onClose,
                             depth = depth,
                             childCount = childrenByParent[session.sessionId].orEmpty().size,
-                            childrenExpanded = isExpanded(session.sessionId),
+                            childrenExpanded = isChildExpanded(session.sessionId),
                             onToggleChildren = { toggleChildren(session.sessionId) },
                         )
                     }
@@ -690,10 +690,14 @@ private fun SessionRowItem(
                 .background(if (isCurrent) colors.sidebarNavActive else androidx.compose.ui.graphics.Color.Transparent)
                 .combinedClickable(
                     onClick = {
-                        // Close the drawer first. The store publishes a cached snapshot immediately
-                        // and refreshes the live follow stream in the background.
-                        onClose()
-                        scope.launch { store.openSession(session.sessionId) }
+                        if (shouldExpandChildrenOnSessionClick(childCount, childrenExpanded)) {
+                            onToggleChildren()
+                        } else {
+                            // Close the drawer first. The store publishes a cached snapshot immediately
+                            // and refreshes the live follow stream in the background.
+                            onClose()
+                            scope.launch { store.openSession(session.sessionId) }
+                        }
                     },
                     onLongClick = { menuOpen = true },
                 )
