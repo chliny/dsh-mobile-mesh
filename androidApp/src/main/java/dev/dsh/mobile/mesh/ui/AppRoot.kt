@@ -97,12 +97,16 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         var editingHost by remember { mutableStateOf<HostConfig?>(null) }
         var connectFormInstance by rememberSaveable { mutableIntStateOf(0) }
         var hasRenderedConnectedPage by rememberSaveable { mutableStateOf(false) }
+        var renderedConnectedHostId by rememberSaveable { mutableStateOf<String?>(null) }
+        if (connection.hasConnected) {
+            hasRenderedConnectedPage = true
+            renderedConnectedHostId = connection.host?.id ?: renderedConnectedHostId
+        }
         val keepSessionPageDuringRecovery = shouldKeepSessionPageDuringRecovery(
             hasConnectedBefore = hasRenderedConnectedPage,
-            activeHostId = connection.host?.id,
+            activeHostId = connection.host?.id ?: renderedConnectedHostId,
             phase = connection.phase,
         )
-        if (connection.hasConnected) hasRenderedConnectedPage = true
         val showMain = connection.hasConnected || keepSessionPageDuringRecovery
         val showConnect = showConnectPage
         val showStartupConnections = shouldShowStartupConnections(connection.hasConnected, editingHost != null) &&
