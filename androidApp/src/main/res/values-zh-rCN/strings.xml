@@ -149,8 +149,9 @@
     <string name="chat_produced_files">产出</string>
     <string name="chat_more_files">+%1$d 个文件</string>
     <string name="chat_open_in_host">在主机上打开（需要回环）</string>
-    <string name="chat_queue_title">待处理回合</string>
-    <string name="chat_queue_empty">没有待处理的回合</string>
+    <string name="chat_queue_title">排队消息</string>
+    <string name="chat_queue_count">%1$d 条排队消息</string>
+    <string name="chat_queue_empty">没有排队消息</string>
     <string name="chat_queue_edit">编辑</string>
     <string name="chat_queue_remove">移除</string>
     <string name="chat_queue_steer">引导正在进行的回合</string>
