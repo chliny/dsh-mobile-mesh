@@ -91,6 +91,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         var showSessionList by rememberSaveable { mutableStateOf(true) }
         var showConnectPage by rememberSaveable { mutableStateOf(false) }
         var showConnections by rememberSaveable { mutableStateOf(false) }
+        var connectionListOrigin by rememberSaveable { mutableStateOf(ConnectionListOrigin.STARTUP) }
         var returnToConnections by rememberSaveable { mutableStateOf(false) }
         var awaitingSelectedConnection by rememberSaveable { mutableStateOf(false) }
         var editingHost by remember { mutableStateOf<HostConfig?>(null) }
@@ -122,6 +123,11 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     showConnections = false
                     showConnectPage = false
                     editingHost = null
+                    when (connectionListBackTarget(connectionListOrigin)) {
+                        ConnectionListOrigin.SETTINGS -> showSettings = true
+                        ConnectionListOrigin.SESSION -> showSessionList = true
+                        ConnectionListOrigin.CONNECT_FORM, ConnectionListOrigin.STARTUP -> Unit
+                    }
                 },
                 onConnectAttempt = { connectViewModel.cancelConnect() },
                 onConnectHost = { host ->
@@ -174,6 +180,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
             showSettings -> SettingsScreen(
                 onClose = { showSettings = false },
                 onOpenConnections = {
+                    connectionListOrigin = ConnectionListOrigin.SETTINGS
                     showSettings = false
                     showConnections = true
                     showSessionList = false
@@ -196,7 +203,10 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
             showSessionList -> ChatListDrawer(
                 connectionPhase = connection.phase,
                 onClose = { showSessionList = false },
-                onOpenSettings = { showSettings = true },
+                onOpenSettings = {
+                    connectionListOrigin = ConnectionListOrigin.SESSION
+                    showSettings = true
+                },
             )
             showMain -> MainScreen(
                 connectionPhase = connection.phase,
