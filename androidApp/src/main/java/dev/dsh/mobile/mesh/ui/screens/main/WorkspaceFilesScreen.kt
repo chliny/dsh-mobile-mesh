@@ -38,6 +38,8 @@ import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 
+internal fun normalizeWorkspaceFilesPath(path: String): String = path.trim().ifBlank { "." }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkspaceFilesScreen(
@@ -63,7 +65,10 @@ fun WorkspaceFilesScreen(
     LaunchedEffect(workspaceKey, sessionId, initialPath) {
         store.reset(workspaceKey)
         currentPath = initialPath
-        store.list(workspaceKey, sessionId, initialPath)
+        // The workspace-files Remote accepts a workspace-relative path, but the root is
+        // represented by "." rather than an empty file_path. Keep the UI's root sentinel
+        // separate from the wire request so opening this screen never sends a blank path.
+        store.list(workspaceKey, sessionId, normalizeWorkspaceFilesPath(initialPath))
     }
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
         Row(
