@@ -877,8 +877,7 @@ class SessionStore @Inject constructor(
             queueBySession[sessionId] = nextQueue
             pendingQueueBySession[sessionId]?.removeAll { pending ->
                 nextQueue.any { authoritative ->
-                    (pending.rpcId != null && pending.rpcId == authoritative.rpcId) ||
-                        pending.messageText == authoritative.messageText
+                    (pending.rpcId != null && pending.rpcId == authoritative.rpcId)
                 }
             }
             if (pendingQueueBySession[sessionId].isNullOrEmpty()) pendingQueueBySession.remove(sessionId)
@@ -1802,19 +1801,9 @@ class SessionStore @Inject constructor(
                         rebuildCurrentLocked()
                     }
                 }
-                if (safeMode == "queue" && promptOptimisticDisplay(running) == PromptOptimisticDisplay.QUEUE) {
-                    scope.launch {
-                        delay(OPTIMISTIC_QUEUE_PROMPT_TIMEOUT_MS)
-                        synchronized(lock) {
-                            pendingQueueBySession[sid]?.removeAll { it.rpcId == request.requestId }
-                            if (pendingQueueBySession[sid].isNullOrEmpty()) pendingQueueBySession.remove(sid)
-                            if (currentId == sid) {
-                                currentQueue = mergePendingQueue(queueBySession[sid].orEmpty(), pendingQueueBySession[sid].orEmpty())
-                                rebuildCurrentLocked()
-                            }
-                        }
-                    }
-                }
+                // Keep the local queue row until the authoritative control stream observes this
+                // request. The Web client uses the same settlement rule; a timeout would make a
+                // valid remote queue item disappear during a slow or disconnected period.
                 PromptOutcome.Ok
             }
             is RpcResult.Err -> if (r.error.code == ATTACHMENT_INVALID) {
