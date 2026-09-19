@@ -1532,10 +1532,12 @@ class SessionStore @Inject constructor(
             currentEvents.clear()
             currentEvents.addAll(page)
             currentEvents.sortBy { it.seq }
-            // A fresh follow snapshot is authoritative for the opened session. Re-derive running
-            // from its durable tail so a missed turn/end notification cannot keep the old true
-            // value alive in the list or composer after reconnect/open.
-            runningBySession[sessionId] = EventFold(sessionId).fold(currentEvents).running
+            // The follow snapshot contains durable history, not the live execution bit. Preserve
+            // the status-stream value when one is already known; otherwise use the folded history
+            // only as the initial fallback. Replacing a live true with a history snapshot's false
+            // briefly hides the "DeepSeek is thinking" row during reconnect/open races.
+            val foldedRunning = EventFold(sessionId).fold(currentEvents).running
+            runningBySession[sessionId] = runningStateFromSnapshot(runningBySession[sessionId], foldedRunning)
             sessionRows[sessionId]?.let { row ->
                 if (row.running != runningBySession[sessionId]) {
                     sessionRows[sessionId] = row.copy(running = runningBySession[sessionId] == true)
