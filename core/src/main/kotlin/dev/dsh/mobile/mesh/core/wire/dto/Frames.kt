@@ -24,10 +24,17 @@ data class QueuedInboxItem(
     @SerialName("id") val id: String,
     /** Agent-resolved FIFO placement ('queued' | 'steering' | 'context'). */
     @SerialName("placement") val placement: String,
-    /** Prompt-RPC identity copied from the queued user source. */
+    /** Prompt-RPC identity copied from the queued message's user source. */
     @SerialName("rpcId") val rpcId: String? = null,
-    /** Complete pending message; it is not durable until the Agent claims it. */
-    @SerialName("message") val message: MessageData,
+    /** Complete pending message; the wire carries only identity and content. */
+    @SerialName("message") val message: QueuedMessage,
+)
+
+/** Queue message payload from `session/control`; role and source are not transmitted. */
+@Serializable
+data class QueuedMessage(
+    @SerialName("id") val id: String,
+    @SerialName("content") val content: List<ContentBlock> = emptyList(),
 )
 
 /** Current lifecycle state of one background job. */
