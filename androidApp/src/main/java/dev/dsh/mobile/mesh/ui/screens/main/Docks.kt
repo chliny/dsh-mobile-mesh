@@ -220,8 +220,8 @@ internal fun QueueDock(
     var editText by remember { mutableStateOf("") }
 
     DisclosureRow(
-        title = stringResource(R.string.chat_queue_title),
-        summary = pendingQueue.size.toString(),
+        title = stringResource(R.string.chat_queue_count, pendingQueue.size),
+        summary = null,
         expanded = expanded,
         onToggle = { expanded = !expanded },
         modifier = modifier,

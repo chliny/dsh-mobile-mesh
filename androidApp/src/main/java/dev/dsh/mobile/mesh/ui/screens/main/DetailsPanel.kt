@@ -551,8 +551,8 @@ private fun QueueCard(queue: List<QueueItem>, store: dev.dsh.mobile.mesh.data.Se
     val colors = DsTheme.colors
     val scope = rememberCoroutineScope()
     Card(
-        title = stringResource(R.string.chat_queue_title),
-        summary = queue.size.takeIf { it > 0 }?.toString(),
+        title = stringResource(R.string.chat_queue_count, queue.size),
+        summary = null,
     ) {
         if (queue.isEmpty()) {
             Text(

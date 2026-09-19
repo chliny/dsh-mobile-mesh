@@ -223,6 +223,7 @@
     <string name="chat_more_files">+%1$d files</string>
     <string name="chat_open_in_host">Open on host (requires loopback)</string>
     <string name="chat_queue_title">Queued turns</string>
+    <string name="chat_queue_count">%1$d queued messages</string>
     <string name="chat_queue_empty">No pending turns</string>
     <string name="chat_queue_edit">Edit</string>
     <string name="chat_queue_remove">Remove</string>
