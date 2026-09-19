@@ -1280,6 +1280,7 @@ class SessionStore @Inject constructor(
         val running = runningBySession[sid] ?: snapshot.running
         val pending = pendingPromptBySession.contains(sid)
         val turnStartedAt = turnStartedAtBySession[sid]
+            ?: runningTurnStartMillis(events)?.also { turnStartedAtBySession[sid] = it }
             ?: if (running) System.currentTimeMillis().also { turnStartedAtBySession[sid] = it } else null
         val merged = snapshot.copy(
             nodes = snapshot.nodes + optimisticNodes,
