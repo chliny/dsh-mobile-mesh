@@ -18,4 +18,10 @@ class ConnectionSelectionPolicyTest {
         assertFalse(shouldOpenSessionsForCurrentHost("a", "b", ConnectionPhase.CONNECTED))
         assertFalse(shouldOpenSessionsForCurrentHost("a", "a", ConnectionPhase.RECONNECTING))
     }
+
+    @Test
+    fun `connected row uses the owner selection callback instead of closing its parent`() {
+        // The owner clears Settings/Connections state and selects the session-list route.
+        assertTrue(shouldOpenSessionsForCurrentHost("a", "a", ConnectionPhase.CONNECTED))
+    }
 }

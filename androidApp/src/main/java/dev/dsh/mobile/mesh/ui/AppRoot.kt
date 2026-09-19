@@ -152,6 +152,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                         // handshake; return directly to the session list.
                         showConnections = false
                         showConnectPage = false
+                        showSettings = false
                         showSessionList = true
                     } else {
                         awaitingSelectedConnection = true
