@@ -7,7 +7,8 @@ internal fun shouldShowConnectionRecoveryOverlay(
     phase: ConnectionPhase,
     foregroundCheckPending: Boolean,
 ): Boolean = hasConnected && (
-    phase == ConnectionPhase.CONNECTING ||
+    phase == ConnectionPhase.DISCONNECTED ||
+        phase == ConnectionPhase.CONNECTING ||
         phase == ConnectionPhase.RECONNECTING ||
         foregroundCheckPending
     )
