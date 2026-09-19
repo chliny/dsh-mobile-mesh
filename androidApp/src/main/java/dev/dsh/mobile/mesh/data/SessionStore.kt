@@ -955,7 +955,7 @@ class SessionStore @Inject constructor(
             "turn/start" -> {
                 synchronized(lock) {
                     pendingPromptBySession.remove(sessionId)
-                    turnStartedAtBySession[sessionId] = System.currentTimeMillis()
+                    turnStartedAtBySession[sessionId] = envelope.time
                 }
                 setRunning(sessionId, true)
                 setBlank(sessionId, false)
@@ -1125,6 +1125,7 @@ class SessionStore @Inject constructor(
     private fun setRunning(sessionId: String, running: Boolean) {
         synchronized(lock) {
             runningBySession[sessionId] = running
+            if (!running) turnStartedAtBySession.remove(sessionId)
             sessionRows[sessionId]?.let { if (it.running != running) sessionRows[sessionId] = it.copy(running = running) }
             if (sessionId == currentId) rebuildCurrentLocked()
             emitSessionsLocked()
@@ -1279,8 +1280,9 @@ class SessionStore @Inject constructor(
         val blank = if (events.isEmpty() && optimistic.isEmpty()) currentBlank else false
         val running = runningBySession[sid] ?: snapshot.running
         val pending = pendingPromptBySession.contains(sid)
-        val turnStartedAt = turnStartedAtBySession[sid]
-            ?: runningTurnStartMillis(events)?.also { turnStartedAtBySession[sid] = it }
+        val turnStartedAt = runningTurnStartMillis(events)?.also {
+            turnStartedAtBySession[sid] = it
+        } ?: turnStartedAtBySession[sid]
             ?: if (running) System.currentTimeMillis().also { turnStartedAtBySession[sid] = it } else null
         val merged = snapshot.copy(
             nodes = snapshot.nodes + optimisticNodes,
