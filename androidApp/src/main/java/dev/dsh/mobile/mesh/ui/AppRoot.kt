@@ -243,7 +243,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         // A connected session must not accept taps while its carrier is being verified or rebuilt.
         // The scrim consumes input at the root, preventing session switches and writes from racing
         // ConnectionManager's transport teardown/reconnect sequence.
-        if (shouldBlockForConnectionRecovery(
+        if (shouldShowConnectionRecoveryOverlay(
                 connection.hasConnected,
                 connection.phase,
                 connection.foregroundCheckPending,
