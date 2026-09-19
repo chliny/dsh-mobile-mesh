@@ -276,7 +276,9 @@ class SessionStore @Inject constructor(
     /** Latest-wins queue: rapid drawer taps must not backlog one network switch per tap. */
     private val sessionSwitchStateLock = Any()
     private var pendingSessionId: String? = null
+    private var pendingSessionAddress: SessionAddress? = null
     private var sessionSwitchJob: Job? = null
+    private var currentAddress: SessionAddress? = null
 
     /** Coalesces transcript rebuilds during a stream; see [observeRebuildTicks]. */
     private val rebuildTicks = Channel<Unit>(Channel.CONFLATED)
@@ -1385,26 +1387,59 @@ class SessionStore @Inject constructor(
      */
     private fun applyWorkspaceValue(value: WorkspaceValue) = upsertWorkspace(value.workspace)
 
+    private suspend fun resolveSessionAddress(sessionId: String): SessionAddress? {
+        val row = synchronized(lock) { sessionRows[sessionId] }
+        if (row?.origin != "subagent") return sessionAddressFor(sessionId, row?.origin)
+        val parentId = row.parentSessionId ?: run {
+            setConnectionError("Subagent parent session is unavailable")
+            return null
+        }
+        val api = apiOrNull() ?: return null
+        val mode = when (val result = api.subagentList(parentId)) {
+            is RpcResult.Ok -> result.value.entries.firstOrNull { subagentEntryId(it) == sessionId }?.let {
+                when (it) {
+                    is SubagentListEntry.ChildOneShot -> it.mode
+                    is SubagentListEntry.ChildContinuable -> it.mode
+                    else -> null
+                }
+            }
+            is RpcResult.Err -> {
+                setConnectionError(result.error.message)
+                null
+            }
+        } ?: run {
+            setConnectionError("Subagent mode is unavailable")
+            return null
+        }
+        return sessionAddressFor(sessionId, row.origin, parentId, mode)
+    }
+
     suspend fun openSession(sessionId: String) {
+        val address = resolveSessionAddress(sessionId) ?: return
         synchronized(sessionSwitchStateLock) {
             pendingSessionId = sessionId
+            pendingSessionAddress = address
             if (sessionSwitchJob?.isActive == true) return
             sessionSwitchJob = scope.launch {
                 while (true) {
                     val next = synchronized(sessionSwitchStateLock) {
-                        pendingSessionId?.also { pendingSessionId = null }
-                            ?: run {
-                                sessionSwitchJob = null
-                                return@launch
-                            }
+                        val id = pendingSessionId
+                        val nextAddress = pendingSessionAddress
+                        pendingSessionId = null
+                        pendingSessionAddress = null
+                        if (id == null || nextAddress == null) {
+                            sessionSwitchJob = null
+                            return@launch
+                        }
+                        id to nextAddress
                     }
-                    openSessionOnce(next)
+                    openSessionOnce(next.first, next.second)
                 }
             }
         }
     }
 
-    private suspend fun openSessionOnce(sessionId: String) = sessionSwitchMutex.withLock {
+    private suspend fun openSessionOnce(sessionId: String, address: SessionAddress) = sessionSwitchMutex.withLock {
         withContext(Dispatchers.Default) {
             val cached = synchronized(lock) { conversationCache[sessionId] }
             val api = apiOrNull()
@@ -1422,6 +1457,7 @@ class SessionStore @Inject constructor(
         synchronized(lock) {
             val same = currentId == sessionId
             currentId = sessionId
+            currentAddress = address
             _currentSessionId.value = sessionId
             if (!same) {
                 // Keep the old fold only until the replacement snapshot is available. Most importantly,
@@ -1451,7 +1487,7 @@ class SessionStore @Inject constructor(
                 _pendingPermission.value = null
             }
         }
-        startFollow(sessionId)
+        startFollow(sessionId, address)
         // A red/orange carrier has no usable API generation. Preserve the user's chosen session
         // locally and let the connection baseline reopen it once green, rather than launching
         // several unary RPCs to the relay that recovery is actively closing.
@@ -1482,7 +1518,7 @@ class SessionStore @Inject constructor(
      * snapshot immediately and promotes it in the background, so opening a transcript is an
      * observation rather than an execution.
      */
-    private fun startFollow(sessionId: String) {
+    private fun startFollow(sessionId: String, address: SessionAddress) {
         followJob?.cancel()
         followCursor = null
         val mux = connectionManager.generation?.mux
@@ -1496,7 +1532,7 @@ class SessionStore @Inject constructor(
                 encodeToJsonElement(
                     SessionFollowRequest.serializer(),
                     SessionFollowRequest(
-                        address = SessionAddress.Session(sessionId = sessionId),
+                        address = address,
                         maxMessages = HISTORY_PAGE_SIZE,
                         assistantStream = true,
                     ),
@@ -1604,7 +1640,7 @@ class SessionStore @Inject constructor(
                 return@withContext
             }
             val request = SessionPageRequest(
-                address = SessionAddress.Session(sessionId = sid),
+                address = synchronized(lock) { currentAddress } ?: SessionAddress.Session(sessionId = sid),
                 throughSeq = cursor,
                 beforeSeq = oldestSeq?.toInt(),
                 maxMessages = HISTORY_PAGE_SIZE,
