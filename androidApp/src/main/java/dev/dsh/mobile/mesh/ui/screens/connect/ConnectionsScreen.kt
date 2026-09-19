@@ -120,8 +120,12 @@ fun ConnectionsScreen(
                                 .fillMaxWidth()
                                 .combinedClickable(
                                     onClick = {
-                                        if (shouldResetBeforeSelectingHost(connectionState.connecting)) onConnectAttempt()
-                                        onConnectHost(host)
+                                        if (shouldOpenSessionsForCurrentHost(host.id, connectedHostId, connectionPhase)) {
+                                            onClose()
+                                        } else {
+                                            if (shouldResetBeforeSelectingHost(connectionState.connecting)) onConnectAttempt()
+                                            onConnectHost(host)
+                                        }
                                     },
                                     onLongClick = { menuHost = host },
                                 )
