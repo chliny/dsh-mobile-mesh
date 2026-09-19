@@ -70,9 +70,19 @@ internal fun TodoDock(todos: List<TodoEntry>, modifier: Modifier = Modifier) {
     if (todos.isEmpty()) return
     var expanded by remember { mutableStateOf(false) }
     val completed = todos.count { it.status == "completed" }
+    val inProgress = todos.count { it.status == "in_progress" }
+    val pending = todos.size - completed - inProgress
+    val progress = todoProgressLabel(
+        completed = completed,
+        inProgress = inProgress,
+        pending = pending,
+        completedLabel = stringResource(R.string.chat_todo_progress_done, completed),
+        inProgressLabel = stringResource(R.string.chat_todo_progress_active, inProgress),
+        pendingLabel = stringResource(R.string.chat_todo_progress_pending, pending),
+    )
     DisclosureRow(
         title = stringResource(R.string.chat_todo_title),
-        summary = stringResource(R.string.chat_todo_progress, completed, todos.size),
+        summary = progress,
         icon = FeatherIcons.CheckSquare,
         expanded = expanded,
         onToggle = { expanded = !expanded },
@@ -93,6 +103,20 @@ internal fun TodoDock(todos: List<TodoEntry>, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(2.dp))
     }
 }
+
+/** Matches Web's status summary, omitting zero-count segments. */
+internal fun todoProgressLabel(
+    completed: Int,
+    inProgress: Int,
+    pending: Int,
+    completedLabel: String,
+    inProgressLabel: String,
+    pendingLabel: String,
+): String = listOfNotNull(
+    completedLabel.takeIf { completed > 0 },
+    inProgressLabel.takeIf { inProgress > 0 },
+    pendingLabel.takeIf { pending > 0 },
+).joinToString("\u2002·\u2002")
 
 /** The read-only goal summary shown inline in the transcript when a goal event lands. */
 @Composable

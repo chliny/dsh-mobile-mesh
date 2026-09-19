@@ -177,8 +177,10 @@
     <string name="chat_composer_mode_steer_hint">Interrupts the running turn</string>
     <string name="chat_composer_steer_idle">Steering needs a running turn</string>
     <string name="chat_tab">Chat</string>
-    <string name="chat_todo_title">To-dos</string>
-    <string name="chat_todo_progress">%1$d/%2$d</string>
+    <string name="chat_todo_title">Tasks</string>
+    <string name="chat_todo_progress_done">%1$d completed</string>
+    <string name="chat_todo_progress_active">%1$d in progress</string>
+    <string name="chat_todo_progress_pending">%1$d pending</string>
     <string name="chat_commands_empty">This session has no commands</string>
     <string name="chat_commands_unavailable">This harness does not expose a command list</string>
     <string name="chat_image_open">Open image</string>

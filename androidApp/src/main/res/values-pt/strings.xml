@@ -310,7 +310,9 @@
     <string name="chat_composer_steer_idle">Direcionar exige um turno em andamento</string>
     <string name="chat_tab">Conversa</string>
     <string name="chat_todo_title">Tarefas</string>
-    <string name="chat_todo_progress">%1$d/%2$d</string>
+    <string name="chat_todo_progress_done">%1$d completed</string>
+    <string name="chat_todo_progress_active">%1$d in progress</string>
+    <string name="chat_todo_progress_pending">%1$d pending</string>
     <string name="chat_commands_empty">Esta sessão não tem comandos</string>
     <string name="chat_commands_unavailable">Este Harness não expõe uma lista de comandos</string>
     <string name="chat_image_open">Abrir imagem</string>

@@ -330,8 +330,10 @@
     <string name="chat_composer_mode_steer_hint">插入正在进行的回合</string>
     <string name="chat_composer_steer_idle">插入需要有正在进行的回合</string>
     <string name="chat_tab">对话</string>
-    <string name="chat_todo_title">待办</string>
-    <string name="chat_todo_progress">%1$d/%2$d</string>
+    <string name="chat_todo_title">任务</string>
+    <string name="chat_todo_progress_done">%1$d 已完成</string>
+    <string name="chat_todo_progress_active">%1$d 进行中</string>
+    <string name="chat_todo_progress_pending">%1$d 待处理</string>
     <string name="chat_commands_empty">此会话没有可用命令</string>
     <string name="chat_commands_unavailable">该 Harness 未提供命令列表</string>
     <string name="chat_image_open">打开图片</string>
