@@ -15,6 +15,7 @@ import dev.dsh.mobile.mesh.core.wire.GenerationFailure
 import dev.dsh.mobile.mesh.core.wire.HandshakeStep
 import dev.dsh.mobile.mesh.core.wire.LoopSinks
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectFailure
+import dev.dsh.mobile.mesh.ui.shouldRearmConnectionRecoveryOverlay
 import dev.dsh.mobile.mesh.core.wire.HostGeneration
 import dev.dsh.mobile.mesh.core.wire.RemoteStreamMux
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventFrame
@@ -109,7 +110,12 @@ class ConnectionManager @Inject constructor(
             Log.d("ConnectionManager", "Default network available: $network (previous=$previous, dirty=${networkRecoveryGate.isPending()})")
             if (appInForeground && networkRecoveryGate.isPending()) {
                 markCarrierRecoveryNeeded()
-                startPendingNetworkRecovery()
+                if (connectivity.getNetworkCapabilities(network)
+                        ?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true) {
+                    startPendingNetworkRecovery()
+                } else {
+                    Log.d("ConnectionManager", "Replacement network is not internet-capable yet; keeping recovery pending")
+                }
             }
         }
 
@@ -346,6 +352,7 @@ class ConnectionManager @Inject constructor(
         synchronized(operationLock) {
             val previousOperation = connectJob
             previousOperation?.cancel()
+            if (previousOperation?.isActive == true) meshTransport.cancelTailscaleStart()
             cancelAuxiliaryOperations()
             retirePublishedConnection()
             val previousTeardown = teardownJob
@@ -704,6 +711,15 @@ class ConnectionManager @Inject constructor(
             // there is no live operation to own the carrier.
             suspendedForBackground = false
             if (synchronized(operationLock) { connectJob?.isActive == true }) {
+                // onAppBackgrounded() clears this presentation latch while retaining the transport.
+                // Re-arm it before returning so the existing session is visibly blocked for the
+                // remainder of the in-flight foreground recovery.
+                if (shouldRearmConnectionRecoveryOverlay(
+                        hasConnected = _state.value.hasConnected,
+                        recoveryInFlight = true,
+                    )) {
+                    _state.value = _state.value.copy(foregroundCheckPending = true)
+                }
                 Log.d("ConnectionManager", "Foreground recovery already in flight; keeping current operation")
                 return
             }
