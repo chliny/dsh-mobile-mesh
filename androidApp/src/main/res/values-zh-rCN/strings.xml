@@ -147,6 +147,9 @@
     <string name="chat_branch_message">从此处分支</string>
     <string name="chat_stats_line">%1$d 个回合 · %2$d 个步骤 · %3$s · %4$s</string>
     <string name="chat_produced_files">产出</string>
+    <string name="chat_delivered_files">交付文件</string>
+    <string name="chat_delivered_files_expand">展开全部 %1$d 个文件</string>
+    <string name="chat_delivered_files_collapse">收起 %1$d 个文件</string>
     <string name="chat_more_files">+%1$d 个文件</string>
     <string name="chat_open_in_host">在主机上打开（需要回环）</string>
     <string name="chat_queue_title">排队消息</string>

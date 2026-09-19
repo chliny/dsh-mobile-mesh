@@ -220,6 +220,9 @@
     <string name="chat_branch_message">Branch from here</string>
     <string name="chat_stats_line">%1$d turns · %2$d steps · %3$s · %4$s</string>
     <string name="chat_produced_files">Produced</string>
+    <string name="chat_delivered_files">Delivered files</string>
+    <string name="chat_delivered_files_expand">Show all %1$d files</string>
+    <string name="chat_delivered_files_collapse">Collapse %1$d files</string>
     <string name="chat_more_files">+%1$d files</string>
     <string name="chat_open_in_host">Open on host (requires loopback)</string>
     <string name="chat_queue_title">Queued turns</string>

@@ -10,6 +10,7 @@ import dev.dsh.mobile.mesh.core.session.GoalNode
 import dev.dsh.mobile.mesh.core.session.OtherNode
 import dev.dsh.mobile.mesh.core.session.PlanModeNode
 import dev.dsh.mobile.mesh.core.session.ProducedFilesNode
+import dev.dsh.mobile.mesh.core.session.PresentedFilesNode
 import dev.dsh.mobile.mesh.core.session.RetryNode
 import dev.dsh.mobile.mesh.core.session.SubagentNode
 import dev.dsh.mobile.mesh.core.session.TitleNode
@@ -80,6 +81,7 @@ internal fun ChatNode.rendersContent(): Boolean = when (this) {
     is TodoNode -> parseTodos(todos) != null
     is GoalNode -> parseGoal(data) != null
     is ProducedFilesNode -> this.paths.isNotEmpty()
+    is PresentedFilesNode -> this.files.isNotEmpty()
     is WorkflowNode -> data is JsonObject
 
     // Always draws.

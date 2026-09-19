@@ -53,6 +53,7 @@ import dev.dsh.mobile.mesh.core.session.GoalNode
 import dev.dsh.mobile.mesh.core.session.OtherNode
 import dev.dsh.mobile.mesh.core.session.PlanModeNode
 import dev.dsh.mobile.mesh.core.session.ProducedFilesNode
+import dev.dsh.mobile.mesh.core.session.PresentedFilesNode
 import dev.dsh.mobile.mesh.core.session.RetryNode
 import dev.dsh.mobile.mesh.core.session.TurnEndNode
 import dev.dsh.mobile.mesh.core.session.SubagentNode
@@ -175,6 +176,8 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
         is GoalNode -> parseGoal(node.data)?.let { GoalSummary(it) }
 
         is ProducedFilesNode -> ProducedFilesRow(node.paths, context)
+
+        is PresentedFilesNode -> PresentedFilesRow(node.files, context)
 
         is PlanModeNode -> DsPill(
             text = stringResource(if (node.active) R.string.plan_mode_on else R.string.plan_mode_off),
@@ -529,6 +532,49 @@ private fun ProducedFilesRow(paths: List<String>, context: ChatNodeContext) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun PresentedFilesRow(files: List<dev.dsh.mobile.mesh.core.session.PresentedFile>, context: ChatNodeContext) {
+    val rows = files.filter { it.path.isNotBlank() }
+    if (rows.isEmpty()) return
+    var expanded by remember(rows) { mutableStateOf(false) }
+    val visible = if (expanded) rows else rows.take(4)
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(stringResource(R.string.chat_delivered_files), style = DsType.caption11, color = DsTheme.colors.labelTertiary)
+        visible.forEach { file ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(DsShapes.block)
+                    .background(DsTheme.colors.bgModulePlatform)
+                    .clickable(enabled = context.onOpenFile != null) {
+                        openWorkspacePath(context, file.path, producedFileLabel(file.path), context.onOpenFile)
+                    }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp), tint = DsTheme.colors.labelSecondary)
+                Column(Modifier.padding(start = 8.dp).weight(1f)) {
+                    Text(producedFileLabel(file.path), style = DsType.small13, color = DsTheme.colors.labelSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    file.description?.takeIf { it.isNotBlank() }?.let {
+                        Text(it, style = DsType.caption11, color = DsTheme.colors.labelTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+        if (rows.size > 4) {
+            Text(
+                stringResource(if (expanded) R.string.chat_delivered_files_collapse else R.string.chat_delivered_files_expand, rows.size),
+                modifier = Modifier.clickable { expanded = !expanded }.padding(start = 10.dp, top = 2.dp),
+                style = DsType.caption11,
+                color = DsTheme.colors.accent,
+            )
         }
     }
 }
