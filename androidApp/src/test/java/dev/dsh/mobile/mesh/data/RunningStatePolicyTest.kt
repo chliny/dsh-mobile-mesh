@@ -6,9 +6,9 @@ import org.junit.Test
 
 class RunningStatePolicyTest {
     @Test
-    fun `known live running state survives a history snapshot`() {
-        assertTrue(runningStateFromSnapshot(existing = true, snapshot = false))
-        assertFalse(runningStateFromSnapshot(existing = false, snapshot = true))
+    fun `history snapshot clears stale running state`() {
+        assertFalse(runningStateFromSnapshot(existing = true, snapshot = false))
+        assertTrue(runningStateFromSnapshot(existing = false, snapshot = true))
     }
 
     @Test

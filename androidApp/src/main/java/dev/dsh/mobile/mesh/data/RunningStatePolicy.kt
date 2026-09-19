@@ -1,4 +1,4 @@
 package dev.dsh.mobile.mesh.data
 
-/** Keep the live status stream authoritative once it has supplied a value for a session. */
-internal fun runningStateFromSnapshot(existing: Boolean?, snapshot: Boolean): Boolean = existing ?: snapshot
+/** Reconcile a session's running state from the newest authoritative history snapshot. */
+internal fun runningStateFromSnapshot(existing: Boolean?, snapshot: Boolean): Boolean = snapshot
