@@ -1280,7 +1280,7 @@ class SessionStore @Inject constructor(
         val running = runningBySession[sid] ?: snapshot.running
         val pending = pendingPromptBySession.contains(sid)
         val turnStartedAt = turnStartedAtBySession[sid]
-            ?: if (pending) System.currentTimeMillis().also { turnStartedAtBySession[sid] = it } else null
+            ?: if (running) System.currentTimeMillis().also { turnStartedAtBySession[sid] = it } else null
         val merged = snapshot.copy(
             nodes = snapshot.nodes + optimisticNodes,
             blank = blank,
@@ -1761,6 +1761,11 @@ class SessionStore @Inject constructor(
         // into a misleading "not connected" error.
         val api = awaitConnectedApi() ?: return PromptOutcome.Failed("not connected")
         val safeMode = if (mode == "steer") "steer" else "queue"
+        // Match Web's beginSubmission timing: classify the optimistic row from the running state
+        // when the user submitted, not from the state after the RPC returns. An idle submission can
+        // start its turn while the RPC is in flight; it must remain a transcript row, not become a
+        // queued-turn count for the turn that is already executing.
+        val runningAtSubmission = synchronized(lock) { runningBySession[sid] == true }
         val zone = TimeZone.getDefault().id
         val request = SessionPromptRequest(
             requestId = newPromptRequestId(),
@@ -1774,10 +1779,9 @@ class SessionStore @Inject constructor(
                 // The RPC is accepted before session/follow necessarily echoes the user event. Keep
                 // one local row visible immediately; the authoritative follow event removes it by
                 // request id or matching text.
-                val running = synchronized(lock) { runningBySession[sid] == true }
                 synchronized(lock) {
                     pendingPromptBySession += sid
-                    if (safeMode == "queue" && promptOptimisticDisplay(running) == PromptOptimisticDisplay.QUEUE) {
+                    if (shouldShowOptimisticQueue(safeMode, runningAtSubmission)) {
                         val text = content.filterIsInstance<PromptContentPart.Text>().joinToString("\n") { it.text }
                         if (text.isNotBlank()) {
                             val pending = QueueItem(
