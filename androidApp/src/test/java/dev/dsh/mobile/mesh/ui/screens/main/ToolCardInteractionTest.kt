@@ -66,6 +66,11 @@ class ToolCardInteractionTest {
     }
 
     @Test
+    fun `produced file label shows only the name while the path stays available`() {
+        assertEquals("report.txt", producedFileLabel("outputs/reports/report.txt"))
+    }
+
+    @Test
     fun `read and write cards expose a direct file target`() {
         val read = ToolCardView.ReadCard(label = "read", path = "README.md", totalLines = 12)
         val write = ToolCardView.DiffCard(diffs = listOf(dev.dsh.mobile.mesh.ui.components.DiffHunk("README.md", newText = "updated")))

@@ -498,6 +498,8 @@ private fun ActionIcon(
 
 internal fun producedFileRows(paths: List<String>): List<String> = paths.filter { it.isNotBlank() }
 
+internal fun producedFileLabel(path: String): String = basename(path).ifBlank { path }
+
 @Composable
 private fun ProducedFilesRow(paths: List<String>, context: ChatNodeContext) {
     val rows = producedFileRows(paths)
@@ -519,7 +521,7 @@ private fun ProducedFilesRow(paths: List<String>, context: ChatNodeContext) {
             ) {
                 Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp), tint = DsTheme.colors.labelSecondary)
                 Text(
-                    path,
+                    producedFileLabel(path),
                     style = DsType.small13,
                     color = DsTheme.colors.labelSecondary,
                     modifier = Modifier.padding(start = 8.dp).weight(1f),
