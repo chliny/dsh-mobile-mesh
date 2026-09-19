@@ -42,11 +42,19 @@ type instance struct {
 	loginURL     string
 	relayMu      sync.RWMutex
 	relayHealthy bool
+	connMu       sync.Mutex
+	connections  map[net.Conn]struct{}
+	forwardWG    sync.WaitGroup
 }
 
 var current struct {
 	sync.Mutex
 	value *instance
+}
+
+var startCancellation struct {
+	sync.Mutex
+	channel chan struct{}
 }
 
 type androidInterface struct {
@@ -88,6 +96,8 @@ func TailscaleSetInterfaces(value *C.char) {
 
 //export TailscaleStart
 func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char {
+	cancel := beginStart()
+	defer endStart(cancel)
 	current.Lock()
 	defer current.Unlock()
 	stateDirectory := C.GoString(stateDir)
@@ -117,6 +127,8 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 				entry.loginURL = refreshed
 			} else if refreshErr != nil {
 				_ = refreshErr // pendingLoginState below preserves the useful fallback URL.
+			} else if loginCompleted(refreshed, waitForRunning(client)) {
+				return encode(startRelayLocked(entry.server, targetHost, targetPort))
 			}
 		}
 		return encode(pendingLoginState(entry.loginURL))
@@ -146,10 +158,17 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 		// published on the IPN bus. Keep the server alive and let the authorization watcher
 		// surface that URL instead of converting the attempt into a dead connection.
 		login, loginErr := loginURL(client)
-		if loginErr == nil && login != "" {
-			current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname,
-				remoteHost: targetHost, remotePort: targetPort, loginURL: login}
-			return encode(pendingLoginState(login))
+		if loginErr == nil {
+			if loginCompleted(login, waitForRunning(client)) {
+				current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname,
+					remoteHost: targetHost, remotePort: targetPort}
+				return encode(startRelayLocked(server, targetHost, targetPort))
+			}
+			if login != "" {
+				current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname,
+					remoteHost: targetHost, remotePort: targetPort, loginURL: login}
+				return encode(pendingLoginState(login))
+			}
 		}
 		_ = server.Close()
 		return encode(result{State: "error", Error: firstError(err, loginErr).Error()})
@@ -160,12 +179,22 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 		// second status call that can wait for control-plane readiness.
 		login, loginErr := loginURL(client)
 		if loginErr == nil {
-			current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname,
-				remoteHost: targetHost, remotePort: targetPort, loginURL: login}
-			return encode(pendingLoginState(login))
+			if loginCompleted(login, waitForRunning(client)) {
+				current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname,
+					remoteHost: targetHost, remotePort: targetPort}
+				return encode(startRelayLocked(server, targetHost, targetPort))
+			}
+			if login != "" {
+				current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname,
+					remoteHost: targetHost, remotePort: targetPort, loginURL: login}
+				return encode(pendingLoginState(login))
+			}
 		}
 		current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname,
 			remoteHost: targetHost, remotePort: targetPort}
+		if loginErr == nil {
+			return encode(result{State: "error", Error: "Tailscale authorization did not complete"})
+		}
 		return encode(result{State: "error", Error: loginErr.Error()})
 	}
 	current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname}
@@ -180,6 +209,59 @@ func configureLogs(stateDirectory string) error {
 		return err
 	}
 	return os.Setenv("TS_LOGS_DIR", logsDirectory)
+}
+
+//export TailscaleCancelStart
+func TailscaleCancelStart() *C.char {
+	startCancellation.Lock()
+	if startCancellation.channel != nil {
+		select {
+		case <-startCancellation.channel:
+		default:
+			close(startCancellation.channel)
+		}
+	}
+	startCancellation.Unlock()
+	return encode(result{State: "cancelled"})
+}
+
+func beginStart() chan struct{} {
+	startCancellation.Lock()
+	defer startCancellation.Unlock()
+	if startCancellation.channel != nil {
+		close(startCancellation.channel)
+	}
+	startCancellation.channel = make(chan struct{})
+	return startCancellation.channel
+}
+
+func endStart(channel chan struct{}) {
+	startCancellation.Lock()
+	if startCancellation.channel == channel {
+		startCancellation.channel = nil
+	}
+	startCancellation.Unlock()
+}
+
+func startCancelled(channel chan struct{}) bool {
+	select {
+	case <-channel:
+		return true
+	default:
+		return false
+	}
+}
+
+//export TailscaleRestartRelay
+func TailscaleRestartRelay(remoteHost *C.char, port C.int) *C.char {
+	current.Lock()
+	defer current.Unlock()
+	entry := current.value
+	if entry == nil || entry.server == nil {
+		return encode(result{State: "error", Error: "Tailscale server is not running"})
+	}
+	stopRelayLocked(entry)
+	return encode(startRelayLocked(entry.server, C.GoString(remoteHost), int(port)))
 }
 
 //export TailscaleStop
@@ -327,8 +409,12 @@ func serve(entry *instance, remote string) {
 		if err != nil {
 			return
 		}
+		entry.forwardWG.Add(1)
 		go func() {
+			defer entry.forwardWG.Done()
 			defer local.Close()
+			entry.trackConn(local)
+			defer entry.untrackConn(local)
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			remoteConn, err := entry.server.Dial(ctx, "tcp", remote)
 			cancel()
@@ -336,8 +422,15 @@ func serve(entry *instance, remote string) {
 				return
 			}
 			defer remoteConn.Close()
-			go io.Copy(remoteConn, local)
+			entry.trackConn(remoteConn)
+			defer entry.untrackConn(remoteConn)
+			copyDone := make(chan struct{})
+			go func() {
+				io.Copy(remoteConn, local)
+				close(copyDone)
+			}()
 			io.Copy(local, remoteConn)
+			<-copyDone
 		}()
 	}
 }
@@ -359,10 +452,14 @@ func stopRelayLocked(entry *instance) {
 	entry.listener = nil
 	entry.relayHealthy = false
 	entry.relayMu.Unlock()
-	if listener == nil {
-		return
+	if listener != nil {
+		_ = listener.Close()
 	}
-	_ = listener.Close()
+	entry.connMu.Lock()
+	for conn := range entry.connections {
+		_ = conn.Close()
+	}
+	entry.connMu.Unlock()
 	if done != nil {
 		<-done
 		entry.relayMu.Lock()
@@ -371,6 +468,22 @@ func stopRelayLocked(entry *instance) {
 		}
 		entry.relayMu.Unlock()
 	}
+	entry.forwardWG.Wait()
+}
+
+func (entry *instance) trackConn(conn net.Conn) {
+	entry.connMu.Lock()
+	if entry.connections == nil {
+		entry.connections = make(map[net.Conn]struct{})
+	}
+	entry.connections[conn] = struct{}{}
+	entry.connMu.Unlock()
+}
+
+func (entry *instance) untrackConn(conn net.Conn) {
+	entry.connMu.Lock()
+	delete(entry.connections, conn)
+	entry.connMu.Unlock()
 }
 
 func encode(value result) *C.char {
