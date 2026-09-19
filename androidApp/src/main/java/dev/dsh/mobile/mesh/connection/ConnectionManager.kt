@@ -699,10 +699,14 @@ class ConnectionManager @Inject constructor(
         val currentPhaseBeforeResume = _state.value.phase
         val resumedTarget = lifecycle.foreground()
         if (resumedTarget != null && currentPhaseBeforeResume != ConnectionPhase.CONNECTED) {
-            // A recovery that was in flight during lock-screen/background transition may still own
-            // the operation slot while its relay is stale. Replace it on foreground rather than
-            // waiting for a mux retry that cannot repair the ZeroTier/SSH carrier.
+            // A retained service may still be completing the same recovery while the Activity is
+            // recreated. Do not cancel its operation and wait behind its teardown; only re-arm when
+            // there is no live operation to own the carrier.
             suspendedForBackground = false
+            if (synchronized(operationLock) { connectJob?.isActive == true }) {
+                Log.d("ConnectionManager", "Foreground recovery already in flight; keeping current operation")
+                return
+            }
             Log.d("ConnectionManager", "Foreground resume renews connection for ${resumedTarget.value.host.id}")
             replaceOperation(resumedTarget, reconnect = true)
             return
