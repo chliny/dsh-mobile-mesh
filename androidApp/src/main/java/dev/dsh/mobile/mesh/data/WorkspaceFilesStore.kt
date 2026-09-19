@@ -24,7 +24,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
-internal fun normalizeWorkspaceFilesRequestPath(path: String): String = path.trim().ifBlank { "." }
+internal fun normalizeWorkspaceFilesRequestPath(path: String): String = workspaceFilesPathOrRoot(path)
 
 sealed interface DirectoryLevel {
     data object Loading : DirectoryLevel
