@@ -108,6 +108,17 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 		if clientErr == nil && waitForRunning(client) {
 			return encode(startRelayLocked(entry.server, targetHost, targetPort))
 		}
+		// The first pending response can arrive before tsnet has published AuthURL.  Do
+		// not turn that transient gap into an unrecoverable "reopen sign-in" error:
+		// query the retained identity again and pass the URL to Android so it can open
+		// the WebView. Keep the old URL as a fallback while the control plane settles.
+		if clientErr == nil {
+			if refreshed, refreshErr := loginURL(client); refreshed != "" {
+				entry.loginURL = refreshed
+			} else if refreshErr != nil {
+				_ = refreshErr // pendingLoginState below preserves the useful fallback URL.
+			}
+		}
 		return encode(pendingLoginState(entry.loginURL))
 	}
 	stopLocked()

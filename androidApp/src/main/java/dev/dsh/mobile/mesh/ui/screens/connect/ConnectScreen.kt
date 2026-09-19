@@ -947,7 +947,9 @@ internal fun TailscaleLoginDialog(
     DsDialog(
         title = stringResource(R.string.connect_tailscale_login_title),
         onDismiss = onDismiss,
-        fullScreen = false,
+        // The embedded browser needs a real viewport. A wrap-content dialog can measure the
+        // AndroidView to zero height, which leaves the pending authorization with no visible page.
+        fullScreen = true,
     ) {
         TailscaleLoginView(loginUrl)
     }

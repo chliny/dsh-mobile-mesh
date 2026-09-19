@@ -164,9 +164,9 @@ fun ConnectionsScreen(
                     }
                 }
             }
-            if (connectionState.connecting) {
-                ConnectProgressRow(connectionState.stage, connectionState.attempted)
-            }
+            // Connection progress is shown on the selected row. Keeping a second, page-level
+            // progress panel here makes every connection look globally busy and duplicates the
+            // spinner that identifies which host is actually being connected.
             connectionState.authorizationPending?.let { message -> ConnectAuthorizationPendingBlock(message) }
             connectionState.failure?.let { failure ->
                 ConnectFailureBlock(
