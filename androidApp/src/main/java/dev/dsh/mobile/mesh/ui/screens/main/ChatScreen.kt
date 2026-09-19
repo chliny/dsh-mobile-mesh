@@ -464,6 +464,7 @@ fun ChatScreen(
                     QueueDock(
                         queue = conv.queue,
                         store = store,
+                        running = conv.running,
                         onInsertQueued = { item ->
                             draft = item.messageText
                             currentSessionId?.let { sessionId -> draftStore.set(sessionId, item.messageText) }
