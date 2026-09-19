@@ -690,14 +690,8 @@ private fun SessionRowItem(
                 .background(if (isCurrent) colors.sidebarNavActive else androidx.compose.ui.graphics.Color.Transparent)
                 .combinedClickable(
                     onClick = {
-                        if (shouldExpandChildrenOnSessionClick(childCount, childrenExpanded)) {
-                            onToggleChildren()
-                        } else {
-                            // Close the drawer first. The store publishes a cached snapshot immediately
-                            // and refreshes the live follow stream in the background.
-                            onClose()
-                            scope.launch { store.openSession(session.sessionId) }
-                        }
+                        onClose()
+                        scope.launch { store.openSession(session.sessionId) }
                     },
                     onLongClick = { menuOpen = true },
                 )
@@ -723,9 +717,10 @@ private fun SessionRowItem(
                     contentDescription = stringResource(R.string.chatlist_subagents),
                     tint = colors.labelTertiary,
                     modifier = Modifier
-                        .size(16.dp)
+                        .size(40.dp)
                         .graphicsLayer { rotationZ = chevronRotation }
-                        .clickable(onClick = onToggleChildren),
+                        .clickable(onClick = onToggleChildren)
+                        .padding(12.dp),
                 )
             } else {
                 Spacer(Modifier.width(16.dp))
