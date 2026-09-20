@@ -46,6 +46,14 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `stale pending latch can be cleared for a healthy connected carrier`() {
+        assertTrue(shouldClearConnectedRecoveryPresentation(ConnectionPhase.CONNECTED, false, false))
+        assertFalse(shouldClearConnectedRecoveryPresentation(ConnectionPhase.RECONNECTING, false, false))
+        assertFalse(shouldClearConnectedRecoveryPresentation(ConnectionPhase.CONNECTED, true, false))
+        assertFalse(shouldClearConnectedRecoveryPresentation(ConnectionPhase.CONNECTED, false, true))
+    }
+
+    @Test
     fun `foreground resume rearms stranded reconnect after background cancelled retry`() {
         assertTrue(shouldStartForegroundRecovery(ForegroundRecoveryAction.RECOVER, false))
         assertFalse(shouldStartForegroundRecovery(ForegroundRecoveryAction.RECOVER, true))

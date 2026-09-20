@@ -647,6 +647,7 @@ class SessionStore @Inject constructor(
         val address = synchronized(lock) {
             currentAddress ?: sessionAddressFor(sessionId, sessionRows[sessionId]?.origin)
         } ?: SessionAddress.Session(sessionId = sessionId)
+        log("reopening selected session after connected generation: $sessionId")
         openSessionAtAddress(sessionId, address)
     }
 
@@ -1559,6 +1560,7 @@ class SessionStore @Inject constructor(
      * observation rather than an execution.
      */
     private fun startFollow(sessionId: String, address: SessionAddress) {
+        log("opening session/follow for $sessionId")
         followJob?.cancel()
         followCursor = null
         val mux = connectionManager.generation?.mux
