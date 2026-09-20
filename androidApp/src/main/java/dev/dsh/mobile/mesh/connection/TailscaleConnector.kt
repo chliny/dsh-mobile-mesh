@@ -103,6 +103,7 @@ class TailscaleConnector @Inject constructor(
 
     suspend fun renewRelay(config: HostConfig): MeshRelay = withContext(Dispatchers.IO) {
         require(config.meshTransport == MeshTransport.TAILSCALE) { "Not a Tailscale host" }
+        val startedAt = System.nanoTime()
         val remotePort = if (config.sshEnabled) config.sshPort else config.port
         synchronized(lock) {
             check(nativeStarted) { "Tailscale is not running" }
@@ -112,6 +113,7 @@ class TailscaleConnector @Inject constructor(
         )
         result.baseUrl?.let { baseUrl ->
             val parsed = Uri.parse(baseUrl)
+            android.util.Log.d("TailscaleConnector", "relay-renew elapsedMs=${elapsedMs(startedAt)} result=ok")
             MeshRelay(parsed.host ?: "127.0.0.1", parsed.port.takeIf { it > 0 } ?: 80)
         } ?: throw IllegalStateException(result.error ?: "Tailscale relay is not ready")
     }
@@ -139,20 +141,35 @@ class TailscaleConnector @Inject constructor(
     }
 
     private suspend fun awaitActiveNetwork(): Network? {
+        val startedAt = System.nanoTime()
+        var attempts = 0
         repeat(TAILSCALE_NETWORK_WAIT_ATTEMPTS) {
+            attempts++
             connectivity.activeNetwork?.let { network ->
                 val capabilities = connectivity.getNetworkCapabilities(network)
                 if (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true) {
+                    android.util.Log.d(
+                        "TailscaleConnector",
+                        "network-wait elapsedMs=${elapsedMs(startedAt)} attempts=$attempts result=ok",
+                    )
                     return network
                 }
             }
             kotlinx.coroutines.delay(TAILSCALE_NETWORK_WAIT_DELAY_MS)
         }
-        return connectivity.activeNetwork?.takeIf { network ->
+        val result = connectivity.activeNetwork?.takeIf { network ->
             connectivity.getNetworkCapabilities(network)
                 ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         }
+        android.util.Log.d(
+            "TailscaleConnector",
+            "network-wait elapsedMs=${elapsedMs(startedAt)} attempts=$attempts result=${if (result != null) "ok" else "none"}",
+        )
+        return result
     }
+
+    private fun elapsedMs(startedAt: Long): Long =
+        java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
 
     private fun registerNetworkCallback() = synchronized(lock) {
         if (observingNetwork) return

@@ -50,6 +50,7 @@ class MeshTransportManager @Inject constructor(
      * the old service thread is still unwinding.
      */
     suspend fun reconnect(config: HostConfig): MeshRelay? {
+        val startedAt = System.nanoTime()
         val next = when (config.meshTransport) {
             MeshTransport.ZERO_TIER -> zeroTier
             MeshTransport.TAILSCALE -> tailscale
@@ -62,16 +63,25 @@ class MeshTransportManager @Inject constructor(
         if (next === zeroTier && active === zeroTier) {
             // The node itself remains authorized and safe to retain, but its loopback TCP relay
             // may have been suspended in the background. Replace that Java relay on recovery.
-            return zeroTier.renewRelay(config)
+            return zeroTier.renewRelay(config).also {
+                android.util.Log.d("MeshTransportManager", "reconnect transport=ZERO_TIER mode=renew elapsedMs=${elapsedMs(startedAt)} result=ok")
+            }
         }
         if (next === tailscale && active === tailscale) {
             // Retain the authorized tsnet server, but always replace the loopback relay. A listener
             // can remain green after Android suspended the carrier while its remote path is black-holed.
-            return tailscale.renewRelay(config)
+            return tailscale.renewRelay(config).also {
+                android.util.Log.d("MeshTransportManager", "reconnect transport=TAILSCALE mode=renew elapsedMs=${elapsedMs(startedAt)} result=ok")
+            }
         }
         stop()
-        return start(config)
+        return start(config).also {
+            android.util.Log.d("MeshTransportManager", "reconnect transport=${config.meshTransport ?: "direct"} mode=restart elapsedMs=${elapsedMs(startedAt)} result=ok")
+        }
     }
+
+    private fun elapsedMs(startedAt: Long): Long =
+        java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
 
     fun cancelTailscaleStart() {
         tailscale.cancelStart()

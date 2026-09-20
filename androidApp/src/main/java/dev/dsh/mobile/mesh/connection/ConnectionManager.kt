@@ -769,9 +769,14 @@ class ConnectionManager @Inject constructor(
                     (currentPhaseBeforeResume == ConnectionPhase.CONNECTED &&
                         backgroundDurationBeforeResume >= FOREGROUND_VERIFY_AFTER_MS)
             )) {
+            // Show the input fence immediately, but do not set foregroundCheckPending before
+            // choosing the action below: foregroundRecoveryAction treats that flag as an already
+            // running probe and would return NONE, leaving a retained CONNECTED carrier stuck under
+            // the spinner after a long background stay.
             _state.value = currentBeforeResume.copy(
-                foregroundCheckPending = true,
                 recoveryOverlayVisible = true,
+                foregroundCheckPending = currentBeforeResume.foregroundCheckPending ||
+                    currentPhaseBeforeResume != ConnectionPhase.CONNECTED,
             )
             Log.d("ConnectionManager", "Foreground resume re-armed recovery overlay")
         }
@@ -984,18 +989,39 @@ class ConnectionManager @Inject constructor(
     }
 
     private suspend fun reconnectTransports(config: HostConfig): String {
-        val startedAt = System.nanoTime()
+        val timing = RecoveryTiming()
+        val startedAt = timing.start("transport-total")
         Log.d("ConnectionManager", "Reconnect transport start for ${config.id}")
         // A backgrounded TCP carrier can look alive to both libzt and SSH while no longer moving
         // bytes. Reusing that relay only makes the new mux time out forever. Stop the Java relay
         // endpoints first, then create fresh sockets against the retained ZeroTier node identity.
         // ZeroTierConnector.stop deliberately retains that process-global node, so this is not the
         // unsafe native NodeService teardown that previously crashed Pixel 3.
+        val sshStopStartedAt = timing.start("ssh-stop")
         sshTunnel.stop()
-        val meshRelay = meshTransport.reconnect(config)
+        timing.phase("ssh-stop", sshStopStartedAt, "ok")
+        val meshStartedAt = timing.start("mesh-reconnect")
+        val meshRelay = try {
+            meshTransport.reconnect(config).also {
+                timing.phase("mesh-reconnect", meshStartedAt, "ok", "transport=${config.meshTransport ?: "direct"}")
+            }
+        } catch (error: Throwable) {
+            timing.phase("mesh-reconnect", meshStartedAt, "error", "type=${error::class.simpleName}")
+            throw error
+        }
         Log.d("ConnectionManager", "Mesh transport ready in ${elapsedMs(startedAt)}ms")
-        val baseUrl = finishTransportStart(config, meshRelay, recovery = true)
+        val sshStartedAt = timing.start("ssh-start")
+        val baseUrl = try {
+            finishTransportStart(config, meshRelay, recovery = true).also {
+                timing.phase("ssh-start", sshStartedAt, "ok")
+            }
+        } catch (error: Throwable) {
+            timing.phase("ssh-start", sshStartedAt, "error", "type=${error::class.simpleName}")
+            timing.phase("transport-total", startedAt, "error", "type=${error::class.simpleName}")
+            throw error
+        }
         Log.d("ConnectionManager", "SSH/API relay ready in ${elapsedMs(startedAt)}ms at $baseUrl")
+        timing.phase("transport-total", startedAt, "ok")
         return baseUrl
     }
 

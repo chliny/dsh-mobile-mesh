@@ -25,6 +25,11 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `long retained background goes straight to carrier recovery`() {
+        assertEquals(ForegroundRecoveryAction.RECOVER, action(ConnectionPhase.CONNECTED, 30_000))
+    }
+
+    @Test
     fun `network handover or non-connected state recovers immediately`() {
         assertEquals(ForegroundRecoveryAction.RECOVER, action(ConnectionPhase.CONNECTED, 10, networkChanged = true))
         assertEquals(ForegroundRecoveryAction.RECOVER, action(ConnectionPhase.RECONNECTING, 10))
