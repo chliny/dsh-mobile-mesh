@@ -88,7 +88,8 @@ internal fun openWorkspacePath(context: ChatNodeContext, path: String, title: St
     val clean = path.trim().trim('"').replace('\\', '/')
     if (clean.isBlank()) return
     val relative = relativizeToCwd(clean, context.cwd).trimStart('/')
-    onOpen?.invoke(relative.ifBlank { clean }, title)
+    val target = relative.ifBlank { clean }.trim()
+    if (target.isNotEmpty() && target != ".") onOpen?.invoke(target, title)
 }
 
 internal data class ChatNodeContext(
@@ -135,8 +136,9 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
                         FileChip(
                             name = ref.name,
                             bytes = ref.bytes,
-                            modifier = Modifier.clickable(enabled = context.onOpenFile != null) {
-                                context.onOpenFile?.invoke(parseWorkspaceFilePath(block) ?: ref.name, ref.name)
+                            modifier = Modifier.clickable(enabled = context.onOpenFile != null && parseWorkspaceFilePath(block)?.isNotBlank() == true) {
+                                val path = parseWorkspaceFilePath(block)?.takeIf { it.isNotBlank() }
+                                if (path != null) context.onOpenFile?.invoke(path, ref.name)
                             },
                         )
                     }
@@ -425,8 +427,9 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
                 "file" -> parseFileRef(block)?.let { ref -> FileChip(
                             name = ref.name,
                             bytes = ref.bytes,
-                            modifier = Modifier.clickable(enabled = context.onOpenFile != null) {
-                                context.onOpenFile?.invoke(parseWorkspaceFilePath(block) ?: ref.name, ref.name)
+                            modifier = Modifier.clickable(enabled = context.onOpenFile != null && parseWorkspaceFilePath(block)?.isNotBlank() == true) {
+                                val path = parseWorkspaceFilePath(block)?.takeIf { it.isNotBlank() }
+                                if (path != null) context.onOpenFile?.invoke(path, ref.name)
                             },
                         ) }
                 else -> block.text?.let {

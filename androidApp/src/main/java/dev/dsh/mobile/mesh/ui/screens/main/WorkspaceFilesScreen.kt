@@ -40,6 +40,12 @@ import dev.dsh.mobile.mesh.ui.theme.DsType
 
 internal fun normalizeWorkspaceFilesPath(path: String): String = path.trim().ifBlank { "." }
 
+internal fun childWorkspacePath(parent: String, name: String): String =
+    listOf(parent.trim().trimEnd('/'), name.trim().trimStart('/'))
+        .filter { it.isNotEmpty() }
+        .joinToString("/")
+        .ifBlank { "." }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkspaceFilesScreen(
@@ -103,7 +109,7 @@ fun WorkspaceFilesScreen(
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(level.listing.entries, key = { it.name }) { entry ->
-                        val path = "$currentPath/${entry.name}"
+                        val path = childWorkspacePath(currentPath, entry.name)
                         Row(
                             Modifier.fillMaxWidth().clickable {
                                 if (entry.type == "directory") {
