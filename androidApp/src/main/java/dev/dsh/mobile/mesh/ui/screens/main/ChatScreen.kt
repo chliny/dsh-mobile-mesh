@@ -150,6 +150,7 @@ fun ChatScreen(
     fun queryFileReferences(query: String) {
         val key = workspaceKey ?: return
         val sid = currentSessionId ?: return
+        if (query.isBlank()) return
         workspaceFiles.searchReferences(key, sid, query)
     }
     LaunchedEffect(workspaceKey, currentSessionId) {
