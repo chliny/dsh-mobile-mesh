@@ -73,6 +73,8 @@ data class ConnectionUiState(
     val hasConnected: Boolean = false,
     /** True while the app has returned from background but the live carrier is not revalidated. */
     val foregroundCheckPending: Boolean = false,
+    /** Global input fence while a background/lock-screen recovery rebuilds the connection. */
+    val recoveryOverlayVisible: Boolean = false,
 )
 
 /**
@@ -256,6 +258,7 @@ class ConnectionManager @Inject constructor(
                 failure = null,
                 attempts = 0,
                 hasConnected = true,
+                recoveryOverlayVisible = false,
             )
             maybeStartService()
             }
@@ -293,6 +296,8 @@ class ConnectionManager @Inject constructor(
                 phase = phase,
                 foregroundCheckPending = current.foregroundCheckPending ||
                     (current.hasConnected && phase == ConnectionPhase.RECONNECTING && appInForeground),
+                recoveryOverlayVisible = current.recoveryOverlayVisible ||
+                    (current.hasConnected && phase == ConnectionPhase.RECONNECTING),
             )
             }
         }
@@ -431,6 +436,7 @@ class ConnectionManager @Inject constructor(
             stage = ConnectStage.OpeningStreams,
             hasConnected = _state.value.hasConnected,
             foregroundCheckPending = reconnect,
+            recoveryOverlayVisible = reconnect && _state.value.hasConnected,
             authorizationPending = _state.value.authorizationPending,
             tailscaleLoginUrl = _state.value.tailscaleLoginUrl,
         )
@@ -450,6 +456,7 @@ class ConnectionManager @Inject constructor(
                     host = config,
                     stage = ConnectStage.Idle,
                     hasConnected = _state.value.hasConnected,
+                    recoveryOverlayVisible = false,
                     authorizationPending = error.message.orEmpty(),
                     tailscaleLoginUrl = (error as? TailscaleLoginRequired)?.loginUrl,
                 )
@@ -468,6 +475,7 @@ class ConnectionManager @Inject constructor(
                 stage = if (willRetry) ConnectStage.OpeningStreams else ConnectStage.Idle,
                 failure = ConnectFailure.Other(error.message ?: "Unable to start private-network transport"),
                 hasConnected = _state.value.hasConnected,
+                recoveryOverlayVisible = willRetry && _state.value.hasConnected,
                 authorizationPending = _state.value.authorizationPending,
                 tailscaleLoginUrl = _state.value.tailscaleLoginUrl,
             )
@@ -528,7 +536,10 @@ class ConnectionManager @Inject constructor(
             handleOperationFailure(error)
         } finally {
             if (lifecycle.accepts(target.token)) {
-                _state.value = _state.value.copy(foregroundCheckPending = false)
+                _state.value = _state.value.copy(
+                    foregroundCheckPending = false,
+                    recoveryOverlayVisible = false,
+                )
             }
             Log.d("ConnectionManager", "Connection operation finished (reconnect=$reconnect, epoch=$epoch)")
         }
@@ -615,7 +626,10 @@ class ConnectionManager @Inject constructor(
                 phase = ConnectionPhase.RECONNECTING,
                 stage = ConnectStage.OpeningStreams,
                 failure = null,
+                recoveryOverlayVisible = current.hasConnected,
             )
+        } else if (current.hasConnected && !current.recoveryOverlayVisible) {
+            _state.value = current.copy(recoveryOverlayVisible = true)
         }
     }
 
@@ -843,10 +857,16 @@ class ConnectionManager @Inject constructor(
                     if (!appInForeground || expectedEpoch != lifecycleEpoch || activeHost?.id != expectedHostId || generation !== expectedGeneration) return@launch
                     if (reachedHost) {
                         Log.d("ConnectionManager", "Foreground end-to-end probe succeeded")
-                        _state.value = _state.value.copy(foregroundCheckPending = false)
+                        _state.value = _state.value.copy(
+                    foregroundCheckPending = false,
+                    recoveryOverlayVisible = false,
+                )
                     } else {
                         Log.w("ConnectionManager", "Foreground end-to-end probe failed; renewing transport")
-                        _state.value = _state.value.copy(foregroundCheckPending = false)
+                        _state.value = _state.value.copy(
+                    foregroundCheckPending = false,
+                    recoveryOverlayVisible = false,
+                )
                         generation = null
                         markCarrierRecoveryNeeded()
                         recoverTransportAfterCarrierLoss()
@@ -890,7 +910,10 @@ class ConnectionManager @Inject constructor(
             suspendedTransportReady = desiredCallback
             suspendedForBackground = desiredHost != null
         } else {
-            _state.value = _state.value.copy(foregroundCheckPending = false)
+            _state.value = _state.value.copy(
+                foregroundCheckPending = false,
+                recoveryOverlayVisible = false,
+            )
         }
     }
 
@@ -946,7 +969,7 @@ class ConnectionManager @Inject constructor(
         sshTunnel.stop()
         val meshRelay = meshTransport.reconnect(config)
         Log.d("ConnectionManager", "Mesh transport ready in ${elapsedMs(startedAt)}ms")
-        val baseUrl = finishTransportStart(config, meshRelay)
+        val baseUrl = finishTransportStart(config, meshRelay, recovery = true)
         Log.d("ConnectionManager", "SSH/API relay ready in ${elapsedMs(startedAt)}ms at $baseUrl")
         return baseUrl
     }
@@ -954,12 +977,16 @@ class ConnectionManager @Inject constructor(
     private fun elapsedMs(startedAt: Long): Long =
         java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
 
-    private suspend fun finishTransportStart(config: HostConfig, meshRelay: MeshRelay?): String {
+    private suspend fun finishTransportStart(
+        config: HostConfig,
+        meshRelay: MeshRelay?,
+        recovery: Boolean = false,
+    ): String {
         if (!config.sshEnabled) return meshRelay?.baseUrl ?: config.baseUrl
         require(!config.useTls) { "TLS cannot be combined with the local SSH relay" }
         val sshHost = meshRelay?.host ?: config.host
         val sshPort = meshRelay?.port ?: config.sshPort
-        return sshTunnel.start(config, sshHost, sshPort).baseUrl
+        return sshTunnel.start(config, sshHost, sshPort, recovery = recovery).baseUrl
     }
 
 

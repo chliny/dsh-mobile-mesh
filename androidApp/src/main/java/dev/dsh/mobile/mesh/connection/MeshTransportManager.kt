@@ -65,13 +65,16 @@ class MeshTransportManager @Inject constructor(
             return zeroTier.renewRelay(config)
         }
         if (next === tailscale && active === tailscale) {
-            // tsnet owns a process-global server and its authorization transaction. Starting the
-            // same connector is its lightweight status/relay refresh path; stopping first blocks
-            // native shutdown and destroys an in-progress browser authorization.
-            return tailscale.start(config)
+            // Retain the authorized tsnet server, but always replace the loopback relay. A listener
+            // can remain green after Android suspended the carrier while its remote path is black-holed.
+            return tailscale.renewRelay(config)
         }
         stop()
         return start(config)
+    }
+
+    fun cancelTailscaleStart() {
+        tailscale.cancelStart()
     }
 
     suspend fun stop() {

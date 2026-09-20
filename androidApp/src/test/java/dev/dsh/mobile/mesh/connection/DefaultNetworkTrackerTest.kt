@@ -35,6 +35,13 @@ class DefaultNetworkTrackerTest {
     }
 
     @Test
+    fun `recovery waits for active internet-capable replacement network`() {
+        assertTrue(shouldStartNetworkRecovery(isActiveNetwork = true, hasInternetCapability = true))
+        assertFalse(shouldStartNetworkRecovery(isActiveNetwork = false, hasInternetCapability = true))
+        assertFalse(shouldStartNetworkRecovery(isActiveNetwork = true, hasInternetCapability = false))
+    }
+
+    @Test
     fun `network changes before first connection do not create recovery debt`() {
         val tracker = DefaultNetworkTracker("A")
         tracker.onAvailable("B", connected = false)
