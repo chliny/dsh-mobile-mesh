@@ -182,6 +182,7 @@ class ConnectionManager @Inject constructor(
     private val loopFence = RecoveryCallbackFence()
     @Volatile private var recoveryJob: Job? = null
     @Volatile private var recoveryRetryJob: Job? = null
+    @Volatile private var probeRecoveryPending = false
     @Volatile private var appInForeground = false
     @Volatile private var backgroundedAtMs = 0L
     private val lifecycleTransitionLock = Any()
@@ -424,6 +425,10 @@ class ConnectionManager @Inject constructor(
             synchronized(recoveryLock) {
                 transportRecoveryInFlight = false
             }
+            if (probeRecoveryPending && appInForeground) {
+                probeRecoveryPending = false
+                startRecovery(0)
+            }
             if (networkRecoveryGate.isPending() && appInForeground) {
                 val activeNetwork = connectivity.activeNetwork
                 val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
@@ -553,7 +558,7 @@ class ConnectionManager @Inject constructor(
         } catch (error: Throwable) {
             handleOperationFailure(error)
         } finally {
-            if (lifecycle.accepts(target.token)) {
+            if (lifecycle.accepts(target.token) && _state.value.phase == ConnectionPhase.CONNECTED) {
                 _state.value = _state.value.copy(
                     foregroundCheckPending = false,
                     recoveryOverlayVisible = false,
@@ -581,6 +586,7 @@ class ConnectionManager @Inject constructor(
 
     private fun cancelAuxiliaryOperations() {
         lifecycleEpoch++
+        probeRecoveryPending = false
         foregroundProbeJob?.cancel()
         foregroundProbeJob = null
         recoveryRetryJob?.cancel()
@@ -695,15 +701,17 @@ class ConnectionManager @Inject constructor(
             Log.d("ConnectionManager", "Network handover recovery remains pending until operation slot is free")
             return
         }
+        if (!startRecovery(0)) {
+            // The gate was only a reservation. If recovery could not claim the slot (for example a
+            // retry job won the race), keep the handover armed for the next operation boundary.
+            networkRecoveryGate.markPending()
+            return
+        }
         networkTracker.consumeRecoveryNeeded()
         networkLostWhileConnected = false
-        startRecovery(0)
-        // startRecovery can still lose a narrow race to a newly published operation. Re-arm rather
-        // than dropping the replacement-network event.
-        if (synchronized(operationLock) { connectJob?.isActive != true }) networkRecoveryGate.markPending()
     }
 
-    private fun startRecovery(attempt: Int) {
+    private fun startRecovery(attempt: Int): Boolean {
         val activeNetwork = connectivity.activeNetwork
         val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
         if (!shouldStartNetworkRecovery(
@@ -712,26 +720,27 @@ class ConnectionManager @Inject constructor(
             )) {
             Log.d("ConnectionManager", "Recovery deferred until active network is Internet-capable")
             networkRecoveryGate.markPending()
-            return
+            return false
         }
         if (recoveryRetryJob?.isActive == true) {
             Log.d("ConnectionManager", "Transport recovery retry already scheduled")
-            return
+            return false
         }
         if (synchronized(operationLock) { connectJob?.isActive == true }) {
             Log.d("ConnectionManager", "Connection operation already in flight")
-            return
+            return false
         }
-        val target = lifecycle.retryToken() ?: return
+        val target = lifecycle.retryToken() ?: return false
         synchronized(recoveryLock) {
             if (transportRecoveryInFlight) {
                 Log.d("ConnectionManager", "Transport recovery already scheduled")
-                return
+                return false
             }
             transportRecoveryInFlight = true
         }
         Log.d("ConnectionManager", "Starting tokened transport recovery (attempt ${attempt + 1})")
         replaceOperation(target, reconnect = true, attempt = attempt)
+        return true
     }
 
     private fun scheduleRetry(
@@ -940,12 +949,18 @@ class ConnectionManager @Inject constructor(
                     } else {
                         Log.w("ConnectionManager", "Foreground end-to-end probe failed; renewing transport")
                         _state.value = _state.value.copy(
+                            phase = ConnectionPhase.RECONNECTING,
                             foregroundCheckPending = true,
                             recoveryOverlayVisible = true,
                         )
                         generation = null
                         markCarrierRecoveryNeeded()
-                        recoverTransportAfterCarrierLoss()
+                        val operationInFlight = synchronized(operationLock) { connectJob?.isActive == true }
+                        if (shouldArmRecoveryAfterProbeFailure(appInForeground, operationInFlight)) {
+                            probeRecoveryPending = true
+                        } else {
+                            recoverTransportAfterCarrierLoss()
+                        }
                     }
                 }.also { job ->
                     job.invokeOnCompletion {
@@ -987,7 +1002,12 @@ class ConnectionManager @Inject constructor(
                 Log.w("ConnectionManager", "Published generation probe failed; renewing transport")
                 generation = null
                 markCarrierRecoveryNeeded()
-                recoverTransportAfterCarrierLoss()
+                val operationInFlight = synchronized(operationLock) { connectJob?.isActive == true }
+                if (shouldArmRecoveryAfterProbeFailure(appInForeground, operationInFlight)) {
+                    probeRecoveryPending = true
+                } else {
+                    recoverTransportAfterCarrierLoss()
+                }
             }
         }.also { job ->
             job.invokeOnCompletion {
