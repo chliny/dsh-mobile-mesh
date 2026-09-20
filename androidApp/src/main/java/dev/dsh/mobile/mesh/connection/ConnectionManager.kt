@@ -452,8 +452,9 @@ class ConnectionManager @Inject constructor(
             host = config,
             stage = ConnectStage.OpeningStreams,
             hasConnected = _state.value.hasConnected,
-            foregroundCheckPending = reconnect,
-            recoveryOverlayVisible = reconnect && _state.value.hasConnected,
+            foregroundCheckPending = reconnect || _state.value.foregroundCheckPending,
+            recoveryOverlayVisible = _state.value.recoveryOverlayVisible ||
+                (reconnect && _state.value.hasConnected),
             authorizationPending = _state.value.authorizationPending,
             tailscaleLoginUrl = _state.value.tailscaleLoginUrl,
         )
@@ -627,7 +628,14 @@ class ConnectionManager @Inject constructor(
             }
             connectJob = null
         }
-        _state.value = ConnectionUiState()
+        _state.value = ConnectionUiState(
+            phase = if (suspendedHost != null) ConnectionPhase.RECONNECTING else ConnectionPhase.DISCONNECTED,
+            host = suspendedHost,
+            stage = if (suspendedHost != null) ConnectStage.OpeningStreams else ConnectStage.Idle,
+            hasConnected = suspendedHost != null,
+            foregroundCheckPending = suspendedHost != null,
+            recoveryOverlayVisible = suspendedHost != null,
+        )
     }
 
     /**
@@ -838,6 +846,14 @@ class ConnectionManager @Inject constructor(
         if (suspendedForBackground || (resumedTarget != null && activeHost == null && connectJob?.isActive != true)) {
             suspendedForBackground = false
             if (resumedTarget != null) {
+                _state.value = _state.value.copy(
+                    phase = ConnectionPhase.RECONNECTING,
+                    host = resumedTarget.value.host,
+                    stage = ConnectStage.OpeningStreams,
+                    hasConnected = true,
+                    foregroundCheckPending = true,
+                    recoveryOverlayVisible = true,
+                )
                 Log.d("ConnectionManager", "Foreground resume starts latest desired connection for ${resumedTarget.value.host.id}")
                 replaceOperation(resumedTarget, reconnect = false)
             }
@@ -1012,6 +1028,16 @@ class ConnectionManager @Inject constructor(
             suspendedHost = desiredHost
             suspendedTransportReady = desiredCallback
             suspendedForBackground = desiredHost != null
+            if (desiredHost != null) {
+                _state.value = _state.value.copy(
+                    phase = ConnectionPhase.RECONNECTING,
+                    host = desiredHost,
+                    stage = ConnectStage.OpeningStreams,
+                    hasConnected = true,
+                    foregroundCheckPending = true,
+                    recoveryOverlayVisible = true,
+                )
+            }
         } else {
             _state.value = _state.value.copy(
                 foregroundCheckPending = false,
