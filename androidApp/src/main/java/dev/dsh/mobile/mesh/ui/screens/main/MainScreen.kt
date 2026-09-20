@@ -46,6 +46,11 @@ internal fun safePreviewPath(path: String, cwd: String?): String? {
 private fun hasUnsafePreviewSegment(path: String): Boolean =
     path.split('/').any { it == ".." }
 
+internal fun workspaceFilesRootPath(sessionCwd: String?, workspacePath: String?): String =
+    sessionCwd?.trim()?.takeIf { it.isNotEmpty() }
+        ?: workspacePath?.trim()?.takeIf { it.isNotEmpty() }
+        ?: "."
+
 private sealed interface MainPage {
     data object Chat : MainPage
     data class Files(
@@ -85,10 +90,12 @@ fun MainScreen(
     val workspaces by store.workspaces.collectAsStateWithLifecycle()
     val workspaceKey = sessionId?.let { sid -> workspaces.firstOrNull { sid in it.sessionIds }?.workspaceId }
         ?: sessionId?.let { "session:$it" }
-    val currentCwd = sessions.firstOrNull { it.sessionId == sessionId }?.cwd
-    val rootPath = currentCwd?.trim()?.takeIf { it.isNotEmpty() } ?: "."
+    val currentSession = sessions.firstOrNull { it.sessionId == sessionId }
+    val currentCwd = currentSession?.cwd
+    val currentWorkspacePath = workspaces.firstOrNull { sessionId != null && sessionId in it.sessionIds }?.path
+    val rootPath = workspaceFilesRootPath(currentCwd, currentWorkspacePath)
     // The files API accepts `.` as the workspace root; never pass a blank session cwd through the UI.
-    val rootDirectoryName = currentCwd
+    val rootDirectoryName = (currentCwd ?: currentWorkspacePath)
         ?.trimEnd('/')
         ?.substringAfterLast('/')
         ?.takeIf { it.isNotBlank() }
