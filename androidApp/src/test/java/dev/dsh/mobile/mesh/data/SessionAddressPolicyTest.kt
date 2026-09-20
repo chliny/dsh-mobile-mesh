@@ -7,7 +7,7 @@ import org.junit.Test
 class SessionAddressPolicyTest {
     @Test
     fun `ordinary session uses its own address`() {
-        assertEquals(SessionAddress.Session("session-1"), sessionAddressFor("session-1", null, null))
+        assertEquals(SessionAddress.Session(sessionId = "session-1"), sessionAddressFor("session-1", null, null))
     }
 
     @Test
