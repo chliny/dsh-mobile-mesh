@@ -230,6 +230,7 @@
     <string name="chat_queue_title">Queued turns</string>
     <string name="chat_queue_count">%1$d queued messages</string>
     <string name="chat_queue_empty">No pending turns</string>
+    <string name="chat_queue_actions">Queue message actions</string>
     <string name="chat_queue_edit">Edit</string>
     <string name="chat_queue_remove">Remove</string>
     <string name="chat_queue_steer">Steer into running turn</string>

@@ -155,6 +155,7 @@
     <string name="chat_queue_title">排队消息</string>
     <string name="chat_queue_count">%1$d 条排队消息</string>
     <string name="chat_queue_empty">没有排队消息</string>
+    <string name="chat_queue_actions">排队消息操作</string>
     <string name="chat_queue_edit">编辑</string>
     <string name="chat_queue_remove">移除</string>
     <string name="chat_queue_steer">引导正在进行的回合</string>

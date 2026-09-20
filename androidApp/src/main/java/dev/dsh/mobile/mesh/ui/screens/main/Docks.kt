@@ -3,6 +3,7 @@ package dev.dsh.mobile.mesh.ui.screens.main
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -273,27 +274,40 @@ internal fun QueueDock(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.width(8.dp))
-                if (canMutateQueueItem(item)) DsMenu(
+                DsMenu(
                     anchor = { onOpen ->
-                        Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = stringResource(R.string.chat_queue_edit),
-                            tint = colors.labelTertiary,
-                            modifier = Modifier.size(18.dp).clickable(onClick = onOpen),
-                        )
+                        Box(
+                            modifier = Modifier.size(40.dp).clickable(onClick = onOpen),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.MoreVert,
+                                contentDescription = stringResource(R.string.chat_queue_actions),
+                                tint = colors.labelTertiary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     },
-                    items = listOf(
-                        MenuItem(stringResource(R.string.chat_queue_edit)) {
-                            editingId = item.id
-                            editText = item.previewText
-                        },
-                        MenuItem(stringResource(R.string.chat_queue_remove), danger = true) {
-                            scope.launch { store.updateQueue(item.id, "remove") }
-                        },
-                        MenuItem(stringResource(R.string.chat_queue_steer)) {
-                            if (canSteerQueueItem(item, running)) scope.launch { store.updateQueue(item.id, "steer") }
-                        },
-                    ),
+                    items = buildList {
+                        if (canMutateQueueItem(item)) {
+                            add(MenuItem(stringResource(R.string.chat_queue_edit)) {
+                                editingId = item.id
+                                editText = item.previewText
+                            })
+                            add(MenuItem(stringResource(R.string.chat_queue_remove), danger = true) {
+                                scope.launch { store.updateQueue(item.id, "remove") }
+                            })
+                            if (canSteerQueueItem(item, running)) {
+                                add(MenuItem(stringResource(R.string.chat_queue_steer)) {
+                                    scope.launch { store.updateQueue(item.id, "steer") }
+                                })
+                            }
+                        }
+                        add(MenuItem(queueInsertedLabel) {
+                            onInsertQueued(item)
+                            Toast.makeText(context, queueInsertedLabel, Toast.LENGTH_SHORT).show()
+                        })
+                    },
                 )
             }
         }
