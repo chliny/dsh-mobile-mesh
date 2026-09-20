@@ -499,10 +499,10 @@ class SessionStore @Inject constructor(
 
     /** User prompts rendered immediately while the follow stream catches up. */
     private val optimisticPromptBySession = mutableMapOf<String, MutableList<OptimisticPrompt>>()
-    /** Accepted prompt echoes shown in the queue until the authoritative row arrives. */
-    private val pendingQueueBySession = mutableMapOf<String, MutableList<QueueItem>>()
     /** Accepted prompt awaiting the first authoritative turn event. */
     private val pendingPromptBySession = mutableSetOf<String>()
+    /** Queue-mode submission awaiting the next authoritative session/control snapshot. */
+    private val pendingQueueSubmissionBySession = mutableSetOf<String>()
     private data class OptimisticPrompt(val requestId: String, val text: String)
     private var agentPresetsCache: AgentPresetListValue? = null
     private var commandsCache: List<CommandDescriptor>? = null
@@ -596,6 +596,7 @@ class SessionStore @Inject constructor(
             currentProjections.clear()
             currentQueue = emptyList()
             queueBySession.clear()
+            pendingQueueSubmissionBySession.clear()
             followCursor = null
             _sessions.value = emptyList()
             _workspaces.value = emptyList()
@@ -618,6 +619,12 @@ class SessionStore @Inject constructor(
                 if (initialConnect || reconnect) {
                     state.host?.id?.let { connectionHostId = it }
                     triggerBaseline()
+                    if (shouldReopenSessionAfterReconnect(
+                            hasSelectedSession = currentSessionId.value != null,
+                            hasConnectionGeneration = connectionManager.generation != null,
+                        )) {
+                        scope.launch { reopenSelectedSessionAfterReconnect() }
+                    }
                 }
                 if (state.phase == ConnectionPhase.RECONNECTING || state.phase == ConnectionPhase.DISCONNECTED) {
                     _workspacesLoaded.value = false
@@ -633,6 +640,14 @@ class SessionStore @Inject constructor(
                 if (state.phase == ConnectionPhase.CONNECTED) clearConnectionError()
             }
         }
+    }
+
+    private suspend fun reopenSelectedSessionAfterReconnect() {
+        val sessionId = currentSessionId.value ?: return
+        val address = synchronized(lock) {
+            currentAddress ?: sessionAddressFor(sessionId, sessionRows[sessionId]?.origin)
+        } ?: SessionAddress.Session(sessionId = sessionId)
+        openSessionAtAddress(sessionId, address)
     }
 
     private fun observeEvents() {
@@ -876,14 +891,9 @@ class SessionStore @Inject constructor(
         synchronized(lock) {
             val nextQueue = items.map { queuedInboxItemToQueueItem(it) }
             queueBySession[sessionId] = nextQueue
-            pendingQueueBySession[sessionId]?.removeAll { pending ->
-                nextQueue.any { authoritative ->
-                    (pending.rpcId != null && pending.rpcId == authoritative.rpcId)
-                }
-            }
-            if (pendingQueueBySession[sessionId].isNullOrEmpty()) pendingQueueBySession.remove(sessionId)
+            pendingQueueSubmissionBySession.remove(sessionId)
             if (sessionId == currentId) {
-                currentQueue = mergePendingQueue(nextQueue, pendingQueueBySession[sessionId].orEmpty())
+                currentQueue = nextQueue
                 // A control snapshot is authoritative once it contains a matching submitted text.
                 // Drop only echoed optimistic rows; a snapshot that raced ahead of propagation must
                 // leave the local entry visible instead of making a newly queued message disappear.
@@ -1114,6 +1124,7 @@ class SessionStore @Inject constructor(
     private fun onSessionRemoved(sessionId: String) {
         synchronized(lock) {
             pendingPromptBySession.remove(sessionId)
+            pendingQueueSubmissionBySession.remove(sessionId)
             sessionRows.remove(sessionId)
             pendingKinds.remove(sessionId)
             runningBySession.remove(sessionId)
@@ -1281,6 +1292,7 @@ class SessionStore @Inject constructor(
         val blank = if (events.isEmpty() && optimistic.isEmpty()) currentBlank else false
         val running = runningBySession[sid] ?: snapshot.running
         val pending = pendingPromptBySession.contains(sid)
+        val queueSubmissionPending = pendingQueueSubmissionBySession.contains(sid)
         val turnStartedAt = runningTurnStartMillis(events)?.also {
             turnStartedAtBySession[sid] = it
         } ?: turnStartedAtBySession[sid]
@@ -1289,6 +1301,7 @@ class SessionStore @Inject constructor(
             nodes = snapshot.nodes + optimisticNodes,
             blank = blank,
             running = running || pending,
+            queueSubmissionPending = queueSubmissionPending,
             turnStartedAtMillis = turnStartedAt,
             hasMore = currentHasMore,
             queue = currentQueue,
@@ -1476,8 +1489,7 @@ class SessionStore @Inject constructor(
             synchronized(lock) {
                 currentId = sessionId
                 _currentSessionId.value = sessionId
-                currentQueue = queueBySession[sessionId]?.let { mergePendingQueue(it, pendingQueueBySession[sessionId].orEmpty()) }
-                    ?: cached?.queue ?: emptyList()
+                currentQueue = queueBySession[sessionId] ?: cached?.queue ?: emptyList()
                 _currentConversation.value = cached?.copy(queue = currentQueue)
             }
             return@withContext
@@ -1500,8 +1512,7 @@ class SessionStore @Inject constructor(
                 cachedSnapshot?.projections?.forEach { (key, value) ->
                     currentProjections[key] = ProjectionValue(cachedSnapshot.lastSeq.toInt(), value)
                 }
-                currentQueue = queueBySession[sessionId]?.let { mergePendingQueue(it, pendingQueueBySession[sessionId].orEmpty()) }
-                    ?: cachedSnapshot?.queue ?: emptyList()
+                currentQueue = queueBySession[sessionId] ?: cachedSnapshot?.queue ?: emptyList()
                 liveAssistant.clear()
                 _currentConversation.value = cachedSnapshot?.copy(queue = currentQueue)
                 _jobs.value = emptyList()
@@ -1852,28 +1863,11 @@ class SessionStore @Inject constructor(
                 synchronized(lock) {
                     pendingPromptBySession += sid
                     if (shouldShowOptimisticQueue(safeMode, runningAtSubmission)) {
-                        val text = content.filterIsInstance<PromptContentPart.Text>().joinToString("\n") { it.text }
-                        if (text.isNotBlank()) {
-                            val pending = QueueItem(
-                                id = "local:${request.requestId}",
-                                placement = "queued",
-                                previewText = text.take(120),
-                                messageText = text,
-                                content = kotlinx.serialization.json.JsonPrimitive(text),
-                                rpcId = request.requestId,
-                            )
-                            pendingQueueBySession.getOrPut(sid) { mutableListOf() }.add(pending)
-                        }
+                        pendingQueueSubmissionBySession += sid
                     } else {
                         addOptimisticPrompt(sid, request.requestId, content)
                     }
-                    if (currentId == sid) {
-                        currentQueue = mergePendingQueue(
-                            queueBySession[sid].orEmpty(),
-                            pendingQueueBySession[sid].orEmpty(),
-                        )
-                        rebuildCurrentLocked()
-                    }
+                    if (currentId == sid) rebuildCurrentLocked()
                 }
                 // Keep the local queue row until the authoritative control stream observes this
                 // request. The Web client uses the same settlement rule; a timeout would make a

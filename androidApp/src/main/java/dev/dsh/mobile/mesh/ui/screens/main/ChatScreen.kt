@@ -465,6 +465,7 @@ fun ChatScreen(
                         queue = conv.queue,
                         store = store,
                         running = conv.running,
+                        queueSubmissionPending = conv.queueSubmissionPending,
                         onInsertQueued = { item ->
                             draft = item.messageText
                             currentSessionId?.let { sessionId -> draftStore.set(sessionId, item.messageText) }

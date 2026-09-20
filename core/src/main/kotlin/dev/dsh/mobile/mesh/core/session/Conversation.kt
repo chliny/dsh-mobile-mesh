@@ -141,6 +141,8 @@ data class ConversationSnapshot(
     val queue: List<QueueItem> = emptyList(),
     val projections: Map<String, JsonElement> = emptyMap(),
     val running: Boolean = false,
+    /** True after a queue submission is accepted until the authoritative queue snapshot arrives. */
+    val queueSubmissionPending: Boolean = false,
     /** Epoch milliseconds when the currently running turn was accepted, if any. */
     val turnStartedAtMillis: Long? = null,
     val blank: Boolean = true,
