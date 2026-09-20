@@ -83,6 +83,7 @@ class WorkspaceFilesStore @Inject constructor(
     }
 
     fun searchReferences(workspaceKey: String, sessionId: String, query: String) {
+        if (query.isBlank()) return
         val api = connectionManager.connectedApi ?: return
         referenceSearchJob?.cancel()
         referenceSearchJob = scope.launch {

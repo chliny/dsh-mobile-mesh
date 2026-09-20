@@ -40,6 +40,8 @@ import dev.dsh.mobile.mesh.ui.theme.DsType
 
 internal fun normalizeWorkspaceFilesPath(path: String): String = path.trim().ifBlank { "." }
 
+internal fun normalizeWorkspaceFilesRoot(path: String): String = path.trim().ifBlank { "." }
+
 internal fun childWorkspacePath(parent: String, name: String): String =
     listOf(parent.trim().trimEnd('/'), name.trim().trimStart('/'))
         .filter { it.isNotEmpty() }
@@ -59,6 +61,7 @@ fun WorkspaceFilesScreen(
 ) {
     val store = rememberWorkspaceFilesStore()
     val state by store.state.collectAsStateWithLifecycle()
+    val normalizedRootPath = remember(rootPath) { normalizeWorkspaceFilesRoot(rootPath) }
     var currentPath by remember { mutableStateOf(normalizeWorkspaceFilesPath(initialPath)) }
     val level = state.levels[currentPath]
     val refreshing = level is DirectoryLevel.Loading
@@ -66,8 +69,8 @@ fun WorkspaceFilesScreen(
     fun reload() = store.list(workspaceKey, sessionId, currentPath, reload = true)
 
     BackHandler {
-        if (currentPath == rootPath) onBack()
-        else currentPath = currentPath.substringBeforeLast('/', rootPath)
+        if (currentPath == normalizedRootPath) onBack()
+        else currentPath = currentPath.substringBeforeLast('/', normalizedRootPath)
     }
     LaunchedEffect(workspaceKey, sessionId, initialPath, rootPath) {
         store.reset(workspaceKey)
@@ -83,8 +86,8 @@ fun WorkspaceFilesScreen(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = stringResource(R.string.common_back),
                 onClick = {
-                    if (currentPath == rootPath) onBack()
-                    else currentPath = currentPath.substringBeforeLast('/', rootPath)
+                    if (currentPath == normalizedRootPath) onBack()
+                    else currentPath = currentPath.substringBeforeLast('/', normalizedRootPath)
                 },
                 tint = DsTheme.colors.labelSecondary,
                 iconSize = 18.dp,

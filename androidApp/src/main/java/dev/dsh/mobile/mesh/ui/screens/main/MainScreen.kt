@@ -85,7 +85,10 @@ fun MainScreen(
     val workspaces by store.workspaces.collectAsStateWithLifecycle()
     val workspaceKey = sessionId?.let { sid -> workspaces.firstOrNull { sid in it.sessionIds }?.workspaceId }
         ?: sessionId?.let { "session:$it" }
-    val rootDirectoryName = sessions.firstOrNull { it.sessionId == sessionId }?.cwd
+    val currentCwd = sessions.firstOrNull { it.sessionId == sessionId }?.cwd
+    val rootPath = currentCwd?.trim()?.takeIf { it.isNotEmpty() } ?: "."
+    // The files API accepts `.` as the workspace root; never pass a blank session cwd through the UI.
+    val rootDirectoryName = currentCwd
         ?.trimEnd('/')
         ?.substringAfterLast('/')
         ?.takeIf { it.isNotBlank() }
@@ -192,10 +195,6 @@ fun MainScreen(
                     }
                 },
                 onOpenFiles = {
-                    val rootPath = sessions.firstOrNull { it.sessionId == sessionId }?.cwd
-                        ?.trim()
-                        ?.takeIf { it.isNotBlank() }
-                        ?: "."
                     page = MainPage.Files(path = rootPath, rootTitle = rootDirectoryName, rootPath = rootPath)
                 },
                 onOpenFile = { path, title ->
