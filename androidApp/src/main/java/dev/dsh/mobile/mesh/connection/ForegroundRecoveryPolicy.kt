@@ -40,6 +40,13 @@ internal fun foregroundRecoveryAction(facts: ForegroundRecoveryFacts): Foregroun
     else -> ForegroundRecoveryAction.VERIFY
 }
 
+/** A stale pending latch must not keep a healthy connected screen covered forever. */
+internal fun shouldClearConnectedRecoveryPresentation(
+    phase: ConnectionPhase,
+    recoveryInFlight: Boolean,
+    networkChanged: Boolean,
+): Boolean = phase == ConnectionPhase.CONNECTED && !recoveryInFlight && !networkChanged
+
 /** A live generation must be published before the UI can claim an end-to-end connection. */
 internal fun shouldPublishConnectedGeneration(
     generationReady: Boolean,

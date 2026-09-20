@@ -839,6 +839,18 @@ class ConnectionManager @Inject constructor(
             ),
         )
         Log.d("ConnectionManager", "Foreground recovery requested: phase=${current.phase}, backgroundMs=$backgroundDuration, action=$action")
+        if (action == ForegroundRecoveryAction.NONE && shouldClearConnectedRecoveryPresentation(
+                phase = current.phase,
+                recoveryInFlight = connectJob?.isActive == true || foregroundProbeJob?.isActive == true,
+                networkChanged = networkLostWhileConnected || networkRecoveryGate.isPending(),
+            )) {
+            _state.value = current.copy(
+                foregroundCheckPending = false,
+                recoveryOverlayVisible = false,
+            )
+            Log.d("ConnectionManager", "Cleared stale connected recovery presentation")
+            return
+        }
         if (current.foregroundCheckPending) return
         if (action == ForegroundRecoveryAction.VERIFY) {
             _state.value = current.copy(foregroundCheckPending = true)
