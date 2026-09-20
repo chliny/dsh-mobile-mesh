@@ -14,8 +14,9 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
-    fun `brief healthy task switch avoids probe and UI churn`() {
-        assertEquals(ForegroundRecoveryAction.NONE, action(ConnectionPhase.CONNECTED, 500))
+    fun `brief healthy task switch still verifies the foreground carrier`() {
+        assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 0))
+        assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 500))
     }
 
     @Test

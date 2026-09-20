@@ -9,7 +9,7 @@ class ConnectionRecoveryPolicyTest {
     @Test
     fun `recovery overlay stays on existing page while reconnecting`() {
         assertFalse(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.DISCONNECTED, false))
-        assertFalse(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, false))
+        assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, false))
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, false, recoveryOverlayVisible = true))
         assertFalse(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.CONNECTING, false))
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, true))
@@ -21,6 +21,27 @@ class ConnectionRecoveryPolicyTest {
     @Test
     fun `foreground reconnecting state keeps overlay visible when recovery callback races resume`() {
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, true))
+    }
+
+    @Test
+    fun `immediate resume after yellow reconnect keeps the global overlay visible`() {
+        assertTrue(shouldShowConnectionRecoveryOverlay(
+            hasConnected = true,
+            phase = ConnectionPhase.RECONNECTING,
+            foregroundCheckPending = true,
+            recoveryOverlayVisible = true,
+        ))
+    }
+
+    @Test
+    fun `short resume re-arm keeps the global overlay visible`() {
+        assertTrue(shouldRearmConnectionRecoveryOverlay(hasConnected = true, recoveryInFlight = true))
+        assertTrue(shouldShowConnectionRecoveryOverlay(
+            hasConnected = true,
+            phase = ConnectionPhase.CONNECTED,
+            foregroundCheckPending = true,
+            recoveryOverlayVisible = true,
+        ))
     }
 
     @Test
