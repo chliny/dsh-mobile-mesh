@@ -11,6 +11,11 @@ class SessionRowClickPolicyTest {
     }
 
     @Test
+    fun `child navigation must complete before the drawer is closed`() {
+        assertTrue(shouldCloseDrawerAfterSessionOpen())
+    }
+
+    @Test
     fun `parent row click expands when it has collapsed children`() {
         assertTrue(shouldExpandChildrenOnSessionClick(childCount = 1, childrenExpanded = false))
     }
