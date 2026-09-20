@@ -235,10 +235,11 @@ internal fun QueueDock(
     store: SessionStore,
     onInsertQueued: (QueueItem) -> Unit,
     running: Boolean,
+    queueSubmissionPending: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val pendingQueue = queue.filter { it.placement == "queued" }
-    if (pendingQueue.isEmpty()) return
+    if (pendingQueue.isEmpty() && !queueSubmissionPending) return
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val queueInsertedLabel = stringResource(R.string.chat_queue_inserted)
@@ -248,7 +249,11 @@ internal fun QueueDock(
     var editText by remember { mutableStateOf("") }
 
     DisclosureRow(
-        title = stringResource(R.string.chat_queue_count, pendingQueue.size),
+        title = if (queueSubmissionPending && pendingQueue.isEmpty()) {
+            stringResource(R.string.chat_queue_submitting)
+        } else {
+            stringResource(R.string.chat_queue_count, pendingQueue.size)
+        },
         summary = null,
         expanded = expanded,
         onToggle = { expanded = !expanded },
