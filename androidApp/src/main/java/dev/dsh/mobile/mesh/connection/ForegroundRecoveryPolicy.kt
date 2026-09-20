@@ -45,7 +45,8 @@ internal fun shouldPublishConnectedGeneration(
     lifecycleCurrent: Boolean,
 ): Boolean = generationReady && lifecycleCurrent
 
-internal const val FOREGROUND_VERIFY_AFTER_MS = 1_000L
+/** Any completed background transition gets a foreground liveness fence; short switches are not exempt. */
+internal const val FOREGROUND_VERIFY_AFTER_MS = 0L
 internal const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 1_500L
 /** Slower but unbounded cadence used once the quick retries are exhausted. */
 internal const val FOREGROUND_RECOVERY_STEADY_RETRY_DELAY_MS = 8_000L

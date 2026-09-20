@@ -755,7 +755,26 @@ class ConnectionManager @Inject constructor(
             }
             return
         }
-        val currentPhaseBeforeResume = _state.value.phase
+        val currentBeforeResume = _state.value
+        val currentPhaseBeforeResume = currentBeforeResume.phase
+        val backgroundDurationBeforeResume = backgroundDurationSinceLastStopMs()
+        // A very short background transition can clear the presentation latch in onStop before the
+        // transport loop publishes RECONNECTING. Re-arm the global input fence from the authoritative
+        // phase/gate snapshot so a yellow reconnecting status can never appear without the spinner.
+        if (currentBeforeResume.hasConnected && (
+                currentPhaseBeforeResume != ConnectionPhase.CONNECTED ||
+                    currentBeforeResume.foregroundCheckPending ||
+                    networkRecoveryGate.isPending() ||
+                    networkLostWhileConnected ||
+                    (currentPhaseBeforeResume == ConnectionPhase.CONNECTED &&
+                        backgroundDurationBeforeResume >= FOREGROUND_VERIFY_AFTER_MS)
+            )) {
+            _state.value = currentBeforeResume.copy(
+                foregroundCheckPending = true,
+                recoveryOverlayVisible = true,
+            )
+            Log.d("ConnectionManager", "Foreground resume re-armed recovery overlay")
+        }
         val resumedTarget = lifecycle.foreground()
         if (resumedTarget != null && currentPhaseBeforeResume != ConnectionPhase.CONNECTED) {
             // A retained service may still be completing the same recovery while the Activity is
@@ -770,7 +789,10 @@ class ConnectionManager @Inject constructor(
                         hasConnected = _state.value.hasConnected,
                         recoveryInFlight = true,
                     )) {
-                    _state.value = _state.value.copy(foregroundCheckPending = true)
+                    _state.value = _state.value.copy(
+                        foregroundCheckPending = true,
+                        recoveryOverlayVisible = true,
+                    )
                 }
                 Log.d("ConnectionManager", "Foreground recovery already in flight; keeping current operation")
                 return
@@ -864,9 +886,9 @@ class ConnectionManager @Inject constructor(
                     } else {
                         Log.w("ConnectionManager", "Foreground end-to-end probe failed; renewing transport")
                         _state.value = _state.value.copy(
-                    foregroundCheckPending = false,
-                    recoveryOverlayVisible = false,
-                )
+                            foregroundCheckPending = true,
+                            recoveryOverlayVisible = true,
+                        )
                         generation = null
                         markCarrierRecoveryNeeded()
                         recoverTransportAfterCarrierLoss()
@@ -881,6 +903,9 @@ class ConnectionManager @Inject constructor(
             }
         }
     }
+
+    private fun backgroundDurationSinceLastStopMs(): Long =
+        (System.currentTimeMillis() - backgroundedAtMs).coerceAtLeast(0L)
 
     /** Mark carrier callbacks as backgrounded; foreground recovery is resumed explicitly on resume. */
     fun onAppBackgrounded() {
