@@ -690,13 +690,16 @@ private fun SessionRowItem(
                 .background(if (isCurrent) colors.sidebarNavActive else androidx.compose.ui.graphics.Color.Transparent)
                 .combinedClickable(
                     onClick = {
-                        onClose()
+                        // Launch from the drawer scope first. Closing the drawer disposes this
+                        // composable and cancels its coroutine scope, which used to cancel the child
+                        // address lookup before it could switch away from the parent transcript.
                         scope.launch {
                             if (session.origin == "subagent" && session.parentSessionId != null) {
                                 store.openSubagentSession(session.parentSessionId, session.sessionId)
                             } else {
                                 store.openSession(session.sessionId)
                             }
+                            onClose()
                         }
                     },
                     onLongClick = { menuOpen = true },
@@ -718,15 +721,22 @@ private fun SessionRowItem(
             // are different intentions, and conflating them means you cannot do one without the
             // other. The spacer keeps titles aligned down a column of mixed rows.
             if (childCount > 0) {
-                Icon(
-                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = stringResource(R.string.chatlist_subagents),
-                    tint = colors.labelTertiary,
+                Box(
                     modifier = Modifier
-                        .size(16.dp)
-                        .graphicsLayer { rotationZ = chevronRotation }
+                        .size(DsSpacing.touchTarget)
+                        .clip(RoundedCornerShape(12.dp))
                         .clickable(onClick = onToggleChildren),
-                )
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = stringResource(R.string.chatlist_subagents),
+                        tint = colors.labelTertiary,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .graphicsLayer { rotationZ = chevronRotation },
+                    )
+                }
             } else {
                 Spacer(Modifier.width(16.dp))
             }
