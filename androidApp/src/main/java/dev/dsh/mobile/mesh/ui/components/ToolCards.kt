@@ -255,7 +255,7 @@ private fun DiffBody(card: ToolCardView.DiffCard, onOpenFile: ((String, String) 
                 color = colors.labelSecondary,
                 modifier = Modifier
                     .padding(top = 6.dp, bottom = 2.dp)
-                    .clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(hunk.path, basename(hunk.path)) },
+                    .clickable(enabled = onOpenFile != null && hunk.path.isNotBlank()) { if (hunk.path.isNotBlank()) onOpenFile?.invoke(hunk.path, basename(hunk.path)) },
             )
             CombinedDiffBlock(hunk)
         }
@@ -306,7 +306,7 @@ private fun SearchBody(card: ToolCardView.SearchCard, onOpenFile: ((String, Stri
                         basename(file.path),
                         style = DsType.small13Strong.copy(fontFamily = DsType.codeFont),
                         color = colors.labelSecondary,
-                        modifier = Modifier.clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(file.path, basename(file.path)) },
+                        modifier = Modifier.clickable(enabled = onOpenFile != null && file.path.isNotBlank()) { if (file.path.isNotBlank()) onOpenFile?.invoke(file.path, basename(file.path)) },
                     )
                     file.matches.forEach { match ->
                         Row(Modifier.fillMaxWidth()) {
@@ -337,7 +337,7 @@ private fun SearchBody(card: ToolCardView.SearchCard, onOpenFile: ((String, Stri
                     color = colors.labelSecondary,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(path, basename(path)) },
+                        .clickable(enabled = onOpenFile != null && path.isNotBlank()) { if (path.isNotBlank()) onOpenFile?.invoke(path, basename(path)) },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -364,7 +364,7 @@ private fun ReadBody(card: ToolCardView.ReadCard, onOpenFile: ((String, String) 
                 .clip(DsShapes.block)
                 .background(colors.codeBlockBg)
                 .border(1.dp, colors.borderL1, DsShapes.block)
-                .clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(path, basename(path)) }
+                .clickable(enabled = onOpenFile != null && path.isNotBlank()) { if (path.isNotBlank()) onOpenFile?.invoke(path, basename(path)) }
                 .padding(horizontal = 10.dp, vertical = 10.dp),
         ) {
             Text(basename(path), style = DsType.small13Strong.copy(fontFamily = DsType.codeFont), color = colors.labelPrimary)
