@@ -880,7 +880,10 @@ class ConnectionManager @Inject constructor(
                 recoveryInFlight = connectJob?.isActive == true || foregroundProbeJob?.isActive == true,
                 backgroundDurationMs = backgroundDuration,
                 networkChanged = networkLostWhileConnected || networkRecoveryGate.isPending(),
-                foregroundCheckPending = current.foregroundCheckPending,
+                foregroundCheckPending = effectiveForegroundCheckPending(
+                    presentationPending = current.foregroundCheckPending,
+                    recoveryInFlight = connectJob?.isActive == true || foregroundProbeJob?.isActive == true,
+                ),
             ),
         )
         Log.d("ConnectionManager", "Foreground recovery requested: phase=${current.phase}, backgroundMs=$backgroundDuration, action=$action")
@@ -896,7 +899,8 @@ class ConnectionManager @Inject constructor(
             Log.d("ConnectionManager", "Cleared stale connected recovery presentation")
             return
         }
-        if (current.foregroundCheckPending && !publishedGenerationNeedsProbe) return
+        val recoveryInFlight = connectJob?.isActive == true || foregroundProbeJob?.isActive == true
+        if (effectiveForegroundCheckPending(current.foregroundCheckPending, recoveryInFlight) && !publishedGenerationNeedsProbe) return
         if (action == ForegroundRecoveryAction.VERIFY || publishedGenerationNeedsProbe) {
             _state.value = current.copy(foregroundCheckPending = true)
         }

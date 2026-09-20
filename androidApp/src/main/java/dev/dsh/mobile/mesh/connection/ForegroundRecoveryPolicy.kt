@@ -73,6 +73,12 @@ internal fun shouldStartForegroundRecovery(
     recoveryInFlight: Boolean,
 ): Boolean = action == ForegroundRecoveryAction.RECOVER && !recoveryInFlight
 
+/** Presentation state must not block a new recovery unless a probe/operation is actually running. */
+internal fun effectiveForegroundCheckPending(
+    presentationPending: Boolean,
+    recoveryInFlight: Boolean,
+): Boolean = presentationPending && recoveryInFlight
+
 /** A failed probe during a rebuild must leave a retry request for the operation boundary. */
 internal fun shouldArmRecoveryAfterProbeFailure(
     appInForeground: Boolean,
