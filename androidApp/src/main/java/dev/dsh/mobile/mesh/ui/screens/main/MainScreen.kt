@@ -46,7 +46,11 @@ private fun hasUnsafePreviewSegment(path: String): Boolean =
 
 private sealed interface MainPage {
     data object Chat : MainPage
-    data class Files(val path: String = ".", val rootTitle: String? = null) : MainPage
+    data class Files(
+        val path: String = ".",
+        val rootTitle: String? = null,
+        val rootPath: String = ".",
+    ) : MainPage
     data class Preview(val path: String, val title: String, val returnPage: MainPage) : MainPage
 }
 
@@ -92,11 +96,16 @@ fun MainScreen(
                     workspaceKey = workspaceKey ?: "session:$sid",
                     sessionId = sid,
                     initialPath = current.path,
+                    rootPath = current.rootPath,
                     rootTitle = current.rootTitle,
                     onBack = { page = MainPage.Chat },
                     onOpenFile = { path, title, parentPath ->
                         safePreviewPath(path, sessions.firstOrNull { it.sessionId == sid }?.cwd)?.let { safePath ->
-                            page = MainPage.Preview(safePath, title, MainPage.Files(parentPath, current.rootTitle))
+                            page = MainPage.Preview(
+                                safePath,
+                                title,
+                                MainPage.Files(parentPath, current.rootTitle, current.rootPath),
+                            )
                         }
                     },
                 )
@@ -172,7 +181,13 @@ fun MainScreen(
                 connectionPhase = connectionPhase,
                 reconnectAttempt = reconnectAttempt,
                 onReconnect = onReconnect,
-                onOpenFiles = { page = MainPage.Files(path = ".", rootTitle = rootDirectoryName) },
+                onOpenFiles = {
+                    val rootPath = sessions.firstOrNull { it.sessionId == sessionId }?.cwd
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "."
+                    page = MainPage.Files(path = rootPath, rootTitle = rootDirectoryName, rootPath = rootPath)
+                },
                 onOpenFile = { path, title ->
                     safePreviewPath(path, sessions.firstOrNull { it.sessionId == sessionId }?.cwd)?.let { safePath ->
                         page = MainPage.Preview(safePath, title, MainPage.Chat)
