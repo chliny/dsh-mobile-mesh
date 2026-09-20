@@ -1895,7 +1895,15 @@ class SessionStore @Inject constructor(
         // when the user submitted, not from the state after the RPC returns. An idle submission can
         // start its turn while the RPC is in flight; it must remain a transcript row, not become a
         // queued-turn count for the turn that is already executing.
-        val runningAtSubmission = synchronized(lock) { runningBySession[sid] == true }
+        val runningAtSubmission = synchronized(lock) {
+            // The control stream and the session list can publish the running bit a few frames
+            // before the follow fold updates runningBySession. Prefer either authoritative mirror so
+            // a queue submission is not misclassified as a transcript message during that window.
+            runningAtSubmission(
+                runningBySession = runningBySession[sid] == true,
+                sessionRowRunning = sessionRows[sid]?.running == true,
+            )
+        }
         val zone = TimeZone.getDefault().id
         val request = SessionPromptRequest(
             requestId = newPromptRequestId(),
@@ -1910,10 +1918,13 @@ class SessionStore @Inject constructor(
                 // one local row visible immediately; the authoritative follow event removes it by
                 // request id or matching text.
                 synchronized(lock) {
-                    pendingPromptBySession += sid
                     if (shouldShowOptimisticQueue(safeMode, runningAtSubmission)) {
-                        pendingQueueSubmissionBySession += sid
+                        // A running turn's queue is owned by the server control stream. Do not paint
+                        // a local queue row: an accepted RPC can still be rejected before admission,
+                        // and that echo is not visible to the Web client. The authoritative queue frame
+                        // is the only source that may render this submission.
                     } else {
+                        pendingPromptBySession += sid
                         addOptimisticPrompt(sid, request.requestId, content)
                     }
                     if (currentId == sid) rebuildCurrentLocked()

@@ -15,6 +15,12 @@ class PromptOptimisticPolicyTest {
     }
 
     @Test
+    fun `queue echo policy distinguishes display from server authority`() {
+        assertEquals(true, shouldShowOptimisticQueue("queue", runningAtSubmission = true))
+        assertEquals(false, shouldShowOptimisticQueue("queue", runningAtSubmission = false))
+    }
+
+    @Test
     fun `new queue submission starting an idle turn is not counted as pending`() {
         assertEquals(false, shouldShowOptimisticQueue("queue", runningAtSubmission = false))
         assertEquals(true, shouldShowOptimisticQueue("queue", runningAtSubmission = true))
