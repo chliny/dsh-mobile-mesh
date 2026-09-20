@@ -721,22 +721,15 @@ private fun SessionRowItem(
             // are different intentions, and conflating them means you cannot do one without the
             // other. The spacer keeps titles aligned down a column of mixed rows.
             if (childCount > 0) {
-                Box(
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = stringResource(R.string.chatlist_subagents),
+                    tint = colors.labelTertiary,
                     modifier = Modifier
-                        .size(DsSpacing.touchTarget)
-                        .clip(RoundedCornerShape(12.dp))
+                        .size(16.dp)
+                        .graphicsLayer { rotationZ = chevronRotation }
                         .clickable(onClick = onToggleChildren),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = stringResource(R.string.chatlist_subagents),
-                        tint = colors.labelTertiary,
-                        modifier = Modifier
-                            .size(20.dp)
-                            .graphicsLayer { rotationZ = chevronRotation },
-                    )
-                }
+                )
             } else {
                 Spacer(Modifier.width(16.dp))
             }
