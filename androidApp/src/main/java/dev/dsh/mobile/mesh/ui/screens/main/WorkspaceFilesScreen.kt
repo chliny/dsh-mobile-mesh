@@ -37,9 +37,8 @@ import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
-import dev.dsh.mobile.mesh.data.workspaceFilesPathOrRoot
 
-internal fun normalizeWorkspaceFilesPath(path: String): String = workspaceFilesPathOrRoot(path)
+internal fun normalizeWorkspaceFilesPath(path: String): String = path.trim().ifBlank { "." }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

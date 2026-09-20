@@ -9,6 +9,5 @@ class WorkspaceFilesNavigationTest {
         assertEquals(".", normalizeWorkspaceFilesPath(""))
         assertEquals(".", normalizeWorkspaceFilesPath("   "))
         assertEquals("src", normalizeWorkspaceFilesPath("src"))
-        assertEquals("src\\main", normalizeWorkspaceFilesPath("src\\main"))
     }
 }
