@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +26,7 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
+import kotlinx.coroutines.launch
 
 internal fun safePreviewPath(path: String, cwd: String?): String? {
     val clean = path.trim().trim('"').replace('\\', '/')
@@ -75,6 +77,7 @@ fun MainScreen(
 
     var detailsOpen by remember { mutableStateOf(false) }
     val detailsWidth = 300.dp
+    val scope = rememberCoroutineScope()
 
     val store = dev.dsh.mobile.mesh.ui.rememberSessionStore()
     val sessionId by store.currentSessionId.collectAsStateWithLifecycle()
@@ -181,6 +184,13 @@ fun MainScreen(
                 connectionPhase = connectionPhase,
                 reconnectAttempt = reconnectAttempt,
                 onReconnect = onReconnect,
+                onOpenSubagent = { childId ->
+                    val parentId = sessionId
+                    if (parentId != null) {
+                        detailsOpen = false
+                        scope.launch { store.openSubagentSession(parentId, childId) }
+                    }
+                },
                 onOpenFiles = {
                     val rootPath = sessions.firstOrNull { it.sessionId == sessionId }?.cwd
                         ?.trim()
@@ -206,6 +216,13 @@ fun MainScreen(
                 DetailsPanel(
                     onClose = { detailsOpen = false },
                     modifier = Modifier.width(detailsWidth),
+                    onOpenSubagent = { childId ->
+                        val parentId = sessionId
+                        if (parentId != null) {
+                            detailsOpen = false
+                            scope.launch { store.openSubagentSession(parentId, childId) }
+                        }
+                    },
                 )
             }
         }

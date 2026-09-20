@@ -75,7 +75,6 @@ import dev.dsh.mobile.mesh.core.wire.dto.SessionUpdateQueueRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SkillEntry
 import dev.dsh.mobile.mesh.core.wire.dto.SkillListRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentListEntry
-import dev.dsh.mobile.mesh.core.wire.dto.SubagentPromptRequest
 import dev.dsh.mobile.mesh.core.wire.dto.TokenUsageView
 import dev.dsh.mobile.mesh.core.wire.dto.USER_QUESTIONS_REQUEST_EVENT
 import dev.dsh.mobile.mesh.core.wire.dto.UnknownSubagentListEntry
@@ -280,6 +279,9 @@ class SessionStore @Inject constructor(
     private var pendingSessionAddress: SessionAddress? = null
     private var sessionSwitchJob: Job? = null
     private var currentAddress: SessionAddress? = null
+
+    private val _currentSessionAddress = MutableStateFlow<SessionAddress?>(null)
+    val currentSessionAddress: StateFlow<SessionAddress?> = _currentSessionAddress.asStateFlow()
 
     /** Coalesces transcript rebuilds during a stream; see [observeRebuildTicks]. */
     private val rebuildTicks = Channel<Unit>(Channel.CONFLATED)
@@ -608,6 +610,13 @@ class SessionStore @Inject constructor(
     }
 
     private fun observeConnection() {
+        scope.launch {
+            connectionManager.connectedGenerations.collect {
+                if (currentSessionId.value != null) {
+                    reopenSelectedSessionAfterReconnect()
+                }
+            }
+        }
         scope.launch {
             var prev = connectionManager.state.value
             connectionManager.state.collect { state ->
@@ -1489,6 +1498,8 @@ class SessionStore @Inject constructor(
         if (api == null) {
             synchronized(lock) {
                 currentId = sessionId
+                currentAddress = address
+                _currentSessionAddress.value = address
                 _currentSessionId.value = sessionId
                 currentQueue = queueBySession[sessionId] ?: cached?.queue ?: emptyList()
                 _currentConversation.value = cached?.copy(queue = currentQueue)
@@ -1500,6 +1511,7 @@ class SessionStore @Inject constructor(
             val same = currentId == sessionId
             currentId = sessionId
             currentAddress = address
+            _currentSessionAddress.value = address
             _currentSessionId.value = sessionId
             if (!same) {
                 // Keep the old fold only until the replacement snapshot is available. Most importantly,
@@ -1773,8 +1785,40 @@ class SessionStore @Inject constructor(
         }
     }
 
-    suspend fun prompt(text: String, mode: String) =
-        promptContent(mode, listOf(PromptContentPart.Text(text)))
+    suspend fun prompt(text: String, mode: String): PromptOutcome {
+        val address = currentSessionAddress.value
+        return if (address is SessionAddress.Subagent) {
+            if (address.mode != "continuable") {
+                PromptOutcome.Failed("one-shot subagents do not accept continuation")
+            } else {
+                promptSubagent(address, text, if (mode == "steer") "steer" else "queue")
+            }
+        } else {
+            promptContent(mode, listOf(PromptContentPart.Text(text)))
+        }
+    }
+
+    private suspend fun promptSubagent(
+        address: SessionAddress.Subagent,
+        text: String,
+        delivery: String,
+    ): PromptOutcome {
+        val api = awaitConnectedApi() ?: return PromptOutcome.Failed("not connected")
+        val request = subagentPromptRequest(
+            address = address,
+            requestId = newPromptRequestId(),
+            text = text,
+            delivery = delivery,
+            clientTimeZone = TimeZone.getDefault().id,
+        )
+        return when (val result = api.subagentPrompt(request)) {
+            is RpcResult.Ok -> PromptOutcome.Ok
+            is RpcResult.Err -> {
+                setConnectionError(result.error.message)
+                PromptOutcome.Failed(result.error.message)
+            }
+        }
+    }
 
     /**
      * Prompt with attachments: raster images (bytes submitted base64, as the browser wire does)
@@ -1793,6 +1837,9 @@ class SessionStore @Inject constructor(
         images: List<EncodedImageAttachment>,
         fileReceipts: List<String> = emptyList(),
     ): PromptOutcome {
+        if (currentSessionAddress.value is SessionAddress.Subagent) {
+            return PromptOutcome.Failed("subagent continuation does not accept attachments")
+        }
         val parts = mutableListOf<PromptContentPart>()
         if (text.isNotBlank()) parts.add(PromptContentPart.Text(text))
         images.mapTo(parts) { PromptContentPart.Image(it.mediaType, it.data, it.name) }
@@ -1911,8 +1958,18 @@ class SessionStore @Inject constructor(
 
 
     suspend fun cancelTurn() {
-        val sid = currentSessionId.value ?: return
+        val address = currentSessionAddress.value
         val api = apiOrNull() ?: return
+        if (address is SessionAddress.Subagent) {
+            if (address.mode == "continuable") {
+                when (val r = api.subagentInterrupt(address.childSessionId, address.parentSessionId)) {
+                    is RpcResult.Ok -> Unit
+                    is RpcResult.Err -> setConnectionError(r.error.message)
+                }
+            }
+            return
+        }
+        val sid = currentSessionId.value ?: return
         when (val r = api.sessionCancel(SessionCancelRequest(sid))) {
             is RpcResult.Ok -> Unit
             is RpcResult.Err -> setConnectionError(r.error.message)
@@ -2194,24 +2251,6 @@ class SessionStore @Inject constructor(
         }
     }
 
-    suspend fun promptSubagent(childSessionId: String, text: String) {
-        val sid = currentSessionId.value ?: return
-        val api = apiOrNull() ?: return
-        val zone = TimeZone.getDefault().id
-        val request = SubagentPromptRequest(
-            requestId = newPromptRequestId(),
-            parentSessionId = sid,
-            childSessionId = childSessionId,
-            mode = "continuable",
-            delivery = "queue",
-            content = listOf(PromptContentPart.Text(text)),
-            clientTimeZone = zone,
-        )
-        when (val r = api.subagentPrompt(request)) {
-            is RpcResult.Ok -> Unit
-            is RpcResult.Err -> setConnectionError(r.error.message)
-        }
-    }
 
     suspend fun openSubagentTranscript(childSessionId: String) {
         val sid = currentSessionId.value ?: return

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,6 +59,7 @@ import dev.dsh.mobile.mesh.ui.rememberChatDraftStore
 import dev.dsh.mobile.mesh.ui.rememberSessionStore
 import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
+import dev.dsh.mobile.mesh.ui.theme.DsType
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import androidx.compose.ui.res.stringResource
 import dev.dsh.mobile.mesh.R
@@ -85,6 +87,7 @@ fun ChatScreen(
     onReconnect: () -> Unit,
     onOpenFiles: () -> Unit = {},
     onOpenFile: (String, String) -> Unit = { _, _ -> },
+    onOpenSubagent: (String) -> Unit = {},
 ) {
     val store = rememberSessionStore()
     val draftStore = rememberChatDraftStore()
@@ -103,8 +106,7 @@ fun ChatScreen(
     val commands by store.commands.collectAsStateWithLifecycle()
     val commandsAvailable by store.commandsAvailable.collectAsStateWithLifecycle()
     val subagents by store.subagents.collectAsStateWithLifecycle()
-    val subagentConversation by store.subagentConversation.collectAsStateWithLifecycle()
-    val subagentMode by store.subagentMode.collectAsStateWithLifecycle()
+    val sessionAddress by store.currentSessionAddress.collectAsStateWithLifecycle()
     val connectionError by store.connectionError.collectAsStateWithLifecycle()
     val loadingOlder by store.loadingOlder.collectAsStateWithLifecycle()
     val loadOlderFailed by store.loadOlderFailed.collectAsStateWithLifecycle()
@@ -119,6 +121,8 @@ fun ChatScreen(
     val imageLimits by store.imageLimits.collectAsStateWithLifecycle()
 
     val currentSession = sessions.firstOrNull { it.sessionId == currentSessionId }
+    val childAddress = sessionAddress as? dev.dsh.mobile.mesh.core.wire.dto.SessionAddress.Subagent
+    val subagentReadOnly = childAddress?.mode == "one-shot"
     val title = currentSession?.title
         ?: currentSession?.cwd?.let { basename(it) }
         ?: currentSessionId.orEmpty()
@@ -401,10 +405,7 @@ fun ChatScreen(
                 onOpenFile = onOpenFile,
                 running = conversation?.running == true,
                 cwd = currentSession?.cwd,
-                onOpenSubagent = { childId ->
-                    scope.launch { store.openSubagentTranscript(childId) }
-                    sheet = ChatSheet.Subagents
-                },
+                onOpenSubagent = onOpenSubagent,
                 onBranchFrom = { seq ->
                     scope.launch {
                         currentSessionId?.let {
@@ -560,7 +561,7 @@ fun ChatScreen(
                 models = models,
                 onOpenModels = { sheet = ChatSheet.Models },
                 running = conversation?.running == true,
-                enabled = currentSessionId != null,
+                enabled = currentSessionId != null && !subagentReadOnly,
                 onOpenSheet = { sheet = ChatSheet.Commands },
                 commands = commands,
                 fileCandidates = fileCandidates,
@@ -569,6 +570,13 @@ fun ChatScreen(
                 onStop = { scope.launch { store.cancelTurn() } },
             )
 
+            if (subagentReadOnly) {
+                Text(
+                    stringResource(R.string.subagents_readonly),
+                    style = DsType.caption11,
+                    color = colors.labelTertiary,
+                )
+            }
             StatsFooter(stats = sessionStats, usage = tokenUsage)
         }
         DsToastHost(toast, modifier = Modifier.fillMaxWidth())
@@ -608,10 +616,11 @@ fun ChatScreen(
             onDismiss = { sheet = null },
         )
         ChatSheet.Subagents -> SubagentsSheet(
-            store = store,
             entries = subagents,
-            conversation = subagentConversation,
-            mode = subagentMode,
+            onOpenSubagent = { childId ->
+                onOpenSubagent(childId)
+                sheet = null
+            },
             onDismiss = { sheet = null },
         )
         null -> Unit

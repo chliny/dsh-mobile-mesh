@@ -98,6 +98,7 @@ import kotlinx.serialization.json.contentOrNull
 @Composable
 fun DetailsPanel(
     onClose: () -> Unit,
+    onOpenSubagent: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     BackHandler(onBack = onClose)
@@ -227,7 +228,7 @@ fun DetailsPanel(
                     }
                     JobsCard(jobs)
                     QueueCard(conv.queue, store)
-                    SubagentsCard(subagents) { id -> scope.launch { store.openSubagentTranscript(id) } }
+                    SubagentsCard(subagents, onOpen = onOpenSubagent)
                     WorkflowCard(conv.nodes)
                 }
 
