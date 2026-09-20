@@ -187,6 +187,7 @@ class ConnectionManager @Inject constructor(
     private val lifecycleTransitionLock = Any()
     @Volatile private var keepConnectedInBackground = false
     @Volatile private var foregroundProbeJob: Job? = null
+    @Volatile private var publishedGenerationNeedsProbe = false
     /** Latest desired host retained across a background-disabled suspension. */
     @Volatile private var suspendedHost: HostConfig? = null
     private var suspendedTransportReady: (suspend (String) -> Unit)? = null
@@ -238,6 +239,9 @@ class ConnectionManager @Inject constructor(
      */
     val eventFrames = kotlinx.coroutines.flow.MutableSharedFlow<RemoteEventFrame>(extraBufferCapacity = 256)
 
+    /** Emits every newly published transport generation, including same-phase CONNECTED replacements. */
+    val connectedGenerations = kotlinx.coroutines.flow.MutableSharedFlow<HostGeneration>(extraBufferCapacity = 8)
+
     private fun sinksFor(token: RecoveryCallbackFence.Token): LoopSinks = object : LoopSinks {
         override fun onEventFrame(frame: RemoteEventFrame) {
             loopFence.runIfCurrent(token) { eventFrames.tryEmit(frame) }
@@ -245,11 +249,20 @@ class ConnectionManager @Inject constructor(
 
         override fun onConnected(generation: HostGeneration) {
             loopFence.runIfCurrent(token) {
+            val generationApi = api ?: return@runIfCurrent
             this@ConnectionManager.generation = generation
-            eventApis[generation.clientId] = api ?: return@runIfCurrent
+            connectedGenerations.tryEmit(generation)
+            eventApis[generation.clientId] = generationApi
             val host = activeHost
-            Log.d("ConnectionManager", "Connected generation published for ${host?.id}")
+            val previousState = _state.value
+            val needsLivenessProbe = shouldProbePublishedGeneration(
+                hasConnected = previousState.hasConnected,
+                recoveryOverlayVisible = previousState.recoveryOverlayVisible || previousState.foregroundCheckPending,
+                generationAlreadyNeedsProbe = publishedGenerationNeedsProbe,
+            )
+            Log.d("ConnectionManager", "Connected generation published for ${host?.id} needsLivenessProbe=$needsLivenessProbe")
             if (host != null) scope.launch { hostsStore.touchHost(host.host, host.port) }
+            publishedGenerationNeedsProbe = needsLivenessProbe
             _state.value = ConnectionUiState(
                 phase = ConnectionPhase.CONNECTED,
                 host = activeHost,
@@ -258,9 +271,13 @@ class ConnectionManager @Inject constructor(
                 failure = null,
                 attempts = 0,
                 hasConnected = true,
-                recoveryOverlayVisible = false,
+                recoveryOverlayVisible = needsLivenessProbe,
+                foregroundCheckPending = needsLivenessProbe,
             )
             maybeStartService()
+            if (needsLivenessProbe && appInForeground) {
+                probePublishedGeneration(generation, generationApi, host?.id, lifecycleEpoch)
+            }
             }
         }
 
@@ -575,6 +592,7 @@ class ConnectionManager @Inject constructor(
     }
 
     private fun retirePublishedConnection() {
+        publishedGenerationNeedsProbe = false
         synchronized(publicationLock) {
             loopFence.invalidate()
             loop?.stop()
@@ -828,7 +846,9 @@ class ConnectionManager @Inject constructor(
         val current = _state.value
         val now = System.currentTimeMillis()
         val backgroundDuration = (now - backgroundedAtMs).coerceAtLeast(0L)
-        val action = foregroundRecoveryAction(
+        val action = if (publishedGenerationNeedsProbe && appInForeground) {
+            ForegroundRecoveryAction.VERIFY
+        } else foregroundRecoveryAction(
             ForegroundRecoveryFacts(
                 phase = current.phase,
                 hasActiveHost = activeHost != null,
@@ -851,8 +871,8 @@ class ConnectionManager @Inject constructor(
             Log.d("ConnectionManager", "Cleared stale connected recovery presentation")
             return
         }
-        if (current.foregroundCheckPending) return
-        if (action == ForegroundRecoveryAction.VERIFY) {
+        if (current.foregroundCheckPending && !publishedGenerationNeedsProbe) return
+        if (action == ForegroundRecoveryAction.VERIFY || publishedGenerationNeedsProbe) {
             _state.value = current.copy(foregroundCheckPending = true)
         }
         when (action) {
@@ -895,7 +915,8 @@ class ConnectionManager @Inject constructor(
                     val reachedHost = foregroundProbeReachedHost(carrierOpen, result)
                     if (!appInForeground || expectedEpoch != lifecycleEpoch || activeHost?.id != expectedHostId || generation !== expectedGeneration) return@launch
                     if (reachedHost) {
-                        Log.d("ConnectionManager", "Foreground end-to-end probe succeeded")
+                        publishedGenerationNeedsProbe = false
+                         Log.d("ConnectionManager", "Foreground end-to-end probe succeeded")
                         _state.value = _state.value.copy(
                     foregroundCheckPending = false,
                     recoveryOverlayVisible = false,
@@ -916,6 +937,46 @@ class ConnectionManager @Inject constructor(
                             if (foregroundProbeJob === job) foregroundProbeJob = null
                         }
                     }
+                }
+            }
+        }
+    }
+
+    private fun probePublishedGeneration(
+        expectedGeneration: HostGeneration,
+        expectedApi: DshApiClient,
+        expectedHostId: String?,
+        expectedEpoch: Long,
+    ) {
+        if (foregroundProbeJob?.isActive == true) return
+        _state.value = _state.value.copy(
+            foregroundCheckPending = true,
+            recoveryOverlayVisible = true,
+        )
+        foregroundProbeJob = scope.launch {
+            val carrierOpen = !expectedGeneration.mux.isClosed
+            val result = if (carrierOpen) runCatching {
+                kotlinx.coroutines.withTimeout(FOREGROUND_PROBE_TIMEOUT_MS) { expectedApi.connectionProbe() }
+            }.getOrNull() else null
+            val reachedHost = foregroundProbeReachedHost(carrierOpen, result)
+            if (!appInForeground || expectedEpoch != lifecycleEpoch || activeHost?.id != expectedHostId || generation !== expectedGeneration) return@launch
+            if (reachedHost) {
+                publishedGenerationNeedsProbe = false
+                _state.value = _state.value.copy(
+                    foregroundCheckPending = false,
+                    recoveryOverlayVisible = false,
+                )
+                Log.d("ConnectionManager", "Published generation end-to-end probe succeeded")
+            } else {
+                Log.w("ConnectionManager", "Published generation probe failed; renewing transport")
+                generation = null
+                markCarrierRecoveryNeeded()
+                recoverTransportAfterCarrierLoss()
+            }
+        }.also { job ->
+            job.invokeOnCompletion {
+                synchronized(recoveryLock) {
+                    if (foregroundProbeJob === job) foregroundProbeJob = null
                 }
             }
         }
