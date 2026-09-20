@@ -99,7 +99,7 @@ private const val SORT_MANUAL = "manual"
 
 /** [dev.dsh.mobile.mesh.connection.HostsStore.sessionSort]: most recently updated first. */
 private const val SORT_UPDATED = "updated"
-private const val PAGE_SIZE = 10
+internal const val SESSION_PAGE_SIZE = 5
 
 /**
  * The chat history: workspaces, their sessions, and search.
@@ -334,7 +334,7 @@ fun ChatListDrawer(
                         .thenByDescending { it.sessionId },
                 )
                 val page = (visiblePageByWorkspace[workspace.workspaceId] ?: 1).coerceAtLeast(1)
-                val pageRoots = orderedRoots.take(page * PAGE_SIZE)
+                val pageRoots = orderedRoots.take(page * SESSION_PAGE_SIZE)
                 val hasMore = pageRoots.size < orderedRoots.size
                 item(key = "ws-${workspace.workspaceId}") {
                     WorkspaceHeader(
