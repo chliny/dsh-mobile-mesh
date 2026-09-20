@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.util.Log
 import androidx.core.content.ContextCompat
 import dev.dsh.mobile.mesh.core.wire.ConnectionLoop
@@ -92,6 +93,18 @@ class ConnectionManager @Inject constructor(
     private val networkTracker = DefaultNetworkTracker(connectivity.activeNetwork)
     private val networkRecoveryGate = NetworkRecoveryGate()
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            if (!appInForeground || !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return
+            if (networkRecoveryGate.isPending() && shouldStartNetworkRecovery(
+                    isActiveNetwork = connectivity.activeNetwork == network,
+                    hasInternetCapability = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+                )) {
+                Log.d("ConnectionManager", "Validated replacement network available: $network")
+                markCarrierRecoveryNeeded()
+                startPendingNetworkRecovery()
+            }
+        }
+
         override fun onAvailable(network: Network) {
             val connected = _state.value.phase == ConnectionPhase.CONNECTED
             val previous = networkTracker.current()
@@ -110,8 +123,11 @@ class ConnectionManager @Inject constructor(
             Log.d("ConnectionManager", "Default network available: $network (previous=$previous, dirty=${networkRecoveryGate.isPending()})")
             if (appInForeground && networkRecoveryGate.isPending()) {
                 markCarrierRecoveryNeeded()
-                if (connectivity.getNetworkCapabilities(network)
-                        ?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true) {
+                if (shouldStartNetworkRecovery(
+                        isActiveNetwork = connectivity.activeNetwork == network,
+                        hasInternetCapability = connectivity.getNetworkCapabilities(network)
+                            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
+                    )) {
                     startPendingNetworkRecovery()
                 } else {
                     Log.d("ConnectionManager", "Replacement network is not internet-capable yet; keeping recovery pending")
@@ -273,7 +289,11 @@ class ConnectionManager @Inject constructor(
             }
             // Note: does not clear `failure`. The loop emits this on every retry, so clearing here
             // would erase the explanation a fraction of a second after showing it.
-            _state.value = current.copy(phase = phase)
+            _state.value = current.copy(
+                phase = phase,
+                foregroundCheckPending = current.foregroundCheckPending ||
+                    (current.hasConnected && phase == ConnectionPhase.RECONNECTING && appInForeground),
+            )
             }
         }
 
@@ -382,7 +402,15 @@ class ConnectionManager @Inject constructor(
             synchronized(recoveryLock) {
                 transportRecoveryInFlight = false
             }
-            if (networkRecoveryGate.isPending() && appInForeground) startPendingNetworkRecovery()
+            if (networkRecoveryGate.isPending() && appInForeground) {
+                val activeNetwork = connectivity.activeNetwork
+                val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
+                if (shouldStartNetworkRecovery(
+                        isActiveNetwork = activeNetwork != null,
+                        hasInternetCapability = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
+                    )) startPendingNetworkRecovery()
+                else Log.d("ConnectionManager", "Pending recovery remains deferred until network validation")
+            }
         }
     }
 
@@ -636,6 +664,16 @@ class ConnectionManager @Inject constructor(
     }
 
     private fun startRecovery(attempt: Int) {
+        val activeNetwork = connectivity.activeNetwork
+        val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
+        if (!shouldStartNetworkRecovery(
+                isActiveNetwork = activeNetwork != null && connectivity.activeNetwork == activeNetwork,
+                hasInternetCapability = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
+            )) {
+            Log.d("ConnectionManager", "Recovery deferred until active network is Internet-capable")
+            networkRecoveryGate.markPending()
+            return
+        }
         if (recoveryRetryJob?.isActive == true) {
             Log.d("ConnectionManager", "Transport recovery retry already scheduled")
             return
