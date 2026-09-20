@@ -38,4 +38,9 @@ class ForegroundLivenessTest {
         assertFalse(foregroundProbeReachedHost(true, null))
         assertFalse(foregroundProbeReachedHost(false, RpcResult.Ok(JsonPrimitive(true))))
     }
+
+    @Test
+    fun `transport error without explicit marker is still treated as unreachable`() {
+        assertFalse(foregroundProbeReachedHost(true, RpcResult.Err(RpcError("internal", "timeout"))))
+    }
 }
