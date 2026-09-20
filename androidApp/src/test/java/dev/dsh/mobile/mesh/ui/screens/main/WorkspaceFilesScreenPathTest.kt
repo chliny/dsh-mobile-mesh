@@ -6,7 +6,7 @@ import org.junit.Test
 class WorkspaceFilesScreenPathTest {
     @Test
     fun `root child path never creates a leading empty segment`() {
-        assertEquals("./src", childWorkspacePath(".", "src"))
+        assertEquals("src", childWorkspacePath(".", "src"))
     }
 
     @Test
@@ -15,7 +15,8 @@ class WorkspaceFilesScreenPathTest {
     }
 
     @Test
-    fun `blank child falls back to root marker`() {
+    fun `blank child preserves the normalized parent`() {
         assertEquals(".", childWorkspacePath(".", " "))
+        assertEquals("src", childWorkspacePath("src", " "))
     }
 }

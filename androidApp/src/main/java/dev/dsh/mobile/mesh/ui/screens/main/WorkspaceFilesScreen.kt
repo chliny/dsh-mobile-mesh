@@ -42,11 +42,12 @@ internal fun normalizeWorkspaceFilesPath(path: String): String = path.trim().ifB
 
 internal fun normalizeWorkspaceFilesRoot(path: String): String = path.trim().ifBlank { "." }
 
-internal fun childWorkspacePath(parent: String, name: String): String =
-    listOf(parent.trim().trimEnd('/'), name.trim().trimStart('/'))
-        .filter { it.isNotEmpty() }
-        .joinToString("/")
-        .ifBlank { "." }
+internal fun childWorkspacePath(parent: String, name: String): String {
+    val cleanParent = normalizeWorkspaceFilesPath(parent).trimEnd('/')
+    val cleanName = name.trim().trimStart('/')
+    if (cleanName.isBlank()) return cleanParent
+    return if (cleanParent == ".") cleanName else "$cleanParent/$cleanName"
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
