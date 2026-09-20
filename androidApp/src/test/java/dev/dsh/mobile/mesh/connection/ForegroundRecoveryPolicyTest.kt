@@ -66,6 +66,13 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `stale foreground presentation does not block recovery without in-flight work`() {
+        assertFalse(effectiveForegroundCheckPending(presentationPending = true, recoveryInFlight = false))
+        assertTrue(effectiveForegroundCheckPending(presentationPending = true, recoveryInFlight = true))
+        assertFalse(effectiveForegroundCheckPending(presentationPending = false, recoveryInFlight = true))
+    }
+
+    @Test
     fun `probe failure during an active operation is deferred to the operation boundary`() {
         assertTrue(shouldArmRecoveryAfterProbeFailure(appInForeground = true, operationInFlight = true))
         assertFalse(shouldArmRecoveryAfterProbeFailure(appInForeground = false, operationInFlight = true))
