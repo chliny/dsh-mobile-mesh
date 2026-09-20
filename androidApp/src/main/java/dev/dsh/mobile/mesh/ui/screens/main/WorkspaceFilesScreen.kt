@@ -38,7 +38,7 @@ import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 
-internal fun normalizeWorkspaceFilesPath(path: String): String = path
+internal fun normalizeWorkspaceFilesPath(path: String): String = path.trim().ifBlank { "." }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,6 +46,7 @@ fun WorkspaceFilesScreen(
     workspaceKey: String,
     sessionId: String,
     initialPath: String = ".",
+    rootPath: String = ".",
     rootTitle: String? = null,
     onBack: () -> Unit,
     onOpenFile: (String, String, String) -> Unit,
@@ -59,10 +60,10 @@ fun WorkspaceFilesScreen(
     fun reload() = store.list(workspaceKey, sessionId, currentPath, reload = true)
 
     BackHandler {
-        if (currentPath == ".") onBack()
-        else currentPath = currentPath.substringBeforeLast('/', ".")
+        if (currentPath == rootPath) onBack()
+        else currentPath = currentPath.substringBeforeLast('/', rootPath)
     }
-    LaunchedEffect(workspaceKey, sessionId, initialPath) {
+    LaunchedEffect(workspaceKey, sessionId, initialPath, rootPath) {
         store.reset(workspaceKey)
         currentPath = normalizeWorkspaceFilesPath(initialPath)
         store.list(workspaceKey, sessionId, currentPath)
@@ -76,8 +77,8 @@ fun WorkspaceFilesScreen(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = stringResource(R.string.common_back),
                 onClick = {
-                    if (currentPath == ".") onBack()
-                    else currentPath = currentPath.substringBeforeLast('/', ".")
+                    if (currentPath == rootPath) onBack()
+                    else currentPath = currentPath.substringBeforeLast('/', rootPath)
                 },
                 tint = DsTheme.colors.labelSecondary,
                 iconSize = 18.dp,
@@ -102,7 +103,7 @@ fun WorkspaceFilesScreen(
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(level.listing.entries, key = { it.name }) { entry ->
-                        val path = if (currentPath == ".") entry.name else "$currentPath/${entry.name}"
+                        val path = "$currentPath/${entry.name}"
                         Row(
                             Modifier.fillMaxWidth().clickable {
                                 if (entry.type == "directory") {
