@@ -172,7 +172,7 @@ fun MainScreen(
                 connectionPhase = connectionPhase,
                 reconnectAttempt = reconnectAttempt,
                 onReconnect = onReconnect,
-                onOpenFiles = { page = MainPage.Files(rootTitle = rootDirectoryName) },
+                onOpenFiles = { page = MainPage.Files(path = ".", rootTitle = rootDirectoryName) },
                 onOpenFile = { path, title ->
                     safePreviewPath(path, sessions.firstOrNull { it.sessionId == sessionId }?.cwd)?.let { safePath ->
                         page = MainPage.Preview(safePath, title, MainPage.Chat)

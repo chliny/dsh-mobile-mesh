@@ -5,9 +5,9 @@ import org.junit.Test
 
 class WorkspaceFilesPathTest {
     @Test
-    fun `workspace file list path never stays blank`() {
-        assertEquals(".", normalizeWorkspaceFilesRequestPath(""))
-        assertEquals(".", normalizeWorkspaceFilesRequestPath("  "))
-        assertEquals("src", normalizeWorkspaceFilesRequestPath(" src "))
+    fun `workspace file list preserves the server path contract`() {
+        assertEquals(".", normalizeWorkspaceFilesRequestPath("."))
+        assertEquals("", normalizeWorkspaceFilesRequestPath(""))
+        assertEquals(" src ", normalizeWorkspaceFilesRequestPath(" src "))
     }
 }
