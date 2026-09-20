@@ -276,17 +276,12 @@ internal fun QueueDock(
                 Spacer(Modifier.width(8.dp))
                 DsMenu(
                     anchor = { onOpen ->
-                        Box(
-                            modifier = Modifier.size(40.dp).clickable(onClick = onOpen),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Filled.MoreVert,
-                                contentDescription = stringResource(R.string.chat_queue_actions),
-                                tint = colors.labelTertiary,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = stringResource(R.string.chat_queue_actions),
+                            tint = colors.labelTertiary,
+                            modifier = Modifier.size(18.dp).clickable(onClick = onOpen),
+                        )
                     },
                     items = buildList {
                         if (canMutateQueueItem(item)) {
