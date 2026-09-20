@@ -72,3 +72,9 @@ internal fun shouldStartForegroundRecovery(
     action: ForegroundRecoveryAction,
     recoveryInFlight: Boolean,
 ): Boolean = action == ForegroundRecoveryAction.RECOVER && !recoveryInFlight
+
+/** A failed probe during a rebuild must leave a retry request for the operation boundary. */
+internal fun shouldArmRecoveryAfterProbeFailure(
+    appInForeground: Boolean,
+    operationInFlight: Boolean,
+): Boolean = appInForeground && operationInFlight

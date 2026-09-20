@@ -66,6 +66,13 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `probe failure during an active operation is deferred to the operation boundary`() {
+        assertTrue(shouldArmRecoveryAfterProbeFailure(appInForeground = true, operationInFlight = true))
+        assertFalse(shouldArmRecoveryAfterProbeFailure(appInForeground = false, operationInFlight = true))
+        assertFalse(shouldArmRecoveryAfterProbeFailure(appInForeground = true, operationInFlight = false))
+    }
+
+    @Test
     fun `quick retries stay fast before falling back to a slower cadence`() {
         assertEquals(1_500L, recoveryRetryDelayMs(0))
         assertEquals(1_500L, recoveryRetryDelayMs(2))
