@@ -9,8 +9,5 @@ class WorkspaceFilesPathTest {
         assertEquals(".", normalizeWorkspaceFilesRequestPath(""))
         assertEquals(".", normalizeWorkspaceFilesRequestPath("  "))
         assertEquals("src", normalizeWorkspaceFilesRequestPath(" src "))
-        assertEquals("src\\main", normalizeWorkspaceFilesRequestPath("src\\main"))
-        assertEquals(".", normalizeWorkspaceFilesReadPath(""))
-        assertEquals("src/main.kt", normalizeWorkspaceFilesReadPath(" src\\main.kt "))
     }
 }

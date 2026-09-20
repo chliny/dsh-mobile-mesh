@@ -24,10 +24,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
-internal fun normalizeWorkspaceFilesRequestPath(path: String): String = workspaceFilesPathOrRoot(path)
-
-internal fun normalizeWorkspaceFilesReadPath(path: String): String =
-    path.trim().replace('\\', '/').takeIf { it.isNotBlank() } ?: "."
+internal fun normalizeWorkspaceFilesRequestPath(path: String): String = path.trim().ifBlank { "." }
 
 sealed interface DirectoryLevel {
     data object Loading : DirectoryLevel
@@ -141,22 +138,19 @@ class WorkspaceFilesStore @Inject constructor(
 
     suspend fun readTextContent(sessionId: String, path: String): String? {
         val api = connectionManager.connectedApi ?: return null
-        val safePath = normalizeWorkspaceFilesReadPath(path)
-        return when (val result = api.workspaceFilesRead(sessionId, safePath, offset = 1, limit = 20_000)) {
+        return when (val result = api.workspaceFilesRead(sessionId, path, offset = 1, limit = 20_000)) {
             is RpcResult.Ok -> result.value.text
             is RpcResult.Err -> null
         }
     }
 
     fun readText(workspaceKey: String, sessionId: String, path: String, offset: Int = 1, limit: Int = PREVIEW_PAGE_LINES) {
-        val safePath = normalizeWorkspaceFilesReadPath(path)
-        readPreview(workspaceKey, sessionId, safePath, append = offset > 1) { api ->
-            api.workspaceFilesRead(sessionId, safePath, offset = offset, limit = limit)
+        readPreview(workspaceKey, sessionId, path, append = offset > 1) { api ->
+            api.workspaceFilesRead(sessionId, path, offset = offset, limit = limit)
         }
     }
 
     fun loadNextPreviewPage(workspaceKey: String, sessionId: String, path: String) {
-        val safePath = normalizeWorkspaceFilesReadPath(path)
         val current = _state.value.preview as? PreviewState.Text ?: return
         if (current.value.eof || _state.value.previewLoadingMore) return
         _state.value = _state.value.copy(previewLoadingMore = true)
@@ -165,7 +159,7 @@ class WorkspaceFilesStore @Inject constructor(
         }) { api ->
             api.workspaceFilesRead(
                 sessionId,
-                safePath,
+                path,
                 offset = current.value.offset + current.value.lines,
                 limit = PREVIEW_PAGE_LINES,
             )
@@ -173,8 +167,7 @@ class WorkspaceFilesStore @Inject constructor(
     }
 
     fun readBytes(workspaceKey: String, sessionId: String, path: String) {
-        val safePath = normalizeWorkspaceFilesReadPath(path)
-        readPreview(workspaceKey, sessionId, safePath) { api -> api.workspaceFilesReadAll(sessionId, safePath) }
+        readPreview(workspaceKey, sessionId, path) { api -> api.workspaceFilesReadAll(sessionId, path) }
     }
 
     private fun <T> readPreview(

@@ -172,11 +172,7 @@ fun MainScreen(
                 connectionPhase = connectionPhase,
                 reconnectAttempt = reconnectAttempt,
                 onReconnect = onReconnect,
-                onOpenFiles = {
-                    // The workspace-files API uses "." as its root sentinel. Never let an
-                    // unavailable cwd become an empty path in the directory request.
-                    page = MainPage.Files(path = normalizeWorkspaceFilesPath("."), rootTitle = rootDirectoryName)
-                },
+                onOpenFiles = { page = MainPage.Files(rootTitle = rootDirectoryName) },
                 onOpenFile = { path, title ->
                     safePreviewPath(path, sessions.firstOrNull { it.sessionId == sessionId }?.cwd)?.let { safePath ->
                         page = MainPage.Preview(safePath, title, MainPage.Chat)
