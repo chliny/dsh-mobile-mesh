@@ -40,7 +40,12 @@ class SshTunnelManager @Inject constructor(
     val activeRelayToken: Long?
         get() = active?.token
 
-    suspend fun start(config: HostConfig, sshHost: String, sshPort: Int): SshRelay = withContext(Dispatchers.IO) {
+    suspend fun start(
+        config: HostConfig,
+        sshHost: String,
+        sshPort: Int,
+        recovery: Boolean = false,
+    ): SshRelay = withContext(Dispatchers.IO) {
         require(config.sshEnabled)
         active?.takeIf { it.canReuse(config.id, sshHost, sshPort) }?.let {
             Log.d(TAG, "Reusing authenticated SSH relay at ${it.relay.baseUrl} to $sshHost:$sshPort")
@@ -81,7 +86,8 @@ class SshTunnelManager @Inject constructor(
             // native node becomes ready. Retry only the transport handshake; authentication is
             // never repeated blindly and remains below this block.
             var lastConnectError: Throwable? = null
-            for (attempt in 0 until SSH_CONNECT_ATTEMPTS) {
+            val attempts = if (recovery) SSH_RECOVERY_CONNECT_ATTEMPTS else SSH_CONNECT_ATTEMPTS
+            for (attempt in 0 until attempts) {
                 if (attempt > 0) client = newClient()
                 try {
                     client.connect(sshHost, sshPort)
@@ -90,7 +96,7 @@ class SshTunnelManager @Inject constructor(
                 } catch (error: Throwable) {
                     lastConnectError = error
                     runCatching { client.close() }
-                    if (attempt + 1 < SSH_CONNECT_ATTEMPTS) {
+                    if (attempt + 1 < attempts) {
                         Log.w(TAG, "SSH transport attempt ${attempt + 1} failed; retrying", error)
                         Thread.sleep(SSH_CONNECT_RETRY_DELAY_MS)
                     }
@@ -189,6 +195,8 @@ class SshTunnelManager @Inject constructor(
         const val KEEP_ALIVE_INTERVAL_SECONDS = 20
         const val SSH_CONNECT_TIMEOUT_MS = 10_000
         const val SSH_CONNECT_ATTEMPTS = 3
+        /** Recovery gets one immediate retry; the outer transport loop owns longer backoff. */
+        const val SSH_RECOVERY_CONNECT_ATTEMPTS = 2
         const val SSH_CONNECT_RETRY_DELAY_MS = 750L
         /**
          * Long enough for a slow userspace path, far short of sshj's default.

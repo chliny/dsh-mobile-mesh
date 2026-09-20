@@ -22,6 +22,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -270,6 +273,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 connection.hasConnected,
                 connection.phase,
                 connection.foregroundCheckPending,
+                connection.recoveryOverlayVisible,
             )) {
             ConnectionRecoveryOverlay()
         }
@@ -282,6 +286,8 @@ private fun ConnectionRecoveryOverlay() {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.18f))
+            .testTag("connection-recovery-overlay")
+            .semantics { contentDescription = "connection-recovery-overlay" }
             .clickable(enabled = true, onClick = {}),
         contentAlignment = Alignment.Center,
     ) {

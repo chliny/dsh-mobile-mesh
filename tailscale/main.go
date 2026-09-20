@@ -115,7 +115,7 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 		entry.remoteHost = targetHost
 		entry.remotePort = targetPort
 		client, clientErr := entry.server.LocalClient()
-		if clientErr == nil && waitForRunning(client) {
+		if clientErr == nil && waitForRunningCancelable(client, cancel) {
 			return encode(startRelayLocked(entry.server, targetHost, targetPort))
 		}
 		// The first pending response can arrive before tsnet has published AuthURL.  Do
@@ -123,11 +123,11 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 		// query the retained identity again and pass the URL to Android so it can open
 		// the WebView. Keep the old URL as a fallback while the control plane settles.
 		if clientErr == nil {
-			if refreshed, refreshErr := loginURL(client); refreshed != "" {
+			if refreshed, refreshErr := loginURLCancelable(client, cancel); refreshed != "" {
 				entry.loginURL = refreshed
 			} else if refreshErr != nil {
 				_ = refreshErr // pendingLoginState below preserves the useful fallback URL.
-			} else if loginCompleted(refreshed, waitForRunning(client)) {
+			} else if loginCompleted(refreshed, waitForRunningCancelable(client, cancel)) {
 				return encode(startRelayLocked(entry.server, targetHost, targetPort))
 			}
 		}
@@ -152,14 +152,14 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 		_ = server.Close()
 		return encode(result{State: "error", Error: err.Error()})
 	}
-	status, err := getStatus(client)
+	status, err := getStatusCancelable(client, cancel)
 	if err != nil {
 		// tsnet can return a transient status error while the login URL has already been
 		// published on the IPN bus. Keep the server alive and let the authorization watcher
 		// surface that URL instead of converting the attempt into a dead connection.
-		login, loginErr := loginURL(client)
+		login, loginErr := loginURLCancelable(client, cancel)
 		if loginErr == nil {
-			if loginCompleted(login, waitForRunning(client)) {
+			if loginCompleted(login, waitForRunningCancelable(client, cancel)) {
 				current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname,
 					remoteHost: targetHost, remotePort: targetPort}
 				return encode(startRelayLocked(server, targetHost, targetPort))
@@ -177,9 +177,9 @@ func TailscaleStart(stateDir, hostname, remoteHost *C.char, port C.int) *C.char 
 		// The local status may be warming up while the IPN bus has already emitted BrowseToURL.
 		// Watch first so the login URL is returned as soon as it exists instead of blocking on a
 		// second status call that can wait for control-plane readiness.
-		login, loginErr := loginURL(client)
+		login, loginErr := loginURLCancelable(client, cancel)
 		if loginErr == nil {
-			if loginCompleted(login, waitForRunning(client)) {
+			if loginCompleted(login, waitForRunningCancelable(client, cancel)) {
 				current.value = &instance{server: server, stateDir: stateDirectory, hostname: deviceHostname,
 					remoteHost: targetHost, remotePort: targetPort}
 				return encode(startRelayLocked(server, targetHost, targetPort))
@@ -243,7 +243,7 @@ func endStart(channel chan struct{}) {
 	startCancellation.Unlock()
 }
 
-func startCancelled(channel chan struct{}) bool {
+func startCancelled(channel <-chan struct{}) bool {
 	select {
 	case <-channel:
 		return true
@@ -279,14 +279,35 @@ func getStatus(client *local.Client) (*ipnstate.Status, error) {
 	return getStatusWithTimeout(client, 3*time.Second)
 }
 
+func getStatusCancelable(client *local.Client, cancel <-chan struct{}) (*ipnstate.Status, error) {
+	if cancel == nil {
+		return getStatus(client)
+	}
+	if startCancelled(cancel) {
+		return nil, context.Canceled
+	}
+	return getStatusWithTimeout(client, statusPollTimeout)
+}
+
 func waitForRunning(client *local.Client) bool {
+	return waitForRunningCancelable(client, nil)
+}
+
+func waitForRunningCancelable(client *local.Client, cancel <-chan struct{}) bool {
 	deadline := time.Now().Add(statusWaitWindow)
 	for time.Now().Before(deadline) {
+		if cancel != nil && startCancelled(cancel) {
+			return false
+		}
 		status, err := getStatusWithTimeout(client, statusPollTimeout)
 		if err == nil && status.BackendState == ipn.Running.String() {
 			return true
 		}
-		time.Sleep(statusPollDelay)
+		select {
+		case <-cancel:
+			return false
+		case <-time.After(statusPollDelay):
+		}
 	}
 	return false
 }
@@ -305,17 +326,33 @@ func getStatusWithTimeout(client *local.Client, timeout time.Duration) (*ipnstat
 }
 
 func loginURL(client *local.Client) (string, error) {
+	return loginURLCancelable(client, nil)
+}
+
+func loginURLCancelable(client *local.Client, cancel <-chan struct{}) (string, error) {
 	if status, err := getStatusWithTimeout(client, statusPollTimeout); err == nil && status.AuthURL != "" {
 		return status.AuthURL, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
+	ctx, cancelContext := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancelContext()
 	watcher, err := client.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyInitialStatus)
 	if err != nil {
 		return "", err
 	}
 	defer watcher.Close()
+	if cancel != nil {
+		go func() {
+			select {
+			case <-cancel:
+				_ = watcher.Close()
+			case <-ctx.Done():
+			}
+		}()
+	}
 	for {
+		if cancel != nil && startCancelled(cancel) {
+			return "", context.Canceled
+		}
 		notify, err := watcher.Next()
 		if err != nil {
 			return "", err

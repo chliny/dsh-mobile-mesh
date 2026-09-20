@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -22,6 +23,8 @@ private object TailscaleNative {
         System.loadLibrary("dsh_tsnet")
     }
     @JvmStatic external fun startNative(stateDirectory: String, hostname: String, remoteHost: String, remotePort: Int): String
+    @JvmStatic external fun restartRelayNative(remoteHost: String, remotePort: Int): String
+    @JvmStatic external fun cancelStartNative(): String
     @JvmStatic external fun stopNative(): String
     @JvmStatic external fun setNetworkNative(network: Network?)
     @JvmStatic external fun setInterfacesNative(interfaces: String)
@@ -39,13 +42,17 @@ class TailscaleConnector @Inject constructor(
     private val lock = Any()
     private var observingNetwork = false
     private var nativeStarted = false
+    @Volatile private var boundNetwork: Network? = null
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = refreshNetworkBinding(network)
         override fun onLinkPropertiesChanged(network: Network, linkProperties: android.net.LinkProperties) =
             refreshNetworkBinding(network)
         override fun onLost(network: Network) {
             synchronized(lock) {
-                if (nativeStarted && connectivity.activeNetwork == null) {
+                // A delayed callback for the retired carrier must never clear or replace the current
+                // tsnet binding. Only clear when the callback is for the network we actually bound.
+                if (nativeStarted && boundNetwork == network && connectivity.activeNetwork == null) {
+                    boundNetwork = null
                     TailscaleNative.setNetworkNative(null)
                     TailscaleNative.setInterfacesNative("[]")
                 }
@@ -63,6 +70,7 @@ class TailscaleConnector @Inject constructor(
             ?: throw IllegalStateException("No active internet connection for Tailscale")
         synchronized(lock) {
             nativeStarted = true
+            boundNetwork = network
             TailscaleNative.setNetworkNative(network)
             TailscaleNative.setInterfacesNative(networkInterfaces())
             registerNetworkCallback()
@@ -93,26 +101,57 @@ class TailscaleConnector @Inject constructor(
         }
     }
 
+    suspend fun renewRelay(config: HostConfig): MeshRelay = withContext(Dispatchers.IO) {
+        require(config.meshTransport == MeshTransport.TAILSCALE) { "Not a Tailscale host" }
+        val remotePort = if (config.sshEnabled) config.sshPort else config.port
+        synchronized(lock) {
+            check(nativeStarted) { "Tailscale is not running" }
+        }
+        val result = Json.decodeFromString<TailscaleStartResult>(
+            TailscaleNative.restartRelayNative(config.host, remotePort),
+        )
+        result.baseUrl?.let { baseUrl ->
+            val parsed = Uri.parse(baseUrl)
+            MeshRelay(parsed.host ?: "127.0.0.1", parsed.port.takeIf { it > 0 } ?: 80)
+        } ?: throw IllegalStateException(result.error ?: "Tailscale relay is not ready")
+    }
+
+    fun cancelStart() {
+        runCatching { TailscaleNative.cancelStartNative() }
+    }
+
     override suspend fun stop() {
         withContext(Dispatchers.IO) {
-            synchronized(lock) {
+            val shouldStop = synchronized(lock) {
                 unregisterNetworkCallback()
-                if (nativeStarted) {
-                    TailscaleNative.setNetworkNative(null)
-                    TailscaleNative.setInterfacesNative("[]")
-                    TailscaleNative.stopNative()
+                if (!nativeStarted) false else {
                     nativeStarted = false
+                    boundNetwork = null
+                    true
                 }
+            }
+            if (shouldStop) {
+                TailscaleNative.setNetworkNative(null)
+                TailscaleNative.setInterfacesNative("[]")
+                TailscaleNative.stopNative()
             }
         }
     }
 
     private suspend fun awaitActiveNetwork(): Network? {
         repeat(TAILSCALE_NETWORK_WAIT_ATTEMPTS) {
-            connectivity.activeNetwork?.let { return it }
+            connectivity.activeNetwork?.let { network ->
+                val capabilities = connectivity.getNetworkCapabilities(network)
+                if (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true) {
+                    return network
+                }
+            }
             kotlinx.coroutines.delay(TAILSCALE_NETWORK_WAIT_DELAY_MS)
         }
-        return connectivity.activeNetwork
+        return connectivity.activeNetwork?.takeIf { network ->
+            connectivity.getNetworkCapabilities(network)
+                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        }
     }
 
     private fun registerNetworkCallback() = synchronized(lock) {
@@ -129,7 +168,8 @@ class TailscaleConnector @Inject constructor(
 
     /** Rebind new tsnet sockets whenever Android changes its validated/default transport. */
     private fun refreshNetworkBinding(network: Network) = synchronized(lock) {
-        if (!nativeStarted) return
+        if (!nativeStarted || connectivity.activeNetwork != network) return
+        boundNetwork = network
         TailscaleNative.setNetworkNative(network)
         TailscaleNative.setInterfacesNative(networkInterfaces())
     }

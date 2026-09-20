@@ -11,6 +11,13 @@ class TransportSwitchPolicyTest {
     }
 
     @Test
+    fun `same Tailscale transport renews relay without native teardown`() {
+        assertTrue(shouldRenewTailscaleRelay(activeTransport = MeshTransport.TAILSCALE, nextTransport = MeshTransport.TAILSCALE))
+        assertFalse(shouldRenewTailscaleRelay(activeTransport = MeshTransport.ZERO_TIER, nextTransport = MeshTransport.TAILSCALE))
+        assertFalse(shouldRenewTailscaleRelay(activeTransport = MeshTransport.TAILSCALE, nextTransport = MeshTransport.ZERO_TIER))
+    }
+
+    @Test
     fun `same ZeroTier transport is reused for faster host switch`() {
         assertFalse(shouldStopMeshBeforeConnect(MeshTransport.ZERO_TIER, MeshTransport.ZERO_TIER, false))
     }

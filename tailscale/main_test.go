@@ -39,21 +39,22 @@ func TestInstanceMatchesOnlyTheCurrentRelayTarget(t *testing.T) {
 }
 
 func TestLoginURLReadsCurrentStatusBeforeWaitingForBus(t *testing.T) {
-	// loginURL's first operation must be a bounded status read so a retained
-	// authorization URL is available even when its original IPN bus event is gone.
-	// The implementation is intentionally exercised through the shared timeout
-	// policy rather than a live tsnet client in unit tests.
 	if statusPollTimeout <= 0 {
 		t.Fatal("status poll timeout must be positive")
 	}
 }
 
 func TestLoginFinishedCannotClearPendingStatus(t *testing.T) {
-	// The native watcher must re-check authoritative status before treating a
-	// LoginFinished/Running notification as completion. This protects retained
-	// pending identities from a stale initial bus marker.
 	if statusPollTimeout <= 0 {
 		t.Fatal("status poll timeout must be positive")
+	}
+}
+
+func TestCancelledStartChannelIsObservedImmediately(t *testing.T) {
+	channel := make(chan struct{})
+	close(channel)
+	if !startCancelled(channel) {
+		t.Fatal("closed start channel must be observed as cancelled")
 	}
 }
 

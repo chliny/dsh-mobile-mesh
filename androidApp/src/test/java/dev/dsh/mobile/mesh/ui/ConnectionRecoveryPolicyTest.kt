@@ -10,6 +10,7 @@ class ConnectionRecoveryPolicyTest {
     fun `recovery overlay stays on existing page while reconnecting`() {
         assertFalse(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.DISCONNECTED, false))
         assertFalse(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, false))
+        assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, false, recoveryOverlayVisible = true))
         assertFalse(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.CONNECTING, false))
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, true))
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.CONNECTED, true))

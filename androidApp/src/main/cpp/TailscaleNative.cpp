@@ -53,6 +53,8 @@ extern "C" int TailscaleBindSocket(int fd) {
 
 extern "C" {
 char* TailscaleStart(const char*, const char*, const char*, int);
+char* TailscaleRestartRelay(const char*, int);
+char* TailscaleCancelStart();
 char* TailscaleStop();
 void TailscaleFree(char*);
 }
@@ -74,6 +76,20 @@ Java_dev_dsh_mobile_mesh_connection_TailscaleNative_startNative(
     env->ReleaseStringUTFChars(hostname, name);
     env->ReleaseStringUTFChars(remoteHost, host);
     return result(env, value);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_dev_dsh_mobile_mesh_connection_TailscaleNative_restartRelayNative(
+    JNIEnv* env, jclass, jstring remoteHost, jint remotePort) {
+    const char* host = env->GetStringUTFChars(remoteHost, nullptr);
+    char* value = TailscaleRestartRelay(host, remotePort);
+    env->ReleaseStringUTFChars(remoteHost, host);
+    return result(env, value);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_dev_dsh_mobile_mesh_connection_TailscaleNative_cancelStartNative(JNIEnv* env, jclass) {
+    return result(env, TailscaleCancelStart());
 }
 
 extern "C" JNIEXPORT jstring JNICALL
