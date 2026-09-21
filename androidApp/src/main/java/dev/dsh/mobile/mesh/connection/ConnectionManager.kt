@@ -177,6 +177,8 @@ class ConnectionManager @Inject constructor(
     private var teardownJob: Job? = null
     @Volatile private var connectJob: Job? = null
     @Volatile private var transportRecoveryInFlight = false
+    /** A carrier failure can arrive while another operation is unwinding; keep it armed until the slot is free. */
+    @Volatile private var carrierRecoveryPending = false
     @Volatile private var networkLostWhileConnected = false
     @Volatile private var defaultNetwork: Network? = null
     @Volatile private var lifecycleEpoch = 0L
@@ -429,6 +431,9 @@ class ConnectionManager @Inject constructor(
             synchronized(recoveryLock) {
                 transportRecoveryInFlight = false
             }
+            if (carrierRecoveryPending && startRecovery(0)) {
+                carrierRecoveryPending = false
+            }
             if (probeRecoveryPending && appInForeground) {
                 probeRecoveryPending = false
                 startRecovery(0)
@@ -603,6 +608,7 @@ class ConnectionManager @Inject constructor(
 
     private fun cancelAuxiliaryOperations() {
         lifecycleEpoch++
+        carrierRecoveryPending = false
         probeRecoveryPending = false
         foregroundProbeJob?.cancel()
         foregroundProbeJob = null
@@ -632,6 +638,7 @@ class ConnectionManager @Inject constructor(
 
     private fun stopConnection() {
         networkRecoveryGate.clear()
+        carrierRecoveryPending = false
         networkTracker.consumeRecoveryNeeded()
         networkLostWhileConnected = false
         synchronized(operationLock) {
@@ -685,7 +692,14 @@ class ConnectionManager @Inject constructor(
         }
     }
 
-    private fun recoverTransportAfterCarrierLoss() = reconnectIfNeeded()
+    private fun recoverTransportAfterCarrierLoss() {
+        val operationInFlight = synchronized(operationLock) { connectJob?.isActive == true }
+        val recoveryInFlight = synchronized(recoveryLock) { transportRecoveryInFlight }
+        if (shouldDeferCarrierRecovery(operationInFlight, recoveryInFlight) || !startRecovery(0)) {
+            carrierRecoveryPending = true
+            Log.d("ConnectionManager", "Carrier recovery deferred until the current operation completes")
+        }
+    }
 
     /**
      * The SSH forwarder has an authoritative terminal event: its listener returned. Do not wait for

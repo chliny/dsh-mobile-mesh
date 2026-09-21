@@ -74,6 +74,11 @@ internal fun shouldStartForegroundRecovery(
     recoveryInFlight: Boolean,
 ): Boolean = action == ForegroundRecoveryAction.RECOVER && !recoveryInFlight
 
+internal fun shouldDeferCarrierRecovery(
+    operationInFlight: Boolean,
+    recoveryInFlight: Boolean,
+): Boolean = operationInFlight || recoveryInFlight
+
 /** Presentation state must not block a new recovery unless a probe/operation is actually running. */
 internal fun effectiveForegroundCheckPending(
     presentationPending: Boolean,
