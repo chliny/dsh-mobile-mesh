@@ -41,14 +41,42 @@ class TailscaleConnector @Inject constructor(
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
     private val lock = Any()
     private var observingNetwork = false
+    private var waitingForNetwork = false
     private var nativeStarted = false
+    private var networkWaiter: kotlinx.coroutines.CompletableDeferred<Network?>? = null
     @Volatile private var boundNetwork: Network? = null
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = refreshNetworkBinding(network)
-        override fun onLinkPropertiesChanged(network: Network, linkProperties: android.net.LinkProperties) =
+        override fun onAvailable(network: Network) {
             refreshNetworkBinding(network)
+            if (connectivity.activeNetwork == network && isInternetCapable(network)) {
+                synchronized(lock) {
+                    if (waitingForNetwork) {
+                        waitingForNetwork = false
+                        networkWaiter?.complete(network)
+                        networkWaiter = null
+                    }
+                }
+            }
+        }
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: android.net.LinkProperties) {
+            refreshNetworkBinding(network)
+            if (connectivity.activeNetwork == network && isInternetCapable(network)) {
+                synchronized(lock) {
+                    if (waitingForNetwork) {
+                        waitingForNetwork = false
+                        networkWaiter?.complete(network)
+                        networkWaiter = null
+                    }
+                }
+            }
+        }
         override fun onLost(network: Network) {
             synchronized(lock) {
+                if (waitingForNetwork && connectivity.activeNetwork == null) {
+                    waitingForNetwork = false
+                    networkWaiter?.complete(null)
+                    networkWaiter = null
+                }
                 // A delayed callback for the retired carrier must never clear or replace the current
                 // tsnet binding. Only clear when the callback is for the network we actually bound.
                 if (nativeStarted && boundNetwork == network && connectivity.activeNetwork == null) {
@@ -126,6 +154,9 @@ class TailscaleConnector @Inject constructor(
         withContext(Dispatchers.IO) {
             val shouldStop = synchronized(lock) {
                 unregisterNetworkCallback()
+                waitingForNetwork = false
+                networkWaiter?.complete(null)
+                networkWaiter = null
                 if (!nativeStarted) false else {
                     nativeStarted = false
                     boundNetwork = null
@@ -141,32 +172,29 @@ class TailscaleConnector @Inject constructor(
     }
 
     private suspend fun awaitActiveNetwork(): Network? {
-        val startedAt = System.nanoTime()
-        var attempts = 0
-        repeat(TAILSCALE_NETWORK_WAIT_ATTEMPTS) {
-            attempts++
-            connectivity.activeNetwork?.let { network ->
-                val capabilities = connectivity.getNetworkCapabilities(network)
-                if (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true) {
-                    android.util.Log.d(
-                        "TailscaleConnector",
-                        "network-wait elapsedMs=${elapsedMs(startedAt)} attempts=$attempts result=ok",
-                    )
-                    return network
+        connectivity.activeNetwork?.takeIf(::isInternetCapable)?.let { return it }
+        val waiter = kotlinx.coroutines.CompletableDeferred<Network?>()
+        synchronized(lock) {
+            waitingForNetwork = true
+            networkWaiter?.cancel()
+            networkWaiter = waiter
+        }
+        registerNetworkCallback()
+        return try {
+            waiter.await()
+        } finally {
+            synchronized(lock) {
+                if (networkWaiter === waiter) {
+                    waitingForNetwork = false
+                    networkWaiter = null
                 }
             }
-            kotlinx.coroutines.delay(TAILSCALE_NETWORK_WAIT_DELAY_MS)
         }
-        val result = connectivity.activeNetwork?.takeIf { network ->
-            connectivity.getNetworkCapabilities(network)
-                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-        }
-        android.util.Log.d(
-            "TailscaleConnector",
-            "network-wait elapsedMs=${elapsedMs(startedAt)} attempts=$attempts result=${if (result != null) "ok" else "none"}",
-        )
-        return result
     }
+
+    private fun isInternetCapable(network: Network): Boolean =
+        connectivity.getNetworkCapabilities(network)
+            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
 
     private fun elapsedMs(startedAt: Long): Long =
         java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
