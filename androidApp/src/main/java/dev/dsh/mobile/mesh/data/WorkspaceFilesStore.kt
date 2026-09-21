@@ -26,7 +26,14 @@ import kotlinx.serialization.json.jsonPrimitive
 
 /** Every workspace-files directory request must carry a non-empty path; `.` is the API root. */
 internal fun normalizeWorkspaceFilesRequestPath(path: String): String =
-    path.trim().ifBlank { "." }
+    path.trim().let { clean ->
+        when {
+            clean.isBlank() -> "."
+            clean == "." -> "."
+            clean.startsWith("/") -> clean.trimStart('/').ifBlank { "." }
+            else -> clean
+        }
+    }
 
 internal fun validWorkspaceFilePath(path: String): String? =
     path.trim().takeIf { it.isNotEmpty() }

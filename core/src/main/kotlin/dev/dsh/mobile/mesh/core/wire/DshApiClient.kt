@@ -286,7 +286,7 @@ class DshApiClient(
             "workspaceFiles/list",
             args {
                 put("workspaceFileScopeId", JsonPrimitive(sessionId))
-                put("path", JsonPrimitive(path))
+                put("path", JsonPrimitive(path.ifBlank { "." }))
             },
         )
 

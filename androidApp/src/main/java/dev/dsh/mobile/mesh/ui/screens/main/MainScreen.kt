@@ -46,10 +46,28 @@ internal fun safePreviewPath(path: String, cwd: String?): String? {
 private fun hasUnsafePreviewSegment(path: String): Boolean =
     path.split('/').any { it == ".." }
 
-internal fun workspaceFilesRootPath(sessionCwd: String?, workspacePath: String?): String =
-    sessionCwd?.trim()?.takeIf { it.isNotEmpty() }
-        ?: workspacePath?.trim()?.takeIf { it.isNotEmpty() }
-        ?: "."
+/** The workspace-files API is workspace-relative; `.` is the only valid root request. */
+internal fun workspaceFilesRootPath(sessionCwd: String?, workspacePath: String?): String = "."
+
+internal fun workspaceFilesScopeSessionId(
+    currentSessionId: String,
+    workspaceSessionIds: List<String>?,
+    sessions: List<dev.dsh.mobile.mesh.data.SessionRow>,
+    workspacePath: String?,
+): String {
+    val candidates = workspaceSessionIds.orEmpty()
+        .asSequence()
+        .mapNotNull { id -> sessions.firstOrNull { it.sessionId == id } }
+        .filter { !it.cwd.isNullOrBlank() }
+    val normalizedWorkspace = workspacePath?.trim()?.trimEnd('/', '\\')
+    return candidates.firstOrNull { row ->
+        row.sessionId != currentSessionId &&
+            normalizedWorkspace != null && row.cwd?.trim()?.trimEnd('/', '\\') == normalizedWorkspace
+    }?.sessionId
+        ?: candidates.firstOrNull { it.sessionId == currentSessionId }?.sessionId
+        ?: candidates.firstOrNull()?.sessionId
+        ?: currentSessionId
+}
 
 private sealed interface MainPage {
     data object Chat : MainPage
@@ -88,8 +106,11 @@ fun MainScreen(
     val sessionId by store.currentSessionId.collectAsStateWithLifecycle()
     val sessions by store.sessions.collectAsStateWithLifecycle()
     val workspaces by store.workspaces.collectAsStateWithLifecycle()
-    val workspaceKey = sessionId?.let { sid -> workspaces.firstOrNull { sid in it.sessionIds }?.workspaceId }
-        ?: sessionId?.let { "session:$it" }
+    val currentWorkspace = sessionId?.let { sid -> workspaces.firstOrNull { sid in it.sessionIds } }
+    val workspaceKey = currentWorkspace?.workspaceId ?: sessionId?.let { "session:$it" }
+    val scopeSessionId = sessionId?.let { sid ->
+        workspaceFilesScopeSessionId(sid, currentWorkspace?.sessionIds, sessions, currentWorkspace?.path)
+    }
     val currentSession = sessions.firstOrNull { it.sessionId == sessionId }
     val currentCwd = currentSession?.cwd
     val currentWorkspacePath = workspaces.firstOrNull { sessionId != null && sessionId in it.sessionIds }?.path
@@ -107,7 +128,7 @@ fun MainScreen(
             when (val current = page) {
                 is MainPage.Files -> WorkspaceFilesScreen(
                     workspaceKey = workspaceKey ?: "session:$sid",
-                    sessionId = sid,
+                    sessionId = scopeSessionId ?: sid,
                     initialPath = current.path,
                     rootPath = current.rootPath,
                     rootTitle = current.rootTitle,

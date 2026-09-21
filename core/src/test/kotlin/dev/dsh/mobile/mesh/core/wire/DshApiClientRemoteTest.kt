@@ -78,6 +78,23 @@ class DshApiClientRemoteTest {
     )
 
     @Test
+    fun `workspace files list posts scope id and non-empty root path`() = runTest {
+        val transport = RecordingTransport { _, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, "{\"path\":\"\",\"entries\":[],\"truncated\":false}")
+        }
+        val result = client(transport).workspaceFilesList("session-7", "")
+
+        assertTrue(result is RpcResult.Ok)
+        assertEquals("/api/workspaceFiles/list", transport.lastPath)
+        val args = Json.parseToJsonElement(transport.lastBody!!)
+            .jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject
+        assertEquals(setOf("workspaceFileScopeId", "path"), args.keys)
+        assertEquals("session-7", args["workspaceFileScopeId"]!!.jsonPrimitive.content)
+        assertEquals(".", args["path"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `commands list posts a client-request envelope with agentId in args`() = runTest {
         val transport = RecordingTransport { _, body ->
             val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
