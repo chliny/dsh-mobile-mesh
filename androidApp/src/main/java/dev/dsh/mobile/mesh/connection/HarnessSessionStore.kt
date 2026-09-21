@@ -35,6 +35,8 @@ class HarnessSessionStore @Inject constructor(
     /** The `Cookie` value for [hostId], or null when this device has no session for it. */
     suspend fun cookie(hostId: String): String? = sessions()[hostId]
 
+    suspend fun hasSession(hostId: String): Boolean = cookie(hostId) != null
+
     /**
      * Exchange [tokenInput] for a session and remember it.
      *
