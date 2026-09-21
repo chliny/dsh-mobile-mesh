@@ -39,6 +39,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # `tools` is an obsolete SDK package and is no longer published.
+          # setup-android@v3 otherwise requests it by default and fails before
+          # any build step can run.
+          packages: platform-tools
 
       # Must match `ndkVersion` in androidApp/build.gradle.kts.
       - name: Set up Android NDK
