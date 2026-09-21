@@ -1116,6 +1116,13 @@ class ConnectionManager @Inject constructor(
             }
         } else {
             val current = _state.value
+            // A retained carrier can die silently while Android keeps the same default network.
+            // Force one foreground liveness probe for every established generation after a background
+            // hop; otherwise the short-resume fast path can leave a stale CONNECTED state with no
+            // spinner and no recovery trigger.
+            if (shouldRearmPublishedGenerationAfterBackground(keepConnectedInBackground, current.hasConnected)) {
+                publishedGenerationNeedsProbe = true
+            }
             val operationInFlight = synchronized(operationLock) { connectJob?.isActive == true }
             val retryScheduled = recoveryRetryJob?.isActive == true
             val preserveRecoveryPresentation = shouldPreserveRecoveryPresentationOnBackground(
