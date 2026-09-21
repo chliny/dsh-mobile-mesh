@@ -17,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerializationException
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.serialization.json.JsonElement
@@ -260,7 +261,12 @@ class ConnectionLoop(
 
         try {
             mux.start()
-            withTimeout(config.streamOpenTimeoutMs) { mux.awaitOpen() }
+            // OkHttp delivers onOpen as the authoritative handshake completion event. The deadline
+            // remains only a safety ceiling for a broken callback/transport, never the readiness
+            // mechanism itself.
+            if (withTimeoutOrNull(config.streamOpenTimeoutMs) { mux.awaitOpen() } == null) {
+                return Opened.Failed(GenerationFailure.MuxTimedOut(config.streamOpenTimeoutMs))
+            }
         } catch (e: TimeoutCancellationException) {
             return Opened.Failed(GenerationFailure.MuxTimedOut(config.streamOpenTimeoutMs))
         } catch (e: CancellationException) {
@@ -278,6 +284,8 @@ class ConnectionLoop(
             return Opened.Failed(GenerationFailure.ReadyFailed(e.error))
         }
         val ready = try {
+            // The ready frame is delivered by the mux stream event, not inferred from elapsed time.
+            // Keep the timeout solely as a bounded failure path for a peer that never responds.
             withTimeout(config.readyTimeoutMs) { events.receive() }
         } catch (e: TimeoutCancellationException) {
             return Opened.Failed(
