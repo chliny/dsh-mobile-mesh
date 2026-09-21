@@ -45,7 +45,14 @@ internal fun shouldProbePublishedGeneration(
     hasConnected: Boolean,
     recoveryOverlayVisible: Boolean,
     generationAlreadyNeedsProbe: Boolean,
-): Boolean = hasConnected && (recoveryOverlayVisible || generationAlreadyNeedsProbe)
+): Boolean {
+    // A newly opened generation has already passed the mux/$events readiness handshake. Do not
+    // immediately probe it again merely because the previous generation was reconnecting: on a
+    // mobile ZeroTier path that second request can race relay publication and create a false carrier
+    // failure loop. Only a generation explicitly re-armed across a background/resume boundary needs
+    // the extra liveness probe.
+    return hasConnected && generationAlreadyNeedsProbe
+}
 
 internal fun shouldPublishConnectedGeneration(
     generationReady: Boolean,

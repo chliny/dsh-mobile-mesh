@@ -79,6 +79,12 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `new generation is not probed solely by recovery presentation`() {
+        assertFalse(shouldProbePublishedGeneration(true, true, false))
+        assertTrue(shouldProbePublishedGeneration(true, false, true))
+    }
+
+    @Test
     fun `retained connected carrier is probed after every background hop`() {
         assertTrue(shouldRearmPublishedGenerationAfterBackground(true, true))
         assertFalse(shouldRearmPublishedGenerationAfterBackground(true, false))

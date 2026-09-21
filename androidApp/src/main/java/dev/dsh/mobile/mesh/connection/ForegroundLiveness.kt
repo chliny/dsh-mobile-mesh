@@ -7,9 +7,8 @@ import dev.dsh.mobile.mesh.core.wire.TransportFailures
 /**
  * Decides whether the foreground probe proved the current carrier is still usable.
  *
- * Any HTTP/protocol answer proves bytes crossed the relay. Only failures that mean no usable
- * exchange happened should rebuild mesh/SSH; auth, trust-fence, capability and business errors
- * belong to the application layer and must not tear down a healthy carrier.
+ * Any HTTP/protocol answer proves bytes crossed the relay. The caller must avoid probing a newly
+ * published generation unless it was explicitly re-armed by a lifecycle/network boundary.
  */
 internal fun foregroundProbeReachedHost(carrierOpen: Boolean, result: RpcResult<*>?): Boolean {
     if (!carrierOpen || result == null) return false
