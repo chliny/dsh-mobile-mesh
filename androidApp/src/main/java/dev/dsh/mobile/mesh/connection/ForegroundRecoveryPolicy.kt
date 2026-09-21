@@ -52,7 +52,8 @@ internal fun shouldPublishConnectedGeneration(
     lifecycleCurrent: Boolean,
 ): Boolean = generationReady && lifecycleCurrent
 
-internal const val FOREGROUND_VERIFY_AFTER_MS = 0L
+/** Avoid paying a probe RTT for short task switches; network changes still recover immediately. */
+internal const val FOREGROUND_VERIFY_AFTER_MS = 5_000L
 internal const val FOREGROUND_DIRECT_RECOVERY_AFTER_MS = 30_000L
 internal const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 500L
 internal const val FOREGROUND_RECOVERY_STEADY_RETRY_DELAY_MS = 5_000L

@@ -14,14 +14,15 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
-    fun `brief healthy task switch still verifies the foreground carrier`() {
-        assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 0))
-        assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 500))
+    fun `brief healthy task switch skips the foreground probe`() {
+        assertEquals(ForegroundRecoveryAction.NONE, action(ConnectionPhase.CONNECTED, 0))
+        assertEquals(ForegroundRecoveryAction.NONE, action(ConnectionPhase.CONNECTED, 4_999))
     }
 
     @Test
-    fun `longer healthy background stay actively verifies without teardown`() {
-        assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 1_500))
+    fun `longer healthy background stay verifies without teardown`() {
+        assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 5_000))
+        assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 15_000))
     }
 
     @Test
