@@ -558,7 +558,11 @@ class ConnectionManager @Inject constructor(
         } catch (error: Throwable) {
             handleOperationFailure(error)
         } finally {
-            if (lifecycle.accepts(target.token) && _state.value.phase == ConnectionPhase.CONNECTED) {
+            if (lifecycle.accepts(target.token) &&
+                _state.value.phase == ConnectionPhase.CONNECTED &&
+                !publishedGenerationNeedsProbe &&
+                foregroundProbeJob?.isActive != true
+            ) {
                 _state.value = _state.value.copy(
                     foregroundCheckPending = false,
                     recoveryOverlayVisible = false,
@@ -1063,9 +1067,18 @@ class ConnectionManager @Inject constructor(
                 )
             }
         } else {
-            _state.value = _state.value.copy(
-                foregroundCheckPending = false,
-                recoveryOverlayVisible = false,
+            val current = _state.value
+            val operationInFlight = synchronized(operationLock) { connectJob?.isActive == true }
+            val retryScheduled = recoveryRetryJob?.isActive == true
+            val preserveRecoveryPresentation = shouldPreserveRecoveryPresentationOnBackground(
+                keepConnectedInBackground = keepConnectedInBackground,
+                phase = current.phase,
+                operationInFlight = operationInFlight,
+                retryScheduled = retryScheduled,
+            )
+            _state.value = current.copy(
+                foregroundCheckPending = preserveRecoveryPresentation,
+                recoveryOverlayVisible = preserveRecoveryPresentation,
             )
         }
     }
