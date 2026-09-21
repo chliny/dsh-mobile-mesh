@@ -343,7 +343,11 @@ class ConnectionManager @Inject constructor(
             )
             // A loop-level mux retry cannot revive a stale ZeroTier/SSH relay. Renew the physical
             // carrier too, including while the foreground service retains the process in background.
-            if (shouldRenewCarrierAfterGenerationFailure(
+            if (shouldRenewCarrierAfterLoopFailure(
+                    sshEnabled = activeHost?.sshEnabled == true,
+                    networkRecoveryPending = networkRecoveryGate.isPending() || networkLostWhileConnected,
+                    recoveryInFlight = synchronized(recoveryLock) { transportRecoveryInFlight },
+                ) && shouldRenewCarrierAfterGenerationFailure(
                     hasActiveHost = activeHost != null,
                     appInForeground = appInForeground,
                     retainInBackground = keepConnectedInBackground,
