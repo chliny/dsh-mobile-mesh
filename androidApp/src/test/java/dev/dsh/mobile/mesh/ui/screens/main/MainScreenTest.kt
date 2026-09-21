@@ -7,10 +7,18 @@ import org.junit.Test
 class MainScreenTest {
     @Test
     fun `workspace files use workspace path when session cwd is absent`() {
-        assertEquals("/home/me/project", workspaceFilesRootPath(null, "/home/me/project"))
-        assertEquals("/home/me/project", workspaceFilesRootPath("  ", "/home/me/project"))
-        assertEquals("/home/me/project", workspaceFilesRootPath("/home/me/project", "/other"))
+        assertEquals(".", workspaceFilesRootPath(null, "/home/me/project"))
+        assertEquals(".", workspaceFilesRootPath("  ", "/home/me/project"))
+        assertEquals(".", workspaceFilesRootPath("/home/me/project", "/other"))
         assertEquals(".", workspaceFilesRootPath(null, null))
+    }
+
+    @Test
+    fun `workspace file scope selects a session with the workspace cwd`() {
+        val current = dev.dsh.mobile.mesh.data.SessionRow("current", "current", false, false, null, null, null, null, 0L, null)
+        val sibling = dev.dsh.mobile.mesh.data.SessionRow("sibling", "sibling", false, false, null, null, "/home/me/project", null, 0L, null)
+        assertEquals("sibling", workspaceFilesScopeSessionId("current", listOf("current", "sibling"), listOf(current, sibling), "/home/me/project"))
+        assertEquals("current", workspaceFilesScopeSessionId("current", listOf("current"), listOf(current), "/home/me/project"))
     }
 
     @Test

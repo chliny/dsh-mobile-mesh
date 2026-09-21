@@ -44,6 +44,12 @@ class SessionStoreSwitchCacheTest {
     }
 
     @Test
+    fun `authoritative idle session state clears stale interaction`() {
+        assertTrue(shouldClearPendingInteractionFromSessionState(running = false))
+        assertFalse(shouldClearPendingInteractionFromSessionState(running = true))
+    }
+
+    @Test
     fun `first open without cache has no conversation until follow snapshot arrives`() {
         val model = SessionSwitchCacheModel()
 

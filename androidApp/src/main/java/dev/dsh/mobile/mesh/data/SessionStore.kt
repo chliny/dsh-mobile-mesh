@@ -256,6 +256,9 @@ internal fun shouldRefreshSessionsForNotification(event: String): Boolean =
 internal fun correlateCancelledSession(eventId: String, visibleEventId: String?, visibleSessionId: String?): String? =
     visibleSessionId?.takeIf { visibleEventId == eventId }
 
+/** A remote client may answer a prompt without delivering a cancel frame to this client. */
+internal fun shouldClearPendingInteractionFromSessionState(running: Boolean): Boolean = !running
+
 /**
  * Single source of truth for the connected harness's live state. All public surface is
  * [StateFlow]; every RPC error becomes [connectionError] and never throws. The store survives
@@ -1151,6 +1154,9 @@ class SessionStore @Inject constructor(
             sessionRows[sessionId]?.let { if (it.running != running) sessionRows[sessionId] = it.copy(running = running) }
             if (sessionId == currentId) rebuildCurrentLocked()
             emitSessionsLocked()
+        }
+        if (shouldClearPendingInteractionFromSessionState(running)) {
+            clearPendingInteraction(sessionId)
         }
     }
 
