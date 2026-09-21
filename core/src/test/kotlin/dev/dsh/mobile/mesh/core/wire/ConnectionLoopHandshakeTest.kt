@@ -109,6 +109,34 @@ class ConnectionLoopHandshakeTest {
         } ?: false
 
     @Test
+    fun `stopping while mux creation is suspended closes the late mux`() = runBlocking {
+        val recorder = Recorder()
+        val releaseFactory = kotlinx.coroutines.CompletableDeferred<Unit>()
+        lateinit var lateMux: RemoteStreamMux
+        val lateMuxCreated = java.util.concurrent.atomic.AtomicBoolean(false)
+        val loop = ConnectionLoop(
+            muxFactory = {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    releaseFactory.await()
+                }
+                RemoteStreamMux { sink -> FakeChannel(sink) { } }
+                    .also {
+                        lateMux = it
+                        lateMuxCreated.set(true)
+                    }
+            },
+            sinks = recorder,
+            config = LoopConfig(streamOpenTimeoutMs = 30, readyTimeoutMs = 60, delay = { }),
+        )
+        loop.start()
+        assertTrue(await { recorder.states.contains(ConnectionState.RECONNECTING) })
+        loop.stop()
+        releaseFactory.complete(Unit)
+        assertTrue("loop must finish the late factory", await { lateMuxCreated.get() })
+        assertTrue("late mux must be closed after stop", lateMux.isClosed)
+    }
+
+    @Test
     fun `a socket that never opens reports a timeout, not silence`() = runBlocking {
         val recorder = Recorder()
         val loop = loop(recorder, open = { /* never calls onOpen */ })

@@ -79,6 +79,16 @@ internal fun effectiveForegroundCheckPending(
     recoveryInFlight: Boolean,
 ): Boolean = presentationPending && recoveryInFlight
 
+/** Keep the recovery fence visible when backgrounding during a retained reconnect. */
+internal fun shouldPreserveRecoveryPresentationOnBackground(
+    keepConnectedInBackground: Boolean,
+    phase: ConnectionPhase,
+    operationInFlight: Boolean,
+    retryScheduled: Boolean,
+): Boolean = keepConnectedInBackground &&
+    phase == ConnectionPhase.RECONNECTING &&
+    (operationInFlight || retryScheduled)
+
 /** A failed probe during a rebuild must leave a retry request for the operation boundary. */
 internal fun shouldArmRecoveryAfterProbeFailure(
     appInForeground: Boolean,

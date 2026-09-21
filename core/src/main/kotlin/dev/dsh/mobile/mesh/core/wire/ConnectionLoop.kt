@@ -18,6 +18,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerializationException
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.serialization.json.JsonElement
 
 /** Loop connection state: `connected` once the mux is open and `$events` has said `ready`. */
@@ -163,13 +164,21 @@ class ConnectionLoop(
     @Volatile
     private var job: Job? = null
 
+    /** Identifies the loop owner of [current], so a late cancellation cannot close a new mux. */
+    private val generationToken = AtomicLong(0)
+    private val loopToken = AtomicLong(0)
+
     @Volatile
     private var current: RemoteStreamMux? = null
+
+    @Volatile
+    private var currentToken: Long = 0L
 
     /** Begin the loop. Idempotent and serialized against [stop]. */
     fun start() = synchronized(lifecycleLock) {
         if (job != null) return@synchronized
-        job = scope.launch { runLoop() }
+        val token = loopToken.incrementAndGet()
+        job = scope.launch { runLoop(token) }
     }
 
     /** Stop the loop and tear down the mux. Idempotent and serialized against [start]. */
@@ -177,17 +186,18 @@ class ConnectionLoop(
         val running = job ?: return@synchronized
         job = null
         running.cancel()
-        closeGeneration()
+        closeGeneration(currentToken)
     }
 
     // ---------------------------------------------------------------- loop
 
-    private suspend fun runLoop() {
+    private suspend fun runLoop(ownerToken: Long) {
         var attempt = 0
         while (currentCoroutineContext().isActive) {
             val startedAt = System.nanoTime()
             safeSink { sinks.onStateChange(ConnectionState.RECONNECTING) }
-            when (val opened = openGeneration()) {
+            val token = generationToken.incrementAndGet()
+            when (val opened = openGeneration(ownerToken, token)) {
                 is Opened.Ok -> {
                     val elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
                     println("ConnectionLoop: generation connected in ${elapsedMs}ms")
@@ -195,13 +205,13 @@ class ConnectionLoop(
                     safeSink { sinks.onConnected(opened.generation) }
                     safeSink { sinks.onStateChange(ConnectionState.CONNECTED) }
                     consumeEvents(opened.events, opened.generation.mux, opened.generation.clientId)
-                    closeGeneration()
+                    closeGeneration(token, ownerToken)
                 }
 
                 is Opened.Failed -> {
                     attempt += 1
                     val reported = attempt
-                    closeGeneration()
+                    closeGeneration(token, ownerToken)
                     safeSink { sinks.onGenerationFailed(reported, opened.failure) }
                 }
             }
@@ -227,7 +237,7 @@ class ConnectionLoop(
      * handle rather than a cold flow: collecting a flow twice would open two event generations
      * for one connection.
      */
-    private suspend fun openGeneration(): Opened {
+    private suspend fun openGeneration(ownerToken: Long, token: Long): Opened {
         safeSink { sinks.onHandshakeStep(HandshakeStep.OPENING_MUX) }
         val mux = try {
             muxFactory()
@@ -238,7 +248,15 @@ class ConnectionLoop(
                 GenerationFailure.MuxFailed(TransportFailures.classify(e), e.message),
             )
         }
-        current = mux
+        val openingIsActive = currentCoroutineContext().isActive
+        synchronized(lifecycleLock) {
+            if (job == null || loopToken.get() != ownerToken || !openingIsActive) {
+                runCatching { mux.close() }
+                throw CancellationException("connection loop stopped while opening mux")
+            }
+            current = mux
+            currentToken = token
+        }
 
         try {
             mux.start()
@@ -354,9 +372,18 @@ class ConnectionLoop(
     }
 
     /** Tear down the current generation's socket. */
-    private fun closeGeneration() {
-        val mux = current
-        current = null
+    private fun closeGeneration(
+        token: Long,
+        ownerToken: Long = loopToken.get(),
+        allowWhenStopped: Boolean = false,
+    ) {
+        val mux = synchronized(lifecycleLock) {
+            if ((!allowWhenStopped && loopToken.get() != ownerToken) || currentToken != token) return
+            val value = current
+            current = null
+            currentToken = 0L
+            value
+        }
         if (mux != null) runCatching { mux.close() }
     }
 
