@@ -95,6 +95,12 @@ internal fun shouldPreserveRecoveryPresentationOnBackground(
     phase == ConnectionPhase.RECONNECTING &&
     (operationInFlight || retryScheduled)
 
+/** Retained connected carriers must be probed once after every background hop. */
+internal fun shouldRearmPublishedGenerationAfterBackground(
+    keepConnectedInBackground: Boolean,
+    hasConnected: Boolean,
+): Boolean = keepConnectedInBackground && hasConnected
+
 /** A failed probe during a rebuild must leave a retry request for the operation boundary. */
 internal fun shouldArmRecoveryAfterProbeFailure(
     appInForeground: Boolean,
