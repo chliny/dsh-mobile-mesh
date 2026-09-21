@@ -73,6 +73,9 @@ class SshTunnelManager @Inject constructor(
         fun newClient(): SSHClient = SSHClient(sshConfig).also {
             it.addHostKeyVerifier(AcceptAllHostKeyVerifier)
             it.setConnectTimeout(SSH_CONNECT_TIMEOUT_MS)
+            // SSHJ completes connect/auth through its transport callbacks and blocking API. The
+            // socket/transport timeout is only a safety ceiling for a peer that emits no event;
+            // readiness is decided by connect/auth returning, never by sleeping and rechecking.
             it.setTimeout(SSH_HANDSHAKE_TIMEOUT_MS)
             it.transport.setTimeoutMs(SSH_HANDSHAKE_TIMEOUT_MS)
         }
