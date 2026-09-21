@@ -86,6 +86,14 @@ class MainActivity : AppCompatActivity() {
         connectionManager.recoverForForeground()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Screen-off/lock can pause and resume the activity without a matching onStop. Treat the
+        // interactive resume as an explicit liveness boundary so a silently dead carrier still
+        // shows recovery and gets probed instead of remaining visually CONNECTED.
+        connectionManager.recoverForForeground(forceCheck = true)
+    }
+
     /**
      * Keep the resource layer's scheme in step when the preference *changes* while running.
      *
