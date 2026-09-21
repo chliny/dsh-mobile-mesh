@@ -804,11 +804,11 @@ class ConnectionManager @Inject constructor(
      * if the carrier was suspended or the underlying mobile network changed while backgrounded,
      * immediately rebuild the stale relay path. The cooldown absorbs duplicate activity resumes.
      */
-    fun recoverForForeground() {
+    fun recoverForForeground(forceCheck: Boolean = false) {
         val foregroundTiming = RecoveryTiming()
         val foregroundStartedAt = foregroundTiming.start("foreground-resume")
         synchronized(lifecycleTransitionLock) {
-            if (!shouldHandleLifecycleTransition(appInForeground, targetForeground = true)) {
+            if (!shouldHandleLifecycleTransition(appInForeground, targetForeground = true) && !forceCheck) {
                 foregroundTiming.phase("foreground-resume", foregroundStartedAt, "ignored", "duplicate=true")
                 return
             }
@@ -837,6 +837,14 @@ class ConnectionManager @Inject constructor(
         val currentBeforeResume = _state.value
         val currentPhaseBeforeResume = currentBeforeResume.phase
         val backgroundDurationBeforeResume = backgroundDurationSinceLastStopMs()
+        if (forceCheck && currentBeforeResume.hasConnected && currentPhaseBeforeResume == ConnectionPhase.CONNECTED) {
+            publishedGenerationNeedsProbe = true
+            _state.value = currentBeforeResume.copy(
+                foregroundCheckPending = true,
+                recoveryOverlayVisible = true,
+            )
+            Log.d("ConnectionManager", "Interactive resume forced foreground liveness check")
+        }
         // A very short background transition can clear the presentation latch in onStop before the
         // transport loop publishes RECONNECTING. Re-arm the global input fence from the authoritative
         // phase/gate snapshot so a yellow reconnecting status can never appear without the spinner.

@@ -74,6 +74,11 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `forced interactive resume can rearm connected generation`() {
+        assertTrue(shouldRearmPublishedGenerationAfterBackground(true, true))
+    }
+
+    @Test
     fun `retained connected carrier is probed after every background hop`() {
         assertTrue(shouldRearmPublishedGenerationAfterBackground(true, true))
         assertFalse(shouldRearmPublishedGenerationAfterBackground(true, false))
