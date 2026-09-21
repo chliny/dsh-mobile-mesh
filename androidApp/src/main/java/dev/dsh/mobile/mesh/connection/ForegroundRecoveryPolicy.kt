@@ -54,8 +54,8 @@ internal fun shouldPublishConnectedGeneration(
 
 internal const val FOREGROUND_VERIFY_AFTER_MS = 0L
 internal const val FOREGROUND_DIRECT_RECOVERY_AFTER_MS = 30_000L
-internal const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 1_500L
-internal const val FOREGROUND_RECOVERY_STEADY_RETRY_DELAY_MS = 8_000L
+internal const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 500L
+internal const val FOREGROUND_RECOVERY_STEADY_RETRY_DELAY_MS = 5_000L
 internal const val FOREGROUND_RECOVERY_FAST_ATTEMPTS = 3
 
 internal fun shouldReArmOnReplacementNetwork(

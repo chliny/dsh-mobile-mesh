@@ -25,6 +25,7 @@ import dev.dsh.mobile.mesh.core.wire.TransportFailures
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -33,6 +34,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -395,7 +397,9 @@ class ConnectionManager @Inject constructor(
         synchronized(operationLock) {
             val previousOperation = connectJob
             previousOperation?.cancel()
-            if (previousOperation?.isActive == true) meshTransport.cancelTailscaleStart()
+            if (previousOperation?.isActive == true) {
+                meshTransport.cancelTailscaleStart()
+            }
             cancelAuxiliaryOperations()
             retirePublishedConnection()
             val previousTeardown = teardownJob
@@ -450,6 +454,8 @@ class ConnectionManager @Inject constructor(
         val intent = target.value
         val config = intent.host
         val epoch = lifecycleEpoch
+        val timing = if (reconnect) RecoveryTiming() else null
+        val operationStartedAt = timing?.start("operation")
         activeHost = config
         pendingTransportReady = intent.afterTransportReady
         _state.value = ConnectionUiState(
@@ -464,6 +470,7 @@ class ConnectionManager @Inject constructor(
             tailscaleLoginUrl = _state.value.tailscaleLoginUrl,
         )
         suspend fun handleOperationFailure(error: Throwable) {
+            timing?.phase("operation", operationStartedAt ?: System.nanoTime(), "error", "type=${error::class.simpleName}")
             if (!lifecycle.accepts(target.token)) {
                 cleanupResources()
                 return
@@ -509,7 +516,7 @@ class ConnectionManager @Inject constructor(
             )
         }
         try {
-            val transportStartedAt = System.nanoTime()
+            val transportStartedAt = timing?.start("transport") ?: System.nanoTime()
             val baseUrl = lifecycleMutex.withLock {
                 val timeoutMs = transportOperationTimeoutMs(config, preservePendingIdentity)
                 withTimeout(timeoutMs) {
@@ -517,6 +524,7 @@ class ConnectionManager @Inject constructor(
                 }
             }
             val transportLatencyMs = heartbeatLatencySample(transportStartedAt, System.nanoTime())
+            timing?.phase("transport", transportStartedAt, "ok", "latencyMs=$transportLatencyMs")
             Log.d("ConnectionManager", "Transport stack returned; entering callback boundary reconnect=$reconnect preserve=$preservePendingIdentity latencyMs=$transportLatencyMs")
             val acceptsTransport = lifecycle.accepts(target.token)
             Log.d("ConnectionManager", "Transport acceptance=$acceptsTransport target=${target.token} epoch=$lifecycleEpoch")
@@ -541,6 +549,7 @@ class ConnectionManager @Inject constructor(
                 cleanupResources()
                 return
             }
+            val publishStartedAt = timing?.start("publish")
             val nextApi = clientFactory.clientFor(config, baseUrl = baseUrl)
             synchronized(publicationLock) {
                 if (!lifecycle.accepts(target.token)) return
@@ -550,6 +559,7 @@ class ConnectionManager @Inject constructor(
                 val token = loopFence.next()
                 loop = ConnectionLoop(muxFactory(config, baseUrl, transportLatencyMs), sinksFor(token), LoopConfig()).also { it.start() }
             }
+            timing?.phase("publish", publishStartedAt ?: System.nanoTime(), "ok")
             hostsStore.upsertHost(config)
             hostsStore.setActiveConnectionId(config.id)
         } catch (error: CancellationException) {
@@ -568,14 +578,17 @@ class ConnectionManager @Inject constructor(
                     recoveryOverlayVisible = false,
                 )
             }
+            timing?.phase("operation", operationStartedAt ?: System.nanoTime(), "finished")
             Log.d("ConnectionManager", "Connection operation finished (reconnect=$reconnect, epoch=$epoch)")
         }
     }
 
     private suspend fun cleanupResources() {
-        lifecycleMutex.withLock {
-            sshTunnel.stop()
-            meshTransport.stop()
+        withContext(NonCancellable) {
+            lifecycleMutex.withLock {
+                sshTunnel.stop()
+                meshTransport.stop()
+            }
         }
     }
 
@@ -624,6 +637,9 @@ class ConnectionManager @Inject constructor(
         synchronized(operationLock) {
             val previousOperation = connectJob
             previousOperation?.cancel()
+            if (previousOperation?.isActive == true) {
+                meshTransport.cancelTailscaleStart()
+            }
             cancelAuxiliaryOperations()
             retirePublishedConnection()
             pendingTransportReady = null
@@ -730,6 +746,10 @@ class ConnectionManager @Inject constructor(
             Log.d("ConnectionManager", "Transport recovery retry already scheduled")
             return false
         }
+        if (!appInForeground && !keepConnectedInBackground) {
+            Log.d("ConnectionManager", "Recovery deferred while background retention is disabled")
+            return false
+        }
         if (synchronized(operationLock) { connectJob?.isActive == true }) {
             Log.d("ConnectionManager", "Connection operation already in flight")
             return false
@@ -771,8 +791,13 @@ class ConnectionManager @Inject constructor(
      * immediately rebuild the stale relay path. The cooldown absorbs duplicate activity resumes.
      */
     fun recoverForForeground() {
+        val foregroundTiming = RecoveryTiming()
+        val foregroundStartedAt = foregroundTiming.start("foreground-resume")
         synchronized(lifecycleTransitionLock) {
-            if (!shouldHandleLifecycleTransition(appInForeground, targetForeground = true)) return
+            if (!shouldHandleLifecycleTransition(appInForeground, targetForeground = true)) {
+                foregroundTiming.phase("foreground-resume", foregroundStartedAt, "ignored", "duplicate=true")
+                return
+            }
             appInForeground = true
         }
         // Returning from Google sign-in can recreate the Activity while tsnet is still waiting for
@@ -782,6 +807,7 @@ class ConnectionManager @Inject constructor(
                 authorizationPending = _state.value.authorizationPending != null,
                 loginUrl = _state.value.tailscaleLoginUrl,
             )) {
+            foregroundTiming.phase("foreground-resume", foregroundStartedAt, "deferred", "authorization=true")
             Log.d("ConnectionManager", "Foreground recovery deferred during authorization")
             // The WebView may complete Google sign-in while this Activity is stopped. Kick one
             // immediate native status check on return instead of waiting for the ViewModel polling
@@ -838,6 +864,7 @@ class ConnectionManager @Inject constructor(
                         recoveryOverlayVisible = true,
                     )
                 }
+                foregroundTiming.phase("foreground-resume", foregroundStartedAt, "in-flight")
                 Log.d("ConnectionManager", "Foreground recovery already in flight; keeping current operation")
                 return
             }
@@ -867,6 +894,7 @@ class ConnectionManager @Inject constructor(
                     foregroundCheckPending = true,
                     recoveryOverlayVisible = true,
                 )
+                foregroundTiming.phase("foreground-resume", foregroundStartedAt, "restart", "host=${resumedTarget.value.host.id}")
                 Log.d("ConnectionManager", "Foreground resume starts latest desired connection for ${resumedTarget.value.host.id}")
                 replaceOperation(resumedTarget, reconnect = false)
             }
@@ -890,6 +918,7 @@ class ConnectionManager @Inject constructor(
                 ),
             ),
         )
+        foregroundTiming.phase("foreground-resume", foregroundStartedAt, "action", "phase=${current.phase} action=$action backgroundMs=$backgroundDuration")
         Log.d("ConnectionManager", "Foreground recovery requested: phase=${current.phase}, backgroundMs=$backgroundDuration, action=$action")
         if (action == ForegroundRecoveryAction.NONE && shouldClearConnectedRecoveryPresentation(
                 phase = current.phase,
@@ -1031,8 +1060,13 @@ class ConnectionManager @Inject constructor(
 
     /** Mark carrier callbacks as backgrounded; foreground recovery is resumed explicitly on resume. */
     fun onAppBackgrounded() {
+        val backgroundTiming = RecoveryTiming()
+        val backgroundStartedAt = backgroundTiming.start("background-transition")
         synchronized(lifecycleTransitionLock) {
-            if (!shouldHandleLifecycleTransition(appInForeground, targetForeground = false)) return
+            if (!shouldHandleLifecycleTransition(appInForeground, targetForeground = false)) {
+                backgroundTiming.phase("background-transition", backgroundStartedAt, "ignored", "duplicate=true")
+                return
+            }
             appInForeground = false
         }
         lifecycle.background()
@@ -1081,6 +1115,7 @@ class ConnectionManager @Inject constructor(
                 recoveryOverlayVisible = preserveRecoveryPresentation,
             )
         }
+        backgroundTiming.phase("background-transition", backgroundStartedAt, "retained", "phase=${_state.value.phase}")
     }
 
     /** Retry the retained mesh identity after an embedded authorization page completes. */
@@ -1133,9 +1168,9 @@ class ConnectionManager @Inject constructor(
         // endpoints first, then create fresh sockets against the retained ZeroTier node identity.
         // ZeroTierConnector.stop deliberately retains that process-global node, so this is not the
         // unsafe native NodeService teardown that previously crashed Pixel 3.
-        val sshStopStartedAt = timing.start("ssh-stop")
-        sshTunnel.stop()
-        timing.phase("ssh-stop", sshStopStartedAt, "ok")
+        // replaceOperation() already stopped the old SSH relay before entering this operation.
+        // Avoid a second close/interrupt cycle here: on mobile this can race the forwarder thread
+        // and needlessly delay the new relay.
         val meshStartedAt = timing.start("mesh-reconnect")
         val meshRelay = try {
             meshTransport.reconnect(config).also {

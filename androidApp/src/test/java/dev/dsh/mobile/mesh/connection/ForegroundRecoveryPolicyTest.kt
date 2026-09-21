@@ -89,9 +89,9 @@ class ForegroundRecoveryPolicyTest {
 
     @Test
     fun `quick retries stay fast before falling back to a slower cadence`() {
-        assertEquals(1_500L, recoveryRetryDelayMs(0))
-        assertEquals(1_500L, recoveryRetryDelayMs(2))
-        assertEquals(8_000L, recoveryRetryDelayMs(3))
+        assertEquals(500L, recoveryRetryDelayMs(0))
+        assertEquals(500L, recoveryRetryDelayMs(2))
+        assertEquals(5_000L, recoveryRetryDelayMs(3))
     }
 
     @Test
