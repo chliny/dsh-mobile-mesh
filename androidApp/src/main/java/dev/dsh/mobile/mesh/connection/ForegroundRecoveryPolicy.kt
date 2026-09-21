@@ -92,7 +92,7 @@ internal fun shouldPreserveRecoveryPresentationOnBackground(
     operationInFlight: Boolean,
     retryScheduled: Boolean,
 ): Boolean = keepConnectedInBackground &&
-    phase == ConnectionPhase.RECONNECTING &&
+    phase != ConnectionPhase.CONNECTED &&
     (operationInFlight || retryScheduled)
 
 /** Retained connected carriers must be probed once after every background hop. */
