@@ -2,6 +2,7 @@ package dev.dsh.mobile.mesh.ui.screens.connect
 
 import dev.dsh.mobile.mesh.core.wire.SessionExchange
 import dev.dsh.mobile.mesh.connection.HarnessSessionStore
+import dev.dsh.mobile.mesh.connection.shouldPairLaunchToken
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -276,9 +277,10 @@ class ConnectViewModel @Inject constructor(
                 }
                 val token = pendingLaunchToken
                 val host = conn.host
-                if (conn.failure is ConnectFailure.Unauthenticated && host != null && token != null &&
+                if (conn.failure is ConnectFailure.Unauthenticated && host != null &&
+                    shouldPairLaunchToken(hasSession = false, token = token) &&
                     tokenPairingJob?.isActive != true) {
-                    pairLaunchToken(host, token)
+                    pairLaunchToken(host, token!!)
                 }
             }
         }
@@ -828,7 +830,18 @@ class ConnectViewModel @Inject constructor(
                 // Keep the token pending until the exchange is granted. The transport startup can
                 // fail before this callback runs (or be cancelled by a lifecycle recovery), and
                 // clearing it early otherwise turns the next 401 into an unrecoverable retry loop.
-                val tokenToPair = pendingLaunchToken ?: run {
+                val tokenCandidate = pendingLaunchToken
+                if (!shouldPairLaunchToken(
+                        hasSession = harnessSessions.hasSession(host.id),
+                        token = tokenCandidate,
+                    )) {
+                    // A remembered host already has a valid browser session. Switching back to it
+                    // must not exchange the stale launch token again or surface a false token prompt.
+                    pendingLaunchToken = null
+                    Log.d("ConnectViewModel", "Transport ready; reusing persisted DSH browser session")
+                    return@connect
+                }
+                val tokenToPair = tokenCandidate ?: run {
                     Log.w("ConnectViewModel", "Transport ready without a pending launch token")
                     return@connect
                 }
