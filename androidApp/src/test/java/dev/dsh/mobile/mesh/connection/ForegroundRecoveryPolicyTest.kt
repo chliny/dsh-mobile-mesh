@@ -83,6 +83,7 @@ class ForegroundRecoveryPolicyTest {
     @Test
     fun `retained reconnect keeps recovery presentation across a background hop`() {
         assertTrue(shouldPreserveRecoveryPresentationOnBackground(true, ConnectionPhase.RECONNECTING, true, false))
+        assertTrue(shouldPreserveRecoveryPresentationOnBackground(true, ConnectionPhase.CONNECTING, true, false))
         assertTrue(shouldPreserveRecoveryPresentationOnBackground(true, ConnectionPhase.RECONNECTING, false, true))
         assertFalse(shouldPreserveRecoveryPresentationOnBackground(true, ConnectionPhase.CONNECTED, true, false))
         assertFalse(shouldPreserveRecoveryPresentationOnBackground(false, ConnectionPhase.RECONNECTING, true, false))
