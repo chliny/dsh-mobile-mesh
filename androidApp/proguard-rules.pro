@@ -11,6 +11,11 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
+# ZeroTier invokes this listener from native code through JNI reflection. Keep both the
+# interface method and every implementation; R8 cannot see the native call site.
+-keep interface com.zerotier.sockets.ZeroTierEventListener { *; }
+-keep class * implements com.zerotier.sockets.ZeroTierEventListener { *; }
+
 # OkHttp
 -dontwarn okhttp3.**
 -dontwarn okio.**
