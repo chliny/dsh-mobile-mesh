@@ -200,12 +200,20 @@ fun ConnectionsScreen(
                 title = stringResource(R.string.connect_update_token),
                 onClick = { menuHost = null; onUpdateToken(host) },
             )
+            val mutationEnabled = canMutateConnectionRow(
+                hostId = host.id,
+                connectedHostId = connectedHostId,
+                connectingHostId = connectingHostId,
+                phase = connectionPhase,
+            )
             SheetRow(
                 title = stringResource(R.string.common_edit),
+                enabled = mutationEnabled,
                 onClick = { menuHost = null; onEditHost(host) },
             )
             SheetRow(
                 title = stringResource(R.string.common_delete),
+                enabled = mutationEnabled,
                 onClick = { menuHost = null; deleteHost = host },
             )
         }

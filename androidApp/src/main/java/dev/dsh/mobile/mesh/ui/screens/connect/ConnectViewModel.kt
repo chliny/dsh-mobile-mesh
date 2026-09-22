@@ -199,7 +199,7 @@ class ConnectViewModel @Inject constructor(
             hostsStore.saveLaunchToken(host.id, token)
             // Retry with the freshly entered token attached to the same host snapshot. This avoids
             // the stale launchToken from the remembered list winning during a reconnect race.
-            connectTo(host.copy(launchToken = token), token)
+            connectTo(host.copy(launchToken = token), token, attemptAuthority = connectionAttemptAuthority(host.host, host.port, host.sshEnabled, host.sshPort))
         }
     }
 
@@ -250,7 +250,11 @@ class ConnectViewModel @Inject constructor(
                         // Whoever started the attempt owns this normally, but pairing connects
                         // through the manager directly — so a failure after pairing arrived with
                         // no address at all, and the message read "Something answered at , but…".
-                        attempted = current.attempted ?: conn.host?.authority,
+                        // Keep the SSH endpoint selected by a manual attempt; the manager only knows
+                        // the Harness config authority, which would incorrectly replace SSH :36000 with :3080.
+                        attempted = current.attempted ?: conn.host?.let { host ->
+                            connectionAttemptAuthority(host.host, host.port, host.sshEnabled, host.sshPort)
+                        },
                         retrying = !owned && !connected && conn.attempts > 0 && conn.phase != ConnectionPhase.DISCONNECTED,
                         // The Recent card's liveness dot used to be greyed by the failure callback
                         // that no longer exists; without this a dead entry keeps looking healthy.
@@ -533,7 +537,7 @@ class ConnectViewModel @Inject constructor(
             fail(ConnectFailure.InvalidInput, attempted = null)
             return
         }
-        val authority = "${input.host}:$portInt"
+        val authority = connectionAttemptAuthority(input.host, portInt, sshEnabled, sshPortInt)
         val isLoopback = input.host == LOOPBACK || input.host == "localhost"
 
         localStage = ConnectStage.Validating
@@ -560,7 +564,11 @@ class ConnectViewModel @Inject constructor(
                         privateKeyPassphrase = sshPrivateKeyPassphrase.takeIf { it.isNotEmpty() },
                     ),
                 )
-                connectTo(config, launchToken)
+                connectTo(
+                    config,
+                    launchToken,
+                    attemptAuthority = connectionAttemptAuthority(input.host, portInt, true, sshPortInt),
+                )
                 return@launch
             }
             localStage = ConnectStage.Reaching
@@ -622,7 +630,7 @@ class ConnectViewModel @Inject constructor(
             fail(ConnectFailure.InvalidInput, attempted = null)
             return
         }
-        val authority = "${input.host}:$portInt"
+        val authority = connectionAttemptAuthority(input.host, portInt, sshEnabled, sshPortInt)
         Log.d("ConnectViewModel", "Starting mesh connection to $authority transport=${transport.storedValue} ssh=$sshEnabled")
         localStage = ConnectStage.Reaching
         _state.update { it.copy(stage = ConnectStage.Reaching, failure = null, attempted = authority) }
@@ -652,7 +660,11 @@ class ConnectViewModel @Inject constructor(
                     privateKeyPassphrase = sshPrivateKeyPassphrase.takeIf { it.isNotEmpty() },
                 ),
             )
-            connectTo(config, launchToken)
+            connectTo(
+                config,
+                launchToken,
+                attemptAuthority = connectionAttemptAuthority(input.host, portInt, sshEnabled, sshPortInt),
+            )
         }
     }
 
@@ -689,6 +701,7 @@ class ConnectViewModel @Inject constructor(
         onSaved: () -> Unit = {},
         onFailed: (Throwable) -> Unit = {},
     ) {
+        if (existing != null && connectionManager.state.value.phase != ConnectionPhase.DISCONNECTED) return
         viewModelScope.launch {
             runCatching {
                 val input = parseHostInput(host) ?: error("invalid host address")
@@ -797,10 +810,20 @@ class ConnectViewModel @Inject constructor(
         connectTo(host)
     }
 
-    fun connectTo(host: HostConfig, launchToken: String? = null) {
+    fun connectTo(
+        host: HostConfig,
+        launchToken: String? = null,
+        attemptAuthority: String? = null,
+    ) {
         val requestId = connectFence.next()
         val token = launchToken?.trim()?.takeIf { it.isNotEmpty() }
             ?: host.launchToken.trim().takeIf { it.isNotEmpty() }
+        val displayAttempt = attemptAuthority ?: connectionAttemptAuthority(
+            host.host,
+            host.port,
+            host.sshEnabled,
+            host.sshPort,
+        )
         // Token ownership follows the latest host selection. Retaining the previous host's token
         // during a rapid switch can pair it against the replacement host and corrupt its session.
         pendingLaunchToken = token
@@ -815,7 +838,7 @@ class ConnectViewModel @Inject constructor(
                 tailscaleLoginUrl = null,
                 signInOpen = false,
                 signInHostId = null,
-                attempted = host.authority,
+                attempted = displayAttempt,
                 retrying = false,
             )
         }
@@ -913,6 +936,9 @@ class ConnectViewModel @Inject constructor(
     }
 
     fun forget(host: HostConfig) {
+        if (connectionManager.state.value.host?.id == host.id &&
+            connectionManager.state.value.phase != ConnectionPhase.DISCONNECTED
+        ) return
         viewModelScope.launch {
             sshSecrets.remove(host.id)
             hostsStore.removeHost(host.id)

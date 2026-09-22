@@ -116,7 +116,9 @@ fun ConnectScreen(
     var zeroTierPlanetError by rememberSaveable { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var tailscaleHostname by rememberSaveable { mutableStateOf("") }
-    var sshEnabled by rememberSaveable { mutableStateOf(true) }
+    // Direct Harness endpoints speak HTTP/WebSocket, not SSH. SSH is opt-in so a new connection
+    // to the Harness port (usually 3080) cannot accidentally start an SSH identification exchange.
+    var sshEnabled by rememberSaveable { mutableStateOf(false) }
     var sshPort by rememberSaveable { mutableStateOf("22") }
     var sshUsername by rememberSaveable { mutableStateOf("") }
     var sshAuthenticationKey by rememberSaveable { mutableStateOf("password") }
@@ -133,7 +135,9 @@ fun ConnectScreen(
     val editingHost = initialHost
     val formKey = editingHost?.id ?: "new"
     val connectedEditing = isEditingConnectedHost(editingHost?.id, connectedHostId)
-    val fieldsEnabled = !connectedEditing
+    val editingActive = connectedEditing || state.connecting
+    val mutationEnabled = shouldAllowConnectionMutation(editingHost?.id, connectedHostId, state.connecting)
+    val fieldsEnabled = !editingActive
     val newConnectionAction = shouldShowConnectAction(editingHost?.id, connectedHostId)
     LaunchedEffect(state.attempted, state.failure, state.authorizationPending) {
         if (state.attempted == null || state.failure != null) {
@@ -495,6 +499,7 @@ fun ConnectScreen(
                         DsButton(
                             text = stringResource(R.string.common_delete),
                             onClick = { confirmDelete = true },
+                            enabled = mutationEnabled,
                             variant = DsButtonVariant.Danger,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -518,6 +523,7 @@ fun ConnectScreen(
                             )
                         },
                         variant = DsButtonVariant.Outline,
+                        enabled = shouldEnableConnectionSave(editingHost?.id, connectedHostId, state.connecting),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     if (editingHost == null) DsButton(
@@ -565,7 +571,7 @@ fun ConnectScreen(
     }
     val pendingDeletion = editingHost
     DsToastHost(toast, modifier = Modifier.fillMaxWidth())
-    if (confirmDelete && pendingDeletion != null) {
+    if (confirmDelete && pendingDeletion != null && mutationEnabled) {
         DsDialog(
             title = stringResource(R.string.connect_delete_title),
             onDismiss = { confirmDelete = false },
