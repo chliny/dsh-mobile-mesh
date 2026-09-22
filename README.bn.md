@@ -31,7 +31,7 @@ DeepSeek Harness host-এ command চালাতে এবং file পড়ত
 
 ## সামঞ্জস্য
 
-পরীক্ষিত সংস্করণ: [dsh-v0.1.5-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.5-alpha.2), package `0.1.5-rc.2`।
+পরীক্ষিত সংস্করণ: [dsh-v0.1.6-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.6-alpha.2), package `0.1.6-alpha.2`।
 
 ## রেফারেন্স
 

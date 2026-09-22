@@ -31,7 +31,7 @@ DeepSeek Harness может выполнять команды и читать и
 
 ## Совместимость
 
-Проверенная версия: [dsh-v0.1.5-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.5-alpha.2), пакет `0.1.5-rc.2`.
+Проверенная версия: [dsh-v0.1.6-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.6-alpha.2), пакет `0.1.6-alpha.2`.
 
 ## Ссылки
 

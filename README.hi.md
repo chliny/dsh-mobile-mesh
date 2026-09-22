@@ -31,7 +31,7 @@ DeepSeek Harness host पर commands चला और files पढ़/लिख
 
 ## संगतता
 
-परीक्षित संस्करण: [dsh-v0.1.5-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.5-alpha.2), package `0.1.5-rc.2`।
+परीक्षित संस्करण: [dsh-v0.1.6-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.6-alpha.2), package `0.1.6-alpha.2`।
 
 ## संदर्भ
 
