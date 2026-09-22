@@ -7,11 +7,11 @@ import org.junit.Test
 
 class ConnectionRecoveryPolicyTest {
     @Test
-    fun `recovery overlay stays on existing page while reconnecting`() {
-        assertFalse(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.DISCONNECTED, false))
+    fun `recovery overlay blocks the existing page through every non-connected phase`() {
+        assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.DISCONNECTED, false))
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, false))
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, false, recoveryOverlayVisible = true))
-        assertFalse(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.CONNECTING, false))
+        assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.CONNECTING, false))
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, true))
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.CONNECTED, true))
         assertFalse(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.CONNECTED, false))

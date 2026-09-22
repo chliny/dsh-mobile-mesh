@@ -522,12 +522,17 @@ class MockHarness(
      * host has since replayed.
      */
     private fun judgeEventResult(payload: JsonElement): JsonElement {
-        val body = payload as? JsonObject ?: throw MockRefusal("bad-response")
+        val outer = payload as? JsonObject ?: throw MockRefusal("bad-response")
+        // Typert Remote calls put named parameters under `args`; accept the raw object as well so
+        // this judge remains useful for direct protocol fixtures.
+        val body = (outer["args"] as? JsonObject) ?: outer
         if ((body["clientId"] as? JsonPrimitive)?.contentOrNull != clientId) {
             throw MockRefusal("stale-generation")
         }
         val eventId = (body["eventId"] as? JsonPrimitive)?.contentOrNull
             ?: throw MockRefusal("bad-response")
+        // Approval waterfalls are answered through the same endpoint but have no question payload
+        // to validate. They still require the active generation binding.
         val pending = pendingQuestions[eventId] ?: return buildJsonObject { }
         val outcome = body["outcome"] as? JsonObject ?: throw MockRefusal("bad-response")
         when ((outcome["kind"] as? JsonPrimitive)?.contentOrNull) {
