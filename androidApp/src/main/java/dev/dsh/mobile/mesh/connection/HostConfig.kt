@@ -85,7 +85,8 @@ data class ConnectionDraft(
     /** Custom planet Base64 draft. It is not a credential and is capped by [ZeroTierPlanetStore]. */
     val zeroTierPlanetBase64: String = "",
     val tailscaleHostname: String = "",
-    val sshEnabled: Boolean = true,
+    /** Direct Harness connections use HTTP/WebSocket; SSH is an explicit opt-in transport. */
+    val sshEnabled: Boolean = false,
     val sshPort: String = "22",
     val sshUsername: String = "",
     val sshAuthentication: SshAuthentication = SshAuthentication.PASSWORD,

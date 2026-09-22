@@ -1000,7 +1000,7 @@ class ConnectionManager @Inject constructor(
                 // the authoritative signal that must re-arm recovery when no job is currently alive.
                 if (!shouldStartForegroundRecovery(
                         action,
-                        connectJob?.isActive == true,
+                        recoveryInFlight,
                     )) return
                 _state.value = _state.value.copy(foregroundCheckPending = true)
                 markCarrierRecoveryNeeded()
