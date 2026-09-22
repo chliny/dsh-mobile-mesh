@@ -480,8 +480,8 @@ object SessionFollowFrameSerializer : KSerializer<SessionFollowFrame> {
  * One frame of the host-wide `session/control` stream.
  *
  * One stream serves every live session, so a client can watch transient state without opening a
- * journal per transcript. Each generation emits exactly one [Baseline] first; queue and jobs
- * frames are complete replacement values applied last-wins, never deltas.
+ * journal per transcript. Each generation emits exactly one [Baseline] first. Current hosts carry
+ * queue state through the authoritative `inbox` projection; legacy hosts still send queue snapshots.
  */
 @Serializable(with = SessionControlFrameSerializer::class)
 sealed class SessionControlFrame {
@@ -495,7 +495,7 @@ sealed class SessionControlFrame {
         @SerialName("value") val value: SessionControlBaseline,
     ) : SessionControlFrame()
 
-    /** The authoritative pending queue for one session. */
+    /** Legacy authoritative pending queue sent by pre-inbox-projection hosts. */
     @Serializable
     data class Queue(
         @SerialName("type") override val type: String = "queue",
@@ -531,6 +531,7 @@ sealed class SessionControlFrame {
 /** The complete live-control baseline emitted once per control-stream generation. */
 @Serializable
 data class SessionControlBaseline(
+    /** Legacy complete queues from pre-inbox-projection hosts; ignored when a current inbox arrives. */
     @SerialName("queues") val queues: Map<String, List<QueuedInboxItem>> = emptyMap(),
     @SerialName("jobs") val jobs: Map<String, List<JobView>> = emptyMap(),
     @SerialName("projections") val projections: Map<String, JsonObject> = emptyMap(),

@@ -6,6 +6,7 @@ import dev.dsh.mobile.mesh.core.session.ChatNode
 import dev.dsh.mobile.mesh.core.session.CommandNode
 import dev.dsh.mobile.mesh.core.session.CompactionNode
 import dev.dsh.mobile.mesh.core.session.ContextMessageNode
+import dev.dsh.mobile.mesh.core.session.ChangesNode
 import dev.dsh.mobile.mesh.core.session.GoalNode
 import dev.dsh.mobile.mesh.core.session.OtherNode
 import dev.dsh.mobile.mesh.core.session.PlanModeNode
@@ -82,6 +83,7 @@ internal fun ChatNode.rendersContent(): Boolean = when (this) {
     is GoalNode -> parseGoal(data) != null
     is ProducedFilesNode -> this.paths.isNotEmpty()
     is PresentedFilesNode -> this.files.isNotEmpty()
+    is ChangesNode -> true
     is WorkflowNode -> data is JsonObject
 
     // Always draws.

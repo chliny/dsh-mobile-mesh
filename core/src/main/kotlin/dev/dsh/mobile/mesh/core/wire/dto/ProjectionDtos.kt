@@ -222,3 +222,25 @@ data class SessionListMetadataView(
     @SerialName("blank") val blank: Boolean = true,
     @SerialName("lastPromptAt") val lastPromptAt: Long? = null,
 )
+
+/** The `inbox` projection: pending input reconstructed from durable inbox splices. */
+@Serializable
+data class InboxView(
+    @SerialName("next-turn") val nextTurn: List<InboxMessageView> = emptyList(),
+    @SerialName("next-step") val nextStep: List<InboxMessageView> = emptyList(),
+)
+
+/** JSON-safe pending user message published by the `inbox` projection. */
+@Serializable
+data class InboxMessageView(
+    @SerialName("id") val id: String,
+    @SerialName("content") val content: List<ContentBlock> = emptyList(),
+    @SerialName("source") val source: InboxMessageSource? = null,
+)
+
+/** Origin metadata used to correlate an accepted prompt with its client request. */
+@Serializable
+data class InboxMessageSource(
+    @SerialName("kind") val kind: String? = null,
+    @SerialName("rpcId") val rpcId: String? = null,
+)

@@ -9,6 +9,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.EncodedImageAttachment
 import dev.dsh.mobile.mesh.core.wire.dto.PromptContentPart
 import dev.dsh.mobile.mesh.core.wire.dto.SessionPromptRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentPromptRequest
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceUnarchiveSessionRequest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -39,6 +40,7 @@ class DshApiClientRemoteTest {
         var lastUploadLength: Long = -1
         var lastUploadBytes: ByteArray = ByteArray(0)
         var uploadResponder: (() -> RpcHttpResponse)? = null
+        var rawBody: String? = null
 
         override suspend fun post(path: String, body: String): RpcHttpResponse {
             lastPath = path
@@ -51,7 +53,11 @@ class DshApiClientRemoteTest {
             consume: (String?, String?, InputStream) -> T,
         ): T {
             lastDownloadPath = path
-            return consume("application/zip", "attachment; filename=\"x.zip\"", ByteArrayInputStream(downloadBytes))
+            return if (rawBody != null) {
+                consume("application/json", null, ByteArrayInputStream(rawBody!!.toByteArray()))
+            } else {
+                consume("application/zip", "attachment; filename=\"x.zip\"", ByteArrayInputStream(downloadBytes))
+            }
         }
 
         override suspend fun upload(
@@ -76,6 +82,30 @@ class DshApiClientRemoteTest {
         status = 200,
         body = """{"type":"server-response","rpcId":"$rpcId","result":{"ok":true,"value":$value}}""",
     )
+
+    @Test
+    fun `changes summary reads the authenticated json route`() = runTest {
+        val transport = RecordingTransport { _, _ -> error("not used") }
+        transport.rawBody = """{"turn":3,"files":[{"path":"src/A.kt","display":"src/A.kt","added":2,"deleted":1}],"total":1,"added":2,"deleted":1}"""
+
+        val result = client(transport).changesSummary("session/7", 42)
+
+        assertEquals("/api/changes.summary?sessionId=session%2F7&seq=42", transport.lastDownloadPath)
+        assertEquals(3, (result as RpcResult.Ok).value.turn)
+        assertEquals("src/A.kt", result.value.files.single().path)
+    }
+
+    @Test
+    fun `changes diff preserves text and unified hunk data`() = runTest {
+        val transport = RecordingTransport { _, _ -> error("not used") }
+        transport.rawBody = """{"kind":"text","path":"A.kt","display":"A.kt","before":true,"after":true,"coarse":false,"hunks":[{"oldStart":1,"oldLines":1,"newStart":1,"newLines":2,"lines":["-old","+new"]}]}"""
+
+        val result = client(transport).changesDiff("s", 9, 0)
+
+        val diff = (result as RpcResult.Ok).value as dev.dsh.mobile.mesh.core.wire.dto.ChangesDiff.Text
+        assertEquals("A.kt", diff.path)
+        assertEquals(listOf("-old", "+new"), diff.hunks.single().lines)
+    }
 
     @Test
     fun `workspace files list posts scope id and non-empty root path`() = runTest {
@@ -313,6 +343,23 @@ class DshApiClientRemoteTest {
         val ids = List(64) { newPromptRequestId() }
         assertEquals(64, ids.toSet().size)
         assertTrue(ids.all { it.isNotBlank() })
+    }
+
+    @Test
+    fun `unarchive session uses the workspace request envelope`() = runTest {
+        val transport = RecordingTransport { _, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """{"archivedSessionIds":[]}""")
+        }
+
+        val result = client(transport).workspaceUnarchiveSession(WorkspaceUnarchiveSessionRequest("session-restore"))
+
+        assertEquals("/api/workspace/unarchiveSession", transport.lastPath)
+        val request = Json.parseToJsonElement(transport.lastBody!!)
+            .jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject["request"]!!.jsonObject
+        assertEquals(setOf("sessionId"), request.keys)
+        assertEquals("session-restore", request["sessionId"]!!.jsonPrimitive.content)
+        assertEquals(emptyList<String>(), (result as RpcResult.Ok).value.archivedSessionIds)
     }
 
     @Test

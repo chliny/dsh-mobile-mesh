@@ -42,6 +42,7 @@ data class PresentedFilesNode(
 ) : ChatNode
 
 data class PresentedFile(val path: String, val description: String? = null)
+data class ChangesNode(override val seq: Long, val turn: Int, val sessionId: String? = null) : ChatNode
 
 data class UserMessageNode(
     override val seq: Long,

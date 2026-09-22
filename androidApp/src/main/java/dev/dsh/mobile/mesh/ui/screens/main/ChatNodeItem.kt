@@ -46,6 +46,7 @@ import kotlinx.serialization.json.longOrNull
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ChatNode
+import dev.dsh.mobile.mesh.core.session.ChangesNode
 import dev.dsh.mobile.mesh.core.session.CommandNode
 import dev.dsh.mobile.mesh.core.session.CompactionNode
 import dev.dsh.mobile.mesh.core.session.ContextMessageNode
@@ -94,6 +95,8 @@ internal fun openWorkspacePath(context: ChatNodeContext, path: String, title: St
 
 internal data class ChatNodeContext(
     val nodes: List<ChatNode>,
+    val sessionId: String? = null,
+    val store: dev.dsh.mobile.mesh.data.SessionStore? = null,
     val running: Boolean,
     val cwd: String?,
     /** Host account home, used only to abbreviate a leftover home-rooted path as `~`. */
@@ -180,6 +183,8 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
         is ProducedFilesNode -> ProducedFilesRow(node.paths, context)
 
         is PresentedFilesNode -> PresentedFilesRow(node.files, context)
+
+        is ChangesNode -> ChangesRow(node, context)
 
         is PlanModeNode -> DsPill(
             text = stringResource(if (node.active) R.string.plan_mode_on else R.string.plan_mode_off),
