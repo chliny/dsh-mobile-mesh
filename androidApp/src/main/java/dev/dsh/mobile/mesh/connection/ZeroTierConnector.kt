@@ -213,34 +213,61 @@ private class ZeroTierRelay(
 
     fun start() {
         running = true
-        executor.execute {
-            while (running) {
-                val local = try { server.accept() } catch (_: IOException) { break }
-                executor.execute { forward(local) }
+        try {
+            executor.execute {
+                try {
+                    while (running) {
+                        val local = try { server.accept() } catch (_: IOException) { break }
+                        try {
+                            executor.execute { forward(local) }
+                        } catch (_: java.util.concurrent.RejectedExecutionException) {
+                            runCatching { local.close() }
+                            break
+                        }
+                    }
+                } catch (error: Throwable) {
+                    // This is an executor thread, not a coroutine: contain unexpected socket/JNI errors
+                    // so a relay lifecycle race cannot terminate the application process.
+                    Log.w(TAG, "ZeroTier relay accept loop failed", error)
+                }
             }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            running = false
+            runCatching { server.close() }
         }
     }
 
     private fun forward(local: Socket) {
-        val remote = connect()
-        if (remote == null) {
-            runCatching { local.close() }
-            return
+        var remote: ZeroTierSocket? = null
+        var handedToWorker = false
+        try {
+            remote = connect()
+            val connectedRemote = remote ?: return
+            // libzt maps SO_RCVTIMEO expiry to InputStream.read() == -1. The worker treats that as a
+            // poll while active and as the bounded wake-up signal after close(), avoiding a concurrent
+            // native close from the relay lifecycle thread.
+            runCatching { connectedRemote.setSoTimeout(NATIVE_READ_POLL_MILLIS) }
+            val worker = ZeroTierForwardWorker(
+                local = local,
+                remoteInput = connectedRemote.inputStream,
+                remoteOutput = connectedRemote.outputStream,
+                closeRemote = { connectedRemote.close() },
+                executor = executor,
+                onFinished = { workers.remove(it) },
+            )
+            workers.add(worker)
+            handedToWorker = true
+            if (running) worker.start() else worker.close()
+        } catch (error: Throwable) {
+            // A libzt socket can fail while its relay is being replaced. This executor owns no
+            // coroutine exception handler, so never let a native/JNI failure escape and kill the app.
+            Log.w(TAG, "ZeroTier forwarding worker setup failed", error)
+        } finally {
+            if (!handedToWorker) {
+                runCatching { local.close() }
+                runCatching { remote?.close() }
+            }
         }
-        // libzt maps SO_RCVTIMEO expiry to InputStream.read() == -1. The worker treats that as a
-        // poll while active and as the bounded wake-up signal after close(), avoiding a concurrent
-        // native close from the relay lifecycle thread.
-        runCatching { remote.setSoTimeout(NATIVE_READ_POLL_MILLIS) }
-        val worker = ZeroTierForwardWorker(
-            local = local,
-            remoteInput = remote.inputStream,
-            remoteOutput = remote.outputStream,
-            closeRemote = { remote.close() },
-            executor = executor,
-            onFinished = { workers.remove(it) },
-        )
-        workers.add(worker)
-        if (running) worker.start() else worker.close()
     }
 
     private fun connect(): ZeroTierSocket? {
@@ -291,24 +318,45 @@ internal class ZeroTierForwardWorker(
 
     fun start() {
         synchronized(stateLock) {
-            if (!started.compareAndSet(false, true) || closing.get()) return
+            if (started.get()) return
+            // close() and start() must choose one terminal transition under the same lock. The old
+            // CAS-before-lock could let close observe "started" while start then returned early,
+            // stranding the native socket with neither copy task owning its close.
+            if (closing.get()) {
+                completeUnstartedLocked()
+                return
+            }
             val localInput: InputStream
             val localOutput: OutputStream
             try {
-                // Capture both loopback streams before publishing worker tasks. close() may race this
-                // boundary during relay renewal; getOutputStream() on a just-closed Socket throws and
-                // must stay inside the worker lifecycle rather than escape an executor thread.
                 localInput = local.getInputStream()
                 localOutput = local.getOutputStream()
             } catch (_: IOException) {
-                finished.countDown()
-                finished.countDown()
-                finish()
+                completeUnstartedLocked()
                 return
             }
-            executor.execute { copy(localInput, remoteOutput, pollEndOfStream = false) }
-            executor.execute { copy(remoteInput, localOutput, pollEndOfStream = true) }
+            started.set(true)
+            var submitted = 0
+            try {
+                executor.execute { copy(localInput, remoteOutput, pollEndOfStream = false) }
+                submitted = 1
+                executor.execute { copy(remoteInput, localOutput, pollEndOfStream = true) }
+                submitted = 2
+            } catch (_: java.util.concurrent.RejectedExecutionException) {
+                closing.set(true)
+                runCatching { local.close() }
+                repeat(2 - submitted) { finished.countDown() }
+                if (finished.count == 0L) finish()
+            }
         }
+    }
+
+    private fun completeUnstartedLocked() {
+        if (started.get()) return
+        closing.set(true)
+        finished.countDown()
+        finished.countDown()
+        finish()
     }
 
     private fun copy(input: InputStream, output: OutputStream, pollEndOfStream: Boolean) {
@@ -337,13 +385,11 @@ internal class ZeroTierForwardWorker(
     }
 
     override fun close() {
-        synchronized(stateLock) { closing.set(true) }
-        runCatching { local.close() }
-        if (!started.get()) {
-            finished.countDown()
-            finished.countDown()
-            finish()
+        synchronized(stateLock) {
+            closing.set(true)
+            if (!started.get()) completeUnstartedLocked()
         }
+        runCatching { local.close() }
     }
 
     private fun finish() {

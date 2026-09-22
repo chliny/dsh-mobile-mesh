@@ -64,6 +64,30 @@ class RemoteStreamMuxLivenessTest {
         runCatching { stream.receive() }.exceptionOrNull()
 
     @Test
+    fun `start after close never creates a WebSocket`() {
+        val created = AtomicInteger()
+        val mux = RemoteStreamMux { sink ->
+            created.incrementAndGet()
+            FakeChannel(sink)
+        }
+        mux.close()
+        mux.start()
+        assertEquals(0, created.get())
+    }
+
+    @Test
+    fun `cancelling stream wakes a concurrent receiver`() = runBlocking {
+        val mux = RemoteStreamMux { sink -> FakeChannel(sink) }
+        mux.start()
+        mux.awaitOpen()
+        val stream = mux.open("session/follow")
+        val receiver = async { withTimeout(1_000) { stream.receive() } }
+        delay(1)
+        stream.cancel()
+        assertEquals(null, receiver.await())
+    }
+
+    @Test
     fun `open after close fails immediately without creating a stranded stream`() = runBlocking {
         val mux = RemoteStreamMux { sink -> FakeChannel(sink) }
         mux.close()

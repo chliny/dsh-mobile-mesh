@@ -2,6 +2,9 @@ package dev.dsh.mobile.mesh.connection
 
 import dev.dsh.mobile.mesh.core.wire.GenerationFailure
 import dev.dsh.mobile.mesh.core.wire.TransportFailure
+import dev.dsh.mobile.mesh.core.wire.RpcError
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -18,6 +21,22 @@ class CarrierRecoveryPolicyTest {
     fun `host authentication response never renews ZeroTier carrier`() {
         assertFalse(loopFailureCanRenewCarrier(GenerationFailure.MuxFailed(TransportFailure.UNAUTHENTICATED, "HTTP 401")))
         assertTrue(loopFailureCanRenewCarrier(GenerationFailure.MuxTimedOut(3_000)))
+    }
+
+    @Test
+    fun `ready timeout can renew a persistently stale ZeroTier relay`() {
+        assertTrue(loopFailureCanRenewCarrier(GenerationFailure.ReadyFailed(RpcError("internal", "no ready frame within 5000ms"))))
+        assertFalse(
+            loopFailureCanRenewCarrier(
+                GenerationFailure.ReadyFailed(
+                    RpcError(
+                        "unauthenticated",
+                        "expired",
+                        JsonObject(mapOf("transport" to JsonPrimitive(TransportFailure.UNAUTHENTICATED.name))),
+                    ),
+                ),
+            ),
+        )
     }
 
     @Test
