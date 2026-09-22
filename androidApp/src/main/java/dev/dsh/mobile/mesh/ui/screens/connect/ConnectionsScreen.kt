@@ -58,6 +58,7 @@ fun ConnectionsScreen(
     onUpdateToken: (HostConfig) -> Unit,
     onEditHost: (HostConfig) -> Unit,
     onDeleteHost: (HostConfig) -> Unit,
+    onDisconnect: () -> Unit = {},
     onAdd: () -> Unit,
     connectedHostId: String?,
     connectingHostId: String? = null,
@@ -181,6 +182,17 @@ fun ConnectionsScreen(
     }
     menuHost?.let { host ->
         DsDialog(title = host.name, onDismiss = { menuHost = null }) {
+            val disconnectEnabled = canDisconnectConnectionRow(
+                hostId = host.id,
+                connectedHostId = connectedHostId,
+                connectingHostId = connectingHostId,
+                phase = connectionPhase,
+            )
+            SheetRow(
+                title = stringResource(R.string.connect_disconnect),
+                enabled = disconnectEnabled,
+                onClick = { menuHost = null; onDisconnect() },
+            )
             SheetRow(
                 title = stringResource(R.string.connect_update_token),
                 onClick = { menuHost = null; onUpdateToken(host) },
