@@ -1151,7 +1151,7 @@ class ConnectionManager @Inject constructor(
         backgroundTiming.phase("background-transition", backgroundStartedAt, "retained", "phase=${_state.value.phase}")
     }
 
-    /** Retry the retained mesh identity after an embedded authorization page completes. */
+    /** Retry the retained mesh identity after the native authorization-completed event. */
     suspend fun resumeAuthorization() {
         authorizationResumeMutex.withLock {
             if (!shouldStartAuthorizationResume(

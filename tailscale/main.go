@@ -294,22 +294,42 @@ func waitForRunning(client *local.Client) bool {
 }
 
 func waitForRunningCancelable(client *local.Client, cancel <-chan struct{}) bool {
-	deadline := time.Now().Add(statusWaitWindow)
-	for time.Now().Before(deadline) {
+	// Status is checked once to close the already-completed race. After that, the IPN bus is the
+	// authoritative completion source; do not poll status on a timer while the user is signing in.
+	if status, err := getStatusWithTimeout(client, statusPollTimeout); err == nil && status.BackendState == ipn.Running.String() {
+		return true
+	}
+	ctx, cancelContext := context.WithTimeout(context.Background(), statusWaitWindow)
+	defer cancelContext()
+	watcher, err := client.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyInitialStatus)
+	if err != nil {
+		return false
+	}
+	defer watcher.Close()
+	if cancel != nil {
+		go func() {
+			select {
+			case <-cancel:
+				_ = watcher.Close()
+			case <-ctx.Done():
+			}
+		}()
+	}
+	for {
 		if cancel != nil && startCancelled(cancel) {
 			return false
 		}
-		status, err := getStatusWithTimeout(client, statusPollTimeout)
-		if err == nil && status.BackendState == ipn.Running.String() {
+		notify, err := watcher.Next()
+		if err != nil {
+			return false
+		}
+		if notify.InitialStatus != nil && notify.InitialStatus.BackendState == ipn.Running.String() {
 			return true
 		}
-		select {
-		case <-cancel:
-			return false
-		case <-time.After(statusPollDelay):
+		if notify.State != nil && *notify.State == ipn.Running {
+			return true
 		}
 	}
-	return false
 }
 
 func firstError(primary, secondary error) error {
