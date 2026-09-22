@@ -188,6 +188,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     showConnectPage = true
                     showConnections = false
                 },
+                onDisconnect = connectViewModel::cancelConnect,
                 onDeleteHost = { host ->
                     connectViewModel.forget(host)
                     if (host.id == connection.host?.id) viewModel.reconnect()
