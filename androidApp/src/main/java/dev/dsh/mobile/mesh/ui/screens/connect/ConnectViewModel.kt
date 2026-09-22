@@ -37,7 +37,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import java.net.InetAddress
@@ -743,7 +742,9 @@ class ConnectViewModel @Inject constructor(
         _state.update { it.copy(stage = ConnectStage.Idle, failure = null, retrying = false) }
     }
 
-    fun resumeTailscaleLogin() = startTailscaleLoginPolling()
+    fun resumeTailscaleLogin() {
+        startTailscaleLoginPolling()
+    }
 
     fun cancelTailscaleLogin() {
         tailscaleLoginJob?.cancel()
@@ -752,21 +753,15 @@ class ConnectViewModel @Inject constructor(
     }
 
     private fun startTailscaleLoginPolling() {
+        // Tailscale's native watcher is event-driven: login completion is observed by the retained
+        // tsnet IPN bus and resumeAuthorization performs one serialized retry. Do not poll the same
+        // identity from the UI every ten seconds, which races relay replacement and obscures the
+        // authoritative completion event.
         if (tailscaleLoginJob?.isActive == true) return
         tailscaleLoginJob = viewModelScope.launch {
-            val startedAt = System.currentTimeMillis()
-            while (true) {
-                delay(TAILSCALE_LOGIN_POLL_INTERVAL_MS)
-                connectionManager.resumeAuthorization()
-                val state = _state.value
-                if (!dev.dsh.mobile.mesh.connection.shouldContinueAuthorizationPolling(
-                        elapsedMs = System.currentTimeMillis() - startedAt,
-                        authorizationPending = state.authorizationPending != null,
-                        connected = state.stage == ConnectStage.Connected,
-                        failed = state.failure != null,
-                        maxDurationMs = TAILSCALE_LOGIN_POLL_MAX_DURATION_MS,
-                    )) break
-            }
+            connectionManager.resumeAuthorization()
+        }.also { job ->
+            job.invokeOnCompletion { tailscaleLoginJob = null }
         }
     }
 
@@ -964,12 +959,5 @@ class ConnectViewModel @Inject constructor(
     private companion object {
         const val LOOPBACK = "127.0.0.1"
         const val DEFAULT_PORT = 3080
-        // Tailscale's retained tsnet identity is polled conservatively while the WebView is open;
-        // a short interval repeatedly tears down and rebuilds the SSH relay before authorization can
-        // complete.
-        const val TAILSCALE_LOGIN_POLL_INTERVAL_MS = 10_000L
-        // The WebView is event-driven: it closes only after authorization settles or the user
-        // dismisses it. Keep a practically unbounded guard for process/pathological failures.
-        const val TAILSCALE_LOGIN_POLL_MAX_DURATION_MS = Long.MAX_VALUE
     }
 }

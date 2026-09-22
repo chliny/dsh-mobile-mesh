@@ -1,13 +1,12 @@
 package dev.dsh.mobile.mesh.connection
 
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AuthorizationPollingPolicyTest {
     @Test
-    fun `pending authorization polls inside bounded window`() {
-        assertTrue(shouldContinueAuthorizationPolling(10_000, true, false, false, 120_000))
+    fun `pending authorization does not poll while native event watcher owns completion`() {
+        assertFalse(shouldContinueAuthorizationPolling(10_000, true, false, false, 120_000))
     }
 
     @Test
