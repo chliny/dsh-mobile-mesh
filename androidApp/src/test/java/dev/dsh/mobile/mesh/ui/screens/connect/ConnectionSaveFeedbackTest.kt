@@ -13,4 +13,9 @@ class ConnectionSaveFeedbackTest {
     fun `failed save includes the error message`() {
         assertEquals("failed: disk full", connectionSaveFeedback(IllegalStateException("disk full"), "saved", "failed"))
     }
+
+    @Test
+    fun `failed save falls back to exception type when message is blank`() {
+        assertEquals("failed: IllegalStateException", connectionSaveFeedback(IllegalStateException("  "), "saved", "failed"))
+    }
 }

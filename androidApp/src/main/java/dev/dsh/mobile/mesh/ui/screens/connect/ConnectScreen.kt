@@ -88,7 +88,11 @@ internal fun shouldEnableConnectButton(connectInFlight: Boolean, formValid: Bool
  *
  */
 internal fun connectionSaveFeedback(error: Throwable?, success: String, failurePrefix: String): String =
-    error?.let { "$failurePrefix: ${it.message ?: it.javaClass.simpleName}" } ?: success
+    error?.let {
+        val detail = it.message?.trim().takeUnless { message -> message.isNullOrEmpty() }
+            ?: it.javaClass.simpleName
+        "$failurePrefix: $detail"
+    } ?: success
 
 @Composable
 fun ConnectScreen(
@@ -516,7 +520,7 @@ fun ConnectScreen(
                                 sshAuthentication = sshAuthentication, sshPassword = sshPassword,
                                 sshPrivateKey = sshPrivateKey, sshPrivateKeyPassphrase = sshPrivateKeyPassphrase,
                                 sshDshHost = sshDshHost, launchToken = launchToken,
-                                onSaved = { toast.second(connectionSaveFeedback(null, context.getString(R.string.connect_save_success), context.getString(R.string.connect_save_failed, ""))) },
+                                onSaved = { toast.second(context.getString(R.string.connect_save_success)) },
                                 onFailed = { error ->
                                     toast.second(connectionSaveFeedback(error, context.getString(R.string.connect_save_success), context.getString(R.string.connect_save_failed, "").removeSuffix(": ")))
                                 },
