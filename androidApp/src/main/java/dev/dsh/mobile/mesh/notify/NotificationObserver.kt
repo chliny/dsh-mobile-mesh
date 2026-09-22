@@ -10,6 +10,7 @@ import dev.dsh.mobile.mesh.core.notify.CompletionEvent
 import dev.dsh.mobile.mesh.core.session.SessionEventEnvelope
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventFrame
 import dev.dsh.mobile.mesh.data.SessionStore
+import dev.dsh.mobile.mesh.ui.AppNavigationState
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -41,6 +42,7 @@ class NotificationObserver @Inject constructor(
     private val connectionManager: ConnectionManager,
     private val notifications: DshNotifications,
     private val hostsStore: HostsStore,
+    private val navigationState: AppNavigationState,
     @ApplicationContext private val context: Context,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -105,7 +107,7 @@ class NotificationObserver @Inject constructor(
 
     private fun maybeNotify(event: CompletionEvent) {
         if (!notifications.canPost()) return
-        if (store.isSessionOpen(event.sessionId)) return
+        if (navigationState.isChatVisible(event.sessionId)) return
 
         val spec = when (event) {
             is CompletionEvent.TurnComplete -> {

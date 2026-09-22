@@ -372,11 +372,6 @@ class ConnectionManager @Inject constructor(
 
     fun apiForEvent(clientId: String): DshApiClient? = eventApis[clientId]
 
-    fun bindEventApi(clientId: String, client: DshApiClient) {
-        eventApis[clientId] = client
-    }
-
-
     /** Effective origin for pairing while the active mesh/SSH relay is alive. */
     fun pairingBaseUrl(config: HostConfig): String =
         activeBaseUrl.takeIf { activeHost?.id == config.id } ?: config.baseUrl

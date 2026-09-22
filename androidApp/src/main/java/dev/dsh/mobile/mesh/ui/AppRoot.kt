@@ -33,7 +33,6 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
 import dev.dsh.mobile.mesh.ui.components.DsDialog
-import dev.dsh.mobile.mesh.connection.HostConfig
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectViewModel
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectUiState
@@ -53,9 +52,6 @@ import dev.dsh.mobile.mesh.update.AvailableUpdate
 internal fun shouldShowStartupConnections(hasConnected: Boolean, editingConnection: Boolean): Boolean =
     !hasConnected && !editingConnection
 
-internal fun shouldRouteToSessionListAfterConnection(hasConnected: Boolean, editingConnection: Boolean): Boolean =
-    hasConnected && !editingConnection
-
 internal fun shouldRouteSelectedConnection(
     phaseConnected: Boolean,
     selectedAuthority: String?,
@@ -64,6 +60,9 @@ internal fun shouldRouteSelectedConnection(
     awaitingSelectedConnection: Boolean,
 ): Boolean = awaitingSelectedConnection &&
     phaseConnected && !editing && selectedAuthority != null && selectedAuthority == activeAuthority
+
+internal fun resolveEditingHostId(editingHostId: String?, availableHostIds: Collection<String>): String? =
+    editingHostId?.takeIf { it in availableHostIds }
 
 internal fun shouldShowConnectionTokenPrompt(
     showingConnections: Boolean,
@@ -81,6 +80,8 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
     val connectViewModel: ConnectViewModel = hiltViewModel()
     val connectUiState by connectViewModel.state.collectAsStateWithLifecycle()
     val sessionStore = rememberSessionStore()
+    val navigationState = rememberAppNavigationState()
+    val sessionRoute by navigationState.sessionRoute.collectAsStateWithLifecycle()
     val themePreference = remember(settings.themePreference) {
         runCatching { ThemePreference.valueOf(settings.themePreference.uppercase()) }
             .getOrDefault(ThemePreference.SYSTEM)
@@ -97,7 +98,9 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         var connectionListOrigin by rememberSaveable { mutableStateOf(ConnectionListOrigin.STARTUP) }
         var returnToConnections by rememberSaveable { mutableStateOf(false) }
         var awaitingSelectedConnection by rememberSaveable { mutableStateOf(false) }
-        var editingHost by remember { mutableStateOf<HostConfig?>(null) }
+        var editingHostId by rememberSaveable { mutableStateOf<String?>(null) }
+        val editingHost = resolveEditingHostId(editingHostId, hosts.map { it.id })
+            ?.let { id -> hosts.firstOrNull { it.id == id } }
         var connectFormInstance by rememberSaveable { mutableIntStateOf(0) }
         var hasRenderedConnectedPage by rememberSaveable { mutableStateOf(false) }
         var renderedConnectedHostId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -117,6 +120,16 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         // The native login URL is the authoritative signal for showing authorization. A fast
         // state emission must not leave the user on the connection form with a valid URL pending.
         val showTailscaleLogin = connectUiState.tailscaleLoginUrl?.isNotBlank() == true
+        LaunchedEffect(sessionRoute, connection.hasConnected) {
+            val route = sessionRoute ?: return@LaunchedEffect
+            if (!connection.hasConnected) return@LaunchedEffect
+            sessionStore.openSession(route.sessionId)
+            showSettings = false
+            showConnectPage = false
+            showConnections = false
+            showSessionList = false
+            navigationState.consume(route)
+        }
         LaunchedEffect(connection.phase, connection.host?.id, connectUiState.attempted) {
             val selectedConnectionIsReady = shouldRouteSelectedConnection(
                 phaseConnected = connection.phase == ConnectionPhase.CONNECTED,
@@ -140,7 +153,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 onClose = {
                     showConnections = false
                     showConnectPage = false
-                    editingHost = null
+                    editingHostId = null
                     when (connectionListBackTarget(connectionListOrigin)) {
                         ConnectionListOrigin.SETTINGS -> showSettings = true
                         ConnectionListOrigin.SESSION -> showSessionList = true
@@ -169,7 +182,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 },
                 onUpdateToken = connectViewModel::requestTokenUpdate,
                 onEditHost = { host ->
-                    editingHost = host
+                    editingHostId = host.id
                     returnToConnections = true
                     connectFormInstance++
                     showConnectPage = true
@@ -181,7 +194,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 },
                 onAdd = {
                     connectViewModel.cancelConnect()
-                    editingHost = null
+                    editingHostId = null
                     returnToConnections = true
                     connectFormInstance++
                     showConnectPage = true
@@ -218,7 +231,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     onClose = if (connection.hasConnected) ({ showConnectPage = false }) else null,
                     onOpenConnections = if (returnToConnections) ({
                         showConnectPage = false
-                        editingHost = null
+                        editingHostId = null
                         showConnections = true
                     }) else null,
                     initialHost = editingHost,

@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -34,6 +36,16 @@ data class AvailableUpdate(val version: String, val url: String)
  *
  * A free function so the comparison can be tested without a network.
  */
+internal class ConclusiveCheckGate {
+    private val mutex = Mutex()
+    private var complete = false
+
+    suspend fun run(attempt: suspend () -> Boolean) = mutex.withLock {
+        if (complete) return@withLock
+        complete = attempt()
+    }
+}
+
 internal fun isNewerVersion(candidate: String, current: String): Boolean {
     fun parts(value: String): List<Int> = value.trim()
         .removePrefix("v")
@@ -73,21 +85,20 @@ class UpdateChecker @Inject constructor(
     /** The update to offer, or null when there is none, none wanted, or none confirmed yet. */
     val available: StateFlow<AvailableUpdate?> = _available.asStateFlow()
 
-    /** Run at most once per process; the release list does not change while the app is open. */
-    @Volatile
-    private var checked = false
+    /** Serialize attempts; only a conclusive check is retained for the rest of this process. */
+    private val checkGate = ConclusiveCheckGate()
 
-    suspend fun checkOnce(currentVersion: String) {
-        if (checked) return
-        checked = true
-        val settings = runCatching { hostsStore.settingsOnce() }.getOrNull() ?: return
-        if (!settings.updateCheckEnabled) return
+    suspend fun checkOnce(currentVersion: String) = checkGate.run {
+        val settings = runCatching { hostsStore.settingsOnce() }.getOrNull()
+            ?: return@run false
+        if (!settings.updateCheckEnabled) return@run true
 
-        val release = fetchLatest() ?: return
+        val release = fetchLatest() ?: return@run false
         val version = release.tagName.trim().removePrefix("v")
-        if (version.isEmpty() || !isNewerVersion(version, currentVersion)) return
-        if (settings.dismissedUpdate == version) return
-        _available.value = AvailableUpdate(version, release.htmlUrl.ifBlank { RELEASES_URL })
+        if (version.isNotEmpty() && isNewerVersion(version, currentVersion) && settings.dismissedUpdate != version) {
+            _available.value = AvailableUpdate(version, release.htmlUrl.ifBlank { RELEASES_URL })
+        }
+        true
     }
 
     /** Stop offering [version]; a later release will still be offered. */

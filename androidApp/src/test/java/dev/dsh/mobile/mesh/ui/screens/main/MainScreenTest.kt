@@ -33,6 +33,13 @@ class MainScreenTest {
     }
 
     @Test
+    fun `serializable main page route restores files and preview destinations`() {
+        assertEquals("files", MainPageRoute(kind = "files", path = "src").restoredKind())
+        assertEquals("preview", MainPageRoute(kind = "preview", path = "README.md", returnKind = "files").restoredKind())
+        assertEquals("chat", MainPageRoute(kind = "unknown").restoredKind())
+    }
+
+    @Test
     fun `invalid preview paths are rejected`() {
         assertNull(safePreviewPath("", "/home/me/project"))
         assertNull(safePreviewPath(".", "/home/me/project"))

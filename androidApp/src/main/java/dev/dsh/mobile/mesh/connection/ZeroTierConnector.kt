@@ -12,9 +12,12 @@ import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
-import java.util.Collections
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -197,10 +200,10 @@ class ZeroTierConnector @Inject constructor(
 private class ZeroTierRelay(
     private val addresses: List<String>,
     private val remotePort: Int,
-    private val executor: java.util.concurrent.ExecutorService,
+    private val executor: ExecutorService,
 ) : Closeable {
     private val server = ServerSocket(0, 32, InetAddress.getByName("127.0.0.1"))
-    private val sockets = Collections.newSetFromMap(ConcurrentHashMap<ZeroTierSocket, Boolean>())
+    private val workers = ConcurrentHashMap.newKeySet<ZeroTierForwardWorker>()
     @Volatile private var running = false
     val localPort: Int get() = server.localPort
     val relay: MeshRelay get() = MeshRelay("127.0.0.1", localPort)
@@ -219,43 +222,25 @@ private class ZeroTierRelay(
     }
 
     private fun forward(local: Socket) {
-        local.use { client ->
-            val remote = connect() ?: return
-            sockets.add(remote)
-            // libzt owns the native socket object. Never close it while either copy direction is
-            // still inside a native read/write: the old "close on first EOF" implementation raced
-            // the other worker and produced a reproducible Pixel 3 SIGSEGV when the user switched
-            // chats during foreground recovery. First close only the Java loopback socket to make
-            // the peer direction finish; close the native socket only after both workers returned.
-            val finished = java.util.concurrent.CountDownLatch(2)
-            val localClosed = AtomicBoolean(false)
-            fun directionFinished() {
-                finished.countDown()
-                if (localClosed.compareAndSet(false, true)) runCatching { client.close() }
-            }
-            val upstream = executor.submit {
-                try {
-                    // Socket closure is the normal termination signal for a relay worker.
-                    runCatching { client.getInputStream().copyTo(remote.outputStream) }
-                } finally {
-                    directionFinished()
-                }
-            }
-            try {
-                runCatching { remote.inputStream.copyTo(client.getOutputStream()) }
-            } finally {
-                directionFinished()
-                // Close only after both copy directions have left native read/write. This preserves
-                // the ordering that avoids the Pixel 3 libzt callback race.
-                if (finished.await(2, java.util.concurrent.TimeUnit.SECONDS)) {
-                    sockets.remove(remote)
-                    runCatching { remote.close() }
-                } else {
-                    Log.w(TAG, "Leaving stalled ZeroTier socket for native cleanup")
-                }
-                runCatching { upstream.get(2, java.util.concurrent.TimeUnit.SECONDS) }
-            }
+        val remote = connect()
+        if (remote == null) {
+            runCatching { local.close() }
+            return
         }
+        // libzt maps SO_RCVTIMEO expiry to InputStream.read() == -1. The worker treats that as a
+        // poll while active and as the bounded wake-up signal after close(), avoiding a concurrent
+        // native close from the relay lifecycle thread.
+        runCatching { remote.setSoTimeout(NATIVE_READ_POLL_MILLIS) }
+        val worker = ZeroTierForwardWorker(
+            local = local,
+            remoteInput = remote.inputStream,
+            remoteOutput = remote.outputStream,
+            closeRemote = { remote.close() },
+            executor = executor,
+            onFinished = { workers.remove(it) },
+        )
+        workers.add(worker)
+        if (running) worker.start() else worker.close()
     }
 
     private fun connect(): ZeroTierSocket? {
@@ -277,13 +262,77 @@ private class ZeroTierRelay(
     override fun close() {
         running = false
         runCatching { server.close() }
-        // Do not concurrently close live libzt sockets from the relay lifecycle thread. Their
-        // forwarding workers own the close transition; interrupting the Java loopback endpoints
-        // makes those workers complete and close each native socket exactly once.
-        // Existing forwarding workers retain ownership until their streams naturally finish.
+        // Do not close libzt here: a worker may still be inside a native read/write, and doing so
+        // concurrently produced a Pixel 3 SIGSEGV. Closing each loopback endpoint makes its peer
+        // copy return. The worker then waits for both directions and is the sole owner that closes
+        // the native socket after no native I/O remains.
+        workers.toList().forEach(ZeroTierForwardWorker::close)
     }
 
     private companion object {
         const val TAG = "ZeroTierRelay"
+        const val NATIVE_READ_POLL_MILLIS = 250
+    }
+}
+
+internal class ZeroTierForwardWorker(
+    private val local: Socket,
+    private val remoteInput: InputStream,
+    private val remoteOutput: OutputStream,
+    private val closeRemote: () -> Unit,
+    private val executor: ExecutorService,
+    private val onFinished: (ZeroTierForwardWorker) -> Unit,
+) : Closeable {
+    private val started = AtomicBoolean(false)
+    private val closing = AtomicBoolean(false)
+    private val finished = CountDownLatch(2)
+    private val remoteClosed = AtomicBoolean(false)
+
+    fun start() {
+        if (!started.compareAndSet(false, true)) return
+        executor.execute { copy(local.getInputStream(), remoteOutput, pollEndOfStream = false) }
+        executor.execute { copy(remoteInput, local.getOutputStream(), pollEndOfStream = true) }
+    }
+
+    private fun copy(input: InputStream, output: OutputStream, pollEndOfStream: Boolean) {
+        try {
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (!closing.get()) {
+                val count = try {
+                    input.read(buffer)
+                } catch (_: IOException) {
+                    break
+                }
+                if (count > 0) {
+                    if (runCatching { output.write(buffer, 0, count) }.isFailure) break
+                } else if (!pollEndOfStream) {
+                    break
+                }
+                // For libzt, -1 can mean SO_RCVTIMEO rather than peer EOF. Poll again while active;
+                // after close() it becomes the bounded exit path without closing native I/O here.
+            }
+        } finally {
+            finished.countDown()
+            // Closing the Java loopback socket is safe from either direction and wakes its peer.
+            runCatching { local.close() }
+            if (finished.count == 0L) finish()
+        }
+    }
+
+    override fun close() {
+        closing.set(true)
+        runCatching { local.close() }
+        if (!started.get()) {
+            finished.countDown()
+            finished.countDown()
+            finish()
+        }
+    }
+
+    private fun finish() {
+        if (!remoteClosed.compareAndSet(false, true)) return
+        // Both copy tasks have returned, so no thread is inside a libzt read/write anymore.
+        runCatching(closeRemote)
+        onFinished(this)
     }
 }
