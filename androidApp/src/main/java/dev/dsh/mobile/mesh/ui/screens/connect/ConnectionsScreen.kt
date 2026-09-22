@@ -75,7 +75,10 @@ fun ConnectionsScreen(
     var tokenHost by remember { mutableStateOf<HostConfig?>(null) }
     var menuHost by remember { mutableStateOf<HostConfig?>(null) }
     var deleteHost by remember { mutableStateOf<HostConfig?>(null) }
-    BackHandler(onBack = onClose)
+    BackHandler(
+        enabled = true,
+        onBack = { if (shouldAllowConnectionListBack(connectionState.connecting)) onClose() },
+    )
 
     Surface(modifier = Modifier.fillMaxSize(), color = colors.bgBase) {
         Column(
