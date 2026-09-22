@@ -159,6 +159,7 @@
     <string name="chatlist_session_rename">Rename session</string>
     <string name="chatlist_session_fork">Fork session</string>
     <string name="chatlist_session_archive">Archive session</string>
+    <string name="chatlist_session_unarchive">Restore session</string>
     <string name="chatlist_group_by_workspace">Group by workspace</string>
     <string name="chatlist_sort_updated">Sort by last update</string>
     <string name="chatlist_sort_manual">Manual order</string>
@@ -223,6 +224,9 @@
     <string name="chat_stats_line">%1$d turns · %2$d steps · %3$s · %4$s</string>
     <string name="chat_produced_files">Produced</string>
     <string name="chat_delivered_files">Delivered files</string>
+    <string name="chat_changes">Changed files</string>
+    <string name="chat_changes_count">%1$d files · +%2$d -%3$d lines</string>
+    <string name="chat_changes_loading">Loading changes…</string>
     <string name="chat_delivered_files_expand">Show all %1$d files</string>
     <string name="chat_delivered_files_collapse">Collapse %1$d files</string>
     <string name="chat_more_files">+%1$d files</string>

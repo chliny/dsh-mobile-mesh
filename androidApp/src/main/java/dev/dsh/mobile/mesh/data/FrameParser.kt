@@ -5,8 +5,9 @@ import dev.dsh.mobile.mesh.core.session.SessionEventEnvelope
 import dev.dsh.mobile.mesh.core.wire.decodeFromJsonElement
 import dev.dsh.mobile.mesh.core.wire.encodeToJsonElement
 import dev.dsh.mobile.mesh.core.wire.dto.ContentBlock
-import dev.dsh.mobile.mesh.core.wire.dto.QueuedMessage
+import dev.dsh.mobile.mesh.core.wire.dto.InboxMessageView
 import dev.dsh.mobile.mesh.core.wire.dto.QueuedInboxItem
+import dev.dsh.mobile.mesh.core.wire.dto.QueuedMessage
 import dev.dsh.mobile.mesh.core.wire.dto.SessionWireEvent
 import dev.dsh.mobile.mesh.core.wire.dto.SessionEvent
 import dev.dsh.mobile.mesh.core.wire.dto.SessionEventSerializer
@@ -65,19 +66,34 @@ fun parseSessionEventEnvelope(eventJson: JsonElement): SessionEventEnvelope? =
     runCatching { sessionEventToEnvelope(decodeFromJsonElement(SessionEventSerializer, eventJson)) }
         .getOrNull()
 
-/** Convert one authoritative queue snapshot item into the renderer-facing [QueueItem]. */
+/** Convert one durable inbox-projection message into the renderer-facing [QueueItem]. */
+fun inboxMessageToQueueItem(item: InboxMessageView, placement: String): QueueItem {
+    val messageText = item.content
+        .joinToString("\n") { queueBlockPreview(it) }
+        .trim()
+    val preview = messageText.take(200)
+    val content = encodeToJsonElement(InboxMessageView.serializer(), item)
+    return QueueItem(
+        id = item.id,
+        placement = placement,
+        previewText = preview,
+        messageText = messageText,
+        content = content,
+        rpcId = item.source?.takeIf { it.kind == "user" }?.rpcId,
+    )
+}
+
+/** Convert one legacy control-queue item into the renderer-facing [QueueItem]. */
 fun queuedInboxItemToQueueItem(item: QueuedInboxItem): QueueItem {
     val messageText = item.message.content
         .joinToString("\n") { queueBlockPreview(it) }
         .trim()
-    val preview = messageText.take(200)
-    val content = encodeToJsonElement(QueuedMessage.serializer(), item.message)
     return QueueItem(
         id = item.id,
         placement = item.placement,
-        previewText = preview,
+        previewText = messageText.take(200),
         messageText = messageText,
-        content = content,
+        content = encodeToJsonElement(QueuedMessage.serializer(), item.message),
         rpcId = item.rpcId,
     )
 }

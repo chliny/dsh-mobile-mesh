@@ -428,7 +428,7 @@ fun ChatListDrawer(
                         onToggle = { archivedExpanded = !archivedExpanded },
                     ) {
                         archivedSessions.forEach { session ->
-                            SessionRowItem(session, false, store, scope, onClose)
+                            SessionRowItem(session, false, store, scope, onClose, isArchived = true)
                         }
                     }
                 }
@@ -670,6 +670,7 @@ private fun SessionRowItem(
     childCount: Int = 0,
     childrenExpanded: Boolean = false,
     onToggleChildren: () -> Unit = {},
+    isArchived: Boolean = false,
 ) {
     val colors = DsTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
@@ -796,9 +797,16 @@ private fun SessionRowItem(
                     menuOpen = false
                     scope.launch { store.forkSession(session.sessionId) }
                 }
-                SheetRow(title = stringResource(R.string.chatlist_session_archive)) {
-                    menuOpen = false
-                    archiveConfirmOpen = true
+                if (isArchived) {
+                    SheetRow(title = stringResource(R.string.chatlist_session_unarchive)) {
+                        menuOpen = false
+                        scope.launch { store.unarchiveSession(session.sessionId) }
+                    }
+                } else {
+                    SheetRow(title = stringResource(R.string.chatlist_session_archive)) {
+                        menuOpen = false
+                        archiveConfirmOpen = true
+                    }
                 }
             }
         }

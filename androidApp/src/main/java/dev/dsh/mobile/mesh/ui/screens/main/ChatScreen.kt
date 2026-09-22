@@ -403,6 +403,8 @@ fun ChatScreen(
 
             val nodeContext = ChatNodeContext(
                 nodes = conversation?.nodes ?: emptyList(),
+                sessionId = currentSessionId,
+                store = store,
                 onOpenFile = onOpenFile,
                 running = conversation?.running == true,
                 cwd = currentSession?.cwd,

@@ -24,7 +24,7 @@ import okhttp3.WebSocketListener
 import okio.BufferedSink
 
 /**
- * One HTTP carrier exchange: the status code and raw body of a POST /api request.
+ * One HTTP carrier exchange: the status code and raw body of an authenticated HTTP request.
  * HTTP status is carrier-only — business errors arrive as HTTP 200 with `ok: false` in the body.
  */
 data class RpcHttpResponse(
@@ -48,7 +48,7 @@ interface RpcTransport {
     suspend fun post(path: String, body: String): RpcHttpResponse
 
     /**
-     * GET a binary download from [path] (e.g. "/api/session.export?sessionId=…"), the harness's
+     * GET a response from [path] (JSON routes and binary downloads share this carrier).
      * one non-envelope read channel.
      *
      * [consume] runs on an IO thread with the response still open and must not retain the stream —
@@ -59,6 +59,7 @@ interface RpcTransport {
         path: String,
         consume: (contentType: String?, contentDisposition: String?, body: InputStream) -> T,
     ): T
+
 
     /**
      * POST raw bytes to [path] — the harness's one non-envelope *write* channel, the streaming

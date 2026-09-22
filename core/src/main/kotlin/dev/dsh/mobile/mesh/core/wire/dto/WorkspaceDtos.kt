@@ -66,6 +66,12 @@ data class WorkspaceArchiveSessionRequest(
     @SerialName("sessionId") val sessionId: String,
 )
 
+/** Request payload of idempotent `workspace.unarchiveSession`. */
+@Serializable
+data class WorkspaceUnarchiveSessionRequest(
+    @SerialName("sessionId") val sessionId: String,
+)
+
 // ---- workspace.* response values ----
 
 /** Complete reconnect baseline carried by `workspace/follow`. */

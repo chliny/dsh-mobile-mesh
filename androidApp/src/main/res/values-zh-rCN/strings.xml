@@ -119,6 +119,7 @@
     <string name="chatlist_session_rename">重命名会话</string>
     <string name="chatlist_session_fork">分叉会话</string>
     <string name="chatlist_session_archive">归档会话</string>
+    <string name="chatlist_session_unarchive">恢复会话</string>
     <string name="chatlist_group_by_workspace">按工作区分组</string>
     <string name="chatlist_sort_updated">按最近更新排序</string>
     <string name="chatlist_sort_manual">手动排序</string>

@@ -27,6 +27,8 @@ import dev.dsh.mobile.mesh.core.wire.dto.CommandDescriptor
 import dev.dsh.mobile.mesh.core.wire.dto.CommandSubmitAttachment
 import dev.dsh.mobile.mesh.core.wire.dto.ContentBlock
 import dev.dsh.mobile.mesh.core.wire.dto.ContextBreakdownView
+import dev.dsh.mobile.mesh.core.wire.dto.ChangesDiff
+import dev.dsh.mobile.mesh.core.wire.dto.ChangesSummary
 import dev.dsh.mobile.mesh.core.wire.dto.ContextPressureView
 import dev.dsh.mobile.mesh.core.wire.dto.EncodedFileUploadRequest
 import dev.dsh.mobile.mesh.core.wire.dto.EncodedImageAttachment
@@ -47,6 +49,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.QueueAction
 import dev.dsh.mobile.mesh.core.wire.dto.ModelSelectionProjection
 import kotlinx.coroutines.flow.combine
 import dev.dsh.mobile.mesh.core.wire.dto.ModelCatalog
+import dev.dsh.mobile.mesh.core.wire.dto.InboxView
 import dev.dsh.mobile.mesh.core.wire.dto.QueuedInboxItem
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventFrame
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventOutcome
@@ -79,6 +82,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.TokenUsageView
 import dev.dsh.mobile.mesh.core.wire.dto.USER_QUESTIONS_REQUEST_EVENT
 import dev.dsh.mobile.mesh.core.wire.dto.UnknownSubagentListEntry
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceArchiveSessionRequest
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceUnarchiveSessionRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryEntry
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryListing
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceFileBytes
@@ -321,6 +325,14 @@ class SessionStore @Inject constructor(
 
     private val _currentConversation = MutableStateFlow<ConversationSnapshot?>(null)
     val currentConversation: StateFlow<ConversationSnapshot?> = _currentConversation.asStateFlow()
+
+    /** Load a changed-files summary associated with one durable workspace/changes event. */
+    suspend fun loadChangesSummary(sessionId: String, seq: Long): RpcResult<ChangesSummary> =
+        (apiOrNull()?.changesSummary(sessionId, seq) ?: RpcResult.Err(dev.dsh.mobile.mesh.core.wire.RpcError("not-connected", "Not connected")))
+
+    /** Load one host-computed changed-file diff. */
+    suspend fun loadChangesDiff(sessionId: String, seq: Long, index: Int): RpcResult<ChangesDiff> =
+        (apiOrNull()?.changesDiff(sessionId, seq, index) ?: RpcResult.Err(dev.dsh.mobile.mesh.core.wire.RpcError("not-connected", "Not connected")))
 
     private val _jobs = MutableStateFlow<List<JobView>>(emptyList())
     val jobs: StateFlow<List<JobView>> = _jobs.asStateFlow()
@@ -873,43 +885,68 @@ class SessionStore @Inject constructor(
     /**
      * One frame of the host-wide live-control stream.
      *
-     * Queue and job values are complete replacements applied last-wins, never deltas, so an
-     * empty value is a real "nothing pending" rather than an absent update.
+     * Job values are complete replacements. Pending input arrives through the authoritative
+     * `inbox` projection, whose value replaces the queue derived by this client.
      */
     private fun handleControlFrame(frame: SessionControlFrame) {
         when (frame) {
             is SessionControlFrame.Baseline -> {
-                // The Web client installs the complete baseline for every session before the UI
-                // chooses one. Keeping only currentId drops queues that arrive while another
-                // session is open, so switching to that session shows an empty queue until a later
-                // mutation happens.
-                frame.value.queues.forEach { (sid, items) -> applyQueue(sid, items) }
+                // The baseline contains projections for every session, including cold sessions.
+                // Preserve their inbox-derived queues so switching later cannot show a stale empty queue.
+                val inboxSessionIds = frame.value.projections.filterValues { block ->
+                    (block["values"] as? JsonObject)?.containsKey("inbox") == true
+                }.keys
+                frame.value.projections.forEach { (sid, block) -> applyProjectionBaseline(sid, block) }
+                // Compatibility: older hosts have no `inbox` projection and publish queues here.
+                frame.value.queues
+                    .filterKeys { it !in inboxSessionIds }
+                    .forEach { (sid, items) -> applyLegacyQueue(sid, items) }
                 val sid = synchronized(lock) { currentId } ?: return
                 frame.value.jobs[sid]?.let { jobs -> applyJobs(sid, jobs) }
-                frame.value.projections[sid]?.let { block -> applyProjectionBaseline(sid, block) }
             }
-            is SessionControlFrame.Queue -> applyQueue(frame.sessionId, frame.items)
+            // Compatibility with pre-inbox-projection hosts.
+            is SessionControlFrame.Queue -> applyLegacyQueue(frame.sessionId, frame.items)
             is SessionControlFrame.Jobs -> applyJobs(frame.sessionId, frame.jobs)
-            is SessionControlFrame.Projection -> synchronized(lock) {
-                if (frame.sessionId == currentId) {
-                    mergeProjectionLocked(frame.key, frame.seq, frame.value)
-                    rebuildCurrentLocked()
+            is SessionControlFrame.Projection -> {
+                if (frame.key == "inbox") applyInboxProjection(frame.sessionId, frame.value)
+                synchronized(lock) {
+                    if (frame.sessionId == currentId) {
+                        mergeProjectionLocked(frame.key, frame.seq, frame.value)
+                        rebuildCurrentLocked()
+                    }
                 }
             }
             is SessionControlFrame.Unknown -> log("unknown control frame ${frame.type}")
         }
     }
 
-    private fun applyQueue(sessionId: String, items: List<QueuedInboxItem>) {
+    /** Replace one session's pending queue from a pre-inbox-projection host control snapshot. */
+    private fun applyLegacyQueue(sessionId: String, items: List<QueuedInboxItem>) {
+        setQueue(sessionId, items.map(::queuedInboxItemToQueueItem))
+    }
+
+    /** Replace one session's pending queue from the authoritative durable `inbox` projection. */
+    private fun applyInboxProjection(sessionId: String, value: JsonElement) {
+        val inbox = runCatching { decodeFromJsonElement(InboxView.serializer(), value) }.getOrNull()
+            ?: return
+        val nextQueue = inbox.nextTurn.map { inboxMessageToQueueItem(it, "queued") } +
+            inbox.nextStep.map { message ->
+                inboxMessageToQueueItem(
+                    message,
+                    if (message.source?.kind == "user") "steering" else "context",
+                )
+            }
+        setQueue(sessionId, nextQueue)
+    }
+
+    /** Install an authoritative complete queue from either current or legacy host protocol. */
+    private fun setQueue(sessionId: String, nextQueue: List<QueueItem>) {
         synchronized(lock) {
-            val nextQueue = items.map { queuedInboxItemToQueueItem(it) }
             queueBySession[sessionId] = nextQueue
             pendingQueueSubmissionBySession.remove(sessionId)
             if (sessionId == currentId) {
                 currentQueue = nextQueue
-                // A control snapshot is authoritative once it contains a matching submitted text.
-                // Drop only echoed optimistic rows; a snapshot that raced ahead of propagation must
-                // leave the local entry visible instead of making a newly queued message disappear.
+                // An authoritative snapshot that raced ahead of propagation leaves optimistic rows visible.
                 rebuildCurrentLocked()
             }
         }
@@ -929,12 +966,12 @@ class SessionStore @Inject constructor(
      * watermark.
      */
     private fun applyProjectionBaseline(sessionId: String, block: JsonObject) {
+        val asOf = block["asOfSeq"]?.jsonPrimitive?.intOrNull ?: 0
+        val values = block["values"] as? JsonObject ?: JsonObject(emptyMap())
+        values["inbox"]?.let { applyInboxProjection(sessionId, it) }
         synchronized(lock) {
             if (sessionId != currentId) return@synchronized
-            val asOf = block["asOfSeq"]?.jsonPrimitive?.intOrNull ?: 0
-            (block["values"] as? JsonObject)?.forEach { (key, value) ->
-                mergeProjectionLocked(key, asOf, value)
-            }
+            values.forEach { (key, value) -> mergeProjectionLocked(key, asOf, value) }
             rebuildCurrentLocked()
         }
     }
@@ -1783,6 +1820,18 @@ class SessionStore @Inject constructor(
     suspend fun archiveSession(sessionId: String) {
         val api = apiOrNull() ?: return
         when (val r = api.workspaceArchiveSession(WorkspaceArchiveSessionRequest(sessionId))) {
+            is RpcResult.Ok -> {
+                setArchived(r.value.archivedSessionIds)
+                refreshSessions()
+            }
+            is RpcResult.Err -> setConnectionError(r.error.message)
+        }
+    }
+
+    /** Restore an archived session; the server returns the full authoritative archive set. */
+    suspend fun unarchiveSession(sessionId: String) {
+        val api = apiOrNull() ?: return
+        when (val r = api.workspaceUnarchiveSession(WorkspaceUnarchiveSessionRequest(sessionId))) {
             is RpcResult.Ok -> {
                 setArchived(r.value.archivedSessionIds)
                 refreshSessions()

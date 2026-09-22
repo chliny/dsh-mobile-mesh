@@ -58,9 +58,13 @@ import dev.dsh.mobile.mesh.core.wire.dto.SubagentPromptRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentPromptValue
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceArchiveSessionRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceArchiveValue
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceUnarchiveSessionRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryListing
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceFileBytes
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceFileText
+import dev.dsh.mobile.mesh.core.wire.dto.ChangesSummary
+import dev.dsh.mobile.mesh.core.wire.dto.ChangesDiffResponse
+import dev.dsh.mobile.mesh.core.wire.dto.ChangesDiff
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceCreateRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceCreateValue
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDeleteRequest
@@ -465,6 +469,36 @@ class DshApiClient(
     suspend fun workspaceArchiveSession(
         request: WorkspaceArchiveSessionRequest,
     ): RpcResult<WorkspaceArchiveValue> = callRequest("workspace/archiveSession", request)
+
+    /** Fetch one changed-files summary from the authenticated deliverables route. */
+    suspend fun changesSummary(sessionId: String, seq: Long): RpcResult<ChangesSummary> =
+        nonEnvelopeGet("/api/changes.summary?sessionId=${encodeQueryComponent(sessionId)}&seq=$seq", ChangesSummary.serializer())
+
+    /** Fetch one changed file's host-computed diff. */
+    suspend fun changesDiff(sessionId: String, seq: Long, index: Int): RpcResult<ChangesDiff> =
+        when (val result = nonEnvelopeGet("/api/changes.diff?sessionId=${encodeQueryComponent(sessionId)}&seq=$seq&index=$index", ChangesDiffResponse.serializer())) {
+            is RpcResult.Err -> result
+            is RpcResult.Ok -> RpcResult.Ok(result.value.toChangesDiff())
+        }
+
+    private fun ChangesDiffResponse.toChangesDiff(): ChangesDiff = when (kind) {
+        "text" -> ChangesDiff.Text(path, display, before == true, after == true, coarse == true, hunks)
+        else -> ChangesDiff.Unavailable(kind, path, display)
+    }
+
+    private suspend fun <T> nonEnvelopeGet(path: String, serializer: KSerializer<T>): RpcResult<T> = try {
+        val body = transport.download(path) { _, _, input -> input.bufferedReader().use { it.readText() } }
+        RpcResult.Ok(decodeFromJsonElement(serializer, WireJson.parseToJsonElement(body)))
+    } catch (e: RpcTransportException) {
+        RpcResult.Err(transportError(e))
+    } catch (e: Exception) {
+        RpcResult.Err(notAHarness("route response decode failed: ${e.message}"))
+    }
+
+    /** `workspace/unarchiveSession` — idempotently removes one session from the archive set. */
+    suspend fun workspaceUnarchiveSession(
+        request: WorkspaceUnarchiveSessionRequest,
+    ): RpcResult<WorkspaceArchiveValue> = callRequest("workspace/unarchiveSession", request)
 
     // ------------------------------------------------------------------ skills
 
