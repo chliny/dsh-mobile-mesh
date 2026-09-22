@@ -216,29 +216,40 @@ class TailscaleConnector @Inject constructor(
     }
 
     /** Rebind new tsnet sockets whenever Android changes its validated/default transport. */
-    private fun refreshNetworkBinding(network: Network) = synchronized(lock) {
-        if (!nativeStarted || connectivity.activeNetwork != network) return
-        boundNetwork = network
-        TailscaleNative.setNetworkNative(network)
-        TailscaleNative.setInterfacesNative(networkInterfaces())
+    private fun refreshNetworkBinding(network: Network) {
+        synchronized(lock) {
+        if (!nativeStarted || connectivity.activeNetwork != network) return@synchronized
+        runCatching {
+            // Framework callbacks run on a system-managed thread. JNI or interface enumeration
+            // failures must not escape it and risk taking down the process.
+            val interfaces = networkInterfaces()
+            TailscaleNative.setNetworkNative(network)
+            TailscaleNative.setInterfacesNative(interfaces)
+            boundNetwork = network
+        }.onFailure {
+            android.util.Log.w("TailscaleConnector", "Unable to refresh tsnet network binding", it)
+        }
+        }
     }
 
     private fun networkInterfaces(): String {
         val entries = JSONArray()
         val interfaces = runCatching { NetworkInterface.getNetworkInterfaces() }.getOrNull() ?: return "[]"
         while (interfaces.hasMoreElements()) {
-            val network = interfaces.nextElement()
-            if (!runCatching { network.isUp && !network.isLoopback }.getOrDefault(false)) continue
-            val addresses = JSONArray().apply {
-                network.interfaceAddresses.forEach { address ->
-                    address.address.hostAddress?.let { put("$it/${address.networkPrefixLength}") }
+            runCatching {
+                val network = interfaces.nextElement()
+                if (!network.isUp || network.isLoopback) return@runCatching
+                val addresses = JSONArray().apply {
+                    network.interfaceAddresses.forEach { address ->
+                        address.address.hostAddress?.let { put("$it/${address.networkPrefixLength}") }
+                    }
                 }
+                entries.put(JSONObject().apply {
+                    put("name", network.name)
+                    put("index", network.index)
+                    put("addresses", addresses)
+                })
             }
-            entries.put(JSONObject().apply {
-                put("name", network.name)
-                put("index", network.index)
-                put("addresses", addresses)
-            })
         }
         return entries.toString()
     }

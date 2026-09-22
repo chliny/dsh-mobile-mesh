@@ -328,8 +328,11 @@ open class WsChannel(
     @Volatile
     private var webSocket: WebSocket? = null
 
+    private val lifecycleLock = Any()
     @Volatile
     private var started: Boolean = false
+    @Volatile
+    private var closed: Boolean = false
 
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -361,15 +364,18 @@ open class WsChannel(
     }
 
     /** Perform the RFC 6455 handshake and begin reading messages. Idempotent. */
-    open fun start() {
-        if (started) return
+    open fun start() = synchronized(lifecycleLock) {
+        if (started || closed) return@synchronized
         started = true
         val request = Request.Builder()
             .url(url)
             .cookied(cookie)
             .apply { hostHeader?.let { header("Host", it) } }
             .build()
-        webSocket = client.newWebSocket(request, listener)
+        val created = client.newWebSocket(request, listener)
+        // close() shares this lock, so it cannot cancel a null socket immediately before this
+        // assignment and leave a newly-created carrier running after its mux was torn down.
+        if (closed) created.cancel() else webSocket = created
     }
 
     /**
@@ -381,7 +387,10 @@ open class WsChannel(
 
     /** Tear the socket down. Idempotent. */
     open fun close() {
-        webSocket?.cancel()
-        webSocket = null
+        val toClose = synchronized(lifecycleLock) {
+            closed = true
+            webSocket.also { webSocket = null }
+        }
+        toClose?.cancel()
     }
 }

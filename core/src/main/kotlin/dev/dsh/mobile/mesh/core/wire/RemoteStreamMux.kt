@@ -84,8 +84,9 @@ class RemoteStreamMux(
     private inner class Stream(private val streamId: String) : RemoteStream {
         val signals: Channel<Signal> = Channel(STREAM_SIGNAL_BUFFER_CAPACITY)
         private val done = AtomicBoolean(false)
+        @Volatile private var terminal: Signal? = null
 
-        override suspend fun receive(): JsonElement? = when (val signal = signals.receive()) {
+        override suspend fun receive(): JsonElement? = when (val signal = signals.receiveCatching().getOrNull() ?: terminal ?: Signal.Ended) {
             is Signal.Item -> signal.value
             is Signal.Failed -> {
                 done.set(true)
@@ -97,11 +98,18 @@ class RemoteStreamMux(
             }
         }
 
+        fun terminate(signal: Signal) {
+            terminal = signal
+            // Closing preserves already queued ordered items, then makes receive() observe terminal
+            // even when the bounded queue was full and could not accept one more signal.
+            signals.close()
+        }
+
         override fun cancel() {
             if (!done.compareAndSet(false, true)) return
             // Wake any concurrent receiver before removing this stream: after removal failAll()
             // cannot reach its channel, so silently dropping it would strand receive() forever.
-            signals.trySend(Signal.Ended)
+            terminate(Signal.Ended)
             // Best-effort: on a dead socket the send fails, which is exactly when the host has
             // already forgotten the stream.
             if (streams.remove(streamId) != null && closedCause == null) {
@@ -157,11 +165,11 @@ class RemoteStreamMux(
                 }
                 is RemoteStreamServerMessage.Error -> {
                     streams.remove(message.streamId)
-                    stream.signals.trySend(Signal.Failed(message.error, carrier = false))
+                    stream.terminate(Signal.Failed(message.error, carrier = false))
                 }
                 is RemoteStreamServerMessage.End -> {
                     streams.remove(message.streamId)
-                    stream.signals.trySend(Signal.Ended)
+                    stream.terminate(Signal.Ended)
                 }
             }
         }
@@ -193,15 +201,17 @@ class RemoteStreamMux(
             // close() and start() share this transaction. Without it close could mark the channel
             // closed while it was still null, leaking a later-created WebSocket forever.
             channel = created
+            try {
+                // WsChannel.close() before start is otherwise a no-op because it has no OkHttp
+                // WebSocket yet. Keep actual startup in this transaction so close cannot win the
+                // publication/start gap and strand a later socket.
+                created.start()
+            } catch (error: Throwable) {
+                failAll(error)
+                if (channelClosed.compareAndSet(false, true)) created.close()
+                throw error
+            }
         }
-        try {
-            created.start()
-        } catch (error: Throwable) {
-            failAll(error)
-            if (channelClosed.compareAndSet(false, true)) created.close()
-            throw error
-        }
-        if (closedCause != null && channelClosed.compareAndSet(false, true)) created.close()
     }
 
     /**
@@ -299,7 +309,7 @@ class RemoteStreamMux(
             opened.complete(Unit)
             val error = carrierError(closure)
             streams.keys.toList().forEach { streamId ->
-                streams.remove(streamId)?.signals?.trySend(Signal.Failed(error, carrier = true))
+                streams.remove(streamId)?.terminate(Signal.Failed(error, carrier = true))
             }
         }
     }

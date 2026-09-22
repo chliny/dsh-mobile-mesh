@@ -24,6 +24,7 @@ class RemoteStreamMuxLivenessTest {
         }
         override fun close() { closedCount++ }
         fun emitClosed(cause: Throwable?) = sink.onClosed(cause)
+        fun emitMessage(text: String) = sink.onMessage(text)
     }
 
     @Test
@@ -85,6 +86,20 @@ class RemoteStreamMuxLivenessTest {
         delay(1)
         stream.cancel()
         assertEquals(null, receiver.await())
+    }
+
+    @Test
+    fun `full stream queue still delivers terminal failure`() = runBlocking {
+        lateinit var channel: FakeChannel
+        val mux = RemoteStreamMux { sink -> FakeChannel(sink).also { channel = it } }
+        mux.start()
+        mux.awaitOpen()
+        val stream = mux.open("session/follow")
+        // Feed one more than the bounded capacity through the public carrier callback; this must
+        // terminate rather than leave a receiver waiting after draining buffered frames.
+        repeat(65) { channel.emitMessage("{\"streamId\":\"1\",\"type\":\"item\",\"value\":$it}") }
+        repeat(64) { stream.receive() }
+        assertTrue(receiveFailure(stream) is RemoteStreamException)
     }
 
     @Test
