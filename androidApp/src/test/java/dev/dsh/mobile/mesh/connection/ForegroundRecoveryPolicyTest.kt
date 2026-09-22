@@ -60,6 +60,13 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `onResume immediately after onStart is coalesced`() {
+        assertTrue(shouldCoalesceForegroundRecovery(true, 10_500, 10_000))
+        assertFalse(shouldCoalesceForegroundRecovery(true, 10_751, 10_000))
+        assertFalse(shouldCoalesceForegroundRecovery(false, 10_100, 10_000))
+    }
+
+    @Test
     fun `foreground resume rearms stranded reconnect after background cancelled retry`() {
         assertTrue(shouldStartForegroundRecovery(ForegroundRecoveryAction.RECOVER, false))
         assertFalse(shouldStartForegroundRecovery(ForegroundRecoveryAction.RECOVER, true))
@@ -103,6 +110,12 @@ class ForegroundRecoveryPolicyTest {
         assertTrue(shouldPreserveRecoveryPresentationOnBackground(true, ConnectionPhase.RECONNECTING, false, true))
         assertFalse(shouldPreserveRecoveryPresentationOnBackground(true, ConnectionPhase.CONNECTED, true, false))
         assertFalse(shouldPreserveRecoveryPresentationOnBackground(false, ConnectionPhase.RECONNECTING, true, false))
+    }
+
+    @Test
+    fun `foreground restart preserves reconnect only after an established generation`() {
+        assertEquals(ConnectionPhase.RECONNECTING, foregroundRestartPhase(true))
+        assertEquals(ConnectionPhase.CONNECTING, foregroundRestartPhase(false))
     }
 
     @Test

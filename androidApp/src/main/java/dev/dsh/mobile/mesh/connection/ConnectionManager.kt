@@ -193,6 +193,7 @@ class ConnectionManager @Inject constructor(
     @Volatile private var keepConnectedInBackground = false
     @Volatile private var foregroundProbeJob: Job? = null
     @Volatile private var publishedGenerationNeedsProbe = false
+    @Volatile private var lastForegroundRecoveryRequestMs = -1L
     /** Latest desired host retained across a background-disabled suspension. */
     @Volatile private var suspendedHost: HostConfig? = null
     private var suspendedTransportReady: (suspend (String) -> Unit)? = null
@@ -299,9 +300,15 @@ class ConnectionManager @Inject constructor(
                 // dead relay. A new loop also announces RECONNECTING as its first state.
                 if (current.phase == ConnectionPhase.CONNECTED) {
                     markCarrierRecoveryNeeded()
-                    // A foreground carrier failure must recover immediately. Background recovery is
-                    // still deferred to onStart, where the network path is stable and serialized.
-                    if (appInForeground) recoverTransportAfterCarrierLoss()
+                    // A generic mux reconnect is not proof that a ZeroTier-only carrier died. Let
+                    // the loop retry on the existing relay; only SSH's terminal callback, an explicit
+                    // network handover, or a foreground end-to-end probe may renew that carrier.
+                    if (appInForeground && shouldRenewCarrierAfterLoopFailure(
+                            sshEnabled = activeHost?.sshEnabled == true,
+                            networkRecoveryPending = networkRecoveryGate.isPending() || networkLostWhileConnected,
+                            recoveryInFlight = synchronized(recoveryLock) { transportRecoveryInFlight },
+                            failedAttempt = 1,
+                        )) recoverTransportAfterCarrierLoss()
                 }
             }
             val phase = when {
@@ -347,7 +354,8 @@ class ConnectionManager @Inject constructor(
                     sshEnabled = activeHost?.sshEnabled == true,
                     networkRecoveryPending = networkRecoveryGate.isPending() || networkLostWhileConnected,
                     recoveryInFlight = synchronized(recoveryLock) { transportRecoveryInFlight },
-                ) && shouldRenewCarrierAfterGenerationFailure(
+                    failedAttempt = attempt,
+                ) && loopFailureCanRenewCarrier(failure) && shouldRenewCarrierAfterGenerationFailure(
                     hasActiveHost = activeHost != null,
                     appInForeground = appInForeground,
                     retainInBackground = keepConnectedInBackground,
@@ -811,7 +819,13 @@ class ConnectionManager @Inject constructor(
     fun recoverForForeground(forceCheck: Boolean = false) {
         val foregroundTiming = RecoveryTiming()
         val foregroundStartedAt = foregroundTiming.start("foreground-resume")
+        val nowMs = System.currentTimeMillis()
         synchronized(lifecycleTransitionLock) {
+            if (shouldCoalesceForegroundRecovery(forceCheck, nowMs, lastForegroundRecoveryRequestMs)) {
+                foregroundTiming.phase("foreground-resume", foregroundStartedAt, "ignored", "duplicate=onStart-onResume")
+                return
+            }
+            lastForegroundRecoveryRequestMs = nowMs
             if (!shouldHandleLifecycleTransition(appInForeground, targetForeground = true) && !forceCheck) {
                 foregroundTiming.phase("foreground-resume", foregroundStartedAt, "ignored", "duplicate=true")
                 return
@@ -912,13 +926,14 @@ class ConnectionManager @Inject constructor(
         if (suspendedForBackground || (resumedTarget != null && activeHost == null && connectJob?.isActive != true)) {
             suspendedForBackground = false
             if (resumedTarget != null) {
+                val hadConnected = _state.value.hasConnected
                 _state.value = _state.value.copy(
-                    phase = ConnectionPhase.RECONNECTING,
+                    phase = foregroundRestartPhase(hadConnected),
                     host = resumedTarget.value.host,
                     stage = ConnectStage.OpeningStreams,
-                    hasConnected = true,
-                    foregroundCheckPending = true,
-                    recoveryOverlayVisible = true,
+                    hasConnected = hadConnected,
+                    foregroundCheckPending = hadConnected,
+                    recoveryOverlayVisible = hadConnected,
                 )
                 foregroundTiming.phase("foreground-resume", foregroundStartedAt, "restart", "host=${resumedTarget.value.host.id}")
                 Log.d("ConnectionManager", "Foreground resume starts latest desired connection for ${resumedTarget.value.host.id}")
@@ -942,7 +957,7 @@ class ConnectionManager @Inject constructor(
                 networkChanged = networkLostWhileConnected || networkRecoveryGate.isPending(),
                 foregroundCheckPending = effectiveForegroundCheckPending(
                     presentationPending = current.foregroundCheckPending,
-                    recoveryInFlight = connectJob?.isActive == true || foregroundProbeJob?.isActive == true,
+                    recoveryInFlight = recoveryInFlight,
                 ),
             ),
         )
@@ -950,7 +965,7 @@ class ConnectionManager @Inject constructor(
         Log.d("ConnectionManager", "Foreground recovery requested: phase=${current.phase}, backgroundMs=$backgroundDuration, action=$action")
         if (action == ForegroundRecoveryAction.NONE && shouldClearConnectedRecoveryPresentation(
                 phase = current.phase,
-                recoveryInFlight = connectJob?.isActive == true || foregroundProbeJob?.isActive == true,
+                recoveryInFlight = recoveryInFlight,
                 networkChanged = networkLostWhileConnected || networkRecoveryGate.isPending(),
             )) {
             _state.value = current.copy(
