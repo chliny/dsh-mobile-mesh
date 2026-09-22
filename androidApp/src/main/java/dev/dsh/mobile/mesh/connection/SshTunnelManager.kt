@@ -11,8 +11,12 @@ import java.net.ServerSocket
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import net.schmizz.sshj.DefaultConfig
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.connection.channel.direct.LocalPortForwarder
@@ -81,6 +85,8 @@ class SshTunnelManager @Inject constructor(
         }
         var client = newClient()
         var keyFile: File? = null
+        var server: ServerSocket? = null
+        var forwarder: LocalPortForwarder? = null
         try {
             // Recreate SSHJ after a failed handshake: SSHJ's transport thread cannot be restarted
             // after a banner read reset (reusing it raises IllegalThreadStateException).
@@ -91,17 +97,22 @@ class SshTunnelManager @Inject constructor(
             var lastConnectError: Throwable? = null
             val attempts = if (recovery) SSH_RECOVERY_CONNECT_ATTEMPTS else SSH_CONNECT_ATTEMPTS
             for (attempt in 0 until attempts) {
+                coroutineContext.ensureActive()
                 if (attempt > 0) client = newClient()
                 try {
                     client.connect(sshHost, sshPort)
+                    coroutineContext.ensureActive()
                     lastConnectError = null
                     break
-                } catch (error: Throwable) {
+                } catch (error: CancellationException) {
+                    runCatching { client.close() }
+                    throw error
+                } catch (error: Exception) {
                     lastConnectError = error
                     runCatching { client.close() }
                     if (attempt + 1 < attempts) {
                         Log.w(TAG, "SSH transport attempt ${attempt + 1} failed; retrying", error)
-                        Thread.sleep(SSH_CONNECT_RETRY_DELAY_MS)
+                        delay(SSH_CONNECT_RETRY_DELAY_MS)
                     }
                 }
             }
@@ -130,28 +141,37 @@ class SshTunnelManager @Inject constructor(
                 }
             }
             Log.d(TAG, "SSH authentication ready in ${elapsedMs(authStartedAt)}ms for $sshHost:$sshPort")
-            val server = ServerSocket(0, 32, InetAddress.getByName("127.0.0.1"))
-            val forwarder = client.newLocalPortForwarder(
-                Parameters("127.0.0.1", server.localPort, config.sshDshHost, config.port),
-                server,
+            server = ServerSocket(0, 32, InetAddress.getByName("127.0.0.1"))
+            forwarder = client.newLocalPortForwarder(
+                Parameters("127.0.0.1", server!!.localPort, config.sshDshHost, config.port),
+                server!!,
             )
+            val activeServer = server!!
+            val activeForwarder = forwarder!!
             val termination = RelayTerminationGate()
             val thread = Thread({
-                val failure = runCatching { forwarder.listen() }.exceptionOrNull()
+                val failure = runCatching { activeForwarder.listen() }.exceptionOrNull()
                 if (termination.reportUnexpectedTermination()) {
                     Log.w(TAG, "SSH forwarder stopped unexpectedly", failure)
-                    onRelayTerminated?.invoke(termination.token)
+                    // This is a raw JVM thread. A lifecycle listener must never throw across it,
+                    // because Android treats an uncaught background-thread exception as process-fatal.
+                    runCatching { onRelayTerminated?.invoke(termination.token) }
+                        .onFailure { Log.e(TAG, "SSH relay termination listener failed", it) }
                 }
             }, "dsh-ssh-forward").apply {
                 isDaemon = true
                 start()
             }
-            val relay = SshRelay("http://127.0.0.1:${server.localPort}")
-            active = ActiveTunnel(config.id, sshHost, sshPort, client, forwarder, thread, relay, termination)
+            val relay = SshRelay("http://127.0.0.1:${activeServer.localPort}")
+            active = ActiveTunnel(config.id, sshHost, sshPort, client, activeServer, activeForwarder, thread, relay, termination)
+            server = null
+            forwarder = null
             Log.d(TAG, "SSH local forward ready at ${relay.baseUrl} -> ${config.sshDshHost}:${config.port}")
             relay
         } catch (error: Throwable) {
             Log.e(TAG, "Unable to establish SSH relay to $sshHost:$sshPort", error)
+            runCatching { forwarder?.close() }
+            runCatching { server?.close() }
             runCatching { client.close() }
             throw error
         } finally {
@@ -171,6 +191,7 @@ class SshTunnelManager @Inject constructor(
         private val sshHost: String,
         private val sshPort: Int,
         private val client: SSHClient,
+        private val server: ServerSocket,
         private val forwarder: LocalPortForwarder,
         private val thread: Thread,
         val relay: SshRelay,
@@ -185,6 +206,7 @@ class SshTunnelManager @Inject constructor(
         override fun close() {
             termination.markClosing()
             runCatching { forwarder.close() }
+            runCatching { server.close() }
             runCatching { client.close() }
             thread.interrupt()
         }

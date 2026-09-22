@@ -47,6 +47,19 @@ type fakeAddr string
 func (address fakeAddr) Network() string { return string(address) }
 func (address fakeAddr) String() string  { return string(address) }
 
+func TestBeginStartAfterCancelDoesNotPanic(t *testing.T) {
+	startCancellation.Lock()
+	startCancellation.channel = nil
+	startCancellation.Unlock()
+	first := beginStart()
+	TailscaleCancelStart()
+	second := beginStart()
+	if first == second {
+		t.Fatal("new start must own a fresh cancellation channel")
+	}
+	endStart(second)
+}
+
 func TestReadyResultKeepsExistingRelayAddress(t *testing.T) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {

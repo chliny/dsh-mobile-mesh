@@ -45,6 +45,8 @@ type instance struct {
 	connMu       sync.Mutex
 	connections  map[net.Conn]struct{}
 	forwardWG    sync.WaitGroup
+	relayCtx     context.Context
+	relayCancel  context.CancelFunc
 }
 
 var current struct {
@@ -229,7 +231,11 @@ func beginStart() chan struct{} {
 	startCancellation.Lock()
 	defer startCancellation.Unlock()
 	if startCancellation.channel != nil {
-		close(startCancellation.channel)
+		select {
+		case <-startCancellation.channel:
+		default:
+			close(startCancellation.channel)
+		}
 	}
 	startCancellation.channel = make(chan struct{})
 	return startCancellation.channel
@@ -417,6 +423,7 @@ func startRelayLocked(server *tsnet.Server, remoteHost string, remotePort int) r
 	entry.relayMu.Lock()
 	entry.listener = listener
 	entry.done = make(chan struct{})
+	entry.relayCtx, entry.relayCancel = context.WithCancel(context.Background())
 	entry.relayHealthy = true
 	entry.relayMu.Unlock()
 	entry.remoteHost = remoteHost
@@ -458,6 +465,7 @@ func serve(entry *instance, remote string) {
 	for {
 		entry.relayMu.RLock()
 		listener := entry.listener
+		relayCtx := entry.relayCtx
 		entry.relayMu.RUnlock()
 		if listener == nil {
 			return
@@ -474,7 +482,10 @@ func serve(entry *instance, remote string) {
 			defer entry.forwardWG.Done()
 			defer local.Close()
 			defer entry.untrackConn(local)
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			if relayCtx == nil {
+				return
+			}
+			ctx, cancel := context.WithTimeout(relayCtx, 15*time.Second)
 			remoteConn, err := entry.server.Dial(ctx, "tcp", remote)
 			cancel()
 			if err != nil {
@@ -485,12 +496,20 @@ func serve(entry *instance, remote string) {
 				return
 			}
 			defer entry.untrackConn(remoteConn)
-			copyDone := make(chan struct{})
+			copyDone := make(chan struct{}, 2)
 			go func() {
-				io.Copy(remoteConn, local)
-				close(copyDone)
+				_, _ = io.Copy(remoteConn, local)
+				copyDone <- struct{}{}
 			}()
-			io.Copy(local, remoteConn)
+			go func() {
+				_, _ = io.Copy(local, remoteConn)
+				copyDone <- struct{}{}
+			}()
+			// A half-closed peer must not leave the opposite copy blocked forever. Closing both
+			// sides promptly releases the goroutine and lets relay shutdown finish deterministically.
+			<-copyDone
+			_ = local.Close()
+			_ = remoteConn.Close()
 			<-copyDone
 		}()
 	}
@@ -510,9 +529,15 @@ func stopRelayLocked(entry *instance) {
 	entry.relayMu.Lock()
 	listener := entry.listener
 	done := entry.done
+	cancel := entry.relayCancel
 	entry.listener = nil
+	entry.relayCtx = nil
+	entry.relayCancel = nil
 	entry.relayHealthy = false
 	entry.relayMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	if listener != nil {
 		_ = listener.Close()
 	}
