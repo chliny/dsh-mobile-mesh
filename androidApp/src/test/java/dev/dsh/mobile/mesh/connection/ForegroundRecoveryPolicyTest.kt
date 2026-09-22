@@ -133,6 +133,13 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `pending foreground network gate gets its own Doze recheck`() {
+        assertTrue(shouldScheduleForegroundNetworkRecheck(appInForeground = true, networkRecoveryPending = true))
+        assertFalse(shouldScheduleForegroundNetworkRecheck(appInForeground = false, networkRecoveryPending = true))
+        assertFalse(shouldScheduleForegroundNetworkRecheck(appInForeground = true, networkRecoveryPending = false))
+    }
+
+    @Test
     fun `quick retries stay fast before falling back to a slower cadence`() {
         assertEquals(500L, recoveryRetryDelayMs(0))
         assertEquals(500L, recoveryRetryDelayMs(2))

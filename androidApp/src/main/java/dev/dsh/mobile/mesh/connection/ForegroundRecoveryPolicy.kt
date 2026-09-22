@@ -82,6 +82,12 @@ internal fun shouldStartForegroundRecovery(
     recoveryInFlight: Boolean,
 ): Boolean = action == ForegroundRecoveryAction.RECOVER && !recoveryInFlight
 
+/** Doze can coalesce the callback that made a foreground network gate pending. */
+internal fun shouldScheduleForegroundNetworkRecheck(
+    appInForeground: Boolean,
+    networkRecoveryPending: Boolean,
+): Boolean = appInForeground && networkRecoveryPending
+
 /** onStart and onResume can arrive back-to-back for one Activity transition. */
 internal fun shouldCoalesceForegroundRecovery(
     forceCheck: Boolean,

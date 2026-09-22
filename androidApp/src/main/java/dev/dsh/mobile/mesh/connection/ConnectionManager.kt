@@ -448,9 +448,8 @@ class ConnectionManager @Inject constructor(
             if (carrierRecoveryPending && startRecovery(0)) {
                 carrierRecoveryPending = false
             }
-            if (probeRecoveryPending && appInForeground) {
+            if (probeRecoveryPending && appInForeground && startRecovery(0)) {
                 probeRecoveryPending = false
-                startRecovery(0)
             }
             if (networkRecoveryGate.isPending() && appInForeground) {
                 val activeNetwork = connectivity.activeNetwork
@@ -768,6 +767,12 @@ class ConnectionManager @Inject constructor(
             )) {
             Log.d("ConnectionManager", "Recovery deferred until active network is Internet-capable")
             networkRecoveryGate.markPending()
+            // Battery saver/Doze can publish the only network callback before foreground recovery
+            // marks this gate. Recheck from our own lifecycle-owned timer so RECONNECTING never
+            // waits forever for a callback Android has already delivered.
+            if (shouldScheduleForegroundNetworkRecheck(appInForeground, networkRecoveryGate.isPending())) {
+                schedulePendingNetworkRecoveryRecheck()
+            }
             return false
         }
         if (recoveryRetryJob?.isActive == true) {
@@ -793,6 +798,28 @@ class ConnectionManager @Inject constructor(
         Log.d("ConnectionManager", "Starting tokened transport recovery (attempt ${attempt + 1})")
         replaceOperation(target, reconnect = true, attempt = attempt)
         return true
+    }
+
+    private fun schedulePendingNetworkRecoveryRecheck() {
+        if (recoveryRetryJob?.isActive == true) return
+        recoveryRetryJob = scope.launch {
+            kotlinx.coroutines.delay(FOREGROUND_NETWORK_RECHECK_DELAY_MS)
+            recoveryRetryJob = null
+            if (!appInForeground || !networkRecoveryGate.isPending()) return@launch
+            val activeNetwork = connectivity.activeNetwork
+            val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
+            if (shouldStartNetworkRecovery(
+                    isActiveNetwork = activeNetwork != null && connectivity.activeNetwork == activeNetwork,
+                    hasInternetCapability = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
+                )) {
+                Log.d("ConnectionManager", "Foreground network recheck found an Internet-capable network")
+                startPendingNetworkRecovery()
+            } else {
+                // The callback could still be coalesced while power constrained; keep a bounded,
+                // lifecycle-owned recheck alive until foreground networking becomes usable.
+                schedulePendingNetworkRecoveryRecheck()
+            }
+        }
     }
 
     private fun scheduleRetry(
@@ -1286,6 +1313,8 @@ class ConnectionManager @Inject constructor(
     private companion object {
         /** Bound the resume probe so fake green is replaced promptly, even for a black-holed TCP path. */
         const val FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS = 10_000L
+        /** Recheck once Doze's delayed network capability callback has had a chance to settle. */
+        const val FOREGROUND_NETWORK_RECHECK_DELAY_MS = 1_000L
         const val AUTHORIZATION_RESUME_TIMEOUT_MS = ConnectionTimeoutPolicy.authorizationResumeMs
         const val TRANSPORT_READY_CALLBACK_TIMEOUT_MS = ConnectionTimeoutPolicy.transportReadyCallbackMs
     }
