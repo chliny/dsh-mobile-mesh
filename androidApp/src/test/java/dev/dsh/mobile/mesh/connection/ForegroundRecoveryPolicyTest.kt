@@ -113,6 +113,13 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `replacement loop opening does not trigger another carrier recovery`() {
+        assertTrue(shouldIgnoreReplacementLoopReconnect(ConnectionPhase.RECONNECTING, true))
+        assertFalse(shouldIgnoreReplacementLoopReconnect(ConnectionPhase.RECONNECTING, false))
+        assertFalse(shouldIgnoreReplacementLoopReconnect(ConnectionPhase.CONNECTED, true))
+    }
+
+    @Test
     fun `foreground restart preserves reconnect only after an established generation`() {
         assertEquals(ConnectionPhase.RECONNECTING, foregroundRestartPhase(true))
         assertEquals(ConnectionPhase.CONNECTING, foregroundRestartPhase(false))

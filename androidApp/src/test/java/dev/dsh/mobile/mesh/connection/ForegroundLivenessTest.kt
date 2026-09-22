@@ -12,6 +12,12 @@ import org.junit.Test
 /** Regression contract: only an actual carrier failure should rebuild mesh and SSH. */
 class ForegroundLivenessTest {
     @Test
+    fun `ZeroTier probe allows native relay resume budget`() {
+        assertTrue(foregroundProbeTimeoutMs(MeshTransport.ZERO_TIER) > foregroundProbeTimeoutMs(MeshTransport.TAILSCALE))
+        assertTrue(foregroundProbeTimeoutMs(MeshTransport.ZERO_TIER) > FOREGROUND_PROBE_TIMEOUT_MS)
+    }
+
+    @Test
     fun `successful endpoint probe keeps healthy carrier`() {
         assertTrue(foregroundProbeReachedHost(true, RpcResult.Ok(JsonPrimitive(true))))
     }

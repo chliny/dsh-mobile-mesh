@@ -296,6 +296,13 @@ class ConnectionManager @Inject constructor(
             val current = _state.value
             if (state == ConnectionState.RECONNECTING) {
                 generation = null
+                // The loop emits RECONNECTING for its first generation after a carrier replacement.
+                // That is not a second carrier loss: the replacement's own ready handshake is still
+                // authoritative, and renewing here creates a foreground relay churn loop.
+                if (shouldIgnoreReplacementLoopReconnect(
+                        phase = current.phase,
+                        transportRecoveryInFlight = synchronized(recoveryLock) { transportRecoveryInFlight },
+                    )) return@runIfCurrent
                 // Only an established carrier moving from CONNECTED to RECONNECTING can be a
                 // dead relay. A new loop also announces RECONNECTING as its first state.
                 if (current.phase == ConnectionPhase.CONNECTED) {
@@ -1014,7 +1021,7 @@ class ConnectionManager @Inject constructor(
                     val mux = expectedGeneration?.mux
                     val carrierOpen = mux != null && !mux.isClosed
                     val result = if (carrierOpen) runCatching {
-                        kotlinx.coroutines.withTimeout(FOREGROUND_PROBE_TIMEOUT_MS) {
+                        kotlinx.coroutines.withTimeout(foregroundProbeTimeoutMs(activeHost?.meshTransport)) {
                             expectedApi?.connectionProbe()
                         }
                     }.getOrNull() else null
@@ -1278,7 +1285,6 @@ class ConnectionManager @Inject constructor(
 
     private companion object {
         /** Bound the resume probe so fake green is replaced promptly, even for a black-holed TCP path. */
-        const val FOREGROUND_PROBE_TIMEOUT_MS = 1_500L
         const val FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS = 10_000L
         const val AUTHORIZATION_RESUME_TIMEOUT_MS = ConnectionTimeoutPolicy.authorizationResumeMs
         const val TRANSPORT_READY_CALLBACK_TIMEOUT_MS = ConnectionTimeoutPolicy.transportReadyCallbackMs
