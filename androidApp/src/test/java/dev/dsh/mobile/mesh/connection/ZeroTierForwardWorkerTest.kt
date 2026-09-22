@@ -48,6 +48,27 @@ class ZeroTierForwardWorkerTest {
     }
 
     @Test
+    fun `start racing close does not escape a closed loopback socket`() {
+        val executor = Executors.newFixedThreadPool(2)
+        val localInput = CloseBlockingInputStream()
+        val local = FakeSocket(localInput, ByteArrayOutputStream()) { localInput.release() }
+        val worker = ZeroTierForwardWorker(
+            local = local,
+            remoteInput = PollingInputStream(),
+            remoteOutput = ByteArrayOutputStream(),
+            closeRemote = {},
+            executor = executor,
+            onFinished = {},
+        )
+        try {
+            worker.close()
+            worker.start()
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
     fun `native socket stays open until both forwarding directions exit`() {
         val executor = Executors.newFixedThreadPool(2)
         val localInput = CloseBlockingInputStream()
