@@ -31,5 +31,7 @@ internal fun loopFailureCanRenewCarrier(failure: dev.dsh.mobile.mesh.core.wire.G
         else -> true
     }
     is dev.dsh.mobile.mesh.core.wire.GenerationFailure.ReadyFailed -> false
+    // A first socket-open deadline is frequently a transient mobile wake-up race. The caller pairs
+    // this signal with the retry threshold above, so it renews the carrier only after persistence.
     is dev.dsh.mobile.mesh.core.wire.GenerationFailure.MuxTimedOut -> true
 }
