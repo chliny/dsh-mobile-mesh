@@ -65,6 +65,7 @@ internal const val FOREGROUND_DIRECT_RECOVERY_AFTER_MS = 30_000L
 internal const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 500L
 internal const val FOREGROUND_RECOVERY_STEADY_RETRY_DELAY_MS = 5_000L
 internal const val FOREGROUND_RECOVERY_FAST_ATTEMPTS = 3
+internal const val FOREGROUND_RECOVERY_DEDUP_WINDOW_MS = 750L
 
 internal fun shouldReArmOnReplacementNetwork(
     connected: Boolean,
@@ -80,6 +81,13 @@ internal fun shouldStartForegroundRecovery(
     action: ForegroundRecoveryAction,
     recoveryInFlight: Boolean,
 ): Boolean = action == ForegroundRecoveryAction.RECOVER && !recoveryInFlight
+
+/** onStart and onResume can arrive back-to-back for one Activity transition. */
+internal fun shouldCoalesceForegroundRecovery(
+    forceCheck: Boolean,
+    nowMs: Long,
+    lastRequestMs: Long,
+): Boolean = forceCheck && lastRequestMs >= 0L && nowMs - lastRequestMs < FOREGROUND_RECOVERY_DEDUP_WINDOW_MS
 
 internal fun shouldDeferCarrierRecovery(
     operationInFlight: Boolean,
@@ -107,6 +115,10 @@ internal fun shouldRearmPublishedGenerationAfterBackground(
     keepConnectedInBackground: Boolean,
     hasConnected: Boolean,
 ): Boolean = keepConnectedInBackground && hasConnected
+
+/** A never-connected startup must not masquerade as a retained reconnect on foreground. */
+internal fun foregroundRestartPhase(hasConnected: Boolean): ConnectionPhase =
+    if (hasConnected) ConnectionPhase.RECONNECTING else ConnectionPhase.CONNECTING
 
 /** A failed probe during a rebuild must leave a retry request for the operation boundary. */
 internal fun shouldArmRecoveryAfterProbeFailure(
