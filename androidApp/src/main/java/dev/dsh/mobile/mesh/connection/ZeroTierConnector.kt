@@ -283,15 +283,32 @@ internal class ZeroTierForwardWorker(
     private val executor: ExecutorService,
     private val onFinished: (ZeroTierForwardWorker) -> Unit,
 ) : Closeable {
+    private val stateLock = Any()
     private val started = AtomicBoolean(false)
     private val closing = AtomicBoolean(false)
     private val finished = CountDownLatch(2)
     private val remoteClosed = AtomicBoolean(false)
 
     fun start() {
-        if (!started.compareAndSet(false, true)) return
-        executor.execute { copy(local.getInputStream(), remoteOutput, pollEndOfStream = false) }
-        executor.execute { copy(remoteInput, local.getOutputStream(), pollEndOfStream = true) }
+        synchronized(stateLock) {
+            if (!started.compareAndSet(false, true) || closing.get()) return
+            val localInput: InputStream
+            val localOutput: OutputStream
+            try {
+                // Capture both loopback streams before publishing worker tasks. close() may race this
+                // boundary during relay renewal; getOutputStream() on a just-closed Socket throws and
+                // must stay inside the worker lifecycle rather than escape an executor thread.
+                localInput = local.getInputStream()
+                localOutput = local.getOutputStream()
+            } catch (_: IOException) {
+                finished.countDown()
+                finished.countDown()
+                finish()
+                return
+            }
+            executor.execute { copy(localInput, remoteOutput, pollEndOfStream = false) }
+            executor.execute { copy(remoteInput, localOutput, pollEndOfStream = true) }
+        }
     }
 
     private fun copy(input: InputStream, output: OutputStream, pollEndOfStream: Boolean) {
@@ -320,7 +337,7 @@ internal class ZeroTierForwardWorker(
     }
 
     override fun close() {
-        closing.set(true)
+        synchronized(stateLock) { closing.set(true) }
         runCatching { local.close() }
         if (!started.get()) {
             finished.countDown()
