@@ -42,6 +42,11 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `stale presentation can be cleared when no recovery remains`() {
+        assertFalse(effectiveForegroundCheckPending(presentationPending = true, recoveryInFlight = false))
+    }
+
+    @Test
     fun `pending foreground check does not start a second recovery`() {
         assertEquals(ForegroundRecoveryAction.NONE, foregroundRecoveryAction(ForegroundRecoveryFacts(ConnectionPhase.RECONNECTING, true, false, 5_000, true, true)))
     }

@@ -929,13 +929,15 @@ class ConnectionManager @Inject constructor(
         val current = _state.value
         val now = System.currentTimeMillis()
         val backgroundDuration = (now - backgroundedAtMs).coerceAtLeast(0L)
+        val recoveryInFlight = connectJob?.isActive == true || foregroundProbeJob?.isActive == true ||
+            synchronized(recoveryLock) { transportRecoveryInFlight }
         val action = if (publishedGenerationNeedsProbe && appInForeground) {
             ForegroundRecoveryAction.VERIFY
         } else foregroundRecoveryAction(
             ForegroundRecoveryFacts(
                 phase = current.phase,
                 hasActiveHost = activeHost != null,
-                recoveryInFlight = connectJob?.isActive == true || foregroundProbeJob?.isActive == true,
+                recoveryInFlight = recoveryInFlight,
                 backgroundDurationMs = backgroundDuration,
                 networkChanged = networkLostWhileConnected || networkRecoveryGate.isPending(),
                 foregroundCheckPending = effectiveForegroundCheckPending(
@@ -958,8 +960,14 @@ class ConnectionManager @Inject constructor(
             Log.d("ConnectionManager", "Cleared stale connected recovery presentation")
             return
         }
-        val recoveryInFlight = connectJob?.isActive == true || foregroundProbeJob?.isActive == true
-        if (effectiveForegroundCheckPending(current.foregroundCheckPending, recoveryInFlight) && !publishedGenerationNeedsProbe) return
+        if (effectiveForegroundCheckPending(current.foregroundCheckPending, recoveryInFlight) && !publishedGenerationNeedsProbe) {
+            // A retained background recovery can finish between onStart/onResume callbacks. If the
+            // UI latch survived but no operation remains, do not leave the foreground permanently
+            // fenced; re-enter the authoritative recovery decision below.
+            if (!recoveryInFlight) {
+                _state.value = current.copy(foregroundCheckPending = false, recoveryOverlayVisible = false)
+            } else return
+        }
         if (action == ForegroundRecoveryAction.VERIFY || publishedGenerationNeedsProbe) {
             _state.value = current.copy(foregroundCheckPending = true)
         }
