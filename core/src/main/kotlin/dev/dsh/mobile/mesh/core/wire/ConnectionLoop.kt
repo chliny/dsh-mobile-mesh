@@ -117,15 +117,22 @@ class LoopConfig(
     val maxDelayMs: Long = 10_000L,
     /** Jitter span bound: the actual sleep is uniform in [cap/2, cap] of the attempt cap. */
     val jitterCapMs: Long = 10_000L,
-    /** How long a generation may take to open the mux socket before it is abandoned. */
-    val streamOpenTimeoutMs: Long = 3_000L,
     /**
-     * How long the ready frame may take once the socket is open.
+     * Safety ceiling for the mux socket opening callback.
      *
-     * Separate from [streamOpenTimeoutMs] because it covers a different failure: the socket is
-     * established and the host is simply not answering, which the TCP layer will not report.
+     * The callback is event-driven; this only handles a broken transport that never reports it.
+     * Keep the ceiling generous enough for a weak network to finish the WebSocket handshake without
+     * being mistaken for a failed carrier and reconnected.
      */
-    val readyTimeoutMs: Long = 5_000L,
+    val streamOpenTimeoutMs: Long = 15_000L,
+    /**
+     * Safety ceiling for the ready frame once the socket is open.
+     *
+     * Readiness is event-driven; this only covers a peer that never responds. Separate from
+     * [streamOpenTimeoutMs] because it covers a different failure: the socket is established and
+     * the host is simply not answering, which the TCP layer will not report.
+     */
+    val readyTimeoutMs: Long = 15_000L,
     /** Injectable sleep used between generations. */
     val delay: suspend (Long) -> Unit = ::defaultSleep,
 )
@@ -138,13 +145,15 @@ private suspend fun defaultSleep(ms: Long) {
 /**
  * Owns the readiness handshake and reconnect loop for the harness connection.
  *
- * 1. Open the `/api/remote.mux` WebSocket (open timeout 3s).
+ * 1. Open the `/api/remote.mux` WebSocket (15s safety ceiling).
  * 2. Open the Gateway-internal `$events` logical stream and read its first item, which must be a
  *    `ready` frame. That frame — not a `host.describe` call — is what makes the generation
  *    connected: it proves the host installed its incremental listeners before answering, so no
  *    baseline read can race them.
  * 3. Forward `$events` frames to [LoopSinks] until the stream ends, fails, or the socket dies —
  *    then reconnect with exponential backoff (base 500ms, factor 2, max 10s, jitter cap/2..cap).
+ *
+ * The opening and ready-frame paths are event-driven; their 15s deadlines are safety ceilings only.
  *
  * The two sockets this replaces each carried a fixed frame union and needed no client message.
  * Here there is one socket, and everything else the app streams is a further logical stream on

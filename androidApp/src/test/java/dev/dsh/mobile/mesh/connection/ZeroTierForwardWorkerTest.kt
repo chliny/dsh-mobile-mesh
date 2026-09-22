@@ -69,6 +69,33 @@ class ZeroTierForwardWorkerTest {
     }
 
     @Test
+    fun `rejected forwarding tasks close the native socket`() {
+        val remoteClosed = AtomicBoolean(false)
+        val workerFinished = CountDownLatch(1)
+        val rejectingExecutor = object : java.util.concurrent.AbstractExecutorService() {
+            override fun shutdown() = Unit
+            override fun shutdownNow(): MutableList<Runnable> = mutableListOf()
+            override fun isShutdown() = false
+            override fun isTerminated() = false
+            override fun awaitTermination(timeout: Long, unit: TimeUnit) = true
+            override fun execute(command: Runnable) = throw java.util.concurrent.RejectedExecutionException("closed")
+        }
+        val worker = ZeroTierForwardWorker(
+            local = FakeSocket(CloseBlockingInputStream(), ByteArrayOutputStream()) {},
+            remoteInput = PollingInputStream(),
+            remoteOutput = ByteArrayOutputStream(),
+            closeRemote = { remoteClosed.set(true) },
+            executor = rejectingExecutor,
+            onFinished = { workerFinished.countDown() },
+        )
+
+        worker.start()
+
+        assertTrue(workerFinished.await(1, TimeUnit.SECONDS))
+        assertTrue(remoteClosed.get())
+    }
+
+    @Test
     fun `native socket stays open until both forwarding directions exit`() {
         val executor = Executors.newFixedThreadPool(2)
         val localInput = CloseBlockingInputStream()

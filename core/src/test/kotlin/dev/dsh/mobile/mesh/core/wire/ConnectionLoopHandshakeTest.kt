@@ -109,6 +109,16 @@ class ConnectionLoopHandshakeTest {
         } ?: false
 
     @Test
+    fun `default handshake deadlines are generous safety ceilings`() {
+        val config = LoopConfig()
+
+        // Opening and readiness are event-driven. These deadlines only protect against a broken
+        // callback/peer, so they must not turn a slow but valid weak-network handshake into a retry.
+        assertEquals(15_000L, config.streamOpenTimeoutMs)
+        assertEquals(15_000L, config.readyTimeoutMs)
+    }
+
+    @Test
     fun `stopping while mux creation is suspended closes the late mux`() = runBlocking {
         val recorder = Recorder()
         val releaseFactory = kotlinx.coroutines.CompletableDeferred<Unit>()
