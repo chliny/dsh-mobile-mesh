@@ -31,7 +31,7 @@ O DeepSeek Harness pode executar comandos e ler ou escrever arquivos no host. N�
 
 ## Compatibilidade
 
-Versão testada: [dsh-v0.1.5-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.5-alpha.2), pacote `0.1.5-rc.2`.
+Versão testada: [dsh-v0.1.6-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.6-alpha.2), pacote `0.1.6-alpha.2`.
 
 ## Referências
 

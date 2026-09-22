@@ -12,9 +12,9 @@ object DshCore {
      * version string, and there is no version-shaped branch in the client at all — see
      * `docs/COMPATIBILITY.md`.
      *
-     * The current compatibility target is DeepSeek Harness tag `dsh-v0.1.5-alpha.2`. The wire
+     * The current compatibility target is DeepSeek Harness tag `dsh-v0.1.6-alpha.2`. The wire
      * remains backward-compatible with the session and workspace-file protocol used by this client;
      * the tag is the release tested for the current DTOs and call shapes.
      */
-    const val PROTOCOL_BASELINE = "0.1.5-alpha.2"
+    const val PROTOCOL_BASELINE = "0.1.6-alpha.2"
 }

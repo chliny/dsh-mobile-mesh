@@ -31,7 +31,7 @@ DSH Mobile Mesh هو تطبيق Android غير رسمي للتحكم عن بُع
 
 ## التوافق
 
-الإصدار المختبر: [dsh-v0.1.5-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.5-alpha.2)، الحزمة `0.1.5-rc.2`.
+الإصدار المختبر: [dsh-v0.1.6-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.6-alpha.2)، الحزمة `0.1.6-alpha.2`.
 
 ## المراجع
 

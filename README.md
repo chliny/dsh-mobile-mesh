@@ -92,7 +92,7 @@ DeepSeek Harness can execute commands and read or write files on its host. Any c
 
 ## Compatibility
 
-The current tested version is [dsh-v0.1.5-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.5-alpha.2), corresponding to package version `0.1.5-rc.2`.
+The current tested version is [dsh-v0.1.6-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.6-alpha.2), corresponding to package version `0.1.6-alpha.2`.
 
 ## Project structure
 
