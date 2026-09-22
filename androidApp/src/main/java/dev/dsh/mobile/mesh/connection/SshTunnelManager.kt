@@ -136,7 +136,14 @@ class SshTunnelManager @Inject constructor(
                         setWritable(true, true)
                         writeText(credentials.privateKey ?: throw IllegalArgumentException("SSH private key is missing"))
                     }
-                    val provider = client.loadKeys(keyFile.absolutePath, credentials.privateKeyPassphrase)
+                    // SSHJ's passphrase overload calls String.toCharArray() internally and does not
+                    // accept null. An unencrypted private key is represented by a missing/blank
+                    // passphrase, so use the no-passphrase overload for that case.
+                    val provider = if (shouldUseSshKeyPassphrase(credentials.privateKeyPassphrase)) {
+                        client.loadKeys(keyFile.absolutePath, credentials.privateKeyPassphrase)
+                    } else {
+                        client.loadKeys(keyFile.absolutePath)
+                    }
                     client.authPublickey(username, provider)
                 }
             }
@@ -234,6 +241,8 @@ class SshTunnelManager @Inject constructor(
         const val TAG = "SshTunnelManager"
     }
 }
+
+internal fun shouldUseSshKeyPassphrase(passphrase: String?): Boolean = !passphrase.isNullOrBlank()
 
 private object AcceptAllHostKeyVerifier : HostKeyVerifier {
     override fun verify(hostname: String, port: Int, key: PublicKey): Boolean = true

@@ -145,7 +145,8 @@ class HostsStore @Inject constructor(
         zeroTierPlanetId: String? = null,
         zeroTierPlanetBase64: String? = null,
         tailscaleHostname: String? = null,
-        sshEnabled: Boolean = true,
+        /** Discovery/direct connections use HTTP/WebSocket; SSH must be explicitly enabled. */
+        sshEnabled: Boolean = false,
         sshPort: Int = 22,
         sshUsername: String? = null,
         sshAuthentication: SshAuthentication = SshAuthentication.PASSWORD,
