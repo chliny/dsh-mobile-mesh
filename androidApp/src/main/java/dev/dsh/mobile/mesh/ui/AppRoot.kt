@@ -37,6 +37,7 @@ import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectViewModel
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectUiState
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectScreen
+import dev.dsh.mobile.mesh.ui.screens.connect.connectionAttemptAuthority
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectionsScreen
 import dev.dsh.mobile.mesh.ui.screens.main.ChatListDrawer
 import dev.dsh.mobile.mesh.ui.screens.main.MainScreen
@@ -205,7 +206,9 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 // The ViewModel marks the selected row as connecting immediately, before the
                 // manager publishes CONNECTING. Keep feedback attached to the tapped connection.
                 connectingHostId = connectUiState.attempted
-                    ?.let { attempted -> hosts.firstOrNull { it.authority == attempted }?.id }
+                    ?.let { attempted -> hosts.firstOrNull {
+                        connectionAttemptAuthority(it.host, it.port, it.sshEnabled, it.sshPort) == attempted
+                    }?.id }
                     ?.takeIf { connectUiState.connecting }
                     ?: connection.host?.takeIf {
                         connection.phase == ConnectionPhase.CONNECTING || connection.phase == ConnectionPhase.RECONNECTING
@@ -287,7 +290,8 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 connection.hasConnected,
                 connection.phase,
                 connection.foregroundCheckPending,
-                connection.recoveryOverlayVisible,
+                recoveryOverlayVisible = connection.recoveryOverlayVisible,
+                showingConnectionList = showConnections || showStartupConnections,
             )) {
             ConnectionRecoveryOverlay()
         }

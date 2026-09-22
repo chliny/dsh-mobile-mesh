@@ -16,6 +16,7 @@ class ConnectionRecoveryPolicyTest {
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.CONNECTED, true))
         assertFalse(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.CONNECTED, false))
         assertFalse(shouldShowConnectionRecoveryOverlay(false, ConnectionPhase.RECONNECTING, false))
+        assertFalse(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, false, showingConnectionList = true))
     }
 
     @Test
