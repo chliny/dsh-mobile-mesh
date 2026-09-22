@@ -9,15 +9,6 @@ add_subdirectory(
     "${CMAKE_CURRENT_BINARY_DIR}/libzt"
 )
 
-target_sources(
-    zt-shared
-    PRIVATE "${CMAKE_CURRENT_LIST_DIR}/src/main/cpp/ZeroTierNative.cpp"
-)
-target_include_directories(
-    zt-shared
-    PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../third_party/libzt/include"
-)
-
 add_library(dsh_tsnet SHARED IMPORTED)
 set_target_properties(dsh_tsnet PROPERTIES
     IMPORTED_LOCATION "${TSNET_LIB_DIR}/${ANDROID_ABI}/libdsh_tsnet.so"

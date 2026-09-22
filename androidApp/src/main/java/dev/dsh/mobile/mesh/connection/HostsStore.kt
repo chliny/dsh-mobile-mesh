@@ -13,12 +13,20 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+
+internal class SettingUpdateSerialiser {
+    private val mutex = Mutex()
+
+    suspend fun run(update: suspend () -> Unit) = mutex.withLock { update() }
+}
 
 /** Persists remembered hosts and app settings. */
 @Singleton
@@ -48,6 +56,7 @@ class HostsStore @Inject constructor(
 
     private val hostsSerializer = ListSerializer(HostConfig.serializer())
     private val workspaceExpansionSerializer = MapSerializer(String.serializer(), Boolean.serializer())
+    private val settingUpdates = SettingUpdateSerialiser()
 
     val workspaceExpansion: Flow<Map<String, Boolean>> = dataStore.data.map { prefs ->
         prefs[Keys.WORKSPACE_EXPANSION]?.let { raw ->
@@ -88,27 +97,7 @@ class HostsStore @Inject constructor(
         }.getOrDefault(emptyList())
     }
 
-    val settings: Flow<AppSettings> = dataStore.data.map { prefs ->
-        val ports = prefs[Keys.PORTS]
-            ?.split(',')
-            ?.mapNotNull { it.trim().toIntOrNull() }
-            ?.takeIf { it.isNotEmpty() }
-            ?: listOf(3080)
-        AppSettings(
-            autoConnectLast = prefs[Keys.AUTO_LAST] ?: true,
-            autoConnectLan = prefs[Keys.AUTO_LAN] ?: false,
-            autoConnectLoopback = prefs[Keys.AUTO_LOOPBACK] ?: true,
-            keepConnectedInBackground = prefs[Keys.BACKGROUND] ?: false,
-            notifyTurnComplete = prefs[Keys.NOTIFY_TURN] ?: true,
-            notifyGoal = prefs[Keys.NOTIFY_GOAL] ?: true,
-            notifyNeedsAction = prefs[Keys.NOTIFY_ACTION] ?: true,
-            themePreference = prefs[Keys.THEME] ?: "system",
-            localeOverride = prefs[Keys.LOCALE],
-            knownPorts = ports,
-            updateCheckEnabled = prefs[Keys.UPDATE_CHECK] ?: true,
-            dismissedUpdate = prefs[Keys.DISMISSED_UPDATE],
-        )
-    }
+    val settings: Flow<AppSettings> = dataStore.data.map(::settingsFrom)
 
     suspend fun settingsOnce(): AppSettings = settings.first()
 
@@ -241,12 +230,10 @@ class HostsStore @Inject constructor(
         dataStore.edit { it[Keys.PORTS] = ports.joinToString(",") }
     }
 
-    suspend fun setSetting(transform: (AppSettings) -> AppSettings) {
-        val next = transform(settingsOnce())
-        // Mirrored out to SharedPreferences as well: the scheme has to be readable before any
-        // activity exists, and DataStore cannot be read from there. See DshApplication.
-        DshApplication.storeThemePreference(context, next.themePreference)
+    suspend fun setSetting(transform: (AppSettings) -> AppSettings) = settingUpdates.run {
+        var themePreference: String? = null
         dataStore.edit { prefs ->
+            val next = transform(settingsFrom(prefs))
             prefs[Keys.AUTO_LAST] = next.autoConnectLast
             prefs[Keys.AUTO_LAN] = next.autoConnectLan
             prefs[Keys.AUTO_LOOPBACK] = next.autoConnectLoopback
@@ -257,15 +244,36 @@ class HostsStore @Inject constructor(
             prefs[Keys.THEME] = next.themePreference
             prefs[Keys.UPDATE_CHECK] = next.updateCheckEnabled
             next.localeOverride?.let { prefs[Keys.LOCALE] = it } ?: prefs.remove(Keys.LOCALE)
+            themePreference = next.themePreference
         }
+        // Mirror only the value whose DataStore transaction committed. Serializing this write with
+        // the transaction prevents an older concurrent call from overwriting the newer mirror.
+        DshApplication.storeThemePreference(context, checkNotNull(themePreference))
+    }
+
+    private fun settingsFrom(prefs: Preferences): AppSettings {
+        val ports = prefs[Keys.PORTS]
+            ?.split(',')
+            ?.mapNotNull { it.trim().toIntOrNull() }
+            ?.takeIf { it.isNotEmpty() }
+            ?: listOf(3080)
+        return AppSettings(
+            autoConnectLast = prefs[Keys.AUTO_LAST] ?: true,
+            autoConnectLan = prefs[Keys.AUTO_LAN] ?: false,
+            autoConnectLoopback = prefs[Keys.AUTO_LOOPBACK] ?: true,
+            keepConnectedInBackground = prefs[Keys.BACKGROUND] ?: false,
+            notifyTurnComplete = prefs[Keys.NOTIFY_TURN] ?: true,
+            notifyGoal = prefs[Keys.NOTIFY_GOAL] ?: true,
+            notifyNeedsAction = prefs[Keys.NOTIFY_ACTION] ?: true,
+            themePreference = prefs[Keys.THEME] ?: "system",
+            localeOverride = prefs[Keys.LOCALE],
+            knownPorts = ports,
+            updateCheckEnabled = prefs[Keys.UPDATE_CHECK] ?: true,
+            dismissedUpdate = prefs[Keys.DISMISSED_UPDATE],
+        )
     }
 
     private suspend fun persist(list: List<HostConfig>) {
         dataStore.edit { it[Keys.HOSTS] = WireJson.encodeToString(hostsSerializer, list) }
-    }
-
-    private companion object {
-        /** Bound on the remembered-session map, matching the known-port cap. */
-        const val MAX_REMEMBERED_HOSTS = 8
     }
 }

@@ -27,6 +27,7 @@ interface SessionStoreEntryPoint {
     fun chatDraftStore(): ChatDraftStore
     fun workspaceFilesStore(): WorkspaceFilesStore
     fun hostsStore(): HostsStore
+    fun appNavigationState(): AppNavigationState
 }
 
 @Composable
@@ -34,6 +35,14 @@ internal fun rememberChatDraftStore(): ChatDraftStore {
     val context = LocalContext.current.applicationContext
     return remember {
         EntryPointAccessors.fromApplication(context, SessionStoreEntryPoint::class.java).chatDraftStore()
+    }
+}
+
+@Composable
+internal fun rememberAppNavigationState(): AppNavigationState {
+    val context = LocalContext.current.applicationContext
+    return remember {
+        EntryPointAccessors.fromApplication(context, SessionStoreEntryPoint::class.java).appNavigationState()
     }
 }
 

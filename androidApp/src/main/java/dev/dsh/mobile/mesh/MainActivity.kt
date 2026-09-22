@@ -1,5 +1,6 @@
 package dev.dsh.mobile.mesh
 
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
@@ -13,7 +14,9 @@ import androidx.lifecycle.lifecycleScope
 import dev.dsh.mobile.mesh.connection.ConnectionManager
 import dev.dsh.mobile.mesh.connection.HostsStore
 import dev.dsh.mobile.mesh.notify.DshNotifications
+import dev.dsh.mobile.mesh.ui.AppNavigationState
 import dev.dsh.mobile.mesh.ui.AppRoot
+import dev.dsh.mobile.mesh.ui.notificationSessionId
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -24,6 +27,7 @@ class MainActivity : AppCompatActivity() {
     @Inject lateinit var hostsStore: HostsStore
     @Inject lateinit var connectionManager: ConnectionManager
     @Inject lateinit var notifications: DshNotifications
+    @Inject lateinit var navigationState: AppNavigationState
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -34,6 +38,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         notifications.ensureChannels()
+        consumeSessionIntent(intent)
         if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
 
         // Apply the persisted in-app language (11 locales, incl. Thai/RTL).
@@ -70,7 +75,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeSessionIntent(intent)
+    }
+
+    private fun consumeSessionIntent(intent: Intent?) {
+        val sessionId = notificationSessionId(
+            intent?.getStringExtra(DshNotifications.EXTRA_SESSION_ID),
+            intent?.dataString,
+        ) ?: return
+        navigationState.requestSession(sessionId)
+        intent?.removeExtra(DshNotifications.EXTRA_SESSION_ID)
+        intent?.data = null
+    }
+
     override fun onStop() {
+        navigationState.setActivityStarted(false)
         // onPause also fires for permission dialogs and translucent system surfaces. Treat only a
         // stopped activity as a real background transition; otherwise those short pauses cancel a
         // valid recovery window and make the next resume look permanently stuck.
@@ -80,6 +102,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        navigationState.setActivityStarted(true)
         android.util.Log.d("MainActivity", "onStart: requesting foreground recovery")
         // Returning from Google sign-in must also reattach the authorization WebView; the manager
         // preserves the pending tsnet identity and the root observes its retained login URL.

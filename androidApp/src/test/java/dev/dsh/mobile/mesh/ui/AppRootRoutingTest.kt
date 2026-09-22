@@ -1,15 +1,16 @@
 package dev.dsh.mobile.mesh.ui
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppRootRoutingTest {
     @Test
-    fun `already connected host opens session list without reconnect selection`() {
-        assertTrue(shouldRouteToSessionListAfterConnection(hasConnected = true, editingConnection = false))
-        assertFalse(shouldRouteToSessionListAfterConnection(hasConnected = false, editingConnection = false))
-        assertFalse(shouldRouteToSessionListAfterConnection(hasConnected = true, editingConnection = true))
+    fun `editing host id survives recreation and resolves from hosts flow`() {
+        assertEquals("host-2", resolveEditingHostId("host-2", listOf("host-1", "host-2")))
+        assertNull(resolveEditingHostId("removed", listOf("host-1", "host-2")))
     }
 
     @Test

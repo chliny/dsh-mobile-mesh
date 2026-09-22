@@ -17,6 +17,9 @@ import java.net.NetworkInterface
 import javax.inject.Inject
 import javax.inject.Singleton
 
+internal fun isUsableTailscaleNetwork(hasActiveNetwork: Boolean, hasInternetCapability: Boolean): Boolean =
+    hasActiveNetwork && hasInternetCapability
+
 private object TailscaleNative {
     init {
         System.loadLibrary("dsh_tsnet_jni")
@@ -94,6 +97,7 @@ class TailscaleConnector @Inject constructor(
             ?: "dsh-${config.id.take(12)}"
         val stateDirectory = File(context.noBackupFilesDir, "tailscale/${config.id}").apply { mkdirs() }
         val network = connectivity.activeNetwork
+            ?.takeIf { isUsableTailscaleNetwork(hasActiveNetwork = true, hasInternetCapability = isInternetCapable(it)) }
             ?: awaitActiveNetwork()
             ?: throw IllegalStateException("No active internet connection for Tailscale")
         synchronized(lock) {

@@ -3,7 +3,6 @@ package dev.dsh.mobile.mesh.ui.screens.main
 import dev.dsh.mobile.mesh.core.session.ToolCallNode
 import dev.dsh.mobile.mesh.core.session.ToolResultNode
 import dev.dsh.mobile.mesh.core.wire.WireJson
-import dev.dsh.mobile.mesh.ui.components.ContentBlockView
 import dev.dsh.mobile.mesh.ui.components.DiffHunk
 import dev.dsh.mobile.mesh.ui.components.ReadLine
 import dev.dsh.mobile.mesh.ui.components.SearchFile
@@ -515,27 +514,3 @@ private fun webCard(call: ToolCallNode, args: JsonObject, result: ToolResultNode
     val statusCode = int(m, "statusCode") ?: return null
     return ToolCardView.WebCard(kind = WebCardKind.Fetch(url, statusCode))
 }
-
-/**
- * One content block of a generic card. Images become a real raster: a tool that returns a
- * screenshot delivers it through this path, not through the message path.
- */
-@Suppress("unused")
-private fun mapContentBlock(block: dev.dsh.mobile.mesh.core.wire.dto.ContentBlock): ContentBlockView =
-    when (block) {
-        is dev.dsh.mobile.mesh.core.wire.dto.ContentBlock.Text -> ContentBlockView.TextBlock(block.text)
-        is dev.dsh.mobile.mesh.core.wire.dto.ContentBlock.Reasoning ->
-            ContentBlockView.ReasoningBlock(block.text)
-        is dev.dsh.mobile.mesh.core.wire.dto.ContentBlock.Image -> ContentBlockView.ImageBlock(
-            attachmentId = block.attachment.attachmentId,
-            mediaType = block.attachment.mediaType,
-            width = block.attachment.width,
-            height = block.attachment.height,
-            name = block.attachment.name,
-        )
-        is dev.dsh.mobile.mesh.core.wire.dto.ContentBlock.ToolCall ->
-            ContentBlockView.TextBlock("↳ ${block.name}")
-        is dev.dsh.mobile.mesh.core.wire.dto.ContentBlock.ToolResult ->
-            ContentBlockView.TextBlock("↳ result")
-        else -> ContentBlockView.TextBlock(block.toString())
-    }

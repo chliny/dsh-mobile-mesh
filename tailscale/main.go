@@ -466,11 +466,13 @@ func serve(entry *instance, remote string) {
 		if err != nil {
 			return
 		}
-		entry.forwardWG.Add(1)
+		if !entry.registerAccepted(listener, local) {
+			_ = local.Close()
+			return
+		}
 		go func() {
 			defer entry.forwardWG.Done()
 			defer local.Close()
-			entry.trackConn(local)
 			defer entry.untrackConn(local)
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			remoteConn, err := entry.server.Dial(ctx, "tcp", remote)
@@ -479,7 +481,9 @@ func serve(entry *instance, remote string) {
 				return
 			}
 			defer remoteConn.Close()
-			entry.trackConn(remoteConn)
+			if !entry.registerConn(remoteConn) {
+				return
+			}
 			defer entry.untrackConn(remoteConn)
 			copyDone := make(chan struct{})
 			go func() {
@@ -528,13 +532,35 @@ func stopRelayLocked(entry *instance) {
 	entry.forwardWG.Wait()
 }
 
-func (entry *instance) trackConn(conn net.Conn) {
+func (entry *instance) registerAccepted(listener net.Listener, conn net.Conn) bool {
+	entry.relayMu.RLock()
+	defer entry.relayMu.RUnlock()
+	if entry.listener != listener || !entry.relayHealthy {
+		return false
+	}
 	entry.connMu.Lock()
+	defer entry.connMu.Unlock()
 	if entry.connections == nil {
 		entry.connections = make(map[net.Conn]struct{})
 	}
 	entry.connections[conn] = struct{}{}
-	entry.connMu.Unlock()
+	entry.forwardWG.Add(1)
+	return true
+}
+
+func (entry *instance) registerConn(conn net.Conn) bool {
+	entry.relayMu.RLock()
+	defer entry.relayMu.RUnlock()
+	if entry.listener == nil || !entry.relayHealthy {
+		return false
+	}
+	entry.connMu.Lock()
+	defer entry.connMu.Unlock()
+	if entry.connections == nil {
+		entry.connections = make(map[net.Conn]struct{})
+	}
+	entry.connections[conn] = struct{}{}
+	return true
 }
 
 func (entry *instance) untrackConn(conn net.Conn) {

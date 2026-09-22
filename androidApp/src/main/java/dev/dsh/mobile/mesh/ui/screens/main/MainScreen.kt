@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -79,6 +80,40 @@ private sealed interface MainPage {
     data class Preview(val path: String, val title: String, val returnPage: MainPage) : MainPage
 }
 
+internal data class MainPageRoute(
+    val kind: String = "chat",
+    val path: String = "",
+    val title: String = "",
+    val returnKind: String = "chat",
+    val returnPath: String = ".",
+    val rootTitle: String? = null,
+    val rootPath: String = ".",
+) : java.io.Serializable
+
+private fun MainPage.toRoute(): MainPageRoute = when (this) {
+    MainPage.Chat -> MainPageRoute()
+    is MainPage.Files -> MainPageRoute("files", path, rootTitle.orEmpty(), rootTitle = rootTitle, rootPath = rootPath)
+    is MainPage.Preview -> {
+        val files = returnPage as? MainPage.Files
+        MainPageRoute("preview", path, title, if (files == null) "chat" else "files", files?.path ?: ".", files?.rootTitle, files?.rootPath ?: ".")
+    }
+}
+
+internal fun MainPageRoute.restoredKind(): String = when (kind) {
+    "files", "preview" -> kind
+    else -> "chat"
+}
+
+private fun MainPageRoute.toPage(): MainPage = when (restoredKind()) {
+    "files" -> MainPage.Files(path, rootTitle, rootPath)
+    "preview" -> MainPage.Preview(
+        path,
+        title,
+        if (returnKind == "files") MainPage.Files(returnPath, rootTitle, rootPath) else MainPage.Chat,
+    )
+    else -> MainPage.Chat
+}
+
 /**
  * Session conversation shell:
  *  - the session list is a previous full-screen page, reached with the top-left button or Back
@@ -96,14 +131,25 @@ fun MainScreen(
     reconnectAttempt: Int,
     onReconnect: () -> Unit,
 ) {
-    var page by remember { mutableStateOf<MainPage>(MainPage.Chat) }
+    var savedPageRoute by rememberSaveable { mutableStateOf(MainPageRoute()) }
+    var page by remember(savedPageRoute) { mutableStateOf(savedPageRoute.toPage()) }
+    fun navigate(next: MainPage) {
+        page = next
+        savedPageRoute = next.toRoute()
+    }
 
     var detailsOpen by remember { mutableStateOf(false) }
     val detailsWidth = 300.dp
     val scope = rememberCoroutineScope()
 
     val store = dev.dsh.mobile.mesh.ui.rememberSessionStore()
+    val navigationState = dev.dsh.mobile.mesh.ui.rememberAppNavigationState()
     val sessionId by store.currentSessionId.collectAsStateWithLifecycle()
+    val visibleChatSessionId = sessionId.takeIf { page == MainPage.Chat }
+    DisposableEffect(navigationState, visibleChatSessionId) {
+        navigationState.setVisibleChatSession(visibleChatSessionId)
+        onDispose { navigationState.setVisibleChatSession(null) }
+    }
     val sessions by store.sessions.collectAsStateWithLifecycle()
     val workspaces by store.workspaces.collectAsStateWithLifecycle()
     val currentWorkspace = sessionId?.let { sid -> workspaces.firstOrNull { sid in it.sessionIds } }
@@ -123,7 +169,7 @@ fun MainScreen(
     if (page != MainPage.Chat) {
         val sid = sessionId
         if (sid == null) {
-            page = MainPage.Chat
+            navigate(MainPage.Chat)
         } else {
             when (val current = page) {
                 is MainPage.Files -> WorkspaceFilesScreen(
@@ -132,14 +178,14 @@ fun MainScreen(
                     initialPath = current.path,
                     rootPath = current.rootPath,
                     rootTitle = current.rootTitle,
-                    onBack = { page = MainPage.Chat },
+                    onBack = { navigate(MainPage.Chat) },
                     onOpenFile = { path, title, parentPath ->
                         safePreviewPath(path, sessions.firstOrNull { it.sessionId == sid }?.cwd)?.let { safePath ->
-                            page = MainPage.Preview(
+                            navigate(MainPage.Preview(
                                 safePath,
                                 title,
                                 MainPage.Files(parentPath, current.rootTitle, current.rootPath),
-                            )
+                            ))
                         }
                     },
                 )
@@ -148,7 +194,7 @@ fun MainScreen(
                     sessionId = sid,
                     path = current.path,
                     title = current.title,
-                    onBack = { page = current.returnPage },
+                    onBack = { navigate(current.returnPage) },
                 )
                 MainPage.Chat -> Unit
             }
@@ -223,11 +269,11 @@ fun MainScreen(
                     }
                 },
                 onOpenFiles = {
-                    page = MainPage.Files(path = rootPath, rootTitle = rootDirectoryName, rootPath = rootPath)
+                    navigate(MainPage.Files(path = rootPath, rootTitle = rootDirectoryName, rootPath = rootPath))
                 },
                 onOpenFile = { path, title ->
                     safePreviewPath(path, sessions.firstOrNull { it.sessionId == sessionId }?.cwd)?.let { safePath ->
-                        page = MainPage.Preview(safePath, title, MainPage.Chat)
+                        navigate(MainPage.Preview(safePath, title, MainPage.Chat))
                     }
                 },
             )
