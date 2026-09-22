@@ -116,6 +116,12 @@ internal fun shouldRearmPublishedGenerationAfterBackground(
     hasConnected: Boolean,
 ): Boolean = keepConnectedInBackground && hasConnected
 
+/** A replacement loop's initial reconnect event is not another carrier failure. */
+internal fun shouldIgnoreReplacementLoopReconnect(
+    phase: ConnectionPhase,
+    transportRecoveryInFlight: Boolean,
+): Boolean = phase == ConnectionPhase.RECONNECTING && transportRecoveryInFlight
+
 /** A never-connected startup must not masquerade as a retained reconnect on foreground. */
 internal fun foregroundRestartPhase(hasConnected: Boolean): ConnectionPhase =
     if (hasConnected) ConnectionPhase.RECONNECTING else ConnectionPhase.CONNECTING
