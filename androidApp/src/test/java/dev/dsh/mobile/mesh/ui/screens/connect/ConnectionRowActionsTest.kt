@@ -16,6 +16,14 @@ class ConnectionRowActionsTest {
     }
 
     @Test
+    fun `edit and delete are disabled for connected or connecting row`() {
+        assertFalse(canMutateConnectionRow("h1", "h1", null, ConnectionPhase.CONNECTED))
+        assertFalse(canMutateConnectionRow("h1", null, "h1", ConnectionPhase.CONNECTING))
+        assertTrue(canMutateConnectionRow("h2", "h1", null, ConnectionPhase.CONNECTED))
+        assertTrue(canMutateConnectionRow("h1", null, null, ConnectionPhase.DISCONNECTED))
+    }
+
+    @Test
     fun `disconnect is enabled only for connected or connecting row`() {
         assertTrue(canDisconnectConnectionRow("h1", "h1", null, ConnectionPhase.CONNECTED))
         assertTrue(canDisconnectConnectionRow("h1", null, "h1", ConnectionPhase.CONNECTING))

@@ -13,6 +13,17 @@ class ConnectFormStatePolicyTest {
     }
 
     @Test
+    fun `connection mutation is blocked for connected or connecting host`() {
+        assertFalse(shouldAllowConnectionMutation("host-a", "host-a", connecting = false))
+        assertFalse(shouldAllowConnectionMutation("host-a", "host-b", connecting = true))
+        assertTrue(shouldAllowConnectionMutation("host-a", "host-b", connecting = false))
+        assertFalse(shouldAllowConnectionMutation(null, "host-b", connecting = false))
+        assertFalse(shouldEnableConnectionSave("host-a", "host-a", connecting = false))
+        assertFalse(shouldEnableConnectionSave("host-a", "host-b", connecting = true))
+        assertTrue(shouldEnableConnectionSave(null, "host-b", connecting = true))
+    }
+
+    @Test
     fun `connect action is available only for a new form`() {
         assertTrue(shouldShowConnectAction(editingHostId = null, connectedHostId = "host-a"))
         assertFalse(shouldShowConnectAction(editingHostId = "host-a", connectedHostId = "host-a"))

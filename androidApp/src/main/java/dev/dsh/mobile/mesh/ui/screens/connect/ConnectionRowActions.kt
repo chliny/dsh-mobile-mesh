@@ -23,3 +23,11 @@ internal fun canDisconnectConnectionRow(
     hostId == connectingHostId -> phase == ConnectionPhase.CONNECTING || phase == ConnectionPhase.RECONNECTING
     else -> false
 }
+
+/** Editing or deleting an active host would race its carrier teardown and is therefore blocked. */
+internal fun canMutateConnectionRow(
+    hostId: String,
+    connectedHostId: String?,
+    connectingHostId: String?,
+    phase: ConnectionPhase,
+): Boolean = !canDisconnectConnectionRow(hostId, connectedHostId, connectingHostId, phase)
