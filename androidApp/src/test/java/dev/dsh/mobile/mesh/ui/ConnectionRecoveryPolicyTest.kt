@@ -20,6 +20,23 @@ class ConnectionRecoveryPolicyTest {
     }
 
     @Test
+    fun `non-list pages keep the global overlay during reconnect`() {
+        assertTrue(shouldShowConnectionRecoveryOverlay(
+            hasConnected = true,
+            phase = ConnectionPhase.RECONNECTING,
+            foregroundCheckPending = false,
+            showingConnectionList = false,
+        ))
+        assertTrue(shouldShowConnectionRecoveryOverlay(
+            hasConnected = true,
+            phase = ConnectionPhase.CONNECTING,
+            foregroundCheckPending = false,
+            recoveryOverlayVisible = true,
+            showingConnectionList = false,
+        ))
+    }
+
+    @Test
     fun `foreground reconnecting state keeps overlay visible when recovery callback races resume`() {
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, true))
     }
