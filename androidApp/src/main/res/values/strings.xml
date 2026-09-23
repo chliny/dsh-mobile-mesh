@@ -381,6 +381,10 @@
     <string name="settings_connections_exported">Connections exported</string>
     <string name="settings_connections_imported">Connections imported</string>
     <string name="settings_connections_transfer_failed">Could not transfer connections</string>
+    <string name="settings_connections_import_conflicts_title">Existing connections found</string>
+    <string name="settings_connections_import_conflicts_body">Select which matching connections to replace. Unselected connections will be left unchanged.</string>
+    <string name="settings_connections_import_none">Import without replacing</string>
+    <string name="settings_connections_import_selected">Import selected</string>
     <string name="settings_connection_status">Status</string>
     <string name="settings_connection_host">Connected to</string>
     <string name="settings_connection_disconnect">Disconnect</string>

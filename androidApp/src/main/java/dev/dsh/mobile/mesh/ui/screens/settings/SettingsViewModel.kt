@@ -8,8 +8,11 @@ import dev.dsh.mobile.mesh.connection.ConnectionUiState
 import dev.dsh.mobile.mesh.connection.ConnectionTransfer
 import dev.dsh.mobile.mesh.connection.ConnectionTransferCodec
 import dev.dsh.mobile.mesh.connection.ConnectionTransferEntry
+import dev.dsh.mobile.mesh.connection.ConnectionImportConflict
+import dev.dsh.mobile.mesh.connection.findConnectionImportConflicts
 import dev.dsh.mobile.mesh.connection.HostsStore
 import dev.dsh.mobile.mesh.connection.SshSecretStore
+import dev.dsh.mobile.mesh.connection.ZeroTierPlanetStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -50,6 +53,7 @@ class SettingsViewModel @Inject constructor(
     private val connectionManager: ConnectionManager,
     private val sessions: dev.dsh.mobile.mesh.connection.HarnessSessionStore,
     private val sshSecrets: SshSecretStore,
+    private val zeroTierPlanets: ZeroTierPlanetStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AppSettings())
@@ -91,15 +95,30 @@ class SettingsViewModel @Inject constructor(
         )
     }
 
-    suspend fun importConnections(raw: String) {
+    suspend fun previewConnectionImport(raw: String): List<ConnectionImportConflict> {
         val transfer = ConnectionTransferCodec.decode(raw)
-        val idMapping = hostsStore.importHosts(transfer.connections.map { it.host })
+        return findConnectionImportConflicts(
+            imported = transfer.connections.map { it.host },
+            existing = hostsStore.hosts.first(),
+        )
+    }
+
+    suspend fun importConnections(raw: String, replaceExistingIds: Set<String>) {
+        val transfer = ConnectionTransferCodec.decode(raw)
+        val idMapping = hostsStore.importHosts(transfer.connections.map { it.host }, replaceExistingIds)
         sessions.importCookies(transfer.connections.mapNotNull { entry ->
-            entry.cookie?.takeIf { it.isNotBlank() }?.let { (idMapping[entry.host.id] ?: entry.host.id) to it }
+            val importedId = idMapping[entry.host.id] ?: return@mapNotNull null
+            entry.cookie?.takeIf { it.isNotBlank() }?.let { importedId to it }
         }.toMap())
         transfer.connections.forEach { entry ->
-            val importedId = idMapping[entry.host.id] ?: entry.host.id
+            val importedId = idMapping[entry.host.id] ?: return@forEach
             entry.sshCredentials?.let { sshSecrets.put(importedId, it) }
+            if (entry.host.meshTransport == dev.dsh.mobile.mesh.connection.MeshTransport.ZERO_TIER &&
+                entry.host.zeroTierPlanetBase64 != null
+            ) {
+                val planetId = zeroTierPlanets.importBase64(entry.host.zeroTierPlanetBase64)
+                hostsStore.upsertHost(entry.host.copy(id = importedId, zeroTierPlanetId = planetId))
+            }
         }
     }
 
