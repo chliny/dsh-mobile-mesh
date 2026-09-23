@@ -22,7 +22,7 @@ val dshAndroidAbis = System.getenv("DSH_ANDROID_ABIS")
     ?.distinct()
     ?.takeIf { it.isNotEmpty() }
     ?: listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
-val dshVersionName = System.getenv("DSH_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.1.0"
+val dshVersionName = System.getenv("DSH_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.1.1"
 val dshVersionCode = dshVersionName.substringBefore('-').split('.').mapNotNull(String::toIntOrNull).let { parts ->
     parts.getOrElse(0) { 0 } * 10_000 + parts.getOrElse(1) { 0 } * 100 + parts.getOrElse(2) { 0 }
 }.coerceAtLeast(1)
