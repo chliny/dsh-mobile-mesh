@@ -135,12 +135,16 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
             val selectedConnectionIsReady = shouldRouteSelectedConnection(
                 phaseConnected = connection.phase == ConnectionPhase.CONNECTED,
                 selectedAuthority = connectUiState.attempted,
-                activeAuthority = connection.host?.authority,
+                activeAuthority = connection.host?.let { host ->
+                    connectionAttemptAuthority(host.host, host.port, host.sshEnabled, host.sshPort)
+                },
                 editing = editingHost != null,
                 awaitingSelectedConnection = awaitingSelectedConnection || showConnectPage,
             )
             // Recovery republishes the same active host; it must not route an existing detail page
             // through the session list. Only an explicit selection/form flow should do that.
+            // An explicit connection-list selection owns its route even if recovery overlays were
+            // previously set, so use the latest selected authority and clear that intent on success.
             if (selectedConnectionIsReady && editingHost == null &&
                 (shouldRouteAfterRecovery(keepSessionPageDuringRecovery, awaitingSelectedConnection))) {
                 awaitingSelectedConnection = false
@@ -210,6 +214,9 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                         connectionAttemptAuthority(it.host, it.port, it.sshEnabled, it.sshPort) == attempted
                     }?.id }
                     ?.takeIf { connectUiState.connecting }
+                    ?: connection.host?.id?.takeIf {
+                        connection.phase == ConnectionPhase.CONNECTING || connection.phase == ConnectionPhase.RECONNECTING
+                    }
                     ?: connection.host?.takeIf {
                         connection.phase == ConnectionPhase.CONNECTING || connection.phase == ConnectionPhase.RECONNECTING
                     }?.id,
@@ -240,6 +247,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     }) else null,
                     initialHost = editingHost,
                     connectedHostId = connection.host?.id,
+                    connectionPhase = connection.phase,
                     restoreDraft = false,
                 )
             }

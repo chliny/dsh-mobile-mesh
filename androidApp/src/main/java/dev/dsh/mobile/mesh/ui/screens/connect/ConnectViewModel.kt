@@ -701,7 +701,12 @@ class ConnectViewModel @Inject constructor(
         onSaved: () -> Unit = {},
         onFailed: (Throwable) -> Unit = {},
     ) {
-        if (existing != null && connectionManager.state.value.phase != ConnectionPhase.DISCONNECTED) return
+        val connectionState = connectionManager.state.value
+        val connectionPhase = connectionState.phase
+        if (existing != null && connectionState.host?.id == existing.id && connectionPhase == ConnectionPhase.RECONNECTING) {
+            onFailed(IllegalStateException("Cannot edit while this connection is reconnecting"))
+            return
+        }
         viewModelScope.launch {
             runCatching {
                 val input = parseHostInput(host) ?: error("invalid host address")
@@ -808,6 +813,11 @@ class ConnectViewModel @Inject constructor(
     fun selectHost(host: HostConfig) {
         viewModelScope.launch { hostsStore.setActiveConnectionId(host.id) }
         connectTo(host)
+    }
+
+    /** Clear a stale auto-restore marker without disturbing remembered profiles. */
+    fun clearActiveConnection() {
+        viewModelScope.launch { hostsStore.setActiveConnectionId(null) }
     }
 
     fun connectTo(

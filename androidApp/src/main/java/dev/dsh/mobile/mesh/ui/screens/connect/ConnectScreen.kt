@@ -101,6 +101,7 @@ fun ConnectScreen(
     onOpenConnections: (() -> Unit)? = null,
     initialHost: HostConfig? = null,
     connectedHostId: String? = null,
+    connectionPhase: dev.dsh.mobile.mesh.connection.ConnectionPhase = dev.dsh.mobile.mesh.connection.ConnectionPhase.DISCONNECTED,
     restoreDraft: Boolean = true,
     viewModel: ConnectViewModel = hiltViewModel(),
 ) {
@@ -138,9 +139,34 @@ fun ConnectScreen(
     var connectInFlight by remember { mutableStateOf(false) }
     val editingHost = initialHost
     val formKey = editingHost?.id ?: "new"
-    val connectedEditing = isEditingConnectedHost(editingHost?.id, connectedHostId)
-    val editingActive = connectedEditing || state.connecting
-    val mutationEnabled = shouldAllowConnectionMutation(editingHost?.id, connectedHostId, state.connecting)
+    val editingActive = editingHost != null && shouldLockConnectionEditor(
+        isEditingCurrentConnection = editingHost.id == connectedHostId,
+        isEditingAttemptedConnection = state.connecting && state.attempted == connectionAttemptAuthority(
+            editingHost.host,
+            editingHost.port,
+            editingHost.sshEnabled,
+            editingHost.sshPort,
+        ),
+        phase = connectionPhase,
+    )
+    val editingThisAttempt = editingHost != null && state.connecting &&
+        state.attempted == connectionAttemptAuthority(
+            editingHost.host,
+            editingHost.port,
+            editingHost.sshEnabled,
+            editingHost.sshPort,
+        )
+    val editingConnectionActive = editingHost?.id == connectedHostId &&
+        connectionPhase in setOf(
+            dev.dsh.mobile.mesh.connection.ConnectionPhase.CONNECTED,
+            dev.dsh.mobile.mesh.connection.ConnectionPhase.RECONNECTING,
+        )
+    val mutationEnabled = shouldAllowConnectionMutation(
+        editingHost?.id,
+        connectedHostId,
+        editingThisAttempt || editingConnectionActive,
+        if (editingConnectionActive) connectionPhase else dev.dsh.mobile.mesh.connection.ConnectionPhase.DISCONNECTED,
+    )
     val fieldsEnabled = !editingActive
     val newConnectionAction = shouldShowConnectAction(editingHost?.id, connectedHostId)
     LaunchedEffect(state.attempted, state.failure, state.authorizationPending) {
@@ -520,14 +546,24 @@ fun ConnectScreen(
                                 sshAuthentication = sshAuthentication, sshPassword = sshPassword,
                                 sshPrivateKey = sshPrivateKey, sshPrivateKeyPassphrase = sshPrivateKeyPassphrase,
                                 sshDshHost = sshDshHost, launchToken = launchToken,
-                                onSaved = { toast.second(context.getString(R.string.connect_save_success)) },
+                                onSaved = {
+                                    toast.second(context.getString(R.string.connect_save_success))
+                                    if (shouldReturnToConnectionsAfterSave(editingHost == null, onOpenConnections != null)) {
+                                        onOpenConnections?.invoke()
+                                    }
+                                },
                                 onFailed = { error ->
                                     toast.second(connectionSaveFeedback(error, context.getString(R.string.connect_save_success), context.getString(R.string.connect_save_failed, "").removeSuffix(": ")))
                                 },
                             )
                         },
                         variant = DsButtonVariant.Outline,
-                        enabled = shouldEnableConnectionSave(editingHost?.id, connectedHostId, state.connecting),
+                        enabled = shouldEnableConnectionSave(
+                            editingHost?.id,
+                            connectedHostId,
+                            editingThisAttempt || editingConnectionActive,
+                            if (editingConnectionActive) connectionPhase else dev.dsh.mobile.mesh.connection.ConnectionPhase.DISCONNECTED,
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     if (editingHost == null) DsButton(

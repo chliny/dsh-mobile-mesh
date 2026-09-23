@@ -19,7 +19,7 @@ internal fun canDisconnectConnectionRow(
     connectingHostId: String?,
     phase: ConnectionPhase,
 ): Boolean = when {
-    hostId == connectedHostId -> phase == ConnectionPhase.CONNECTED || phase == ConnectionPhase.RECONNECTING
+    hostId == connectedHostId -> phase == ConnectionPhase.CONNECTED || phase == ConnectionPhase.CONNECTING || phase == ConnectionPhase.RECONNECTING
     hostId == connectingHostId -> phase == ConnectionPhase.CONNECTING || phase == ConnectionPhase.RECONNECTING
     else -> false
 }
