@@ -431,4 +431,16 @@
     <string name="chat_deep_diving">DeepSeek กำลังทำงาน…</string>
     <string name="chat_waiting_seconds">%1$d วินาที</string>
     <string name="chat_feedback_sent">ส่งความคิดเห็นแล้ว</string>
+    <string name="settings_connections_export">ส่งออกการเชื่อมต่อ</string>
+    <string name="settings_connections_import">นำเข้าการเชื่อมต่อ</string>
+    <string name="settings_connections_exported">ส่งออกการเชื่อมต่อแล้ว</string>
+    <string name="settings_connections_imported">นำเข้าการเชื่อมต่อแล้ว</string>
+    <string name="settings_connections_transfer_failed">ถ่ายโอนการเชื่อมต่อไม่สำเร็จ</string>
+    <string name="settings_connections_import_conflicts_title">พบการเชื่อมต่อที่มีอยู่</string>
+    <string name="settings_connections_import_conflicts_body">เลือกการเชื่อมต่อที่ตรงกันซึ่งต้องการแทนที่ การเชื่อมต่อที่ไม่ได้เลือกจะไม่เปลี่ยนแปลง</string>
+    <string name="settings_connections_import_none">นำเข้าโดยไม่แทนที่</string>
+    <string name="settings_connections_import_selected">นำเข้ารายการที่เลือก</string>
+    <string name="settings_connections_transport_direct">โดยตรง</string>
+    <string name="settings_connections_ssh_enabled">เปิดใช้ SSH</string>
+    <string name="settings_connections_ssh_disabled">ปิดใช้ SSH</string>
 </resources>

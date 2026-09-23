@@ -439,4 +439,16 @@
     <string name="chat_deep_diving">DeepSeek работает…</string>
     <string name="chat_waiting_seconds">%1$d с</string>
     <string name="chat_feedback_sent">Отзыв отправлен</string>
+    <string name="settings_connections_export">Экспортировать подключения</string>
+    <string name="settings_connections_import">Импортировать подключения</string>
+    <string name="settings_connections_exported">Подключения экспортированы</string>
+    <string name="settings_connections_imported">Подключения импортированы</string>
+    <string name="settings_connections_transfer_failed">Не удалось перенести подключения</string>
+    <string name="settings_connections_import_conflicts_title">Найдены существующие подключения</string>
+    <string name="settings_connections_import_conflicts_body">Выберите совпадающие подключения для замены. Остальные подключения останутся без изменений.</string>
+    <string name="settings_connections_import_none">Импортировать без замены</string>
+    <string name="settings_connections_import_selected">Импортировать выбранные</string>
+    <string name="settings_connections_transport_direct">Напрямую</string>
+    <string name="settings_connections_ssh_enabled">SSH включён</string>
+    <string name="settings_connections_ssh_disabled">SSH отключён</string>
 </resources>

@@ -431,4 +431,16 @@
     <string name="chat_deep_diving">DeepSeek کام کر رہا ہے…</string>
     <string name="chat_waiting_seconds">%1$d سیکنڈ</string>
     <string name="chat_feedback_sent">رائے بھیج دی گئی</string>
+    <string name="settings_connections_export">کنکشنز برآمد کریں</string>
+    <string name="settings_connections_import">کنکشنز درآمد کریں</string>
+    <string name="settings_connections_exported">کنکشنز برآمد ہو گئے</string>
+    <string name="settings_connections_imported">کنکشنز درآمد ہو گئے</string>
+    <string name="settings_connections_transfer_failed">کنکشنز منتقل نہیں ہو سکے</string>
+    <string name="settings_connections_import_conflicts_title">موجودہ کنکشنز ملے</string>
+    <string name="settings_connections_import_conflicts_body">منتخب کریں کہ کون سے مماثل کنکشنز بدلنے ہیں۔ غیر منتخب کنکشنز میں کوئی تبدیلی نہیں ہوگی۔</string>
+    <string name="settings_connections_import_none">بدلے بغیر درآمد کریں</string>
+    <string name="settings_connections_import_selected">منتخب کنکشنز درآمد کریں</string>
+    <string name="settings_connections_transport_direct">براہ راست</string>
+    <string name="settings_connections_ssh_enabled">SSH فعال ہے</string>
+    <string name="settings_connections_ssh_disabled">SSH غیر فعال ہے</string>
 </resources>

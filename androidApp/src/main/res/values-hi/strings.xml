@@ -431,4 +431,16 @@
     <string name="chat_deep_diving">DeepSeek काम कर रहा है…</string>
     <string name="chat_waiting_seconds">%1$d सेकंड</string>
     <string name="chat_feedback_sent">फ़ीडबैक भेजा गया</string>
+    <string name="settings_connections_export">कनेक्शन निर्यात करें</string>
+    <string name="settings_connections_import">कनेक्शन आयात करें</string>
+    <string name="settings_connections_exported">कनेक्शन निर्यात किए गए</string>
+    <string name="settings_connections_imported">कनेक्शन आयात किए गए</string>
+    <string name="settings_connections_transfer_failed">कनेक्शन स्थानांतरित नहीं हो सके</string>
+    <string name="settings_connections_import_conflicts_title">मौजूदा कनेक्शन मिले</string>
+    <string name="settings_connections_import_conflicts_body">चुनें कि किन मेल खाते कनेक्शनों को बदलना है। बिना चुने कनेक्शन वैसे ही रहेंगे।</string>
+    <string name="settings_connections_import_none">बिना बदले आयात करें</string>
+    <string name="settings_connections_import_selected">चुने हुए आयात करें</string>
+    <string name="settings_connections_transport_direct">सीधा</string>
+    <string name="settings_connections_ssh_enabled">SSH चालू</string>
+    <string name="settings_connections_ssh_disabled">SSH बंद</string>
 </resources>
