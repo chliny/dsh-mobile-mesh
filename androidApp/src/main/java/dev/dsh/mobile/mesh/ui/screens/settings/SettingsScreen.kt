@@ -31,6 +31,9 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -38,6 +41,8 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,6 +63,7 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.connection.AppSettings
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.connection.ConnectionUiState
+import dev.dsh.mobile.mesh.connection.ConnectionImportConflict
 import dev.dsh.mobile.mesh.core.DshCore
 import dev.dsh.mobile.mesh.core.wire.dto.PluginFiberPhase
 import dev.dsh.mobile.mesh.core.wire.dto.PluginInventoryEntry
@@ -105,6 +111,11 @@ fun SettingsScreen(
     val context = LocalContext.current
     val toast = rememberDsToast()
     val scope = rememberCoroutineScope()
+    var showDisconnectDialog by remember { mutableStateOf(false) }
+    var pendingImport by remember { mutableStateOf<String?>(null) }
+    var importConflicts by remember { mutableStateOf<List<ConnectionImportConflict>>(emptyList()) }
+    var selectedReplaceIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var importError by remember { mutableStateOf<String?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
@@ -122,12 +133,35 @@ fun SettingsScreen(
             runCatching {
                 val payload = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                     ?: error("Could not read import file")
-                viewModel.importConnections(payload)
-            }.onSuccess { toast.second(context.getString(R.string.settings_connections_imported)) }
-                .onFailure { toast.second(context.getString(R.string.settings_connections_transfer_failed)) }
+                payload
+            }.onSuccess { payload ->
+                pendingImport = payload
+                importError = null
+                scope.launch {
+                    runCatching { viewModel.previewConnectionImport(payload) }
+                        .onSuccess { conflicts ->
+                            importConflicts = conflicts
+                            selectedReplaceIds = conflicts.map { it.existing.id }.toSet()
+                            if (conflicts.isEmpty()) {
+                                runCatching { viewModel.importConnections(payload, emptySet()) }
+                                    .onSuccess {
+                                        pendingImport = null
+                                        toast.second(context.getString(R.string.settings_connections_imported))
+                                    }
+                                    .onFailure {
+                                        pendingImport = null
+                                        toast.second(context.getString(R.string.settings_connections_transfer_failed))
+                                    }
+                            }
+                        }
+                        .onFailure {
+                            pendingImport = null
+                            toast.second(context.getString(R.string.settings_connections_transfer_failed))
+                        }
+                }
+            }.onFailure { toast.second(context.getString(R.string.settings_connections_transfer_failed)) }
         }
     }
-    var showDisconnectDialog by remember { mutableStateOf(false) }
     var pluginsOpen by remember { mutableStateOf(false) }
     BackHandler(onBack = onClose)
 
@@ -269,6 +303,76 @@ fun SettingsScreen(
 
     plugins?.takeIf { pluginsOpen }?.let {
         PluginsSheet(inventory = it, onDismiss = { pluginsOpen = false })
+    }
+
+    pendingImport?.let { payload ->
+        AlertDialog(
+            onDismissRequest = { pendingImport = null },
+            title = { Text(stringResource(R.string.settings_connections_import_conflicts_title)) },
+            text = {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    Text(
+                        stringResource(R.string.settings_connections_import_conflicts_body),
+                        style = DsType.std14,
+                        color = colors.labelSecondary,
+                    )
+                    importConflicts.forEach { conflict ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = conflict.existing.id in selectedReplaceIds,
+                                onCheckedChange = { checked ->
+                                    selectedReplaceIds = if (checked) selectedReplaceIds + conflict.existing.id
+                                    else selectedReplaceIds - conflict.existing.id
+                                },
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(conflict.imported.name, style = DsType.std14, color = colors.labelPrimary)
+                                Text(
+                                    "${conflict.imported.displayAddress} · ${conflict.imported.meshTransport?.storedValue ?: "direct"} · ${if (conflict.imported.sshEnabled) "SSH" else "no SSH"}",
+                                    style = DsType.caption11,
+                                    color = colors.labelTertiary,
+                                )
+                            }
+                        }
+                    }
+                    importError?.let { Text(it, style = DsType.caption11, color = colors.warnLabel) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        runCatching { viewModel.importConnections(payload, selectedReplaceIds) }
+                            .onSuccess {
+                                pendingImport = null
+                                toast.second(context.getString(R.string.settings_connections_imported))
+                            }
+                            .onFailure { importError = context.getString(R.string.settings_connections_transfer_failed) }
+                    }
+                }) { Text(stringResource(R.string.settings_connections_import_selected)) }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        scope.launch {
+                            runCatching { viewModel.importConnections(payload, emptySet()) }
+                                .onSuccess {
+                                    pendingImport = null
+                                    toast.second(context.getString(R.string.settings_connections_imported))
+                                }
+                                .onFailure { importError = context.getString(R.string.settings_connections_transfer_failed) }
+                        }
+                    }) { Text(stringResource(R.string.settings_connections_import_none)) }
+                    TextButton(onClick = { pendingImport = null }) {
+                        Text(stringResource(R.string.common_cancel))
+                    }
+                }
+            },
+        )
     }
 
     if (showDisconnectDialog) {

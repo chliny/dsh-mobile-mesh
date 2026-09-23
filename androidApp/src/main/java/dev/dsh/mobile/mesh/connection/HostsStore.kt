@@ -103,9 +103,9 @@ class HostsStore @Inject constructor(
 
     suspend fun upsertHost(config: HostConfig) {
         val current = hosts.first().toMutableList()
-        val existing = current.firstOrNull { it.id == config.id || (it.host == config.host && it.port == config.port) }
+        val existing = current.firstOrNull { it.id == config.id || it.connectionIdentity() == config.connectionIdentity() }
         val merged = mergeRememberedHost(existing, config)
-        current.removeAll { it.id == config.id || (it.host == config.host && it.port == config.port) }
+        current.removeAll { it.id == config.id || it.connectionIdentity() == config.connectionIdentity() }
         current.add(0, merged)
         persist(current)
     }
@@ -152,7 +152,8 @@ class HostsStore @Inject constructor(
         sshAuthentication: SshAuthentication = SshAuthentication.PASSWORD,
         sshDshHost: String = "127.0.0.1",
     ): HostConfig {
-        val existing = hosts.first().firstOrNull { it.host == host && it.port == port }
+        val incomingIdentity = ConnectionIdentity(host.trim().lowercase(), port, sshEnabled, meshTransport?.storedValue ?: "direct")
+        val existing = hosts.first().firstOrNull { it.connectionIdentity() == incomingIdentity }
         val config = HostConfig(
             id = existing?.id ?: UUID.randomUUID().toString(),
             name = name.trim().ifEmpty { existing?.name ?: host },
@@ -193,16 +194,17 @@ class HostsStore @Inject constructor(
         )
     }
 
-    suspend fun importHosts(imported: List<HostConfig>): Map<String, String> {
+    suspend fun importHosts(imported: List<HostConfig>, replaceExistingIds: Set<String>): Map<String, String> {
         if (imported.isEmpty()) return emptyMap()
         val current = hosts.first().toMutableList()
         val idMapping = linkedMapOf<String, String>()
-        imported.forEach { config ->
-            val existing = current.firstOrNull { it.host == config.host && it.port == config.port }
-            current.removeAll { it.id == config.id || (it.host == config.host && it.port == config.port) }
-            val importedConfig = if (existing != null && existing.id != config.id) {
-                config.copy(id = existing.id)
-            } else config
+        imported.distinctBy(HostConfig::connectionIdentity).forEach { config ->
+            val existing = current.firstOrNull { it.connectionIdentity() == config.connectionIdentity() }
+            if (existing != null && existing.id !in replaceExistingIds) {
+                return@forEach
+            }
+            val importedConfig = if (existing != null) config.copy(id = existing.id) else config
+            current.removeAll { it.id == importedConfig.id }
             current.add(mergeRememberedHost(existing, importedConfig))
             idMapping[config.id] = importedConfig.id
         }
