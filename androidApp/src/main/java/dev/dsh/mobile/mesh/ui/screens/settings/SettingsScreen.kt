@@ -1,6 +1,8 @@
 package dev.dsh.mobile.mesh.ui.screens.settings
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -41,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
@@ -48,6 +51,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import dev.dsh.mobile.mesh.BuildConfig
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.connection.AppSettings
@@ -97,7 +102,31 @@ fun SettingsScreen(
     val store = rememberSessionStore()
     val plugins by store.plugins.collectAsStateWithLifecycle()
     val colors = DsTheme.colors
+    val context = LocalContext.current
     val toast = rememberDsToast()
+    val scope = rememberCoroutineScope()
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                val payload = viewModel.exportConnections()
+                context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(payload) }
+                    ?: error("Could not open export file")
+            }.onSuccess { toast.second(context.getString(R.string.settings_connections_exported)) }
+                .onFailure { toast.second(context.getString(R.string.settings_connections_transfer_failed)) }
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                val payload = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    ?: error("Could not read import file")
+                viewModel.importConnections(payload)
+            }.onSuccess { toast.second(context.getString(R.string.settings_connections_imported)) }
+                .onFailure { toast.second(context.getString(R.string.settings_connections_transfer_failed)) }
+        }
+    }
     var showDisconnectDialog by remember { mutableStateOf(false) }
     var pluginsOpen by remember { mutableStateOf(false) }
     BackHandler(onBack = onClose)
@@ -142,6 +171,18 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     ConnectionSection(connectionState, onDisconnect = { showDisconnectDialog = true })
+                    DsButton(
+                        text = stringResource(R.string.settings_connections_export),
+                        onClick = { exportLauncher.launch("dsh-connections.json") },
+                        variant = DsButtonVariant.Outline,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    DsButton(
+                        text = stringResource(R.string.settings_connections_import),
+                        onClick = { importLauncher.launch(arrayOf("application/json", "text/plain")) },
+                        variant = DsButtonVariant.Outline,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     ToggleRow(
                         stringResource(R.string.connect_auto_last),
                         settings.autoConnectLast,

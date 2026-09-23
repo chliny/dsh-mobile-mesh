@@ -193,6 +193,23 @@ class HostsStore @Inject constructor(
         )
     }
 
+    suspend fun importHosts(imported: List<HostConfig>): Map<String, String> {
+        if (imported.isEmpty()) return emptyMap()
+        val current = hosts.first().toMutableList()
+        val idMapping = linkedMapOf<String, String>()
+        imported.forEach { config ->
+            val existing = current.firstOrNull { it.host == config.host && it.port == config.port }
+            current.removeAll { it.id == config.id || (it.host == config.host && it.port == config.port) }
+            val importedConfig = if (existing != null && existing.id != config.id) {
+                config.copy(id = existing.id)
+            } else config
+            current.add(mergeRememberedHost(existing, importedConfig))
+            idMapping[config.id] = importedConfig.id
+        }
+        persist(current)
+        return idMapping
+    }
+
     suspend fun removeHost(id: String) {
         persist(hosts.first().filterNot { it.id == id })
         dataStore.edit { prefs ->

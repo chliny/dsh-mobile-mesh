@@ -56,6 +56,10 @@ class SshSecretStore @Inject constructor(
         file(hostId).delete()
     }
 
+    fun exportCredentials(hostIds: Set<String>): Map<String, SshCredentials> = hostIds.mapNotNull { id ->
+        get(id)?.let { id to it }
+    }.toMap()
+
     private fun file(hostId: String): File {
         require(hostId.matches(Regex("[A-Za-z0-9._-]+"))) { "Invalid SSH secret id" }
         return File(directory, hostId)
