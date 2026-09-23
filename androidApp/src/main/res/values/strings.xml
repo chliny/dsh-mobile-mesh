@@ -376,6 +376,11 @@
     <string name="settings_host_info">Host information</string>
     <string name="settings_connection">Connection</string>
     <string name="settings_open_connection">Open connection settings</string>
+    <string name="settings_connections_export">Export connections</string>
+    <string name="settings_connections_import">Import connections</string>
+    <string name="settings_connections_exported">Connections exported</string>
+    <string name="settings_connections_imported">Connections imported</string>
+    <string name="settings_connections_transfer_failed">Could not transfer connections</string>
     <string name="settings_connection_status">Status</string>
     <string name="settings_connection_host">Connected to</string>
     <string name="settings_connection_disconnect">Disconnect</string>

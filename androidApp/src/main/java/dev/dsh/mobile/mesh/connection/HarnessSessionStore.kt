@@ -65,6 +65,14 @@ class HarnessSessionStore @Inject constructor(
         write(current - hostId)
     }
 
+    suspend fun exportCookies(hostIds: Set<String>): Map<String, String> =
+        sessions().filterKeys { it in hostIds }
+
+    suspend fun importCookies(cookies: Map<String, String>) {
+        if (cookies.isEmpty()) return
+        write(sessions() + cookies.filterValues { it.isNotBlank() })
+    }
+
     /** Forget every session — the Settings "clear data" action. */
     suspend fun clear() {
         dataStore.edit { it.remove(KEY) }

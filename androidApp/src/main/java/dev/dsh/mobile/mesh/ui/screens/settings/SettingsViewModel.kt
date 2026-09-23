@@ -5,9 +5,14 @@ import androidx.lifecycle.viewModelScope
 import dev.dsh.mobile.mesh.connection.AppSettings
 import dev.dsh.mobile.mesh.connection.ConnectionManager
 import dev.dsh.mobile.mesh.connection.ConnectionUiState
+import dev.dsh.mobile.mesh.connection.ConnectionTransfer
+import dev.dsh.mobile.mesh.connection.ConnectionTransferCodec
+import dev.dsh.mobile.mesh.connection.ConnectionTransferEntry
 import dev.dsh.mobile.mesh.connection.HostsStore
+import dev.dsh.mobile.mesh.connection.SshSecretStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +48,8 @@ val LanguageOptions = listOf(
 class SettingsViewModel @Inject constructor(
     private val hostsStore: HostsStore,
     private val connectionManager: ConnectionManager,
+    private val sessions: dev.dsh.mobile.mesh.connection.HarnessSessionStore,
+    private val sshSecrets: SshSecretStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AppSettings())
@@ -68,6 +75,32 @@ class SettingsViewModel @Inject constructor(
 
     fun disconnect() {
         connectionManager.disconnect()
+    }
+
+    suspend fun exportConnections(): String {
+        val hosts = hostsStore.hosts.first()
+        val ids = hosts.map { it.id }.toSet()
+        val cookies = sessions.exportCookies(ids)
+        val credentials = sshSecrets.exportCredentials(ids)
+        return ConnectionTransferCodec.encode(
+            ConnectionTransfer(
+                connections = hosts.map { host ->
+                    ConnectionTransferEntry(host, cookies[host.id], credentials[host.id])
+                },
+            ),
+        )
+    }
+
+    suspend fun importConnections(raw: String) {
+        val transfer = ConnectionTransferCodec.decode(raw)
+        val idMapping = hostsStore.importHosts(transfer.connections.map { it.host })
+        sessions.importCookies(transfer.connections.mapNotNull { entry ->
+            entry.cookie?.takeIf { it.isNotBlank() }?.let { (idMapping[entry.host.id] ?: entry.host.id) to it }
+        }.toMap())
+        transfer.connections.forEach { entry ->
+            val importedId = idMapping[entry.host.id] ?: entry.host.id
+            entry.sshCredentials?.let { sshSecrets.put(importedId, it) }
+        }
     }
 
 }
