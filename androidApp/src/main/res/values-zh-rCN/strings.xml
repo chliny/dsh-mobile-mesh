@@ -462,4 +462,16 @@
     <string name="tool_calls_title">工具调用</string>
     <string name="tool_expanded_body">展开内容</string>
     <string name="chat_feedback_sent">反馈已发送</string>
+    <string name="settings_connections_export">导出连接</string>
+    <string name="settings_connections_import">导入连接</string>
+    <string name="settings_connections_exported">已导出连接</string>
+    <string name="settings_connections_imported">已导入连接</string>
+    <string name="settings_connections_transfer_failed">无法传输连接</string>
+    <string name="settings_connections_import_conflicts_title">发现已有连接</string>
+    <string name="settings_connections_import_conflicts_body">选择要替换的匹配连接。未选择的连接将保持不变。</string>
+    <string name="settings_connections_import_none">导入但不替换</string>
+    <string name="settings_connections_import_selected">导入所选项</string>
+    <string name="settings_connections_transport_direct">直连</string>
+    <string name="settings_connections_ssh_enabled">已启用 SSH</string>
+    <string name="settings_connections_ssh_disabled">未启用 SSH</string>
 </resources>

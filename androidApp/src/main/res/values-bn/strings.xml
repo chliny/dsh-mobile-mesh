@@ -431,4 +431,16 @@
     <string name="chat_deep_diving">DeepSeek কাজ করছে…</string>
     <string name="chat_waiting_seconds">%1$d সেকেন্ড</string>
     <string name="chat_feedback_sent">ফিডব্যাক পাঠানো হয়েছে</string>
+    <string name="settings_connections_export">সংযোগ রপ্তানি করুন</string>
+    <string name="settings_connections_import">সংযোগ আমদানি করুন</string>
+    <string name="settings_connections_exported">সংযোগ রপ্তানি করা হয়েছে</string>
+    <string name="settings_connections_imported">সংযোগ আমদানি করা হয়েছে</string>
+    <string name="settings_connections_transfer_failed">সংযোগ স্থানান্তর করা যায়নি</string>
+    <string name="settings_connections_import_conflicts_title">বিদ্যমান সংযোগ পাওয়া গেছে</string>
+    <string name="settings_connections_import_conflicts_body">যে মিলে যাওয়া সংযোগগুলি প্রতিস্থাপন করতে চান তা বেছে নিন। অনির্বাচিত সংযোগ অপরিবর্তিত থাকবে।</string>
+    <string name="settings_connections_import_none">প্রতিস্থাপন ছাড়া আমদানি করুন</string>
+    <string name="settings_connections_import_selected">নির্বাচিতগুলি আমদানি করুন</string>
+    <string name="settings_connections_transport_direct">সরাসরি</string>
+    <string name="settings_connections_ssh_enabled">SSH চালু</string>
+    <string name="settings_connections_ssh_disabled">SSH বন্ধ</string>
 </resources>

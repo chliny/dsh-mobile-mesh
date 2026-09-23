@@ -439,4 +439,16 @@
     <string name="chat_deep_diving">DeepSeek travaille…</string>
     <string name="chat_waiting_seconds">%1$d s</string>
     <string name="chat_feedback_sent">Commentaires envoyés</string>
+    <string name="settings_connections_export">Exporter les connexions</string>
+    <string name="settings_connections_import">Importer des connexions</string>
+    <string name="settings_connections_exported">Connexions exportées</string>
+    <string name="settings_connections_imported">Connexions importées</string>
+    <string name="settings_connections_transfer_failed">Impossible de transférer les connexions</string>
+    <string name="settings_connections_import_conflicts_title">Connexions existantes détectées</string>
+    <string name="settings_connections_import_conflicts_body">Choisissez les connexions correspondantes à remplacer. Les autres resteront inchangées.</string>
+    <string name="settings_connections_import_none">Importer sans remplacer</string>
+    <string name="settings_connections_import_selected">Importer la sélection</string>
+    <string name="settings_connections_transport_direct">Direct</string>
+    <string name="settings_connections_ssh_enabled">SSH activé</string>
+    <string name="settings_connections_ssh_disabled">SSH désactivé</string>
 </resources>

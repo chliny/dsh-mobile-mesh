@@ -332,8 +332,20 @@ fun SettingsScreen(
                             )
                             Column(Modifier.weight(1f)) {
                                 Text(conflict.imported.name, style = DsType.std14, color = colors.labelPrimary)
+                                val transportLabel = when (conflict.imported.meshTransport?.storedValue) {
+                                    "zerotier" -> stringResource(R.string.connect_transport_zerotier)
+                                    "tailscale" -> stringResource(R.string.connect_transport_tailscale)
+                                    else -> stringResource(R.string.settings_connections_transport_direct)
+                                }
+                                val sshLabel = stringResource(
+                                    if (conflict.imported.sshEnabled) {
+                                        R.string.settings_connections_ssh_enabled
+                                    } else {
+                                        R.string.settings_connections_ssh_disabled
+                                    },
+                                )
                                 Text(
-                                    "${conflict.imported.displayAddress} · ${conflict.imported.meshTransport?.storedValue ?: "direct"} · ${if (conflict.imported.sshEnabled) "SSH" else "no SSH"}",
+                                    "${conflict.imported.displayAddress} · $transportLabel · $sshLabel",
                                     style = DsType.caption11,
                                     color = colors.labelTertiary,
                                 )
