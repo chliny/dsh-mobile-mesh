@@ -28,6 +28,7 @@ class ConnectionRowActionsTest {
         assertTrue(canDisconnectConnectionRow("h1", "h1", null, ConnectionPhase.CONNECTED))
         assertTrue(canDisconnectConnectionRow("h1", null, "h1", ConnectionPhase.CONNECTING))
         assertTrue(canDisconnectConnectionRow("h1", "h1", null, ConnectionPhase.RECONNECTING))
+        assertTrue(canDisconnectConnectionRow("h1", "h1", null, ConnectionPhase.CONNECTING))
         assertFalse(canDisconnectConnectionRow("h2", "h1", null, ConnectionPhase.CONNECTED))
         assertFalse(canDisconnectConnectionRow("h1", null, null, ConnectionPhase.DISCONNECTED))
     }
