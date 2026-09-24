@@ -33,6 +33,8 @@ data class CommandInputDescriptor(
 data class CommandDescriptor(
     @SerialName("name") val name: String,
     @SerialName("description") val description: String = "",
+    /** Stable first-party command identity, when supplied by the server catalog. */
+    @SerialName("definitionId") val definitionId: String? = null,
     @SerialName("input") val input: CommandInputDescriptor? = null,
 ) {
     /** The line a bare invocation submits. */
@@ -41,7 +43,7 @@ data class CommandDescriptor(
     /** The draft prefix an argument-taking invocation prefills. */
     val draftPrefix: String get() = "/$name "
 
-    /** Whether this command accepts composer attachments (`/goal` and `/plan`). */
+    /** Whether the Host definition accepts composer attachments, if this is a first-party or compatible command. */
     val acceptsAttachments: Boolean get() = input?.attachments == true
 }
 

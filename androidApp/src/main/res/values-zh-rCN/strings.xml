@@ -81,6 +81,8 @@
     <string name="connect_fail_tls">%1$s 有响应，但安全（HTTPS）连接失败。若你的反向代理使用本地证书颁发机构，请在本手机上安装其 CA 证书；若该地址实际上并不提供 HTTPS，请去掉 https:// 再连接。</string>
     <string name="connect_fail_streams">%1$s 有响应，但事件流无法打开。本机的 VPN 或私有 DNS 代理可能会拦截 WebSocket 连接 — 关闭后重试。</string>
     <string name="connect_fail_other">无法连接到 %1$s。%2$s</string>
+    <string name="connect_fail_ssh_credentials_title">%1$s 的 SSH 登录凭据缺失</string>
+    <string name="connect_fail_ssh_credentials_body">请编辑此连接，填写 SSH 用户名及密码或私钥，保存后重新连接。</string>
     <string name="connect_version_mismatch">Harness %1$s 版本可能与本应用（为 %2$s 构建）不兼容。</string>
     <string name="connect_harness_home">主目录 %1$s</string>
     <string name="connect_protocol_baseline">协议 %1$s</string>
@@ -343,6 +345,7 @@
     <string name="chat_todo_progress_active">%1$d 进行中</string>
     <string name="chat_todo_progress_pending">%1$d 待处理</string>
     <string name="chat_commands_empty">此会话没有可用命令</string>
+    <string name="chat_commands_no_match">没有匹配的命令</string>
     <string name="chat_commands_unavailable">该 Harness 未提供命令列表</string>
     <string name="chat_image_open">打开图片</string>
     <string name="chat_image_failed">无法加载该图片</string>

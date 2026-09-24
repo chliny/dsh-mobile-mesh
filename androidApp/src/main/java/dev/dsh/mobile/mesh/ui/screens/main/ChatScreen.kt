@@ -133,6 +133,7 @@ fun ChatScreen(
     val attachments = remember(currentSessionId) { mutableStateListOf<PendingAttachment>() }
 
     var sheet by remember { mutableStateOf<ChatSheet?>(null) }
+    var permissionConfirmation by remember { mutableStateOf<String?>(null) }
 
     // Hoisted above the tab swap so each view keeps its own scroll position across switches.
     val chatListState = rememberLazyListState()
@@ -304,10 +305,14 @@ fun ChatScreen(
             return
         }
         val receipts = files.mapNotNull { it.receiptId }
-        // A slash line that names a registered command is not a message: `session/prompt` would
-        // hand it to the model verbatim, so it has to be recognised here and written through the
-        // command gateway. A miss falls through to the prompt path — that is how skills work.
-        when (val submission = adjudicate(text, commands, pending.size, store.commandAttachmentsSupported)) {
+        // Server-registered commands use the command gateway; dedicated Android command surfaces
+        // use their existing server-backed model and permission state. A catalog miss stays a
+        // prompt so the Host can resolve it as a skill.
+        val nativeCommands = buildSet {
+            if (models != null) add("model")
+            if (permissions != null) add("permission")
+        }
+        when (val submission = adjudicate(text, commands, pending.size, store.commandAttachmentsSupported, nativeCommands)) {
             is Submission.Refused -> {
                 sessionId?.let { promptSubmissionGate.release(it, text) }
                 // Nothing is sent and nothing is dropped. The composer clears the draft on its way
@@ -339,6 +344,21 @@ fun ChatScreen(
                         if (attachments.isEmpty()) attachments.addAll(pending)
                     }
                     report(outcome)
+                }
+            }
+
+            is Submission.NativeCommand -> {
+                sessionId?.let { promptSubmissionGate.release(it, text) }
+                when (submission.name) {
+                    "model" -> sheet = ChatSheet.Models
+                    "permission" -> {
+                        if (pending.isNotEmpty()) {
+                            draft = text
+                            toast.second(context.getString(R.string.err_command_no_images, "permission"))
+                        } else {
+                            sheet = ChatSheet.Permission
+                        }
+                    }
                 }
             }
 
@@ -567,6 +587,16 @@ fun ChatScreen(
                 enabled = currentSessionId != null && !subagentReadOnly,
                 onOpenSheet = { sheet = ChatSheet.Commands },
                 commands = commands,
+                skills = skills,
+                permissionsCatalogPresent = permissions != null,
+                modelsCatalogPresent = models != null,
+                onNativeCommand = { name ->
+                    when (name) {
+                        "model" -> sheet = ChatSheet.Models
+                        "permission" -> sheet = ChatSheet.Permission
+                    }
+                },
+                onAddFiles = { filePicker.launch(arrayOf("*/*")) },
                 fileCandidates = fileCandidates,
                 onFileQueryChange = ::queryFileReferences,
                 onSend = ::send,
@@ -590,6 +620,8 @@ fun ChatScreen(
             commands = commands,
             commandsAvailable = commandsAvailable,
             skills = skills,
+            modelsAvailable = models != null,
+            permissionsAvailable = permissions != null,
             mode = mode,
             running = conversation?.running == true,
             canAttach = currentSessionId != null,
@@ -600,17 +632,38 @@ fun ChatScreen(
             // takes no input takes no attachments either — so a pending attachment refuses here
             // for the same reason it refuses at the composer, rather than being silently dropped.
             onRunCommand = { line ->
-                val name = line.removePrefix("/").substringBefore(' ')
-                if (attachments.isEmpty()) {
-                    scope.launch { report(store.runCommand(line)) }
-                } else {
-                    toast.second(context.getString(R.string.err_command_no_images, name))
+                when (line) {
+                    "/model" -> sheet = ChatSheet.Models
+                    "/permission" -> sheet = ChatSheet.Permission
+                    else -> {
+                        val name = line.removePrefix("/").substringBefore(' ')
+                        if (attachments.isEmpty()) {
+                            scope.launch { report(store.runCommand(line)) }
+                        } else {
+                            toast.second(context.getString(R.string.err_command_no_images, name))
+                        }
+                    }
                 }
             },
             onPrefillDraft = { prefix -> draft = prefix },
             onDismiss = { sheet = null },
         )
         ChatSheet.Models -> ModelsSheet(models = models, store = store, onDismiss = { sheet = null })
+        ChatSheet.Permission -> permissions?.let { selection ->
+            PermissionMenu(
+                select = selection,
+                current = selection.currentValue,
+                onDismiss = { sheet = null },
+                onPick = { value ->
+                    sheet = null
+                    if (value == dev.dsh.mobile.mesh.core.wire.dto.FULL_ACCESS_PRESET) {
+                        permissionConfirmation = value
+                    } else {
+                        scope.launch { report(store.setPermissionPreset(value)) }
+                    }
+                },
+            )
+        }
         ChatSheet.Presets -> PresetsSheet(
             presets = agentPresets,
             currentPreset = currentSession?.agentPreset,
@@ -628,10 +681,19 @@ fun ChatScreen(
         )
         null -> Unit
     }
+    permissionConfirmation?.let { value ->
+        FullAccessConfirmDialog(
+            onDismiss = { permissionConfirmation = null },
+            onConfirm = {
+                permissionConfirmation = null
+                scope.launch { report(store.setPermissionPreset(value)) }
+            },
+        )
+    }
 }
 
 /** Which sheet, if any, is open over the chat surface. */
-private enum class ChatSheet { Commands, Models, Presets, Subagents }
+private enum class ChatSheet { Commands, Models, Permission, Presets, Subagents }
 
 /**
  * A picked document's display name and size, as its provider reports them.

@@ -176,6 +176,12 @@ fun ConnectionsScreen(
                 ConnectFailureBlock(
                     failure = failure,
                     attempted = connectionState.attempted,
+                    sshEnabled = connectionState.remembered.firstOrNull { host ->
+                        connectionAttemptAuthority(host.host, host.port, host.sshEnabled, host.sshPort) == connectionState.attempted
+                    }?.sshEnabled == true,
+                    sshPort = connectionState.remembered.firstOrNull { host ->
+                        connectionAttemptAuthority(host.host, host.port, host.sshEnabled, host.sshPort) == connectionState.attempted
+                    }?.sshPort,
                     retrying = connectionState.retrying,
                     onCancel = onCancelConnection,
                     onSignIn = onRequestToken,

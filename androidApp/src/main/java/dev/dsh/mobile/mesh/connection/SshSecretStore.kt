@@ -23,6 +23,11 @@ data class SshCredentials(
     val privateKeyPassphrase: String? = null,
 )
 
+internal fun SshCredentials.hasCredentialFor(authentication: SshAuthentication): Boolean = when (authentication) {
+    SshAuthentication.PASSWORD -> !password.isNullOrEmpty()
+    SshAuthentication.PRIVATE_KEY -> !privateKey.isNullOrBlank()
+}
+
 /** Stores SSH material outside DataStore, encrypted by a non-exportable Android Keystore key. */
 @Singleton
 class SshSecretStore @Inject constructor(
