@@ -186,7 +186,7 @@ internal fun Composer(
     onAddFiles: () -> Unit = {},
     fileCandidates: List<WorkspaceDirectoryEntry> = emptyList(),
     onFileQueryChange: (String) -> Unit = {},
-    onSend: (String) -> Unit,
+    onSend: (String, List<PendingAttachment>) -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -394,7 +394,7 @@ internal fun Composer(
                                 val text = currentDraft
                                 currentOnDraftChange("")
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                currentOnSend(text)
+                                currentOnSend(text, attachments.toList())
                             },
                         )
                     }

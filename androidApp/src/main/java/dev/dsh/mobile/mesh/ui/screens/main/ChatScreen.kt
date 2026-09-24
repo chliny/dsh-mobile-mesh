@@ -48,6 +48,7 @@ import dev.dsh.mobile.mesh.data.QuestionOutcome
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.data.DirectoryLevel
 import dev.dsh.mobile.mesh.data.SessionStore
+import dev.dsh.mobile.mesh.ui.screens.main.PendingAttachment
 import dev.dsh.mobile.mesh.ui.components.ApprovalPanel
 import dev.dsh.mobile.mesh.ui.components.ConnectionBanner
 import dev.dsh.mobile.mesh.ui.components.DsToastHost
@@ -285,8 +286,15 @@ fun ChatScreen(
         startUpload(file)
     }
 
-    fun send(text: String) {
-        val pending = attachments.toList()
+    fun removeSubmittedAttachments(submitted: List<PendingAttachment>) {
+        submitted.forEach { item ->
+            val index = attachments.indexOfFirst { it === item }
+            if (index >= 0) attachments.removeAt(index)
+        }
+    }
+
+    fun send(text: String, submittedAttachments: List<PendingAttachment> = attachments.toList()) {
+        val pending = submittedAttachments
         val sessionId = currentSessionId
         if (text.isBlank() && pending.isEmpty()) return
         if (sessionId != null && text.isNotBlank() && !promptSubmissionGate.tryAcquire(sessionId, text)) return
@@ -328,7 +336,7 @@ fun ChatScreen(
 
             is Submission.Command -> {
                 sessionId?.let { promptSubmissionGate.release(it, text) }
-                attachments.clear()
+                removeSubmittedAttachments(pending)
                 val submitted = images.map { it.encoded().asSubmit() } +
                     receipts.map { CommandSubmitAttachment.File(it) }
                 scope.launch {
@@ -363,7 +371,7 @@ fun ChatScreen(
             }
 
             is Submission.Prompt -> {
-                attachments.clear()
+                removeSubmittedAttachments(pending)
                 scope.launch {
                     // One call, whatever the count. The host admits a prompt's images as a single
                     // batch, and that batch is the only thing its per-message count and total-size
@@ -599,7 +607,7 @@ fun ChatScreen(
                 onAddFiles = { filePicker.launch(arrayOf("*/*")) },
                 fileCandidates = fileCandidates,
                 onFileQueryChange = ::queryFileReferences,
-                onSend = ::send,
+                onSend = { text, submittedAttachments -> send(text, submittedAttachments) },
                 onStop = { scope.launch { store.cancelTurn() } },
             )
 
