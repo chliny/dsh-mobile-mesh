@@ -30,19 +30,20 @@
         tools:targetApi="35">
 
         <!--
-            `configChanges` handles the locale itself rather than being torn down for it.
+            `configChanges` handles locale and orientation in place, avoiding teardown-driven page
+            changes while a connection attempt is in flight.
 
-            Applying a language is a configuration change, and the default response is to destroy
-            and rebuild the activity. Between the two there is no window at all — not a window with
-            the wrong background, none — so the screen goes to whatever is behind it, which is
-            black. Declaring these two means the framework delivers `onConfigurationChanged`
+            Applying a language or rotating is a configuration change, and the default response is
+            to destroy and rebuild the activity. Between the two there is no window at all — not a
+            window with the wrong background, none — so the screen goes to whatever is behind it,
+            which is black. Declaring these means the framework delivers `onConfigurationChanged`
             instead; Compose re-reads its resources and the text simply changes, with the transcript
             and scroll position kept. `layoutDirection` is listed with `locale` on purpose: without
             it, switching to Arabic or Urdu would still tear the activity down.
         -->
         <activity
             android:name=".MainActivity"
-            android:configChanges="locale|layoutDirection"
+            android:configChanges="orientation|screenSize|keyboardHidden|locale|layoutDirection"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"

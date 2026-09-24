@@ -21,6 +21,19 @@ class AppRootRoutingTest {
     }
 
     @Test
+    fun `recreated connection list does not treat recovery as explicit selection`() {
+        // awaitingSelectedConnection is transient and intentionally not saveable: after a process
+        // recreation it resets to false, so successful recovery cannot impersonate a user tap.
+        assertFalse(shouldRouteSelectedConnection(
+            phaseConnected = true,
+            selectedAuthority = "host:22",
+            activeAuthority = "host:22",
+            editing = false,
+            awaitingSelectedConnection = false,
+        ))
+    }
+
+    @Test
     fun `recovery does not route existing detail page through session list`() {
         assertFalse(shouldRouteAfterRecovery(true, false))
         assertTrue(shouldRouteAfterRecovery(false, false))
