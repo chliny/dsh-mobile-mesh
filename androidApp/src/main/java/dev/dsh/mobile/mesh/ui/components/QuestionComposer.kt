@@ -7,6 +7,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -44,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -443,6 +447,7 @@ private fun OptionMarker(ordinal: Int, selected: Boolean, multiSelect: Boolean) 
  * the keyboard, which would cover the transcript the user collapsed the card to read — so the
  * cheapest way to honour that intent here is never to take focus at all.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CustomAnswerField(
     value: String,
@@ -454,10 +459,17 @@ private fun CustomAnswerField(
     onContinue: () -> Unit,
 ) {
     val colors = DsTheme.colors
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
     TextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .bringIntoViewRequester(bringIntoViewRequester)
+            .onFocusEvent { state ->
+                if (state.isFocused) scope.launch { bringIntoViewRequester.bringIntoView() }
+            },
         enabled = enabled,
         placeholder = {
             Text(
