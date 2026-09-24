@@ -30,7 +30,6 @@ internal fun foregroundRecoveryAction(facts: ForegroundRecoveryFacts): Foregroun
     !facts.hasActiveHost || facts.recoveryInFlight || facts.foregroundCheckPending -> ForegroundRecoveryAction.NONE
     facts.networkChanged -> ForegroundRecoveryAction.RECOVER
     facts.phase != ConnectionPhase.CONNECTED -> ForegroundRecoveryAction.RECOVER
-    facts.backgroundDurationMs >= FOREGROUND_DIRECT_RECOVERY_AFTER_MS -> ForegroundRecoveryAction.RECOVER
     facts.backgroundDurationMs < FOREGROUND_VERIFY_AFTER_MS -> ForegroundRecoveryAction.NONE
     else -> ForegroundRecoveryAction.VERIFY
 }
@@ -65,9 +64,8 @@ internal fun shouldPublishConnectedGeneration(
     lifecycleCurrent: Boolean,
 ): Boolean = generationReady && lifecycleCurrent
 
-/** Avoid paying a probe RTT for short task switches; network changes still recover immediately. */
+/** Verify a connected carrier before renewal regardless of background duration; network changes still recover immediately. */
 internal const val FOREGROUND_VERIFY_AFTER_MS = 5_000L
-internal const val FOREGROUND_DIRECT_RECOVERY_AFTER_MS = 30_000L
 internal const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 500L
 internal const val FOREGROUND_RECOVERY_STEADY_RETRY_DELAY_MS = 5_000L
 internal const val FOREGROUND_RECOVERY_FAST_ATTEMPTS = 3
@@ -91,7 +89,18 @@ internal fun shouldStartForegroundRecovery(
 internal fun shouldScheduleForegroundNetworkRecheck(
     appInForeground: Boolean,
     networkRecoveryPending: Boolean,
-): Boolean = appInForeground && networkRecoveryPending
+    retainInBackground: Boolean = false,
+): Boolean = (appInForeground || retainInBackground) && networkRecoveryPending
+
+/** Retained connections must react to restored networking even when the Activity stays stopped. */
+internal fun shouldRecoverOnNetworkEvent(
+    appInForeground: Boolean,
+    retainInBackground: Boolean,
+    hasActiveHost: Boolean,
+): Boolean = hasActiveHost && (appInForeground || retainInBackground)
+
+/** A scheduled retry must claim the pending handover gate, not leave it for a second renewal. */
+internal fun shouldUsePendingNetworkRecoveryOnRetry(networkRecoveryPending: Boolean): Boolean = networkRecoveryPending
 
 internal fun shouldDeferCarrierRecovery(
     operationInFlight: Boolean,

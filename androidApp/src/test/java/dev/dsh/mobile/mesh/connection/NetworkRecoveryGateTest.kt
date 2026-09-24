@@ -34,6 +34,17 @@ class NetworkRecoveryGateTest {
     }
 
     @Test
+    fun `scheduled retry claims handover instead of renewing carrier twice`() {
+        val gate = NetworkRecoveryGate()
+        gate.markPending()
+        assertTrue(shouldUsePendingNetworkRecoveryOnRetry(gate.isPending()))
+        assertTrue(gate.consumeIfCanStart(canStart = true))
+        assertFalse(gate.isPending())
+        // Completion of the successful retry must not find an old handover to run again.
+        assertFalse(gate.consumeIfCanStart(canStart = true))
+    }
+
+    @Test
     fun `clear drops a handover that can no longer be applied`() {
         val gate = NetworkRecoveryGate()
         gate.markPending()

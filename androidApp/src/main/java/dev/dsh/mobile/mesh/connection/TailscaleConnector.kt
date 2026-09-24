@@ -51,35 +51,20 @@ class TailscaleConnector @Inject constructor(
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             refreshNetworkBinding(network)
-            if (connectivity.activeNetwork == network && isInternetCapable(network)) {
-                synchronized(lock) {
-                    if (waitingForNetwork) {
-                        waitingForNetwork = false
-                        networkWaiter?.complete(network)
-                        networkWaiter = null
-                    }
-                }
-            }
+            completeNetworkWaiterIfUsable(network)
         }
         override fun onLinkPropertiesChanged(network: Network, linkProperties: android.net.LinkProperties) {
             refreshNetworkBinding(network)
-            if (connectivity.activeNetwork == network && isInternetCapable(network)) {
-                synchronized(lock) {
-                    if (waitingForNetwork) {
-                        waitingForNetwork = false
-                        networkWaiter?.complete(network)
-                        networkWaiter = null
-                    }
-                }
-            }
+            completeNetworkWaiterIfUsable(network)
+        }
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            if (shouldSignalTailscaleNetworkWaiter(
+                    isActiveNetwork = connectivity.activeNetwork == network,
+                    hasInternetCapability = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+                )) completeNetworkWaiterIfUsable(network)
         }
         override fun onLost(network: Network) {
             synchronized(lock) {
-                if (waitingForNetwork && connectivity.activeNetwork == null) {
-                    waitingForNetwork = false
-                    networkWaiter?.complete(null)
-                    networkWaiter = null
-                }
                 // A delayed callback for the retired carrier must never clear or replace the current
                 // tsnet binding. Only clear when the callback is for the network we actually bound.
                 if (nativeStarted && boundNetwork == network && connectivity.activeNetwork == null) {
@@ -175,6 +160,20 @@ class TailscaleConnector @Inject constructor(
         }
     }
 
+    private fun completeNetworkWaiterIfUsable(network: Network) {
+        if (!shouldSignalTailscaleNetworkWaiter(
+                isActiveNetwork = connectivity.activeNetwork == network,
+                hasInternetCapability = isInternetCapable(network),
+            )) return
+        synchronized(lock) {
+            if (waitingForNetwork) {
+                waitingForNetwork = false
+                networkWaiter?.complete(network)
+                networkWaiter = null
+            }
+        }
+    }
+
     private suspend fun awaitActiveNetwork(): Network? {
         connectivity.activeNetwork?.takeIf(::isInternetCapable)?.let { return it }
         val waiter = kotlinx.coroutines.CompletableDeferred<Network?>()
@@ -184,6 +183,7 @@ class TailscaleConnector @Inject constructor(
             networkWaiter = waiter
         }
         registerNetworkCallback()
+        connectivity.activeNetwork?.let(::completeNetworkWaiterIfUsable)
         return try {
             waiter.await()
         } finally {
