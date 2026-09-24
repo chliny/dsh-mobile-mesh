@@ -41,6 +41,12 @@ internal fun shouldClearConnectedRecoveryPresentation(
     networkChanged: Boolean,
 ): Boolean = phase == ConnectionPhase.CONNECTED && !recoveryInFlight && !networkChanged
 
+internal fun shouldVerifyRearmedGeneration(
+    needsProbe: Boolean,
+    appInForeground: Boolean,
+    recoveryInFlight: Boolean,
+): Boolean = needsProbe && appInForeground && !recoveryInFlight
+
 internal fun shouldProbePublishedGeneration(
     hasConnected: Boolean,
     recoveryOverlayVisible: Boolean,
@@ -65,7 +71,6 @@ internal const val FOREGROUND_DIRECT_RECOVERY_AFTER_MS = 30_000L
 internal const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 500L
 internal const val FOREGROUND_RECOVERY_STEADY_RETRY_DELAY_MS = 5_000L
 internal const val FOREGROUND_RECOVERY_FAST_ATTEMPTS = 3
-internal const val FOREGROUND_RECOVERY_DEDUP_WINDOW_MS = 750L
 
 internal fun shouldReArmOnReplacementNetwork(
     connected: Boolean,
@@ -87,13 +92,6 @@ internal fun shouldScheduleForegroundNetworkRecheck(
     appInForeground: Boolean,
     networkRecoveryPending: Boolean,
 ): Boolean = appInForeground && networkRecoveryPending
-
-/** onStart and onResume can arrive back-to-back for one Activity transition. */
-internal fun shouldCoalesceForegroundRecovery(
-    forceCheck: Boolean,
-    nowMs: Long,
-    lastRequestMs: Long,
-): Boolean = forceCheck && lastRequestMs >= 0L && nowMs - lastRequestMs < FOREGROUND_RECOVERY_DEDUP_WINDOW_MS
 
 internal fun shouldDeferCarrierRecovery(
     operationInFlight: Boolean,

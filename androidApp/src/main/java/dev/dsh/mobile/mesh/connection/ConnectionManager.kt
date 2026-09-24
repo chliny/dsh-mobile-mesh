@@ -193,7 +193,6 @@ class ConnectionManager @Inject constructor(
     @Volatile private var keepConnectedInBackground = false
     @Volatile private var foregroundProbeJob: Job? = null
     @Volatile private var publishedGenerationNeedsProbe = false
-    @Volatile private var lastForegroundRecoveryRequestMs = -1L
     /** Latest desired host retained across a background-disabled suspension. */
     @Volatile private var suspendedHost: HostConfig? = null
     private var suspendedTransportReady: (suspend (String) -> Unit)? = null
@@ -814,6 +813,9 @@ class ConnectionManager @Inject constructor(
                 )) {
                 Log.d("ConnectionManager", "Foreground network recheck found an Internet-capable network")
                 startPendingNetworkRecovery()
+                if (networkRecoveryGate.isPending() && appInForeground &&
+                    synchronized(operationLock) { connectJob?.isActive != true }
+                ) schedulePendingNetworkRecoveryRecheck()
             } else {
                 // The callback could still be coalesced while power constrained; keep a bounded,
                 // lifecycle-owned recheck alive until foreground networking becomes usable.
@@ -848,13 +850,7 @@ class ConnectionManager @Inject constructor(
     fun recoverForForeground(forceCheck: Boolean = false) {
         val foregroundTiming = RecoveryTiming()
         val foregroundStartedAt = foregroundTiming.start("foreground-resume")
-        val nowMs = System.currentTimeMillis()
         synchronized(lifecycleTransitionLock) {
-            if (shouldCoalesceForegroundRecovery(forceCheck, nowMs, lastForegroundRecoveryRequestMs)) {
-                foregroundTiming.phase("foreground-resume", foregroundStartedAt, "ignored", "duplicate=onStart-onResume")
-                return
-            }
-            lastForegroundRecoveryRequestMs = nowMs
             if (!shouldHandleLifecycleTransition(appInForeground, targetForeground = true) && !forceCheck) {
                 foregroundTiming.phase("foreground-resume", foregroundStartedAt, "ignored", "duplicate=true")
                 return
@@ -975,7 +971,7 @@ class ConnectionManager @Inject constructor(
         val backgroundDuration = (now - backgroundedAtMs).coerceAtLeast(0L)
         val recoveryInFlight = connectJob?.isActive == true || foregroundProbeJob?.isActive == true ||
             synchronized(recoveryLock) { transportRecoveryInFlight }
-        val action = if (publishedGenerationNeedsProbe && appInForeground) {
+        val action = if (shouldVerifyRearmedGeneration(publishedGenerationNeedsProbe, appInForeground, recoveryInFlight)) {
             ForegroundRecoveryAction.VERIFY
         } else foregroundRecoveryAction(
             ForegroundRecoveryFacts(
@@ -1004,15 +1000,15 @@ class ConnectionManager @Inject constructor(
             Log.d("ConnectionManager", "Cleared stale connected recovery presentation")
             return
         }
-        if (effectiveForegroundCheckPending(current.foregroundCheckPending, recoveryInFlight) && !publishedGenerationNeedsProbe) {
-            // A retained background recovery can finish between onStart/onResume callbacks. If the
-            // UI latch survived but no operation remains, do not leave the foreground permanently
-            // fenced; re-enter the authoritative recovery decision below.
+        if (effectiveForegroundCheckPending(current.foregroundCheckPending, recoveryInFlight)) {
+            // A retained background recovery can finish between lifecycle callbacks. If the UI
+            // latch survived but no operation/retry/network gate owns the recovery, clear it only
+            // long enough to re-enter the authoritative decision; never silently return fenced.
             if (!recoveryInFlight) {
                 _state.value = current.copy(foregroundCheckPending = false, recoveryOverlayVisible = false)
             } else return
         }
-        if (action == ForegroundRecoveryAction.VERIFY || publishedGenerationNeedsProbe) {
+        if (action == ForegroundRecoveryAction.VERIFY) {
             _state.value = current.copy(foregroundCheckPending = true)
         }
         when (action) {

@@ -16,23 +16,21 @@ class ConnectionRecoveryPolicyTest {
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.CONNECTED, true))
         assertFalse(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.CONNECTED, false))
         assertFalse(shouldShowConnectionRecoveryOverlay(false, ConnectionPhase.RECONNECTING, false))
-        assertFalse(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, false, showingConnectionList = true))
+        assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, false))
     }
 
     @Test
-    fun `non-list pages keep the global overlay during reconnect`() {
+    fun `established pages keep the global overlay during reconnect`() {
         assertTrue(shouldShowConnectionRecoveryOverlay(
             hasConnected = true,
             phase = ConnectionPhase.RECONNECTING,
             foregroundCheckPending = false,
-            showingConnectionList = false,
         ))
         assertTrue(shouldShowConnectionRecoveryOverlay(
             hasConnected = true,
             phase = ConnectionPhase.CONNECTING,
             foregroundCheckPending = false,
             recoveryOverlayVisible = true,
-            showingConnectionList = false,
         ))
     }
 

@@ -60,10 +60,11 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
-    fun `onResume immediately after onStart is coalesced`() {
-        assertTrue(shouldCoalesceForegroundRecovery(true, 10_500, 10_000))
-        assertFalse(shouldCoalesceForegroundRecovery(true, 10_751, 10_000))
-        assertFalse(shouldCoalesceForegroundRecovery(false, 10_100, 10_000))
+    fun `rearmed probe waits for active recovery before verifying generation`() {
+        assertFalse(shouldVerifyRearmedGeneration(true, true, true))
+        assertTrue(shouldVerifyRearmedGeneration(true, true, false))
+        assertFalse(shouldVerifyRearmedGeneration(true, false, false))
+        assertFalse(shouldVerifyRearmedGeneration(false, true, false))
     }
 
     @Test
