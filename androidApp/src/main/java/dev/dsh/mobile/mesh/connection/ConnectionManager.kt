@@ -257,7 +257,6 @@ class ConnectionManager @Inject constructor(
             loopFence.runIfCurrent(token) {
             val generationApi = api ?: return@runIfCurrent
             this@ConnectionManager.generation = generation
-            connectedGenerations.tryEmit(generation)
             eventApis[generation.clientId] = generationApi
             val host = activeHost
             val previousState = _state.value
@@ -280,6 +279,7 @@ class ConnectionManager @Inject constructor(
                 recoveryOverlayVisible = needsLivenessProbe,
                 foregroundCheckPending = needsLivenessProbe,
             )
+            connectedGenerations.tryEmit(generation)
             maybeStartService()
             if (needsLivenessProbe && appInForeground) {
                 probePublishedGeneration(generation, generationApi, host?.id, lifecycleEpoch)

@@ -490,6 +490,8 @@ class SessionStore @Inject constructor(
      * replaces the cached value as soon as its snapshot arrives.
      */
     private var connectionHostId: String? = null
+    private var sessionListBaselineHostId: String? = null
+    private val generationHosts = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val conversationCache = object : LinkedHashMap<String, ConversationSnapshot>(8, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ConversationSnapshot>?): Boolean = size > 8
     }
@@ -626,7 +628,12 @@ class SessionStore @Inject constructor(
 
     private fun observeConnection() {
         scope.launch {
-            connectionManager.connectedGenerations.collect {
+            connectionManager.connectedGenerations.collect { generation ->
+                val hostId = generationHosts[generation.clientId]
+                if (hostId != null && sessionListBaselineHostId != hostId) {
+                    connectionHostId = hostId
+                    triggerBaseline()
+                }
                 if (currentSessionId.value != null) {
                     reopenSelectedSessionAfterReconnect()
                 }
@@ -690,8 +697,8 @@ class SessionStore @Inject constructor(
      * the generation, because a stream's items are only meaningful within the socket that carries
      * them.
      */
-    private fun startHostStreams() {
-        val mux = connectionManager.generation?.mux ?: return
+    private fun startHostStreams(generation: dev.dsh.mobile.mesh.core.wire.HostGeneration) {
+        val mux = generation.mux
         controlJob?.cancel()
         controlJob = scope.launch {
             runCatching {
@@ -748,14 +755,17 @@ class SessionStore @Inject constructor(
     }
 
     private suspend fun baseline() {
+        val baselineGeneration = connectionManager.generation ?: return
+        val baselineHostId = generationHosts[baselineGeneration.clientId] ?: connectionHostId
+        if (baselineHostId != connectionManager.state.value.host?.id) return
         // Whether content search works is a fact about the harness we just reached, so a fresh
         // connection re-earns the answer rather than inheriting the previous host's.
         _contentSearchAvailable.value = true
         // Before the list read: the workspace and control streams each open with their own
         // complete baseline, and the list is what their increments are applied on top of.
-        startHostStreams()
-        _hostInfo.value = connectionManager.generation?.description
-        refreshSessions()
+        startHostStreams(baselineGeneration)
+        _hostInfo.value = baselineGeneration.description
+        refreshSessions(baselineGeneration, baselineHostId)
         // Model choices belong to the connected host, not to the first session opened. Load the
         // catalog during cold-start baseline so opening the model sheet immediately cannot show an
         // empty list before openSession has had a chance to run its session-scoped refresh.
@@ -1346,10 +1356,13 @@ class SessionStore @Inject constructor(
         val running = runningBySession[sid] ?: snapshot.running
         val pending = pendingPromptBySession.contains(sid)
         val queueSubmissionPending = pendingQueueSubmissionBySession.contains(sid)
-        val turnStartedAt = runningTurnStartMillis(events)?.also {
-            turnStartedAtBySession[sid] = it
-        } ?: turnStartedAtBySession[sid]
-            ?: if (running) System.currentTimeMillis().also { turnStartedAtBySession[sid] = it } else null
+        val turnStartedAt = resolvedTurnStartMillis(
+            running = running,
+            eventStartMillis = runningTurnStartMillis(events),
+            rememberedStartMillis = turnStartedAtBySession[sid],
+            nowMillis = System.currentTimeMillis(),
+        )?.also { turnStartedAtBySession[sid] = it }
+            ?: run { turnStartedAtBySession.remove(sid); null }
         val merged = snapshot.copy(
             nodes = snapshot.nodes + optimisticNodes,
             blank = blank,
@@ -1407,9 +1420,28 @@ class SessionStore @Inject constructor(
 
     // ------------------------------------------------------------------ public RPC surface
     suspend fun refreshSessions() {
+        val generation = connectionManager.generation ?: return
+        val hostId = generationHosts[generation.clientId] ?: connectionHostId
+        refreshSessions(generation, hostId)
+    }
+
+    private suspend fun refreshSessions(
+        expectedGeneration: dev.dsh.mobile.mesh.core.wire.HostGeneration,
+        expectedHostId: String?,
+    ) {
         val api = apiOrNull() ?: return
+        val expectedGenerationId = expectedGeneration.clientId
+        val generationIsCurrent = {
+            val currentGenerationId = connectionManager.generation?.clientId
+            val currentHostId = connectionManager.state.value.host?.id
+            isCurrentHostResult(expectedGenerationId, currentGenerationId, expectedHostId, currentHostId)
+        }
+        if (!generationIsCurrent()) return
         when (val r = api.sessionList(null)) {
             is RpcResult.Ok -> {
+                if (!generationIsCurrent()) {
+                    return
+                }
                 clearConnectionError()
                 synchronized(lock) {
                     sessionRows.clear()
@@ -1420,6 +1452,7 @@ class SessionStore @Inject constructor(
                         // putIfAbsent repairs a stale true left behind when the previous generation
                         // missed the session's final turn/end event.
                         runningBySession[item.sessionId] = item.running
+                        if (!item.running) turnStartedAtBySession.remove(item.sessionId)
                         sessionRows[item.sessionId] = SessionRow(
                             sessionId = item.sessionId,
                             title = title,
@@ -1433,6 +1466,8 @@ class SessionStore @Inject constructor(
                             pendingInteraction = null,
                         )
                     }
+                    if (currentId != null) rebuildCurrentLocked()
+                    sessionListBaselineHostId = expectedHostId
                     emitSessionsLocked()
                 }
             }
