@@ -591,6 +591,13 @@ private fun WorkspaceHeader(
                 modifier = Modifier.weight(1f),
             )
             Text(sessionCount.toString(), style = DsType.caption11, color = colors.labelCaption)
+            DsIconButton(
+                icon = Icons.Filled.Add,
+                contentDescription = stringResource(R.string.chatlist_workspace_new_session),
+                onClick = onNewSession,
+                tint = colors.labelTertiary,
+                iconSize = 18.dp,
+            )
         }
         if (menuOpen) {
             WorkspaceMenu(
@@ -926,12 +933,18 @@ private fun NewSessionDialog(
                 color = colors.labelSecondary,
             )
         }
-        workspaces.forEach { workspace ->
-            SheetRow(
-                title = workspace.title.ifBlank { basename(workspace.path) },
-                subtitle = workspace.path,
-                onClick = { onPick(workspace.workspaceId) },
-            )
+        if (workspaces.isNotEmpty()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp),
+            ) {
+                items(workspaces, key = { it.workspaceId }) { workspace ->
+                    SheetRow(
+                        title = workspace.title.ifBlank { basename(workspace.path) },
+                        subtitle = workspace.path,
+                        onClick = { onPick(workspace.workspaceId) },
+                    )
+                }
+            }
         }
         SheetRow(
             title = stringResource(R.string.chatlist_home_directory),
