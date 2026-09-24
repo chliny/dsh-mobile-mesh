@@ -98,7 +98,10 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         var showConnections by rememberSaveable { mutableStateOf(false) }
         var connectionListOrigin by rememberSaveable { mutableStateOf(ConnectionListOrigin.STARTUP) }
         var returnToConnections by rememberSaveable { mutableStateOf(false) }
-        var awaitingSelectedConnection by rememberSaveable { mutableStateOf(false) }
+        // This is a transient completion callback intent, not durable navigation state. Persisting
+        // it through Activity recreation lets foreground recovery after a rotation masquerade as a
+        // fresh user-selected connection and route away from the remembered-connections page.
+        var awaitingSelectedConnection by remember { mutableStateOf(false) }
         var editingHostId by rememberSaveable { mutableStateOf<String?>(null) }
         val editingHost = resolveEditingHostId(editingHostId, hosts.map { it.id })
             ?.let { id -> hosts.firstOrNull { it.id == id } }
