@@ -179,6 +179,11 @@ internal fun Composer(
     enabled: Boolean,
     onOpenSheet: () -> Unit,
     commands: List<CommandDescriptor> = emptyList(),
+    skills: List<dev.dsh.mobile.mesh.core.wire.dto.SkillEntry> = emptyList(),
+    permissionsCatalogPresent: Boolean = false,
+    modelsCatalogPresent: Boolean = false,
+    onNativeCommand: (String) -> Unit = {},
+    onAddFiles: () -> Unit = {},
     fileCandidates: List<WorkspaceDirectoryEntry> = emptyList(),
     onFileQueryChange: (String) -> Unit = {},
     onSend: (String) -> Unit,
@@ -194,7 +199,9 @@ internal fun Composer(
     val currentDraft by rememberUpdatedState(draft)
     val currentOnDraftChange by rememberUpdatedState(onDraftChange)
     val currentOnSend by rememberUpdatedState(onSend)
-    var commandPickerOpen by remember { mutableStateOf(false) }
+    // Derive popup visibility from the live draft: drafts can be restored or prefilled without
+    // passing through TextField.onValueChange (session restore, command sheet selection, queue insert).
+    val commandPickerOpen = draft.startsWith("/") && !draft.contains(' ')
     var filePickerOpen by remember { mutableStateOf(false) }
     val mentionQuery = mentionQueryForDraft(draft).orEmpty()
     val mentionActive = mentionQueryForDraft(draft) != null
@@ -204,8 +211,14 @@ internal fun Composer(
     }
     val matchingFiles = remember(fileCandidates) { matchingMentionFiles(fileCandidates) }
     val commandQuery = draft.removePrefix("/").takeIf { draft.startsWith("/") && !draft.contains(' ') }.orEmpty()
-    val matchingCommands = remember(commands, commandQuery) {
-        commands.filter { it.name.startsWith(commandQuery, ignoreCase = true) }
+    val matchingCommands = remember(commands, skills, permissionsCatalogPresent, modelsCatalogPresent, commandQuery) {
+        val nativeNames = buildSet {
+            if (enabled) add("file")
+            if (modelsCatalogPresent) add("model")
+            if (permissionsCatalogPresent) add("permission")
+        }
+        rankSlashCandidates(slashCandidates(commands, skills, nativeNames), commandQuery)
+            .map { it.name to it.prefix }
     }
 
     Surface(
@@ -225,7 +238,6 @@ internal fun Composer(
                 value = draft,
                 onValueChange = {
                     onDraftChange(it)
-                    commandPickerOpen = it.startsWith("/") && !it.contains(' ')
                     val token = it.substringAfterLast(" ").substringAfterLast("\n")
                     filePickerOpen = token.startsWith("@")
                     if (token.startsWith("@")) onFileQueryChange(token.removePrefix("@"))
@@ -272,7 +284,7 @@ internal fun Composer(
                 }
             }
 
-            AnimatedVisibility(visible = commandPickerOpen && matchingCommands.isNotEmpty()) {
+            AnimatedVisibility(visible = commandPickerOpen) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -281,16 +293,25 @@ internal fun Composer(
                         .background(colors.bgModulePlatform)
                         .border(1.dp, colors.borderL2, DsShapes.block),
                 ) {
-                    matchingCommands.take(8).forEach { command ->
+                    if (matchingCommands.isEmpty()) {
+                        Text(stringResource(R.string.chat_commands_no_match), style = DsType.caption11, color = colors.labelTertiary,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                    }
+                    matchingCommands.take(8).forEach { (label, draftPrefix) ->
                         Text(
-                            text = command.line,
+                            text = label,
                             style = DsType.std14,
                             color = colors.labelPrimary,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    onDraftChange(command.draftPrefix)
-                                    commandPickerOpen = false
+                                    if (draftPrefix == "/file") {
+                                        onAddFiles()
+                                    } else if (draftPrefix == "/model" || draftPrefix == "/permission") {
+                                        onNativeCommand(draftPrefix.removePrefix("/"))
+                                    } else {
+                                        onDraftChange(draftPrefix)
+                                    }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         )

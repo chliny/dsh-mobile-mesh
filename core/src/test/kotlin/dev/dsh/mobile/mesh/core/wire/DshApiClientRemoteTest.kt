@@ -130,7 +130,7 @@ class DshApiClientRemoteTest {
             val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
             ok(
                 rpcId,
-                """[{"name":"permission","description":"Switch","input":{"hint":"<preset>"}},""" +
+                """[{"name":"permission","description":"Switch","definitionId":"@deepseek-ai/dsh-permission-presets","input":{"hint":"<preset>"}},""" +
                     """{"name":"goal","description":"Set","input":{"hint":"<objective>","attachments":true}}]""",
             )
         }
@@ -151,6 +151,7 @@ class DshApiClientRemoteTest {
         val commands = (result as RpcResult.Ok).value
         assertEquals(2, commands.size)
         assertEquals("permission", commands.first().name)
+        assertEquals("@deepseek-ai/dsh-permission-presets", commands.first().definitionId)
         assertEquals("<preset>", commands.first().input?.hint)
         // `input.attachments` is only ever sent as true, so a descriptor without the key is a
         // command that takes none — which is every command but `/goal` and `/plan`.

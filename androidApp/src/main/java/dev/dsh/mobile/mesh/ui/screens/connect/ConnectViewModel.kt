@@ -226,7 +226,7 @@ class ConnectViewModel @Inject constructor(
                 signInHostId = host.id,
                 signInError = null,
                 failure = null,
-                attempted = host.authority,
+                attempted = connectionAttemptAuthority(host.host, host.port, host.sshEnabled, host.sshPort),
                 retrying = false,
             )
         }
@@ -617,6 +617,7 @@ class ConnectViewModel @Inject constructor(
         sshPrivateKeyPassphrase: String,
         sshDshHost: String,
         zeroTierPlanetId: String?,
+        zeroTierPlanetBase64: String = "",
         launchToken: String,
     ) {
         val input = parseHostInput(host)
@@ -644,6 +645,9 @@ class ConnectViewModel @Inject constructor(
                 meshTransport = transport,
                 zeroTierNetworkId = networkId.trim().lowercase().takeIf { transport == MeshTransport.ZERO_TIER },
                 zeroTierPlanetId = zeroTierPlanetId?.takeIf { transport == MeshTransport.ZERO_TIER },
+                zeroTierPlanetBase64 = zeroTierPlanetBase64
+                    .filterNot(Char::isWhitespace)
+                    .takeIf { transport == MeshTransport.ZERO_TIER && it.isNotBlank() },
                 tailscaleHostname = hostname.trim().takeIf { transport == MeshTransport.TAILSCALE && it.isNotEmpty() },
                 sshEnabled = sshEnabled,
                 sshPort = sshPortInt ?: 22,

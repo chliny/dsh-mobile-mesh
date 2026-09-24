@@ -13,6 +13,22 @@ class ConnectAttemptLabelTest {
     }
 
     @Test
+    fun `preflight SSH credential failure label uses configured SSH port`() {
+        assertEquals(
+            "gmk.tailscale.chliny.me:2222",
+            failureDisplayAuthority("gmk.tailscale.chliny.me:22", sshEnabled = true, sshPort = 2222),
+        )
+    }
+
+    @Test
+    fun `SSH failure label leaves actual non-default SSH port unchanged`() {
+        assertEquals(
+            "gmk.tailscale.chliny.me:2200",
+            failureDisplayAuthority("gmk.tailscale.chliny.me:2200", sshEnabled = true, sshPort = 2200),
+        )
+    }
+
+    @Test
     fun `direct host uses Harness port`() {
         assertEquals(
             "9.134.11.175:3080",

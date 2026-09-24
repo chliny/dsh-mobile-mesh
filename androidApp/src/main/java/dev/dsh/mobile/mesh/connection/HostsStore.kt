@@ -165,8 +165,13 @@ class HostsStore @Inject constructor(
             useTls = useTls,
             meshTransport = meshTransport,
             zeroTierNetworkId = zeroTierNetworkId?.takeIf { meshTransport == MeshTransport.ZERO_TIER },
-            zeroTierPlanetId = zeroTierPlanetId?.takeIf { meshTransport == MeshTransport.ZERO_TIER },
-            zeroTierPlanetBase64 = zeroTierPlanetBase64?.takeIf { meshTransport == MeshTransport.ZERO_TIER },
+            zeroTierPlanetId = retainedZeroTierPlanetId(
+                meshTransport,
+                zeroTierPlanetId,
+                existing?.zeroTierPlanetId,
+            ),
+            zeroTierPlanetBase64 = (zeroTierPlanetBase64 ?: existing?.zeroTierPlanetBase64)
+                ?.takeIf { meshTransport == MeshTransport.ZERO_TIER },
             tailscaleHostname = tailscaleHostname?.takeIf { meshTransport == MeshTransport.TAILSCALE },
             sshEnabled = sshEnabled,
             sshPort = sshPort,

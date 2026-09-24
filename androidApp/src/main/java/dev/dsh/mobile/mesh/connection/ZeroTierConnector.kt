@@ -87,8 +87,9 @@ class ZeroTierConnector @Inject constructor(
             // storage lets several saved hosts on one network appear as one controller member.
             val storage = java.io.File(context.noBackupFilesDir, "zerotier/networks/$networkIdText").apply { mkdirs() }
             val roots = java.io.File(storage, "roots")
-            val planet = config.zeroTierPlanetId?.let(planets::resolve)
-            if (config.zeroTierPlanetId != null && planet == null) {
+            val planetId = config.zeroTierPlanetId
+            val planet = planetId?.let(planets::resolve)
+            if (planetId != null && planet == null) {
                 throw IOException("Configured ZeroTier planet is missing")
             }
             if (planet == null) roots.delete() else planet.copyTo(roots, overwrite = true)

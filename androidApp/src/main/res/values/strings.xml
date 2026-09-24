@@ -97,6 +97,7 @@
     <string name="connect_auto_loopback">Auto-connect to harness on this device</string>
     <string name="connect_security_banner">Warning: this connection is not encrypted. Only connect to networks you trust.</string>
     <string name="connect_failed">Could not reach a harness at %1$s:%2$s</string>
+    <string name="connect_fail_ssh_credentials_title">SSH login details are missing for %1$s</string>
     <string name="connect_failed_fence">Connect using the computer\'s IP address instead of its name, or start the harness with --trusted-host.</string>
     <string name="connect_stage_validating">Checking the address…</string>
     <string name="connect_stage_validating_detail">Validating the host address and port before opening a connection.</string>
@@ -119,6 +120,7 @@
     <string name="connect_fail_tls">%1$s answered, but the secure (HTTPS) connection failed. If your proxy uses a local certificate authority, install its CA certificate on this phone — and if the address does not actually serve HTTPS, connect without https://.</string>
     <string name="connect_fail_streams">%1$s answered, but its event stream would not open. A VPN or private-DNS proxy on this phone can block WebSocket connections — turn it off and try again.</string>
     <string name="connect_fail_other">Could not connect to %1$s. %2$s</string>
+    <string name="connect_fail_ssh_credentials_body">Edit this connection and enter its SSH username and password or private key, then save and reconnect.</string>
     <string name="connect_version_mismatch">Harness version %1$s may be incompatible with this app (built for %2$s).</string>
     <string name="connect_harness_home">Home %1$s</string>
     <string name="connect_protocol_baseline">Protocol %1$s</string>
@@ -183,6 +185,7 @@
     <string name="chat_todo_progress_active">%1$d in progress</string>
     <string name="chat_todo_progress_pending">%1$d pending</string>
     <string name="chat_commands_empty">This session has no commands</string>
+    <string name="chat_commands_no_match">No matching commands</string>
     <string name="chat_commands_unavailable">This harness does not expose a command list</string>
     <string name="chat_image_open">Open image</string>
     <string name="chat_image_failed">Could not load that image</string>

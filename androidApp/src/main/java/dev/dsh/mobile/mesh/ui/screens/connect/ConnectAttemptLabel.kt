@@ -7,3 +7,15 @@ internal fun connectionAttemptAuthority(
     sshEnabled: Boolean,
     sshPort: Int?,
 ): String = if (sshEnabled && sshPort != null) "$host:$sshPort" else "$host:$harnessPort"
+
+/** Correct an SSH-attempt display when the failure happened before any connection was attempted. */
+internal fun failureDisplayAuthority(
+    attempted: String?,
+    sshEnabled: Boolean,
+    sshPort: Int?,
+): String? {
+    if (!sshEnabled || sshPort == null || attempted == null) return attempted
+    val host = attempted.substringBeforeLast(':', attempted)
+    val attemptedPort = attempted.substringAfterLast(':', "").toIntOrNull()
+    return if (attemptedPort == 22 && sshPort != 22) "$host:$sshPort" else attempted
+}

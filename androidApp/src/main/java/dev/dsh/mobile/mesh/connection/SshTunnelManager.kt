@@ -59,8 +59,9 @@ class SshTunnelManager @Inject constructor(
         stopLocked()
         val username = config.sshUsername?.takeIf { it.isNotBlank() }
             ?: throw IllegalArgumentException("SSH username is required")
-        val credentials = secrets.get(config.id)
-            ?: throw IllegalArgumentException("SSH credentials are missing")
+        val credentials = secrets.get(config.id)?.takeIf { saved ->
+            saved.hasCredentialFor(config.sshAuthentication)
+        } ?: throw IllegalArgumentException("SSH credentials are missing")
         // Android's platform Bouncy Castle provider has no X25519 implementation, so avoid
         // Curve25519 while retaining the server's other modern NIST ECDH alternatives.
         // Its "BC" name otherwise makes SSHJ pin all cryptography to that incomplete provider.

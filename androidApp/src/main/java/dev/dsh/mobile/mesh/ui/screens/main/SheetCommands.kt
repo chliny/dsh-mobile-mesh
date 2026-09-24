@@ -54,6 +54,8 @@ internal fun CommandSheet(
     commands: List<CommandDescriptor>,
     commandsAvailable: Boolean,
     skills: List<SkillEntry>,
+    modelsAvailable: Boolean = false,
+    permissionsAvailable: Boolean = false,
     mode: String,
     running: Boolean,
     canAttach: Boolean,
@@ -151,6 +153,18 @@ internal fun CommandSheet(
 
         // Commands ----------------------------------------------------------
         SectionHeader(stringResource(R.string.chat_composer_commands))
+        if (modelsAvailable) {
+            SheetRow(title = "/model", subtitle = null, trailing = null, onClick = {
+                onDismiss()
+                onRunCommand("/model")
+            })
+        }
+        if (permissionsAvailable) {
+            SheetRow(title = "/permission", subtitle = null, trailing = null, onClick = {
+                onDismiss()
+                onRunCommand("/permission")
+            })
+        }
         when {
             !commandsAvailable -> Text(
                 stringResource(R.string.chat_commands_unavailable),

@@ -583,7 +583,7 @@ fun ConnectScreen(
                                 connectionName, host, port, transport, zeroTierNetworkId, tailscaleHostname,
                                 sshEnabled, sshPort, sshUsername, sshAuthentication,
                                 sshPassword, sshPrivateKey, sshPrivateKeyPassphrase,
-                                sshDshHost, zeroTierPlanetId, launchToken,
+                                sshDshHost, zeroTierPlanetId, zeroTierPlanetBase64, launchToken,
                             )
                         },
                         enabled = connectEnabled,
@@ -601,6 +601,8 @@ fun ConnectScreen(
                 ConnectFailureBlock(
                     failure = failure,
                     attempted = state.attempted,
+                    sshEnabled = editingHost?.sshEnabled ?: sshEnabled,
+                    sshPort = editingHost?.sshPort ?: sshPort.toIntOrNull(),
                     retrying = state.retrying,
                     onCancel = viewModel::cancelConnect,
                     onSignIn = { viewModel.setSignInOpen(true) },
@@ -831,17 +833,29 @@ internal fun ConnectProgressRow(stage: ConnectStage, attempted: String?) {
 internal fun ConnectFailureBlock(
     failure: ConnectFailure,
     attempted: String?,
+    sshEnabled: Boolean,
+    sshPort: Int?,
     retrying: Boolean,
     onCancel: () -> Unit,
     onSignIn: () -> Unit,
 ) {
     val colors = DsTheme.colors
-    val authority = attempted.orEmpty()
+    val authority = failureDisplayAuthority(
+        attempted,
+        sshEnabled = sshEnabled,
+        sshPort = sshPort,
+    ).orEmpty()
     val port = authority.substringAfterLast(':', "").toIntOrNull() ?: 0
     // `connect_failed` is formatted from the two halves so it reads as one address; feeding it the
     // whole authority plus an empty port left a trailing colon. Blank means there was nothing to
     // attempt (bad input), and a headline naming no address would say nothing.
+    val missingSshCredentials = failure is ConnectFailure.Other &&
+        failure.detail.contains("SSH credentials are missing", ignoreCase = true)
     val title = when {
+        missingSshCredentials -> stringResource(
+            R.string.connect_fail_ssh_credentials_title,
+            authority.substringBeforeLast(':', authority),
+        )
         failure is ConnectFailure.TrustFence -> stringResource(R.string.connect_fail_fence_title)
         authority.isBlank() -> null
         else -> stringResource(
@@ -852,6 +866,11 @@ internal fun ConnectFailureBlock(
     }
     val body = when (failure) {
         ConnectFailure.InvalidInput -> stringResource(R.string.connect_fail_invalid)
+        is ConnectFailure.Other -> if (missingSshCredentials) {
+            stringResource(R.string.connect_fail_ssh_credentials_body)
+        } else {
+            stringResource(R.string.connect_fail_other, authority, failure.detail)
+        }
         is ConnectFailure.DifferentSubnet -> stringResource(
             R.string.connect_fail_subnet,
             authority,
@@ -865,7 +884,6 @@ internal fun ConnectFailureBlock(
         ConnectFailure.NotAHarness -> stringResource(R.string.connect_fail_not_harness, authority)
         ConnectFailure.TlsFailure -> stringResource(R.string.connect_fail_tls, authority)
         ConnectFailure.StreamsBlocked -> stringResource(R.string.connect_fail_streams, authority)
-        is ConnectFailure.Other -> stringResource(R.string.connect_fail_other, authority, failure.detail)
     }
     Surface(
         modifier = Modifier.fillMaxWidth(),

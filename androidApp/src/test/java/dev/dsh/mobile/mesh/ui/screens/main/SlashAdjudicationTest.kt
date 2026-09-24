@@ -75,6 +75,27 @@ class SlashAdjudicationTest {
     }
 
     @Test
+    fun `registered no-input command with trailing text passes through unchanged`() {
+        assertEquals(Submission.Prompt("/compact extra"), decide("/compact extra"))
+    }
+
+    @Test
+    fun `native command invocations route to their existing Android surfaces`() {
+        assertEquals(
+            Submission.NativeCommand("model"),
+            adjudicate("/model", catalog, 0, true, setOf("model", "permission")),
+        )
+        assertEquals(
+            Submission.Refused("permission", RefusalReason.COMMAND_TAKES_NO_ATTACHMENTS),
+            adjudicate("/permission", catalog, 1, true, setOf("permission")),
+        )
+        assertEquals(
+            Submission.Command("/permission auto"),
+            adjudicate("/permission auto", catalog, 0, true, setOf("permission")),
+        )
+    }
+
+    @Test
     fun `a bare slash is not a command`() {
         assertEquals(Submission.Prompt("/"), decide("/"))
         assertEquals(Submission.Prompt("/ compact"), decide("/ compact"))
