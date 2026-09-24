@@ -98,7 +98,9 @@ class ConnectionManager @Inject constructor(
     private val networkRecoveryGate = NetworkRecoveryGate()
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-            if (!appInForeground || !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return
+            if (!shouldRecoverOnNetworkEvent(appInForeground, keepConnectedInBackground, activeHost != null) ||
+                !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            ) return
             if (networkRecoveryGate.isPending() && shouldStartNetworkRecovery(
                     isActiveNetwork = connectivity.activeNetwork == network,
                     hasInternetCapability = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
@@ -125,7 +127,7 @@ class ConnectionManager @Inject constructor(
                     hasDesiredHost = activeHost != null || suspendedHost != null,
                 )) networkRecoveryGate.markPending()
             Log.d("ConnectionManager", "Default network available: $network (previous=$previous, dirty=${networkRecoveryGate.isPending()})")
-            if (appInForeground && networkRecoveryGate.isPending()) {
+            if (shouldRecoverOnNetworkEvent(appInForeground, keepConnectedInBackground, activeHost != null) && networkRecoveryGate.isPending()) {
                 markCarrierRecoveryNeeded()
                 if (shouldStartNetworkRecovery(
                         isActiveNetwork = connectivity.activeNetwork == network,
@@ -135,6 +137,7 @@ class ConnectionManager @Inject constructor(
                     startPendingNetworkRecovery()
                 } else {
                     Log.d("ConnectionManager", "Replacement network is not internet-capable yet; keeping recovery pending")
+                    schedulePendingNetworkRecoveryRecheck()
                 }
             }
         }
@@ -450,7 +453,7 @@ class ConnectionManager @Inject constructor(
             if (probeRecoveryPending && appInForeground && startRecovery(0)) {
                 probeRecoveryPending = false
             }
-            if (networkRecoveryGate.isPending() && appInForeground) {
+            if (networkRecoveryGate.isPending() && (appInForeground || keepConnectedInBackground)) {
                 val activeNetwork = connectivity.activeNetwork
                 val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
                 if (shouldStartNetworkRecovery(
@@ -751,6 +754,9 @@ class ConnectionManager @Inject constructor(
             // The gate was only a reservation. If recovery could not claim the slot (for example a
             // retry job won the race), keep the handover armed for the next operation boundary.
             networkRecoveryGate.markPending()
+            if (shouldScheduleForegroundNetworkRecheck(appInForeground, true, keepConnectedInBackground)) {
+                schedulePendingNetworkRecoveryRecheck()
+            }
             return
         }
         networkTracker.consumeRecoveryNeeded()
@@ -769,7 +775,7 @@ class ConnectionManager @Inject constructor(
             // Battery saver/Doze can publish the only network callback before foreground recovery
             // marks this gate. Recheck from our own lifecycle-owned timer so RECONNECTING never
             // waits forever for a callback Android has already delivered.
-            if (shouldScheduleForegroundNetworkRecheck(appInForeground, networkRecoveryGate.isPending())) {
+            if (shouldScheduleForegroundNetworkRecheck(appInForeground, networkRecoveryGate.isPending(), keepConnectedInBackground)) {
                 schedulePendingNetworkRecoveryRecheck()
             }
             return false
@@ -804,7 +810,7 @@ class ConnectionManager @Inject constructor(
         recoveryRetryJob = scope.launch {
             kotlinx.coroutines.delay(FOREGROUND_NETWORK_RECHECK_DELAY_MS)
             recoveryRetryJob = null
-            if (!appInForeground || !networkRecoveryGate.isPending()) return@launch
+            if (!shouldScheduleForegroundNetworkRecheck(appInForeground, networkRecoveryGate.isPending(), keepConnectedInBackground)) return@launch
             val activeNetwork = connectivity.activeNetwork
             val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
             if (shouldStartNetworkRecovery(
@@ -813,7 +819,7 @@ class ConnectionManager @Inject constructor(
                 )) {
                 Log.d("ConnectionManager", "Foreground network recheck found an Internet-capable network")
                 startPendingNetworkRecovery()
-                if (networkRecoveryGate.isPending() && appInForeground &&
+                if (networkRecoveryGate.isPending() && (appInForeground || keepConnectedInBackground) &&
                     synchronized(operationLock) { connectJob?.isActive != true }
                 ) schedulePendingNetworkRecoveryRecheck()
             } else {
@@ -838,7 +844,11 @@ class ConnectionManager @Inject constructor(
                 return@launch
             }
             recoveryRetryJob = null
-            startRecovery(attempt)
+            if (shouldUsePendingNetworkRecoveryOnRetry(networkRecoveryGate.isPending())) {
+                startPendingNetworkRecovery()
+            } else {
+                startRecovery(attempt)
+            }
         }
     }
 

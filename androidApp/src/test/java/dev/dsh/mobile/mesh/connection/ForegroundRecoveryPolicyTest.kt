@@ -26,8 +26,9 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
-    fun `long retained background goes straight to carrier recovery`() {
-        assertEquals(ForegroundRecoveryAction.RECOVER, action(ConnectionPhase.CONNECTED, 30_000))
+    fun `long retained background verifies an established carrier before renewal`() {
+        assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 30_000))
+        assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 120_000))
     }
 
     @Test
@@ -138,6 +139,16 @@ class ForegroundRecoveryPolicyTest {
         assertTrue(shouldScheduleForegroundNetworkRecheck(appInForeground = true, networkRecoveryPending = true))
         assertFalse(shouldScheduleForegroundNetworkRecheck(appInForeground = false, networkRecoveryPending = true))
         assertFalse(shouldScheduleForegroundNetworkRecheck(appInForeground = true, networkRecoveryPending = false))
+    }
+
+    @Test
+    fun `retained background rechecks network and responds to restoration`() {
+        assertTrue(shouldScheduleForegroundNetworkRecheck(false, true, retainInBackground = true))
+        assertTrue(shouldRecoverOnNetworkEvent(false, true, hasActiveHost = true))
+        assertFalse(shouldRecoverOnNetworkEvent(false, false, hasActiveHost = true))
+        assertFalse(shouldRecoverOnNetworkEvent(true, true, hasActiveHost = false))
+        assertTrue(shouldUsePendingNetworkRecoveryOnRetry(true))
+        assertFalse(shouldUsePendingNetworkRecoveryOnRetry(false))
     }
 
     @Test
