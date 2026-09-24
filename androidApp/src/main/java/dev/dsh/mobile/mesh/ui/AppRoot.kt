@@ -302,7 +302,6 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 connection.phase,
                 connection.foregroundCheckPending,
                 recoveryOverlayVisible = connection.recoveryOverlayVisible,
-                showingConnectionList = showConnections || showStartupConnections,
             )) {
             ConnectionRecoveryOverlay()
         }
