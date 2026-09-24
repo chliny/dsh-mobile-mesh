@@ -139,6 +139,7 @@ fun MainScreen(
     }
 
     var detailsOpen by remember { mutableStateOf(false) }
+    var subagentParentSessionId by rememberSaveable { mutableStateOf<String?>(null) }
     val detailsWidth = 300.dp
     val scope = rememberCoroutineScope()
 
@@ -203,7 +204,15 @@ fun MainScreen(
             return
         }
     }
-    BackHandler { onOpenSessionList() }
+    BackHandler {
+        val parentSessionId = subagentReturnSessionId(subagentParentSessionId)
+        if (parentSessionId != null) {
+            subagentParentSessionId = null
+            scope.launch { store.openSession(parentSessionId) }
+        } else {
+            onOpenSessionList()
+        }
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -256,7 +265,10 @@ fun MainScreen(
             ) {
             ChatScreen(
                 onOpenDetails = { detailsOpen = true },
-                onOpenDrawer = onOpenSessionList,
+                onOpenDrawer = {
+                    subagentParentSessionId = null
+                    onOpenSessionList()
+                },
                 detailsOpen = detailsOpen,
                 connectionPhase = connectionPhase,
                 reconnectAttempt = reconnectAttempt,
@@ -265,6 +277,7 @@ fun MainScreen(
                     val parentId = sessionId
                     if (parentId != null) {
                         detailsOpen = false
+                        subagentParentSessionId = parentId
                         scope.launch { store.openSubagentSession(parentId, childId) }
                     }
                 },
@@ -293,6 +306,7 @@ fun MainScreen(
                         val parentId = sessionId
                         if (parentId != null) {
                             detailsOpen = false
+                            subagentParentSessionId = parentId
                             scope.launch { store.openSubagentSession(parentId, childId) }
                         }
                     },

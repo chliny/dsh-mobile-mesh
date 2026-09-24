@@ -110,6 +110,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -399,6 +400,7 @@ class SessionStore @Inject constructor(
     /** The preset a switch is in flight for, cleared when the projection reports it as effective. */
     private val _pendingPermission = MutableStateFlow<String?>(null)
     val pendingPermission: StateFlow<String?> = _pendingPermission.asStateFlow()
+    private val modelPermissionCommandResults = MutableSharedFlow<ModelPermissionCommandResult>(extraBufferCapacity = 8)
 
     // ------------------------------------------------------------------ projection views
     // These are folds of `currentConversation.projections`, not separate fetches: the harness
@@ -483,6 +485,7 @@ class SessionStore @Inject constructor(
     private val currentProjections = HashMap<String, ProjectionValue>()
     private var currentQueue = emptyList<QueueItem>()
     private val queueBySession = mutableMapOf<String, List<QueueItem>>()
+    private val inboxProjectionSeqBySession = mutableMapOf<String, Int>()
 
     /**
      * Recently rendered conversations, kept by session id so a slow follow snapshot never blanks the
@@ -535,6 +538,8 @@ class SessionStore @Inject constructor(
     /** Workspace registry stream. One per connection generation. */
     private var workspaceJob: Job? = null
 
+    private data class ModelPermissionCommandResult(val sessionId: String, val value: String)
+
     private data class ApprovalRequest(
         val sessionId: String,
         val eventId: String,
@@ -565,6 +570,18 @@ class SessionStore @Inject constructor(
             permissions.collect { select ->
                 val pending = _pendingPermission.value ?: return@collect
                 if (select?.currentValue == pending) _pendingPermission.value = null
+            }
+        }
+        scope.launch {
+            modelPermissionCommandResults.collect { result ->
+                if (shouldClearPendingPermission(
+                        currentSessionId = currentSessionId.value,
+                        resultSessionId = result.sessionId,
+                        pendingValue = _pendingPermission.value,
+                        resultValue = result.value,
+                    )) {
+                    _pendingPermission.value = null
+                }
             }
         }
     }
@@ -918,13 +935,14 @@ class SessionStore @Inject constructor(
             is SessionControlFrame.Queue -> applyLegacyQueue(frame.sessionId, frame.items)
             is SessionControlFrame.Jobs -> applyJobs(frame.sessionId, frame.jobs)
             is SessionControlFrame.Projection -> {
-                if (frame.key == "inbox") applyInboxProjection(frame.sessionId, frame.value)
+                if (frame.key == "inbox") applyInboxProjection(frame.sessionId, frame.value, frame.seq)
                 synchronized(lock) {
-                    if (frame.sessionId == currentId) {
+                    if (frame.sessionId == currentId && frame.key != "modelSelection") {
                         mergeProjectionLocked(frame.key, frame.seq, frame.value)
                         rebuildCurrentLocked()
                     }
                 }
+                if (frame.key == "modelSelection") applyModelSelectionProjection(frame.sessionId, frame.seq, frame.value)
             }
             is SessionControlFrame.Unknown -> log("unknown control frame ${frame.type}")
         }
@@ -936,7 +954,7 @@ class SessionStore @Inject constructor(
     }
 
     /** Replace one session's pending queue from the authoritative durable `inbox` projection. */
-    private fun applyInboxProjection(sessionId: String, value: JsonElement) {
+    private fun applyInboxProjection(sessionId: String, value: JsonElement, seq: Int? = null) {
         val inbox = runCatching { decodeFromJsonElement(InboxView.serializer(), value) }.getOrNull()
             ?: return
         val nextQueue = inbox.nextTurn.map { inboxMessageToQueueItem(it, "queued") } +
@@ -946,7 +964,17 @@ class SessionStore @Inject constructor(
                     if (message.source?.kind == "user") "steering" else "context",
                 )
             }
-        setQueue(sessionId, nextQueue)
+        synchronized(lock) {
+            val previousSeq = inboxProjectionSeqBySession[sessionId]
+            if (!shouldApplyInboxProjection(previousSeq, seq)) return
+            if (seq != null && (previousSeq == null || seq > previousSeq)) inboxProjectionSeqBySession[sessionId] = seq
+            queueBySession[sessionId] = nextQueue
+            pendingQueueSubmissionBySession.remove(sessionId)
+            if (sessionId == currentId) {
+                currentQueue = nextQueue
+                rebuildCurrentLocked()
+            }
+        }
     }
 
     /** Install an authoritative complete queue from either current or legacy host protocol. */
@@ -978,7 +1006,7 @@ class SessionStore @Inject constructor(
     private fun applyProjectionBaseline(sessionId: String, block: JsonObject) {
         val asOf = block["asOfSeq"]?.jsonPrimitive?.intOrNull ?: 0
         val values = block["values"] as? JsonObject ?: JsonObject(emptyMap())
-        values["inbox"]?.let { applyInboxProjection(sessionId, it) }
+        values["inbox"]?.let { applyInboxProjection(sessionId, it, asOf) }
         synchronized(lock) {
             if (sessionId != currentId) return@synchronized
             values.forEach { (key, value) -> mergeProjectionLocked(key, asOf, value) }
@@ -1336,6 +1364,19 @@ class SessionStore @Inject constructor(
         val existing = currentProjections[key]
         if (existing == null || seq >= existing.seq) {
             currentProjections[key] = ProjectionValue(seq, value)
+        }
+    }
+
+    private fun applyModelSelectionProjection(sessionId: String, seq: Int, value: JsonElement) {
+        synchronized(lock) {
+            if (!shouldApplyModelSelectionProjection(
+                    frameSessionId = sessionId,
+                    currentSessionId = currentId,
+                    currentSeq = currentProjections["modelSelection"]?.seq,
+                    incomingSeq = seq,
+                )) return
+            mergeProjectionLocked("modelSelection", seq, value)
+            rebuildCurrentLocked()
         }
     }
 
@@ -2577,6 +2618,7 @@ class SessionStore @Inject constructor(
      * there is nothing to refresh — the harness pushes the new value back on a projection frame.
      */
     suspend fun setPermissionPreset(value: String): CommandOutcome {
+        val sid = currentSessionId.value ?: return CommandOutcome.Failed("no open session")
         if (value == CUSTOM_PRESET) {
             return CommandOutcome.Failed("`$CUSTOM_PRESET` is a derived state, not a preset")
         }
@@ -2586,6 +2628,7 @@ class SessionStore @Inject constructor(
         _pendingPermission.value = value
         val outcome = runCommand("/permission $value")
         if (outcome !is CommandOutcome.Ok) _pendingPermission.value = null
+        else modelPermissionCommandResults.tryEmit(ModelPermissionCommandResult(sid, value))
         return outcome
     }
 
