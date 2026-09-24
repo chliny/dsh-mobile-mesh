@@ -32,6 +32,30 @@ class QuestionComposerModelTest {
         multiSelect = multiSelect,
     )
 
+    @Test
+    fun `long plan review keeps a bounded scroll region and actions after it`() {
+        val source = java.io.File(
+            "src/main/java/dev/dsh/mobile/mesh/ui/components/InteractionPanels.kt",
+        ).readText()
+        val planBody = source.substringAfter("internal fun PlanReviewPanel(")
+        assertTrue(planBody.contains(".heightIn(max = 360.dp)"))
+        assertTrue(planBody.contains(".weight(1f, fill = false)"))
+        assertTrue(planBody.indexOf(".verticalScroll(rememberScrollState())") < planBody.indexOf("Row(horizontalArrangement"))
+        assertTrue(planBody.indexOf("Row(horizontalArrangement") < planBody.indexOf("onClick = onApprove"))
+    }
+
+    @Test
+    fun `custom answer field scrolls into view when focused`() {
+        val source = java.io.File(
+            "src/main/java/dev/dsh/mobile/mesh/ui/components/QuestionComposer.kt",
+        ).readText()
+        val field = source.substringAfter("private fun CustomAnswerField(")
+            .substringBefore("/** Pager")
+        assertTrue(field.contains("BringIntoViewRequester()"))
+        assertTrue(field.contains(".bringIntoViewRequester(bringIntoViewRequester)"))
+        assertTrue(field.contains("bringIntoViewRequester.bringIntoView()"))
+    }
+
     // ---- the encoder ------------------------------------------------------
 
     @Test
