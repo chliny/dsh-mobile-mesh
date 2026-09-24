@@ -24,9 +24,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -131,7 +133,19 @@ fun ChatScreen(
     var draft by remember(currentSessionId) { mutableStateOf(currentSessionId?.let(draftStore::get).orEmpty()) }
     var mode by rememberSaveable(currentSessionId) { mutableStateOf("queue") }
     var tab by rememberSaveable { mutableStateOf(ChatTab.Chat) }
-    val attachments = remember(currentSessionId) { mutableStateListOf<PendingAttachment>() }
+    val attachmentsBySession = remember { mutableStateMapOf<String, List<PendingAttachment>>() }
+    val attachments = remember(currentSessionId) {
+        mutableStateListOf<PendingAttachment>().apply {
+            currentSessionId?.let { addAll(attachmentsBySession[it].orEmpty()) }
+        }
+    }
+    LaunchedEffect(currentSessionId, attachments) {
+        val sessionId = currentSessionId ?: return@LaunchedEffect
+        snapshotFlow { attachments.toList() }.collect { pending ->
+            if (pending.isEmpty()) attachmentsBySession.remove(sessionId)
+            else attachmentsBySession[sessionId] = pending
+        }
+    }
 
     var sheet by remember { mutableStateOf<ChatSheet?>(null) }
     var permissionConfirmation by remember { mutableStateOf<String?>(null) }
