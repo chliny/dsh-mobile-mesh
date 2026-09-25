@@ -1,6 +1,6 @@
 package dev.dsh.mobile.mesh.connection
 
-/** Start a retention foreground service only while Android permits a foreground launch. */
+/** Start an opt-in retention service only when a foreground start is permitted. */
 internal fun shouldStartConnectionService(
     keepConnectedInBackground: Boolean,
     appInForeground: Boolean,

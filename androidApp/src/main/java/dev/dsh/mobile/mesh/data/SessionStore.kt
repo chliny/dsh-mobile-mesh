@@ -252,6 +252,12 @@ internal fun nextHasMore(freshCount: Int, hostHasMore: Boolean, overDelivered: B
 internal fun requiresApiPublication(phase: ConnectionPhase, apiPresent: Boolean): Boolean =
     phase == ConnectionPhase.CONNECTED && !apiPresent
 
+/** Only render a cached snapshot whose embedded identity is the selected session. */
+internal fun conversationForSelectedSession(
+    selectedSessionId: String?,
+    cached: ConversationSnapshot?,
+): ConversationSnapshot? = cached?.takeIf { selectedSessionId != null && it.sessionId == selectedSessionId }
+
 internal fun shouldOpenControlBaseline(phase: ConnectionPhase): Boolean =
     phase == ConnectionPhase.CONNECTED
 
@@ -325,7 +331,12 @@ class SessionStore @Inject constructor(
     val contentSearchAvailable: StateFlow<Boolean> = _contentSearchAvailable.asStateFlow()
 
     private val _currentConversation = MutableStateFlow<ConversationSnapshot?>(null)
-    val currentConversation: StateFlow<ConversationSnapshot?> = _currentConversation.asStateFlow()
+    /** Identity-fenced view prevents stale content from a previous session flashing during a switch. */
+    val currentConversation: StateFlow<ConversationSnapshot?> = combine(
+        _currentSessionId,
+        _currentConversation,
+    ) { selectedId, conversation -> conversationForSelectedSession(selectedId, conversation) }
+        .stateIn(scope, SharingStarted.Eagerly, null)
 
     /** Load a changed-files summary associated with one durable workspace/changes event. */
     suspend fun loadChangesSummary(sessionId: String, seq: Long): RpcResult<ChangesSummary> =
@@ -1732,7 +1743,6 @@ class SessionStore @Inject constructor(
 
     /** Install one complete opening window, replacing any previous one for this session. */
     private fun applyFollowSnapshot(sessionId: String, frame: SessionFollowFrame.Snapshot) {
-        clearConnectionError()
         val envelopes = expandRecords(frame.records)
         val page = historyTail(envelopes)
         val overDelivered = envelopes.size > page.size
@@ -1767,6 +1777,7 @@ class SessionStore @Inject constructor(
             liveAssistant.seed(frame.assistantStream)
             rebuildCurrentLocked()
         }
+        if (currentSessionId.value == sessionId) clearConnectionError()
     }
 
     /** One live event. */
