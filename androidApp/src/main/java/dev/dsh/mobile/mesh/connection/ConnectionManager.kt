@@ -970,7 +970,8 @@ class ConnectionManager @Inject constructor(
                 return
             }
             Log.d("ConnectionManager", "Foreground resume renews connection for ${resumedTarget.value.host.id}")
-            replaceOperation(resumedTarget, reconnect = true)
+            if (networkRecoveryGate.isPending()) startPendingNetworkRecovery()
+            else replaceOperation(resumedTarget, reconnect = true)
             return
         }
         if (connectJob?.isActive != true && currentPhaseBeforeResume == ConnectionPhase.DISCONNECTED) {
