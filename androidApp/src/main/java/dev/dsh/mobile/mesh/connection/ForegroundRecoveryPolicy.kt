@@ -107,6 +107,21 @@ internal fun shouldRecoverOnNetworkEvent(
 /** A scheduled retry must claim the pending handover gate, not leave it for a second renewal. */
 internal fun shouldUsePendingNetworkRecoveryOnRetry(networkRecoveryPending: Boolean): Boolean = networkRecoveryPending
 
+/** Retain the foreground retry intent if either the retry or handover survived background entry. */
+internal fun shouldPreserveForegroundRecoveryRetry(
+    retryPending: Boolean,
+    networkHandoverPending: Boolean,
+    hasConnected: Boolean,
+): Boolean = hasConnected && (retryPending || networkHandoverPending)
+
+/** A successful carrier renewal must not erase a separately pending network handover. */
+internal fun shouldCarryNetworkHandoverAfterCarrierRecovery(
+    reconnect: Boolean,
+    hasClaimedHandover: Boolean,
+    networkRecoveryPending: Boolean,
+    transportSucceeded: Boolean,
+): Boolean = reconnect && !hasClaimedHandover && networkRecoveryPending && transportSucceeded
+
 internal fun shouldRetryRecoveryAfterForegroundResume(
     recoveryFailed: Boolean,
     hasActiveHost: Boolean,

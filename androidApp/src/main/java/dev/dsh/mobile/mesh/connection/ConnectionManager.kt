@@ -193,6 +193,8 @@ class ConnectionManager @Inject constructor(
     /** Version reserved by an active recovery; a later callback is never acknowledged by it. */
     @Volatile private var networkRecoveryAttemptVersion: Long? = null
     @Volatile private var networkRecoveryTransportSucceeded = false
+    /** Carrier failure recovered successfully but its network handover still needs claiming. */
+    @Volatile private var carrierRecoverySucceededPendingHandover = false
     @Volatile private var defaultNetwork: Network? = null
     @Volatile private var lifecycleEpoch = 0L
     private val recoveryLock = Any()
@@ -227,7 +229,9 @@ class ConnectionManager @Inject constructor(
             hostsStore.settings.collect { settings ->
                 keepConnectedInBackground = settings.keepConnectedInBackground
                 lifecycle.setRetainInBackground(settings.keepConnectedInBackground)
-                if (settings.keepConnectedInBackground && _state.value.phase == ConnectionPhase.CONNECTED) {
+                if (shouldStartConnectionService(settings.keepConnectedInBackground, appInForeground) &&
+                    _state.value.phase == ConnectionPhase.CONNECTED
+                ) {
                     startService()
                 } else if (!settings.keepConnectedInBackground) {
                     stopService()
@@ -410,6 +414,9 @@ class ConnectionManager @Inject constructor(
         afterTransportReady: suspend (baseUrl: String) -> Unit = {},
     ) {
         val target = lifecycle.request(ConnectionIntent(config, afterTransportReady))
+        // An opt-in retention service must be started while the Activity is foregrounded; a
+        // transport that finishes after the user backgrounds the app cannot legally start an FGS.
+        maybeStartService()
         suspendedHost = config
         suspendedTransportReady = afterTransportReady
         suspendedForBackground = !lifecycle.mayRun()
@@ -462,6 +469,10 @@ class ConnectionManager @Inject constructor(
                 networkRecoveryGate.complete(version, transportSucceeded = networkRecoveryTransportSucceeded)
                 networkRecoveryAttemptVersion = null
                 networkRecoveryTransportSucceeded = false
+            }
+            if (carrierRecoverySucceededPendingHandover) {
+                carrierRecoverySucceededPendingHandover = false
+                if (networkRecoveryGate.isPending()) startPendingNetworkRecovery()
             }
             if (carrierRecoveryPending && startRecovery(0)) {
                 carrierRecoveryPending = false
@@ -576,6 +587,14 @@ class ConnectionManager @Inject constructor(
                 return
             }
             if (reconnect && networkRecoveryAttemptVersion != null) networkRecoveryTransportSucceeded = true
+            if (shouldCarryNetworkHandoverAfterCarrierRecovery(
+                    reconnect = reconnect,
+                    hasClaimedHandover = networkRecoveryAttemptVersion != null,
+                    networkRecoveryPending = networkRecoveryGate.isPending(),
+                    transportSucceeded = true,
+                )) {
+                carrierRecoverySucceededPendingHandover = true
+            }
             activeBaseUrl = baseUrl
             Log.d("ConnectionManager", "Transport ready callback about to run baseUrl=$baseUrl reconnect=$reconnect")
             _state.value = _state.value.copy(authorizationPending = null, tailscaleLoginUrl = null)
@@ -1204,7 +1223,18 @@ class ConnectionManager @Inject constructor(
         foregroundProbeJob = null
         val retryPendingBeforeBackground = recoveryRetryJob?.isActive == true &&
             _state.value.hasConnected && _state.value.phase != ConnectionPhase.CONNECTED
-        if (retryPendingBeforeBackground) foregroundRetryNeedsResume = true
+        val networkRecoveryNeedsResume = networkRecoveryGate.isPending() && _state.value.hasConnected
+        if (shouldPreserveForegroundRecoveryRetry(
+                retryPending = retryPendingBeforeBackground,
+                networkHandoverPending = networkRecoveryNeedsResume,
+                hasConnected = _state.value.hasConnected,
+            )) {
+            foregroundRetryNeedsResume = true
+            Log.d(
+                "ConnectionManager",
+                "Background transition retains recovery retry flag retry=$retryPendingBeforeBackground handover=$networkRecoveryNeedsResume",
+            )
+        }
         if (backgroundConnectionAction(keepConnectedInBackground) == BackgroundConnectionAction.SUSPEND &&
             !shouldPreserveAuthorizationOnBackground(
                 authorizationPending = _state.value.authorizationPending != null,
@@ -1352,7 +1382,7 @@ class ConnectionManager @Inject constructor(
 
 
     private fun maybeStartService() {
-        if (keepConnectedInBackground) startService()
+        if (shouldStartConnectionService(keepConnectedInBackground, appInForeground)) startService()
     }
 
     private fun startService() {
