@@ -498,7 +498,12 @@ fun ChatScreen(
                 }
             }
 
-            conversation?.let { conv ->
+            // Pending decisions take over the input area. Keeping the composer and its docks below
+            // them measures those siblings first and clips the decision actions on small screens.
+            val approval = pendingApproval?.takeIf { it.sessionId == currentSessionId }
+            val questions = pendingQuestions?.takeIf { it.sessionId == currentSessionId }
+            val decisionPending = approval != null || questions != null
+            if (!decisionPending) conversation?.let { conv ->
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -523,8 +528,7 @@ fun ChatScreen(
 
             // Server-initiated requests take over the bottom of the screen: they block the turn,
             // so burying them behind a scroll would strand the session.
-            val approval = pendingApproval
-            if (approval != null && approval.sessionId == currentSessionId) {
+            if (approval != null) {
                 ApprovalPanel(
                     toolName = approval.toolName,
                     reason = approval.reason,
@@ -536,8 +540,7 @@ fun ChatScreen(
                     },
                 )
             }
-            val questions = pendingQuestions
-            if (questions != null && questions.sessionId == currentSessionId) {
+            if (questions != null) {
                 var planBusy by remember(questions.rpcId) { mutableStateOf(false) }
                 // A plan review rides the question channel but is a different decision, so it gets
                 // the card built for it. The narrowing decides which — and hands back anything the
@@ -570,9 +573,17 @@ fun ChatScreen(
                         // Wanting to talk it over first is not one of the options the asker stated,
                         // so it ends the request rather than answering it with the refusal.
                         onDiscuss = {
-                            draft = ""
-                            draftStore.clear(questions.sessionId)
-                            settle { store.dismissQuestions(questions.sessionId) }
+                            planBusy = true
+                            scope.launch {
+                                val outcome = store.dismissQuestions(questions.sessionId)
+                                if (shouldClearComposerDraftAfterQuestionDismiss(outcome)) {
+                                    draft = ""
+                                    draftStore.clear(questions.sessionId)
+                                } else {
+                                    planBusy = false
+                                    refusalOf(outcome)?.let { toast.second(it) }
+                                }
+                            }
                         },
                     )
                 } else {
