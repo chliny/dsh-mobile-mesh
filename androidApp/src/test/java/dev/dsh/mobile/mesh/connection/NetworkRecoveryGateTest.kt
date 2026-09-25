@@ -1,13 +1,12 @@
 package dev.dsh.mobile.mesh.connection
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * A handover noticed while a recovery is already running must survive until the slot frees; dropping
- * it is what used to leave the app retrying forever against the retired transport.
- */
+/** Versioned callbacks survive claim/start races without unbounded recovery churn. */
 class NetworkRecoveryGateTest {
     @Test
     fun `handover is armed by network change`() {
@@ -18,38 +17,54 @@ class NetworkRecoveryGateTest {
     }
 
     @Test
-    fun `pending handover is not consumed while an operation is in flight`() {
+    fun `cannot claim while operation is in flight`() {
         val gate = NetworkRecoveryGate()
         gate.markPending()
-        assertFalse(gate.consumeIfCanStart(canStart = false))
+        assertNull(gate.claimIfCanStart(canStart = false))
         assertTrue(gate.isPending())
     }
 
     @Test
-    fun `pending handover starts once the operation slot frees`() {
+    fun `claim acknowledges only captured events and leaves later handover pending`() {
         val gate = NetworkRecoveryGate()
         gate.markPending()
-        assertTrue(gate.consumeIfCanStart(canStart = true))
+        val firstAttempt = gate.claimIfCanStart(canStart = true)
+        assertNotNull(firstAttempt)
+        assertNull(gate.claimIfCanStart(canStart = true))
+
+        // Callback delivered after the recovery decision/claim must not be lost by its completion.
+        gate.markPending()
+        gate.acknowledge(checkNotNull(firstAttempt))
+        assertTrue(gate.isPending())
+
+        val followUp = gate.claimIfCanStart(canStart = true)
+        assertNotNull(followUp)
+        gate.acknowledge(checkNotNull(followUp))
+        assertFalse(gate.isPending())
+        // A completion without a newer callback does not arm an infinite follow-up chain.
+        assertNull(gate.claimIfCanStart(canStart = true))
+    }
+
+    @Test
+    fun `failed start releases claim without discarding event`() {
+        val gate = NetworkRecoveryGate()
+        gate.markPending()
+        val claim = checkNotNull(gate.claimIfCanStart(canStart = true))
+        gate.release(claim)
+        assertTrue(gate.isPending())
+        val retry = checkNotNull(gate.claimIfCanStart(canStart = true))
+        gate.acknowledge(retry)
         assertFalse(gate.isPending())
     }
 
     @Test
-    fun `scheduled retry claims handover instead of renewing carrier twice`() {
+    fun `clear drops pending and claimed events`() {
         val gate = NetworkRecoveryGate()
         gate.markPending()
-        assertTrue(shouldUsePendingNetworkRecoveryOnRetry(gate.isPending()))
-        assertTrue(gate.consumeIfCanStart(canStart = true))
-        assertFalse(gate.isPending())
-        // Completion of the successful retry must not find an old handover to run again.
-        assertFalse(gate.consumeIfCanStart(canStart = true))
-    }
-
-    @Test
-    fun `clear drops a handover that can no longer be applied`() {
-        val gate = NetworkRecoveryGate()
-        gate.markPending()
+        val claim = checkNotNull(gate.claimIfCanStart(canStart = true))
         gate.clear()
         assertFalse(gate.isPending())
-        assertFalse(gate.consumeIfCanStart(canStart = true))
+        gate.acknowledge(claim)
+        assertFalse(gate.isPending())
     }
 }

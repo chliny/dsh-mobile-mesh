@@ -190,6 +190,8 @@ class ConnectionManager @Inject constructor(
     /** A carrier failure can arrive while another operation is unwinding; keep it armed until the slot is free. */
     @Volatile private var carrierRecoveryPending = false
     @Volatile private var networkLostWhileConnected = false
+    /** Version reserved by an active recovery; a later callback is never acknowledged by it. */
+    @Volatile private var networkRecoveryAttemptVersion: Long? = null
     @Volatile private var defaultNetwork: Network? = null
     @Volatile private var lifecycleEpoch = 0L
     private val recoveryLock = Any()
@@ -453,6 +455,10 @@ class ConnectionManager @Inject constructor(
             // dropped: that operation dialled the retired path, so re-arm recovery now the slot is free.
             synchronized(recoveryLock) {
                 transportRecoveryInFlight = false
+            }
+            networkRecoveryAttemptVersion?.let { version ->
+                networkRecoveryGate.acknowledge(version)
+                networkRecoveryAttemptVersion = null
             }
             if (carrierRecoveryPending && startRecovery(0)) {
                 carrierRecoveryPending = false
@@ -756,15 +762,17 @@ class ConnectionManager @Inject constructor(
 
     private fun startPendingNetworkRecovery() {
         val canStart = synchronized(operationLock) { connectJob?.isActive != true }
-        if (!networkRecoveryGate.consumeIfCanStart(canStart)) {
+        val version = networkRecoveryGate.claimIfCanStart(canStart)
+        if (version == null) {
             Log.d("ConnectionManager", "Network handover recovery remains pending until operation slot is free")
             return
         }
+        networkRecoveryAttemptVersion = version
         if (!startRecovery(0)) {
-            // The gate was only a reservation. If recovery could not claim the slot (for example a
-            // retry job won the race), keep the handover armed for the next operation boundary.
-            networkRecoveryGate.markPending()
-            if (shouldScheduleForegroundNetworkRecheck(appInForeground, true, keepConnectedInBackground)) {
+            // The claim is provisional until the operation slot has actually been won.
+            networkRecoveryAttemptVersion = null
+            networkRecoveryGate.release(version)
+            if (shouldScheduleForegroundNetworkRecheck(appInForeground, networkRecoveryGate.isPending(), keepConnectedInBackground)) {
                 schedulePendingNetworkRecoveryRecheck()
             }
             return
