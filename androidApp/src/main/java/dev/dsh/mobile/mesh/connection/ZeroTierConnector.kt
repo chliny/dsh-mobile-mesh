@@ -15,7 +15,11 @@ import java.net.Socket
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CompletableFuture
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.coroutineContext
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.atomic.AtomicBoolean
@@ -41,6 +45,7 @@ class ZeroTierConnector @Inject constructor(
     private var relay: ZeroTierRelay? = null
     private var nodeNetworkId: String? = null
     private var readiness: ZeroTierReadiness? = null
+    private val generation = ZeroTierGeneration()
 
     private fun signal(state: ZeroTierReadiness, id: Long, eventCode: Int) {
         when (eventCode) {
@@ -66,48 +71,55 @@ class ZeroTierConnector @Inject constructor(
         require(networkIdText.matches(Regex("[0-9a-f]{16}"))) {
             "ZeroTier network ID must contain exactly 16 hexadecimal characters"
         }
-        synchronized(lock) {
-            val networkId = java.lang.Long.parseUnsignedLong(networkIdText, 16)
-            val pendingNode = node
-            if (shouldReuseZeroTierNode(pendingNode != null, nodeNetworkId == networkIdText)) {
-                Log.d(TAG, "Reusing ZeroTier node for network $networkIdText (online=${isServiceOnline()})")
-                // libzt owns one process-global NodeService. During foreground churn it may briefly
-                // report offline while the same node's service thread is still starting. Calling
-                // initFromStorage again in that window returns ZTS_ERR_SERVICE (-2) and can never be
-                // repaired by another tap. Always wait on the retained node instead.
-                val pendingReadiness = readiness ?: ZeroTierReadiness().also { readiness = it }
-                awaitOnline(pendingNode!!, pendingReadiness)
-                if (hasAddress(networkId)) return@synchronized relayFor(config)
-                awaitAddress(pendingNode, networkId, pendingReadiness)
-                return@synchronized relayFor(config)
-            }
-            stopLocked()
-            // A ZeroTier identity belongs to the network, not a particular DSH host. Sharing this
-            // storage lets several saved hosts on one network appear as one controller member.
-            val storage = java.io.File(context.noBackupFilesDir, "zerotier/networks/$networkIdText").apply { mkdirs() }
-            val roots = java.io.File(storage, "roots")
-            val planetId = config.zeroTierPlanetId
-            val planet = planetId?.let(planets::resolve)
-            if (planetId != null && planet == null) {
-                throw IOException("Configured ZeroTier planet is missing")
-            }
-            if (planet == null) roots.delete() else planet.copyTo(roots, overwrite = true)
-            val nextNode = ZeroTierNode()
-            val nextReadiness = ZeroTierReadiness()
-            checkResult(nextNode.initFromStorage(storage.absolutePath), "initialize ZeroTier")
-            checkResult(nextNode.initAllowRootsCache(planet == null), "configure ZeroTier")
-            checkResult(nextNode.initSetEventHandler(object : ZeroTierEventListener {
-                override fun onZeroTierEvent(id: Long, eventCode: Int) {
-                    signal(nextReadiness, id, eventCode)
+        val networkId = java.lang.Long.parseUnsignedLong(networkIdText, 16)
+        // Only native initialization and relay ownership are serialized. No coroutine suspends
+        // while holding this monitor, so stop and subsequent starts can invalidate a pending wait.
+        val (current, state, token) = synchronized(lock) {
+            coroutineContext.ensureActive()
+            val existing = node
+            val selected = if (existing != null) {
+                // libzt has a process-global service. Reinitializing it for different storage or
+                // roots while sockets/callbacks remain live is not a safe network switch.
+                require(nodeNetworkId == networkIdText) {
+                    "Switching ZeroTier networks requires restarting the app process"
                 }
-            }), "register ZeroTier event handler")
-            readiness = nextReadiness
-            checkResult(nextNode.start(), "start ZeroTier")
-            node = nextNode
-            nodeNetworkId = networkIdText
-            awaitOnline(nextNode, nextReadiness)
-            checkResult(nextNode.join(networkId), "join ZeroTier network")
-            awaitAddress(nextNode, networkId, nextReadiness)
+                Log.d(TAG, "Reusing ZeroTier node for network $networkIdText (online=${isServiceOnline()})")
+                existing to checkNotNull(readiness)
+            } else {
+                // A ZeroTier identity belongs to the network, not a particular DSH host.
+                val storage = java.io.File(context.noBackupFilesDir, "zerotier/networks/$networkIdText").apply { mkdirs() }
+                val roots = java.io.File(storage, "roots")
+                val planetId = config.zeroTierPlanetId
+                val planet = planetId?.let(planets::resolve)
+                if (planetId != null && planet == null) throw IOException("Configured ZeroTier planet is missing")
+                if (planet == null) roots.delete() else planet.copyTo(roots, overwrite = true)
+                val nextNode = ZeroTierNode()
+                val nextReadiness = ZeroTierReadiness()
+                checkResult(nextNode.initFromStorage(storage.absolutePath), "initialize ZeroTier")
+                checkResult(nextNode.initAllowRootsCache(planet == null), "configure ZeroTier")
+                checkResult(nextNode.initSetEventHandler(object : ZeroTierEventListener {
+                    override fun onZeroTierEvent(id: Long, eventCode: Int) {
+                        signal(nextReadiness, id, eventCode)
+                    }
+                }), "register ZeroTier event handler")
+                checkResult(nextNode.start(), "start ZeroTier")
+                node = nextNode
+                readiness = nextReadiness
+                nodeNetworkId = networkIdText
+                nextNode to nextReadiness
+            }
+            Triple(selected.first, selected.second, generation.next())
+        }
+        awaitOnline(current, state)
+        synchronized(lock) {
+            coroutineContext.ensureActive()
+            generation.checkCurrent(token)
+            if (!hasAddress(networkId)) checkResult(current.join(networkId), "join ZeroTier network")
+        }
+        awaitAddress(current, networkId, state)
+        synchronized(lock) {
+            coroutineContext.ensureActive()
+            generation.checkCurrent(token)
             relayFor(config)
         }
     }
@@ -115,6 +127,7 @@ class ZeroTierConnector @Inject constructor(
     override suspend fun stop() = withContext(Dispatchers.IO) { synchronized(lock) { stopLocked() } }
 
     private fun stopLocked() {
+        generation.next()
         relay?.close()
         relay = null
         // Keep readiness attached to the retained process-global node; its native callback cannot be
@@ -130,22 +143,30 @@ class ZeroTierConnector @Inject constructor(
     /** Close only the Java loopback relay; keep the native node and its authorization alive. */
     suspend fun renewRelay(config: HostConfig): MeshRelay = withContext(Dispatchers.IO) {
         require(config.meshTransport == MeshTransport.ZERO_TIER) { "Not a ZeroTier host" }
-        synchronized(lock) {
+        val (current, state, token) = synchronized(lock) {
+            coroutineContext.ensureActive()
             val networkIdText = config.zeroTierNetworkId?.lowercase()
             require(networkIdText != null && networkIdText == nodeNetworkId) {
                 "ZeroTier relay renewal requires the retained network"
             }
-            val current = checkNotNull(node) { "ZeroTier node is not started" }
-            val state = checkNotNull(readiness) { "ZeroTier readiness is unavailable" }
-            awaitOnline(current, state)
-            awaitAddress(current, java.lang.Long.parseUnsignedLong(networkIdText, 16), state)
+            Triple(
+                checkNotNull(node) { "ZeroTier node is not started" },
+                checkNotNull(readiness) { "ZeroTier readiness is unavailable" },
+                generation.next(),
+            )
+        }
+        awaitOnline(current, state)
+        awaitAddress(current, java.lang.Long.parseUnsignedLong(checkNotNull(config.zeroTierNetworkId), 16), state)
+        synchronized(lock) {
+            coroutineContext.ensureActive()
+            generation.checkCurrent(token)
             relay?.close()
             relay = null
             relayFor(config)
         }
     }
 
-    private fun awaitOnline(current: ZeroTierNode, state: ZeroTierReadiness) {
+    private suspend fun awaitOnline(current: ZeroTierNode, state: ZeroTierReadiness) {
         check(state.awaitNodeOnline(30, TimeUnit.SECONDS) { current.isOnline() }) {
             "ZeroTier node did not come online; check internet access"
         }
@@ -161,7 +182,7 @@ class ZeroTierConnector @Inject constructor(
                 ZeroTierNative.zts_addr_is_assigned(networkId, ZeroTierNative.ZTS_AF_INET6) == 1
         }.getOrDefault(false)
 
-    private fun awaitAddress(current: ZeroTierNode, networkId: Long, state: ZeroTierReadiness) {
+    private suspend fun awaitAddress(current: ZeroTierNode, networkId: Long, state: ZeroTierReadiness) {
         if (state.awaitNetworkAddress(networkId, 15, TimeUnit.SECONDS) { hasAddress(networkId) }) return
         val nodeId = java.lang.Long.toUnsignedString(current.id, 16).padStart(10, '0')
         throw MeshAuthorizationPending(
@@ -194,77 +215,88 @@ class ZeroTierConnector @Inject constructor(
     }
 }
 
+/** Called under the connector lock; invalidates suspended operations before they can publish. */
+internal class ZeroTierGeneration {
+    private var value = 0L
+    fun next(): Long = ++value
+    fun checkCurrent(token: Long) {
+        check(value == token) { "ZeroTier connection was superseded" }
+    }
+}
+
 /** Native callbacks are hints, never proof of current connectivity or an assigned address. */
 internal class ZeroTierReadiness {
-    private var online = CompletableFuture<Unit>()
-    private val networks = mutableMapOf<Long, CompletableFuture<Unit>>()
+    private var online = CompletableDeferred<Unit>()
+    private val networks = mutableMapOf<Long, CompletableDeferred<Unit>>()
 
     @Synchronized fun nodeOnline() { online.complete(Unit) }
     @Synchronized fun nodeOffline() {
         online.complete(Unit) // Wake waiters bound to the retired event before replacing it.
-        online = CompletableFuture()
+        online = CompletableDeferred()
     }
     @Synchronized fun networkReady(id: Long) {
-        val event = networks[id]?.takeUnless { it.isCompletedExceptionally } ?: CompletableFuture<Unit>()
+        val event = networks[id]?.takeUnless { it.isCancelled } ?: CompletableDeferred<Unit>()
         networks[id] = event
         event.complete(Unit)
     }
     @Synchronized fun networkUnavailable(id: Long) {
-        networks[id]?.complete(Unit) // Wake existing waiters; the replacement event waits for a new address.
-        networks[id] = CompletableFuture()
+        networks[id]?.complete(Unit)
+        networks[id] = CompletableDeferred()
     }
     @Synchronized fun networkError(id: Long, error: Throwable) {
-        val event = networks[id]?.takeUnless { it.isDone } ?: CompletableFuture<Unit>()
+        val event = networks[id]?.takeUnless { it.isCompleted } ?: CompletableDeferred<Unit>()
         networks[id] = event
         event.completeExceptionally(error)
     }
 
-    private fun onlineEvent(): CompletableFuture<Unit> = synchronized(this) { online }
-    private fun networkEvent(id: Long): CompletableFuture<Unit> = synchronized(this) {
-        networks.getOrPut(id) { CompletableFuture() }
+    private fun onlineEvent(): CompletableDeferred<Unit> = synchronized(this) { online }
+    private fun networkEvent(id: Long): CompletableDeferred<Unit> = synchronized(this) {
+        networks.getOrPut(id) { CompletableDeferred() }
     }
 
-    private fun consumeOnlineEvent(event: CompletableFuture<Unit>) = synchronized(this) {
-        if (online === event) online = CompletableFuture()
+    private fun consumeOnlineEvent(event: CompletableDeferred<Unit>) = synchronized(this) {
+        if (online === event) online = CompletableDeferred()
     }
-    private fun consumeNetworkEvent(id: Long, event: CompletableFuture<Unit>) = synchronized(this) {
-        if (networks[id] === event) networks[id] = CompletableFuture()
+    private fun consumeNetworkEvent(id: Long, event: CompletableDeferred<Unit>) = synchronized(this) {
+        if (networks[id] === event) networks[id] = CompletableDeferred()
     }
 
-    fun awaitNodeOnline(timeout: Long, unit: TimeUnit, isOnline: () -> Boolean): Boolean {
+    suspend fun awaitNodeOnline(timeout: Long, unit: TimeUnit, isOnline: () -> Boolean): Boolean {
         val deadline = System.nanoTime() + unit.toNanos(timeout)
-        while (!isOnline()) {
+        while (true) {
+            coroutineContext.ensureActive()
+            if (isOnline()) return true
             val event = onlineEvent()
             if (isOnline()) return true
             val remaining = deadline - System.nanoTime()
             if (remaining <= 0) break
-            try {
-                event.get(remaining, TimeUnit.NANOSECONDS)
-                consumeOnlineEvent(event)
-            } catch (_: java.util.concurrent.TimeoutException) {
-                break
-            }
+            if (withTimeoutOrNull(remaining.coerceAtLeast(1) / 1_000_000 + 1) { event.await(); true } != true) break
+            consumeOnlineEvent(event)
         }
+        coroutineContext.ensureActive()
         return isOnline()
     }
 
-    fun awaitNetworkAddress(id: Long, timeout: Long, unit: TimeUnit, hasAddress: () -> Boolean): Boolean {
+    suspend fun awaitNetworkAddress(id: Long, timeout: Long, unit: TimeUnit, hasAddress: () -> Boolean): Boolean {
         val deadline = System.nanoTime() + unit.toNanos(timeout)
-        while (!hasAddress()) {
+        while (true) {
+            coroutineContext.ensureActive()
+            if (hasAddress()) return true
             val event = networkEvent(id)
             if (hasAddress()) return true
             val remaining = deadline - System.nanoTime()
             if (remaining <= 0) break
             try {
-                event.get(remaining, TimeUnit.NANOSECONDS)
+                if (withTimeoutOrNull(remaining.coerceAtLeast(1) / 1_000_000 + 1) { event.await(); true } != true) break
                 consumeNetworkEvent(id, event)
-            } catch (_: java.util.concurrent.TimeoutException) {
-                break
-            } catch (error: java.util.concurrent.ExecutionException) {
+            } catch (error: Throwable) {
+                coroutineContext.ensureActive()
+                if (error is CancellationException) throw error
                 if (hasAddress()) return true
-                throw (error.cause ?: error)
+                throw error
             }
         }
+        coroutineContext.ensureActive()
         return hasAddress()
     }
 }
