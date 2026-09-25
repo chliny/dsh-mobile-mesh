@@ -75,14 +75,17 @@ class SshTunnelManager @Inject constructor(
                 DHG14.Factory(),
             )
         }
-        fun newClient(): SSHClient = SSHClient(sshConfig).also {
-            it.addHostKeyVerifier(AcceptAllHostKeyVerifier)
-            it.setConnectTimeout(SSH_CONNECT_TIMEOUT_MS)
-            // SSHJ completes connect/auth through its transport callbacks and blocking API. The
-            // socket/transport timeout is only a safety ceiling for a peer that emits no event;
-            // readiness is decided by connect/auth returning, never by sleeping and rechecking.
-            it.setTimeout(SSH_HANDSHAKE_TIMEOUT_MS)
-            it.transport.setTimeoutMs(SSH_HANDSHAKE_TIMEOUT_MS)
+        fun newClient(): SSHClient {
+            val handshakeTimeoutMs = sshHandshakeTimeoutMs(recovery)
+            return SSHClient(sshConfig).also {
+                it.addHostKeyVerifier(AcceptAllHostKeyVerifier)
+                it.setConnectTimeout(SSH_CONNECT_TIMEOUT_MS)
+                // SSHJ completes connect/auth through its transport callbacks and blocking API. The
+                // timeout is a safety ceiling; recovery uses a shorter budget because its caller
+                // already spent time proving the existing carrier unusable and performs one retry.
+                it.setTimeout(handshakeTimeoutMs)
+                it.transport.setTimeoutMs(handshakeTimeoutMs)
+            }
         }
         var client = newClient()
         var keyFile: File? = null
@@ -232,18 +235,22 @@ class SshTunnelManager @Inject constructor(
         const val SSH_RECOVERY_CONNECT_ATTEMPTS = 2
         const val SSH_CONNECT_RETRY_DELAY_MS = 750L
         /**
-         * Long enough for a slow userspace path, far short of sshj's default.
-         *
-         * A suspended ZeroTier peer can complete the TCP and banner exchange and then stop
-         * carrying bytes, which left authentication waiting two minutes. Failing in a fraction of
-         * that lets the recovery retry rebuild the relay while the user is still watching.
+         * Long enough for a slow userspace path, far short of sshj's default. A suspended peer
+         * can complete TCP/banner exchange and then stop carrying bytes; recovery applies its own
+         * shorter ceiling while preserving this initial-connect budget.
          */
-        const val SSH_HANDSHAKE_TIMEOUT_MS = 25_000
+        const val SSH_HANDSHAKE_TIMEOUT_MS = SSH_INITIAL_HANDSHAKE_TIMEOUT_MS
         const val TAG = "SshTunnelManager"
     }
 }
 
 internal fun shouldUseSshKeyPassphrase(passphrase: String?): Boolean = !passphrase.isNullOrBlank()
+
+internal const val SSH_INITIAL_HANDSHAKE_TIMEOUT_MS = 25_000
+internal const val SSH_RECOVERY_HANDSHAKE_TIMEOUT_MS = 12_000
+
+internal fun sshHandshakeTimeoutMs(recovery: Boolean): Int =
+    if (recovery) SSH_RECOVERY_HANDSHAKE_TIMEOUT_MS else SSH_INITIAL_HANDSHAKE_TIMEOUT_MS
 
 private object AcceptAllHostKeyVerifier : HostKeyVerifier {
     override fun verify(hostname: String, port: Int, key: PublicKey): Boolean = true
