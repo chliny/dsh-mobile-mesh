@@ -23,12 +23,21 @@ internal class NetworkRecoveryGate {
         return eventVersion.also { claimedVersion = it }
     }
 
-    /** Complete only the reservation for this attempt; newer callbacks remain armed. */
-    @Synchronized fun acknowledge(version: Long) {
+    /**
+     * Complete only the reservation for this attempt; newer callbacks remain armed.
+     *
+     * A terminal failure means the attempt did not prove it reached the replacement carrier, so
+     * retain the claim as pending and allow a later retry. Successful transport completion consumes
+     * the captured callbacks and leaves only callbacks that arrived during the attempt.
+     */
+    @Synchronized fun complete(version: Long, transportSucceeded: Boolean) {
         if (claimedVersion != version) return
-        acknowledgedVersion = maxOf(acknowledgedVersion, version)
+        if (transportSucceeded) acknowledgedVersion = maxOf(acknowledgedVersion, version)
         claimedVersion = null
     }
+
+    /** Compatibility for callers/tests that have already established transport success. */
+    @Synchronized fun acknowledge(version: Long) = complete(version, transportSucceeded = true)
 
     /** Release a reservation if the caller failed to start its operation. */
     @Synchronized fun release(version: Long) {
@@ -39,4 +48,5 @@ internal class NetworkRecoveryGate {
         acknowledgedVersion = eventVersion
         claimedVersion = null
     }
+
 }
