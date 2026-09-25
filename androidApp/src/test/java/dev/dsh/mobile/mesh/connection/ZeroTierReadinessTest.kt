@@ -56,6 +56,24 @@ class ZeroTierReadinessTest {
     }
 
     @Test
+    fun `authorization denial is cleared by later ready callback without down event`() = runBlocking {
+        val readiness = ZeroTierReadiness()
+        val networkId = 123L
+        val assigned = AtomicBoolean(false)
+        readiness.networkError(networkId, MeshAuthorizationPending("access denied"))
+        val beforeAuthorization = runCatching {
+            readiness.awaitNetworkAddress(networkId, 1, TimeUnit.SECONDS, assigned::get)
+        }.exceptionOrNull()
+        assertTrue(beforeAuthorization is MeshAuthorizationPending)
+
+        val waiting = async { readiness.awaitNetworkAddress(networkId, 1, TimeUnit.SECONDS, assigned::get) }
+        yield()
+        assigned.set(true)
+        readiness.networkReady(networkId)
+        assertTrue(withTimeout(1_000) { waiting.await() })
+    }
+
+    @Test
     fun `cancel waiting online without blocking callback or next waiter`() = runBlocking {
         val readiness = ZeroTierReadiness()
         val online = AtomicBoolean(false)
