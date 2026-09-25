@@ -6,22 +6,37 @@ package dev.dsh.mobile.mesh.connection
  * that event is what leaves the app retrying against the retired path indefinitely.
  */
 internal class NetworkRecoveryGate {
-    private var pending = false
+    private var eventVersion = 0L
+    private var acknowledgedVersion = 0L
+    private var claimedVersion: Long? = null
 
     @Synchronized fun markPending() {
-        pending = true
+        eventVersion++
     }
 
-    @Synchronized fun isPending(): Boolean = pending
+    @Synchronized fun isPending(): Boolean =
+        eventVersion > maxOf(acknowledgedVersion, claimedVersion ?: acknowledgedVersion)
 
-    /** Consume only after the caller has won the operation slot. */
-    @Synchronized fun consumeIfCanStart(canStart: Boolean): Boolean {
-        if (!pending || !canStart) return false
-        pending = false
-        return true
+    /** Reserve the events observed before an attempt, without acknowledging them until it finishes. */
+    @Synchronized fun claimIfCanStart(canStart: Boolean): Long? {
+        if (!canStart || claimedVersion != null || !isPending()) return null
+        return eventVersion.also { claimedVersion = it }
+    }
+
+    /** Complete only the reservation for this attempt; newer callbacks remain armed. */
+    @Synchronized fun acknowledge(version: Long) {
+        if (claimedVersion != version) return
+        acknowledgedVersion = maxOf(acknowledgedVersion, version)
+        claimedVersion = null
+    }
+
+    /** Release a reservation if the caller failed to start its operation. */
+    @Synchronized fun release(version: Long) {
+        if (claimedVersion == version) claimedVersion = null
     }
 
     @Synchronized fun clear() {
-        pending = false
+        acknowledgedVersion = eventVersion
+        claimedVersion = null
     }
 }
