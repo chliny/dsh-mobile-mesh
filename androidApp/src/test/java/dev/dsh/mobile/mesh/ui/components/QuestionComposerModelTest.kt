@@ -42,6 +42,7 @@ class QuestionComposerModelTest {
         assertTrue(planBody.contains(".weight(1f, fill = false)"))
         assertTrue(planBody.indexOf(".verticalScroll(rememberScrollState())") < planBody.indexOf("Row(horizontalArrangement"))
         assertTrue(planBody.indexOf("Row(horizontalArrangement") < planBody.indexOf("onClick = onApprove"))
+        assertTrue(planBody.indexOf("Row(horizontalArrangement") < planBody.indexOf("onClick = onDiscuss"))
     }
 
     @Test
@@ -225,12 +226,12 @@ class QuestionComposerModelTest {
     // ---- the height cap ---------------------------------------------------
 
     @Test
-    fun `the card yields most of a short column back to the transcript`() {
-        assertEquals(240f, questionCardMaxHeight(400.dp).value, 0.01f)
+    fun `the card uses reclaimed input space on a short screen`() {
+        assertEquals(320f, questionCardMaxHeight(400.dp).value, 0.01f)
     }
 
     @Test
-    fun `the card stops growing well before it fills a tall column`() {
-        assertEquals(360f, questionCardMaxHeight(1200.dp).value, 0.01f)
+    fun `the card scrolls its body after the expanded height ceiling`() {
+        assertEquals(520f, questionCardMaxHeight(1200.dp).value, 0.01f)
     }
 }

@@ -174,16 +174,15 @@ internal fun planReviewOf(questions: List<AskUserQuestionItem>): PlanReview? {
     )
 }
 
-/** The harness's `min(60vh, 520px)`, retuned for a column the composer also has to fit in. */
-private const val CARD_FRACTION = 0.6f
-private val CARD_CEILING = 360.dp
+/** Let pending decisions use the input area's reclaimed height; scroll overflow inside the card. */
+private const val CARD_FRACTION = 0.8f
+private val CARD_CEILING = 520.dp
 
 /**
  * The tallest the question card may grow before its body starts scrolling instead.
  *
- * The web card lives in a fixed-height conversation column and replaces the input bar. This one is
- * an ordinary child of the chat column, measured before the composer below it, so an uncapped card
- * does not merely crowd the transcript — it can push the composer off the bottom of the screen.
+ * A pending decision replaces the composer and docks, freeing most of the viewport. Keep some
+ * transcript visible, and bound the card so its middle section scrolls while actions stay in place.
  */
 internal fun questionCardMaxHeight(available: Dp): Dp =
     minOf(available * CARD_FRACTION, CARD_CEILING)
