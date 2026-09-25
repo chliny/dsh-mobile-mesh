@@ -235,7 +235,7 @@ internal class ZeroTierReadiness {
         online = CompletableDeferred()
     }
     @Synchronized fun networkReady(id: Long) {
-        val event = networks[id]?.takeUnless { it.isCancelled } ?: CompletableDeferred<Unit>()
+        val event = networks[id]?.takeUnless { it.isCompleted } ?: CompletableDeferred<Unit>()
         networks[id] = event
         event.complete(Unit)
     }
@@ -293,6 +293,10 @@ internal class ZeroTierReadiness {
                 coroutineContext.ensureActive()
                 if (error is CancellationException) throw error
                 if (hasAddress()) return true
+                // Consume this failed readiness epoch after its waiter observes it. A later native
+                // READY callback is not guaranteed to be preceded by NETWORK_DOWN, so leaving the
+                // exceptional deferred installed would replay stale authorization failure forever.
+                consumeNetworkEvent(id, event)
                 throw error
             }
         }
