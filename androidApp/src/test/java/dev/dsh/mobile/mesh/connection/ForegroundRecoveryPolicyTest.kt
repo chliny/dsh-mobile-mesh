@@ -77,6 +77,12 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `foreground recovery carries pending network handover into transport renewal`() {
+        assertTrue(shouldUsePendingNetworkRecoveryOnRetry(networkRecoveryPending = true))
+        assertFalse(shouldUsePendingNetworkRecoveryOnRetry(networkRecoveryPending = false))
+    }
+
+    @Test
     fun `foreground resume rearms stranded reconnect after background cancelled retry`() {
         assertTrue(shouldStartForegroundRecovery(ForegroundRecoveryAction.RECOVER, false))
         assertFalse(shouldStartForegroundRecovery(ForegroundRecoveryAction.RECOVER, true))
