@@ -199,6 +199,7 @@ class ConnectionManager @Inject constructor(
     private val loopFence = RecoveryCallbackFence()
     @Volatile private var recoveryJob: Job? = null
     @Volatile private var recoveryRetryJob: Job? = null
+    @Volatile private var foregroundRetryNeedsResume = false
     @Volatile private var probeRecoveryPending = false
     @Volatile private var appInForeground = false
     @Volatile private var backgroundedAtMs = 0L
@@ -883,6 +884,8 @@ class ConnectionManager @Inject constructor(
     fun recoverForForeground(forceCheck: Boolean = false) {
         val foregroundTiming = RecoveryTiming()
         val foregroundStartedAt = foregroundTiming.start("foreground-resume")
+        val retryWasCancelledOnBackground = foregroundRetryNeedsResume
+        foregroundRetryNeedsResume = false
         synchronized(lifecycleTransitionLock) {
             if (!shouldHandleLifecycleTransition(appInForeground, targetForeground = true) && !forceCheck) {
                 foregroundTiming.phase("foreground-resume", foregroundStartedAt, "ignored", "duplicate=true")
@@ -1004,7 +1007,14 @@ class ConnectionManager @Inject constructor(
         val backgroundDuration = (now - backgroundedAtMs).coerceAtLeast(0L)
         val recoveryInFlight = connectJob?.isActive == true || foregroundProbeJob?.isActive == true ||
             synchronized(recoveryLock) { transportRecoveryInFlight }
-        val action = if (shouldVerifyRearmedGeneration(publishedGenerationNeedsProbe, appInForeground, recoveryInFlight)) {
+        val retryRecoveryOnResume = shouldRetryRecoveryAfterForegroundResume(
+            recoveryFailed = retryWasCancelledOnBackground,
+            hasActiveHost = activeHost != null,
+            lifecycleCanRun = lifecycle.mayRun(),
+        )
+        val action = if (retryRecoveryOnResume) {
+            ForegroundRecoveryAction.RECOVER
+        } else if (shouldVerifyRearmedGeneration(publishedGenerationNeedsProbe, appInForeground, recoveryInFlight)) {
             ForegroundRecoveryAction.VERIFY
         } else foregroundRecoveryAction(
             ForegroundRecoveryFacts(
@@ -1031,6 +1041,17 @@ class ConnectionManager @Inject constructor(
                 recoveryOverlayVisible = false,
             )
             Log.d("ConnectionManager", "Cleared stale connected recovery presentation")
+            return
+        }
+        if (retryRecoveryOnResume && !recoveryInFlight) {
+            Log.d("ConnectionManager", "Foreground resumes cancelled transport retry after $currentPhaseBeforeResume")
+            _state.value = current.copy(
+                phase = ConnectionPhase.RECONNECTING,
+                foregroundCheckPending = true,
+                recoveryOverlayVisible = true,
+            )
+            if (networkRecoveryGate.isPending()) startPendingNetworkRecovery()
+            else recoverTransportAfterCarrierLoss()
             return
         }
         if (effectiveForegroundCheckPending(current.foregroundCheckPending, recoveryInFlight)) {
@@ -1180,6 +1201,9 @@ class ConnectionManager @Inject constructor(
         backgroundedAtMs = System.currentTimeMillis()
         foregroundProbeJob?.cancel()
         foregroundProbeJob = null
+        val retryPendingBeforeBackground = recoveryRetryJob?.isActive == true &&
+            _state.value.hasConnected && _state.value.phase != ConnectionPhase.CONNECTED
+        if (retryPendingBeforeBackground) foregroundRetryNeedsResume = true
         if (backgroundConnectionAction(keepConnectedInBackground) == BackgroundConnectionAction.SUSPEND &&
             !shouldPreserveAuthorizationOnBackground(
                 authorizationPending = _state.value.authorizationPending != null,

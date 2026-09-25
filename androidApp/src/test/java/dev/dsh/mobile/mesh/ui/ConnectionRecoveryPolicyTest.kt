@@ -20,29 +20,21 @@ class ConnectionRecoveryPolicyTest {
     }
 
     @Test
-    fun `startup connection list suppresses global recovery overlay during initial connection`() {
+    fun `initial connection never shows recovery overlay before first successful connection`() {
         assertFalse(shouldShowConnectionRecoveryOverlay(
             hasConnected = false,
             phase = ConnectionPhase.CONNECTING,
             foregroundCheckPending = false,
-            showingConnectionList = true,
         ))
     }
 
     @Test
-    fun `connection list suppresses global recovery overlay while switching after prior connection`() {
-        assertFalse(shouldShowConnectionRecoveryOverlay(
+    fun `recovery overlay remains visible while connection list is shown`() {
+        assertTrue(shouldShowConnectionRecoveryOverlay(
             hasConnected = true,
             phase = ConnectionPhase.RECONNECTING,
             foregroundCheckPending = true,
             recoveryOverlayVisible = true,
-            showingConnectionList = true,
-        ))
-        assertFalse(shouldShowConnectionRecoveryOverlay(
-            hasConnected = true,
-            phase = ConnectionPhase.CONNECTING,
-            foregroundCheckPending = false,
-            showingConnectionList = true,
         ))
     }
 
