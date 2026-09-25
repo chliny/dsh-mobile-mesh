@@ -58,6 +58,29 @@ class NetworkRecoveryGateTest {
     }
 
     @Test
+    fun `failed transport attempt leaves handover eligible for retry`() {
+        val gate = NetworkRecoveryGate()
+        gate.markPending()
+        val firstAttempt = checkNotNull(gate.claimIfCanStart(canStart = true))
+        gate.complete(firstAttempt, transportSucceeded = false)
+        assertTrue(gate.isPending())
+
+        val retry = checkNotNull(gate.claimIfCanStart(canStart = true))
+        gate.complete(retry, transportSucceeded = true)
+        assertFalse(gate.isPending())
+    }
+
+    @Test
+    fun `successful transport consumes only the handover events it claimed`() {
+        val gate = NetworkRecoveryGate()
+        gate.markPending()
+        val attempt = checkNotNull(gate.claimIfCanStart(canStart = true))
+        gate.markPending()
+        gate.complete(attempt, transportSucceeded = true)
+        assertTrue(gate.isPending())
+    }
+
+    @Test
     fun `clear drops pending and claimed events`() {
         val gate = NetworkRecoveryGate()
         gate.markPending()

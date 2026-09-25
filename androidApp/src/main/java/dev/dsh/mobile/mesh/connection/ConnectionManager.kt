@@ -192,6 +192,7 @@ class ConnectionManager @Inject constructor(
     @Volatile private var networkLostWhileConnected = false
     /** Version reserved by an active recovery; a later callback is never acknowledged by it. */
     @Volatile private var networkRecoveryAttemptVersion: Long? = null
+    @Volatile private var networkRecoveryTransportSucceeded = false
     @Volatile private var defaultNetwork: Network? = null
     @Volatile private var lifecycleEpoch = 0L
     private val recoveryLock = Any()
@@ -457,8 +458,9 @@ class ConnectionManager @Inject constructor(
                 transportRecoveryInFlight = false
             }
             networkRecoveryAttemptVersion?.let { version ->
-                networkRecoveryGate.acknowledge(version)
+                networkRecoveryGate.complete(version, transportSucceeded = networkRecoveryTransportSucceeded)
                 networkRecoveryAttemptVersion = null
+                networkRecoveryTransportSucceeded = false
             }
             if (carrierRecoveryPending && startRecovery(0)) {
                 carrierRecoveryPending = false
@@ -466,7 +468,9 @@ class ConnectionManager @Inject constructor(
             if (probeRecoveryPending && appInForeground && startRecovery(0)) {
                 probeRecoveryPending = false
             }
-            if (networkRecoveryGate.isPending() && (appInForeground || keepConnectedInBackground)) {
+            if (networkRecoveryGate.isPending() && recoveryRetryJob?.isActive != true &&
+                (appInForeground || keepConnectedInBackground)
+            ) {
                 val activeNetwork = connectivity.activeNetwork
                 val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
                 if (shouldStartNetworkRecovery(
@@ -570,6 +574,7 @@ class ConnectionManager @Inject constructor(
                 cleanupResources()
                 return
             }
+            if (reconnect && networkRecoveryAttemptVersion != null) networkRecoveryTransportSucceeded = true
             activeBaseUrl = baseUrl
             Log.d("ConnectionManager", "Transport ready callback about to run baseUrl=$baseUrl reconnect=$reconnect")
             _state.value = _state.value.copy(authorizationPending = null, tailscaleLoginUrl = null)
