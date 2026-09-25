@@ -69,6 +69,14 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `foreground resume retries retained recovery immediately after failed attempt`() {
+        assertTrue(shouldRetryRecoveryAfterForegroundResume(recoveryFailed = true, hasActiveHost = true, lifecycleCanRun = true))
+        assertFalse(shouldRetryRecoveryAfterForegroundResume(recoveryFailed = false, hasActiveHost = true, lifecycleCanRun = true))
+        assertFalse(shouldRetryRecoveryAfterForegroundResume(recoveryFailed = true, hasActiveHost = false, lifecycleCanRun = true))
+        assertFalse(shouldRetryRecoveryAfterForegroundResume(recoveryFailed = true, hasActiveHost = true, lifecycleCanRun = false))
+    }
+
+    @Test
     fun `foreground resume rearms stranded reconnect after background cancelled retry`() {
         assertTrue(shouldStartForegroundRecovery(ForegroundRecoveryAction.RECOVER, false))
         assertFalse(shouldStartForegroundRecovery(ForegroundRecoveryAction.RECOVER, true))

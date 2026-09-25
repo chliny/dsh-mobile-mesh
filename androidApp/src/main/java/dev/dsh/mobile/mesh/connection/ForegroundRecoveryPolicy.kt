@@ -107,6 +107,12 @@ internal fun shouldRecoverOnNetworkEvent(
 /** A scheduled retry must claim the pending handover gate, not leave it for a second renewal. */
 internal fun shouldUsePendingNetworkRecoveryOnRetry(networkRecoveryPending: Boolean): Boolean = networkRecoveryPending
 
+internal fun shouldRetryRecoveryAfterForegroundResume(
+    recoveryFailed: Boolean,
+    hasActiveHost: Boolean,
+    lifecycleCanRun: Boolean,
+): Boolean = recoveryFailed && hasActiveHost && lifecycleCanRun
+
 internal fun shouldDeferCarrierRecovery(
     operationInFlight: Boolean,
     recoveryInFlight: Boolean,
