@@ -587,7 +587,7 @@ fun ChatScreen(
                 }
             }
 
-            Composer(
+            if (!decisionPending) Composer(
                 draft = draft,
                 onDraftChange = {
                     draft = it
@@ -625,14 +625,14 @@ fun ChatScreen(
                 onStop = { scope.launch { store.cancelTurn() } },
             )
 
-            if (subagentReadOnly) {
+            if (subagentReadOnly && !decisionPending) {
                 Text(
                     stringResource(R.string.subagents_readonly),
                     style = DsType.caption11,
                     color = colors.labelTertiary,
                 )
             }
-            StatsFooter(stats = sessionStats, usage = tokenUsage)
+            if (!decisionPending) StatsFooter(stats = sessionStats, usage = tokenUsage)
         }
         DsToastHost(toast, modifier = Modifier.fillMaxWidth())
     }

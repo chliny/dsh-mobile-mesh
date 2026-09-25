@@ -71,9 +71,18 @@ fun ApprovalPanel(
                     color = colors.warnLabel,
                 )
             }
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 200.dp)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Text(
                     stringResource(R.string.approval_reason, reason ?: toolName),
+                    modifier = Modifier
+                        .heightIn(max = 120.dp)
+                        .verticalScroll(rememberScrollState()),
                     style = DsType.small13,
                     color = colors.labelSecondary,
                 )

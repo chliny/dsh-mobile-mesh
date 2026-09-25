@@ -290,8 +290,8 @@ private fun QuestionHeader(
                     question.question,
                     style = DsType.std14Strong,
                     color = colors.labelPrimary,
-                    // A collapsed strip taller than the expanded card's header is not a collapse.
-                    maxLines = if (minimized) 2 else Int.MAX_VALUE,
+                    // Keep the full prompt in the scrollable body rather than truncate its header.
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -329,6 +329,8 @@ private fun QuestionBody(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // The title strip is deliberately short, but the entire question remains readable here.
+        Text(question.question, style = DsType.std14Strong, color = DsTheme.colors.labelPrimary)
         question.detail?.takeIf { it.isNotBlank() }?.let { MarkdownText(it) }
 
         options.forEachIndexed { ordinal, option ->
