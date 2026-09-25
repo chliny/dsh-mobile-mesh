@@ -19,6 +19,11 @@ internal enum class ForegroundRecoveryAction {
 internal fun shouldHandleLifecycleTransition(isForeground: Boolean, targetForeground: Boolean): Boolean =
     isForeground != targetForeground
 
+internal fun shouldRecoverTerminatedSshRelay(
+    appInForeground: Boolean,
+    retainInBackground: Boolean,
+): Boolean = appInForeground || retainInBackground
+
 internal fun shouldRenewCarrierAfterGenerationFailure(
     hasActiveHost: Boolean,
     appInForeground: Boolean,
