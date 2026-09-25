@@ -166,12 +166,12 @@ class SshTunnelManager @Inject constructor(
                     runCatching { onRelayTerminated?.invoke(termination.token) }
                         .onFailure { Log.e(TAG, "SSH relay termination listener failed", it) }
                 }
-            }, "dsh-ssh-forward").apply {
-                isDaemon = true
-                start()
-            }
+            }, "dsh-ssh-forward").apply { isDaemon = true }
             val relay = SshRelay("http://127.0.0.1:${activeServer.localPort}")
+            // Publish the token before the listener can report a terminal event. A forwarder that
+            // fails immediately must not be mistaken for a stale relay by ConnectionManager.
             active = ActiveTunnel(config.id, sshHost, sshPort, client, activeServer, activeForwarder, thread, relay, termination)
+            thread.start()
             server = null
             forwarder = null
             Log.d(TAG, "SSH local forward ready at ${relay.baseUrl} -> ${config.sshDshHost}:${config.port}")

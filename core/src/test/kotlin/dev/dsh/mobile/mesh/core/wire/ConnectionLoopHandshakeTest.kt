@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * The loop has to say *why* a generation failed.
@@ -55,11 +56,13 @@ class ConnectionLoopHandshakeTest {
         val connected = CopyOnWriteArrayList<HostGeneration>()
         val frames = CopyOnWriteArrayList<RemoteEventFrame>()
         val states = CopyOnWriteArrayList<ConnectionState>()
+        var onConnection: (HostGeneration) -> Unit = {}
         override fun onEventFrame(frame: RemoteEventFrame) {
             frames.add(frame)
         }
         override fun onConnected(generation: HostGeneration) {
             connected.add(generation)
+            onConnection(generation)
         }
         override fun onStateChange(state: ConnectionState) {
             states.add(state)
@@ -261,6 +264,80 @@ class ConnectionLoopHandshakeTest {
         loop.stop()
 
         assertEquals(listOf(1, 2), recorder.failures.take(2).map { it.first })
+    }
+
+    @Test
+    fun `immediately ready then closed generations grow bounded backoff`() = runBlocking {
+        val recorder = Recorder()
+        val clock = AtomicLong(0)
+        val sleeps = CopyOnWriteArrayList<Long>()
+        val holdAfterThirdSleep = kotlinx.coroutines.CompletableDeferred<Unit>()
+        recorder.onConnection = { generation ->
+            clock.addAndGet(1_000_000) // A ready generation that lasted only 1ms is not durable.
+            generation.mux.close()
+        }
+        val loop = ConnectionLoop(
+            muxFactory = { RemoteStreamMux { sink -> FakeChannel(sink, openingWith(readyFrame)) } },
+            sinks = recorder,
+            config = LoopConfig(
+                baseDelayMs = 100,
+                maxDelayMs = 400,
+                jitterCapMs = 400,
+                nanoTime = clock::get,
+                delay = { ms ->
+                    sleeps.add(ms)
+                    if (sleeps.size == 3) holdAfterThirdSleep.await()
+                },
+            ),
+        )
+        try {
+            loop.start()
+            assertTrue("expected three short-lived ready generations", await { sleeps.size == 3 })
+            assertEquals(3, recorder.connected.size)
+            assertTrue("first backoff was $sleeps", sleeps[0] in 100L..200L)
+            assertTrue("second backoff was $sleeps", sleeps[1] in 200L..400L)
+            assertTrue("bounded third backoff was $sleeps", sleeps[2] in 200L..400L)
+            assertTrue(recorder.failures.isEmpty())
+        } finally {
+            loop.stop()
+        }
+    }
+
+    @Test
+    fun `first drop after a durable generation retries immediately`() = runBlocking {
+        val recorder = Recorder()
+        val clock = AtomicLong(0)
+        val sleeps = CopyOnWriteArrayList<Long>()
+        val thirdGenerationStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
+        recorder.onConnection = { generation ->
+            // First carrier fails quickly; the next survives long enough to reset its retry streak.
+            clock.addAndGet(if (recorder.connected.size == 1) 1_000_000 else 11_000_000_000L)
+            generation.mux.close()
+        }
+        var created = 0
+        val loop = ConnectionLoop(
+            muxFactory = {
+                created += 1
+                if (created == 3) {
+                    thirdGenerationStarted.complete(Unit)
+                    kotlinx.coroutines.CompletableDeferred<Unit>().await() // Stop before a third ready.
+                }
+                RemoteStreamMux { sink -> FakeChannel(sink, openingWith(readyFrame)) }
+            },
+            sinks = recorder,
+            config = LoopConfig(nanoTime = clock::get, delay = { sleeps.add(it) }),
+        )
+        try {
+            loop.start()
+            assertTrue("durable carrier must immediately retry after a prior short failure", withTimeoutOrNull(5_000) {
+                thirdGenerationStarted.await()
+                true
+            } ?: false)
+            assertEquals(2, recorder.connected.size)
+            assertEquals("only the short-lived carrier should back off", 1, sleeps.size)
+        } finally {
+            loop.stop()
+        }
     }
 
     @Test

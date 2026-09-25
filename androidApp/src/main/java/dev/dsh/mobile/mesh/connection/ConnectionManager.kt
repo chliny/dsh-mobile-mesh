@@ -147,7 +147,14 @@ class ConnectionManager @Inject constructor(
             networkTracker.onLost(network, _state.value.phase == ConnectionPhase.CONNECTED)
             defaultNetwork = networkTracker.current()
             networkLostWhileConnected = networkTracker.hasRecoveryNeeded()
-            if (networkLostWhileConnected) networkRecoveryGate.markPending()
+            if (networkLostWhileConnected) {
+                networkRecoveryGate.markPending()
+                if (shouldScheduleForegroundNetworkRecheck(
+                        appInForeground,
+                        networkRecoveryGate.isPending(),
+                        keepConnectedInBackground,
+                    )) schedulePendingNetworkRecoveryRecheck()
+            }
             if (before != network) {
                 Log.d("ConnectionManager", "Ignoring stale network lost: $network (current=$before)")
             } else {
@@ -460,7 +467,10 @@ class ConnectionManager @Inject constructor(
                         isActiveNetwork = activeNetwork != null,
                         hasInternetCapability = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
                     )) startPendingNetworkRecovery()
-                else Log.d("ConnectionManager", "Pending recovery remains deferred until network validation")
+                else {
+                    Log.d("ConnectionManager", "Pending recovery remains deferred until network validation")
+                    schedulePendingNetworkRecoveryRecheck()
+                }
             }
         }
     }
@@ -726,7 +736,7 @@ class ConnectionManager @Inject constructor(
         Log.w("ConnectionManager", "Active SSH relay terminated; scheduling transport recovery")
         generation = null
         markCarrierRecoveryNeeded()
-        if (appInForeground) recoverTransportAfterCarrierLoss()
+        if (shouldRecoverTerminatedSshRelay(appInForeground, keepConnectedInBackground)) recoverTransportAfterCarrierLoss()
     }
 
     /**

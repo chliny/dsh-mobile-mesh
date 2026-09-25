@@ -135,7 +135,12 @@ class LoopConfig(
     val readyTimeoutMs: Long = 15_000L,
     /** Injectable sleep used between generations. */
     val delay: suspend (Long) -> Unit = ::defaultSleep,
+    /** Monotonic clock for measuring how long a ready generation actually stayed established. */
+    val nanoTime: () -> Long = System::nanoTime,
 )
+
+// A ready carrier must survive long enough to be considered established, not merely handshake.
+private const val DURABLE_GENERATION_NANOS = 10_000_000_000L
 
 /** Default reconnect sleep (delegates to kotlinx.coroutines.delay). */
 private suspend fun defaultSleep(ms: Long) {
@@ -211,15 +216,24 @@ class ConnectionLoop(
                 is Opened.Ok -> {
                     val elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
                     println("ConnectionLoop: generation connected in ${elapsedMs}ms")
-                    attempt = 0
+                    val establishedAt = config.nanoTime()
                     safeSink { sinks.onConnected(opened.generation) }
                     safeSink { sinks.onStateChange(ConnectionState.CONNECTED) }
                     consumeEvents(opened.events, opened.generation.mux, opened.generation.clientId)
                     closeGeneration(token, ownerToken)
+                    // A ready frame alone does not make a healthy carrier: a peer that repeatedly
+                    // closes immediately after ready must grow the same bounded backoff as a failed
+                    // handshake. Only a sustained generation clears the streak, so its first drop
+                    // still reconnects immediately.
+                    attempt = if (config.nanoTime() - establishedAt >= DURABLE_GENERATION_NANOS) {
+                        0
+                    } else {
+                        if (attempt == Int.MAX_VALUE) attempt else attempt + 1
+                    }
                 }
 
                 is Opened.Failed -> {
-                    attempt += 1
+                    attempt = if (attempt == Int.MAX_VALUE) attempt else attempt + 1
                     val reported = attempt
                     closeGeneration(token, ownerToken)
                     safeSink { sinks.onGenerationFailed(reported, opened.failure) }

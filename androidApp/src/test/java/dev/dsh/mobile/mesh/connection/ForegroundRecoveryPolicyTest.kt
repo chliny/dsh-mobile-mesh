@@ -143,6 +143,8 @@ class ForegroundRecoveryPolicyTest {
 
     @Test
     fun `retained background rechecks network and responds to restoration`() {
+        // onLost may be the only callback delivered before the replacement network becomes ready.
+        assertTrue(shouldScheduleForegroundNetworkRecheck(true, true))
         assertTrue(shouldScheduleForegroundNetworkRecheck(false, true, retainInBackground = true))
         assertTrue(shouldRecoverOnNetworkEvent(false, true, hasActiveHost = true))
         assertFalse(shouldRecoverOnNetworkEvent(false, false, hasActiveHost = true))
@@ -172,6 +174,13 @@ class ForegroundRecoveryPolicyTest {
         assertTrue(shouldRenewCarrierAfterGenerationFailure(true, false, true, false))
         assertFalse(shouldRenewCarrierAfterGenerationFailure(true, false, false, false))
         assertFalse(shouldRenewCarrierAfterGenerationFailure(true, true, true, true))
+    }
+
+    @Test
+    fun `SSH terminal event renews retained background carrier`() {
+        assertTrue(shouldRecoverTerminatedSshRelay(true, false))
+        assertTrue(shouldRecoverTerminatedSshRelay(false, true))
+        assertFalse(shouldRecoverTerminatedSshRelay(false, false))
     }
 
     @Test
