@@ -77,6 +77,35 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `pending handover alone preserves foreground retry across background stop`() {
+        assertTrue(shouldPreserveForegroundRecoveryRetry(retryPending = false, networkHandoverPending = true, hasConnected = true))
+        assertTrue(shouldPreserveForegroundRecoveryRetry(retryPending = true, networkHandoverPending = false, hasConnected = true))
+        assertFalse(shouldPreserveForegroundRecoveryRetry(retryPending = false, networkHandoverPending = true, hasConnected = false))
+    }
+
+    @Test
+    fun `successful foreground carrier renewal carries an unclaimed network handover`() {
+        assertTrue(shouldCarryNetworkHandoverAfterCarrierRecovery(
+            reconnect = true,
+            hasClaimedHandover = false,
+            networkRecoveryPending = true,
+            transportSucceeded = true,
+        ))
+        assertFalse(shouldCarryNetworkHandoverAfterCarrierRecovery(
+            reconnect = true,
+            hasClaimedHandover = true,
+            networkRecoveryPending = true,
+            transportSucceeded = true,
+        ))
+        assertFalse(shouldCarryNetworkHandoverAfterCarrierRecovery(
+            reconnect = true,
+            hasClaimedHandover = false,
+            networkRecoveryPending = true,
+            transportSucceeded = false,
+        ))
+    }
+
+    @Test
     fun `foreground recovery carries pending network handover into transport renewal`() {
         assertTrue(shouldUsePendingNetworkRecoveryOnRetry(networkRecoveryPending = true))
         assertFalse(shouldUsePendingNetworkRecoveryOnRetry(networkRecoveryPending = false))
