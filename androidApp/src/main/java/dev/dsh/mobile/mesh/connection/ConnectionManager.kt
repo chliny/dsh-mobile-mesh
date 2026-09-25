@@ -229,9 +229,7 @@ class ConnectionManager @Inject constructor(
             hostsStore.settings.collect { settings ->
                 keepConnectedInBackground = settings.keepConnectedInBackground
                 lifecycle.setRetainInBackground(settings.keepConnectedInBackground)
-                if (shouldStartConnectionService(settings.keepConnectedInBackground, appInForeground) &&
-                    _state.value.phase == ConnectionPhase.CONNECTED
-                ) {
+                if (settings.keepConnectedInBackground && _state.value.phase == ConnectionPhase.CONNECTED && appInForeground) {
                     startService()
                 } else if (!settings.keepConnectedInBackground) {
                     stopService()
@@ -285,6 +283,21 @@ class ConnectionManager @Inject constructor(
             Log.d("ConnectionManager", "Connected generation published for ${host?.id} needsLivenessProbe=$needsLivenessProbe")
             if (host != null) scope.launch { hostsStore.touchHost(host.host, host.port) }
             publishedGenerationNeedsProbe = needsLivenessProbe
+            if (needsLivenessProbe) {
+                _state.value = ConnectionUiState(
+                    phase = ConnectionPhase.RECONNECTING,
+                    host = activeHost,
+                    description = generation.description,
+                    stage = ConnectStage.Verifying,
+                    attempts = previousState.attempts,
+                    hasConnected = true,
+                    recoveryOverlayVisible = true,
+                    foregroundCheckPending = true,
+                )
+                Log.w("ConnectionManager", "Generation opened after lifecycle boundary; withholding CONNECTED until host probe succeeds")
+                if (appInForeground) probePublishedGeneration(generation, generationApi, host?.id, lifecycleEpoch)
+                return@runIfCurrent
+            }
             _state.value = ConnectionUiState(
                 phase = ConnectionPhase.CONNECTED,
                 host = activeHost,
@@ -298,9 +311,6 @@ class ConnectionManager @Inject constructor(
             )
             connectedGenerations.tryEmit(generation)
             maybeStartService()
-            if (needsLivenessProbe && appInForeground) {
-                probePublishedGeneration(generation, generationApi, host?.id, lifecycleEpoch)
-            }
             }
         }
 
@@ -392,7 +402,14 @@ class ConnectionManager @Inject constructor(
         }
     }
 
-    val connectedApi: DshApiClient? get() = api
+    val connectedApi: DshApiClient?
+        get() = api?.takeIf {
+            isConnectionStateAuthoritative(
+                phase = _state.value.phase,
+                generationPublished = generation != null,
+                probePending = publishedGenerationNeedsProbe || foregroundProbeJob?.isActive == true,
+            )
+        }
 
     fun apiForEvent(clientId: String): DshApiClient? = eventApis[clientId]
 
@@ -414,9 +431,6 @@ class ConnectionManager @Inject constructor(
         afterTransportReady: suspend (baseUrl: String) -> Unit = {},
     ) {
         val target = lifecycle.request(ConnectionIntent(config, afterTransportReady))
-        // An opt-in retention service must be started while the Activity is foregrounded; a
-        // transport that finishes after the user backgrounds the app cannot legally start an FGS.
-        maybeStartService()
         suspendedHost = config
         suspendedTransportReady = afterTransportReady
         suspendedForBackground = !lifecycle.mayRun()
@@ -912,6 +926,7 @@ class ConnectionManager @Inject constructor(
             }
             appInForeground = true
         }
+        if (shouldStartConnectionService(keepConnectedInBackground, appInForeground)) startService()
         // Returning from Google sign-in can recreate the Activity while tsnet is still waiting for
         // authorization. Re-publish the retained login URL and keep the pending identity alive; do
         // not let ordinary foreground recovery replace it with the settings screen.
@@ -1123,14 +1138,18 @@ class ConnectionManager @Inject constructor(
                         }
                     }.getOrNull() else null
                     val reachedHost = foregroundProbeReachedHost(carrierOpen, result)
-                    if (!appInForeground || expectedEpoch != lifecycleEpoch || activeHost?.id != expectedHostId || generation !== expectedGeneration) return@launch
+                    if (!mayPublishAfterForegroundProbe(
+                            appInForeground = appInForeground,
+                            lifecycleEpochMatches = expectedEpoch == lifecycleEpoch,
+                            generationMatches = activeHost?.id == expectedHostId && generation === expectedGeneration,
+                        )) return@launch
                     if (reachedHost) {
                         publishedGenerationNeedsProbe = false
-                         Log.d("ConnectionManager", "Foreground end-to-end probe succeeded")
+                        Log.d("ConnectionManager", "Foreground end-to-end probe succeeded")
                         _state.value = _state.value.copy(
-                    foregroundCheckPending = false,
-                    recoveryOverlayVisible = false,
-                )
+                            foregroundCheckPending = false,
+                            recoveryOverlayVisible = false,
+                        )
                     } else {
                         Log.w("ConnectionManager", "Foreground end-to-end probe failed; renewing transport")
                         _state.value = _state.value.copy(
@@ -1175,13 +1194,33 @@ class ConnectionManager @Inject constructor(
                 kotlinx.coroutines.withTimeout(FOREGROUND_PROBE_TIMEOUT_MS) { expectedApi.connectionProbe() }
             }.getOrNull() else null
             val reachedHost = foregroundProbeReachedHost(carrierOpen, result)
-            if (!appInForeground || expectedEpoch != lifecycleEpoch || activeHost?.id != expectedHostId || generation !== expectedGeneration) return@launch
+            if (!mayPublishAfterForegroundProbe(
+                    appInForeground = appInForeground,
+                    lifecycleEpochMatches = expectedEpoch == lifecycleEpoch,
+                    generationMatches = activeHost?.id == expectedHostId && generation === expectedGeneration,
+                )) return@launch
             if (reachedHost) {
                 publishedGenerationNeedsProbe = false
-                _state.value = _state.value.copy(
-                    foregroundCheckPending = false,
-                    recoveryOverlayVisible = false,
-                )
+                val current = _state.value
+                if (current.phase != ConnectionPhase.CONNECTED) {
+                    _state.value = current.copy(
+                        phase = ConnectionPhase.CONNECTED,
+                        host = activeHost,
+                        description = expectedGeneration.description,
+                        stage = ConnectStage.Connected,
+                        failure = null,
+                        attempts = 0,
+                        hasConnected = true,
+                        foregroundCheckPending = false,
+                        recoveryOverlayVisible = false,
+                    )
+                    connectedGenerations.tryEmit(expectedGeneration)
+                } else {
+                    _state.value = current.copy(
+                        foregroundCheckPending = false,
+                        recoveryOverlayVisible = false,
+                    )
+                }
                 Log.d("ConnectionManager", "Published generation end-to-end probe succeeded")
             } else {
                 Log.w("ConnectionManager", "Published generation probe failed; renewing transport")
@@ -1382,7 +1421,7 @@ class ConnectionManager @Inject constructor(
 
 
     private fun maybeStartService() {
-        if (shouldStartConnectionService(keepConnectedInBackground, appInForeground)) startService()
+        if (keepConnectedInBackground && appInForeground) startService()
     }
 
     private fun startService() {

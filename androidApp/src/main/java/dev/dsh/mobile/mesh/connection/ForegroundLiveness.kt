@@ -17,6 +17,25 @@ internal fun foregroundProbeTimeoutMs(meshTransport: MeshTransport?): Long =
     if (meshTransport == MeshTransport.ZERO_TIER) ZERO_TIER_FOREGROUND_PROBE_TIMEOUT_MS
     else FOREGROUND_PROBE_TIMEOUT_MS
 
+internal fun shouldPublishConnectedAfterForegroundProbe(
+    needsProbe: Boolean,
+    appInForeground: Boolean,
+    carrierOpen: Boolean,
+    result: RpcResult<*>?,
+): Boolean = !needsProbe || (appInForeground && foregroundProbeReachedHost(carrierOpen, result))
+
+internal fun isConnectionStateAuthoritative(
+    phase: ConnectionPhase,
+    generationPublished: Boolean,
+    probePending: Boolean,
+): Boolean = phase == ConnectionPhase.CONNECTED && generationPublished && !probePending
+
+internal fun mayPublishAfterForegroundProbe(
+    appInForeground: Boolean,
+    lifecycleEpochMatches: Boolean,
+    generationMatches: Boolean,
+): Boolean = appInForeground && lifecycleEpochMatches && generationMatches
+
 internal fun foregroundProbeReachedHost(carrierOpen: Boolean, result: RpcResult<*>?): Boolean {
     if (!carrierOpen || result == null) return false
     if (result is RpcResult.Ok) return true

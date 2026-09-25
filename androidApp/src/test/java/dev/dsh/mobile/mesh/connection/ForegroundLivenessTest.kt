@@ -18,6 +18,50 @@ class ForegroundLivenessTest {
     }
 
     @Test
+    fun `recovered generation is not published connected until required probe succeeds`() {
+        val healthyResponse = RpcResult.Ok(JsonPrimitive(true))
+        assertFalse(shouldPublishConnectedAfterForegroundProbe(
+            needsProbe = true,
+            appInForeground = true,
+            carrierOpen = true,
+            result = null,
+        ))
+        assertFalse(shouldPublishConnectedAfterForegroundProbe(
+            needsProbe = true,
+            appInForeground = false,
+            carrierOpen = true,
+            result = healthyResponse,
+        ))
+        assertTrue(shouldPublishConnectedAfterForegroundProbe(
+            needsProbe = true,
+            appInForeground = true,
+            carrierOpen = true,
+            result = healthyResponse,
+        ))
+        assertTrue(shouldPublishConnectedAfterForegroundProbe(
+            needsProbe = false,
+            appInForeground = false,
+            carrierOpen = false,
+            result = null,
+        ))
+    }
+
+    @Test
+    fun `connected phase is not authoritative while recovered generation probe is pending`() {
+        assertFalse(isConnectionStateAuthoritative(ConnectionPhase.CONNECTED, generationPublished = true, probePending = true))
+        assertFalse(isConnectionStateAuthoritative(ConnectionPhase.RECONNECTING, generationPublished = true, probePending = false))
+        assertTrue(isConnectionStateAuthoritative(ConnectionPhase.CONNECTED, generationPublished = true, probePending = false))
+    }
+
+    @Test
+    fun `probe result from background or replaced generation cannot publish connected`() {
+        assertFalse(mayPublishAfterForegroundProbe(false, true, true))
+        assertFalse(mayPublishAfterForegroundProbe(true, false, true))
+        assertFalse(mayPublishAfterForegroundProbe(true, true, false))
+        assertTrue(mayPublishAfterForegroundProbe(true, true, true))
+    }
+
+    @Test
     fun `successful endpoint probe keeps healthy carrier`() {
         assertTrue(foregroundProbeReachedHost(true, RpcResult.Ok(JsonPrimitive(true))))
     }

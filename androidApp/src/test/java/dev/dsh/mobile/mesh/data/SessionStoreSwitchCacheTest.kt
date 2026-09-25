@@ -50,6 +50,15 @@ class SessionStoreSwitchCacheTest {
     }
 
     @Test
+    fun `conversation cache identity must match selected session before render`() {
+        val first = snapshot("session-a", blank = false, lastSeq = 4)
+        val second = snapshot("session-b", blank = false, lastSeq = 9)
+        assertNull(conversationForSelectedSession("session-b", first))
+        assertEquals(second, conversationForSelectedSession("session-b", second))
+        assertNull(conversationForSelectedSession(null, second))
+    }
+
+    @Test
     fun `first open without cache has no conversation until follow snapshot arrives`() {
         val model = SessionSwitchCacheModel()
 
