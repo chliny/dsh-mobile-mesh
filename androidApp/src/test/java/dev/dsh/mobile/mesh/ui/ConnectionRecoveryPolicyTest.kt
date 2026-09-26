@@ -29,7 +29,24 @@ class ConnectionRecoveryPolicyTest {
     }
 
     @Test
-    fun `recovery overlay remains visible while connection list is shown`() {
+    fun `switch from established connection keeps recovery overlay out of the list`() {
+        assertFalse(shouldShowConnectionRecoveryOverlay(
+            hasConnected = true,
+            phase = ConnectionPhase.RECONNECTING,
+            foregroundCheckPending = true,
+            recoveryOverlayVisible = true,
+            showingConnectionList = true,
+        ))
+        assertFalse(shouldShowConnectionRecoveryOverlay(
+            hasConnected = true,
+            phase = ConnectionPhase.CONNECTING,
+            foregroundCheckPending = false,
+            showingConnectionList = true,
+        ))
+    }
+
+    @Test
+    fun `recovery overlay remains visible on session page`() {
         assertTrue(shouldShowConnectionRecoveryOverlay(
             hasConnected = true,
             phase = ConnectionPhase.RECONNECTING,
