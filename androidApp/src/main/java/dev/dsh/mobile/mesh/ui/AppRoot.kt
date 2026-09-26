@@ -121,6 +121,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         val showConnect = showConnectPage
         val showStartupConnections = shouldShowStartupConnections(connection.hasConnected, editingHost != null) &&
             !keepSessionPageDuringRecovery && !showSettings && !showConnectPage
+        val showingConnectionList = showConnections || showStartupConnections
         // The native login URL is the authoritative signal for showing authorization. A fast
         // state emission must not leave the user on the connection form with a valid URL pending.
         val showTailscaleLogin = connectUiState.tailscaleLoginUrl?.isNotBlank() == true
@@ -302,6 +303,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 connection.phase,
                 connection.foregroundCheckPending,
                 recoveryOverlayVisible = connection.recoveryOverlayVisible,
+                showingConnectionList = showingConnectionList,
             )) {
             ConnectionRecoveryOverlay()
         }
