@@ -313,13 +313,15 @@ private class FoldState(private val sessionId: String) {
                 val resultBlock = messageContent
                     ?.firstOrNull { it is JsonObject && it["type"]?.jsonPrimitive?.contentOrNull == "tool-result" }
                     as? JsonObject
-                // Wire tool results are message content blocks: the actual bash output lives in
-                // the nested tool-result.content array, not beside the toolCallId. Surface that
-                // inner array so every tool renderer (especially terminal output) sees text blocks.
+                // V3 stored a nested tool-result content block; V4 uses a native tool-role message
+                // whose toolCallId and isError fields sit beside its unwrapped content.
                 val content = resultBlock?.get("content") ?: message?.get("content")
-                val toolCallId = resultBlock?.get("toolCallId")?.jsonPrimitive?.contentOrNull
+                val toolCallId = message?.get("toolCallId")?.jsonPrimitive?.contentOrNull
+                    ?: resultBlock?.get("toolCallId")?.jsonPrimitive?.contentOrNull
                     ?: messageContent?.firstOrNull()?.jsonObject?.get("toolCallId")?.jsonPrimitive?.contentOrNull
-                val isError = resultBlock?.get("isError")?.jsonPrimitive?.booleanOrNull ?: false
+                val isError = message?.get("isError")?.jsonPrimitive?.booleanOrNull
+                    ?: resultBlock?.get("isError")?.jsonPrimitive?.booleanOrNull
+                    ?: false
                 val turn = data.jsonObject["turn"]?.jsonPrimitive?.intOrNull ?: 0
                 val step = data.jsonObject["step"]?.jsonPrimitive?.intOrNull ?: 0
                 nodes.add(ToolResultNode(event.seq, toolCallId.orEmpty(), content, isError, turn, step, data.jsonObject["meta"]))

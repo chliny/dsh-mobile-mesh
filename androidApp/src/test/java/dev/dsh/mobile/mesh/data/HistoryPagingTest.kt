@@ -4,14 +4,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * The termination guard for scroll-driven history paging.
- *
- * The transcript asks for an older page whenever the reader is near the top, so "is there more"
- * is no longer a question a person answers by tapping — it decides whether the app keeps asking.
- * A host that reports `hasMore` on a page a `beforeSeq` query cannot advance past would otherwise
- * loop forever.
- */
+/** The page cursor and coalescing rules for scroll-driven history paging. */
 class HistoryPagingTest {
 
     @Test
@@ -27,12 +20,15 @@ class HistoryPagingTest {
         assertFalse(nextHasMore(freshCount = 12, hostHasMore = false, overDelivered = false))
     }
 
-    /**
-     * Some builds ignore `maxMessages` and answer with the whole log; the client trims and reports
-     * the remainder as more to come, which must survive even when the host claims completeness.
-     */
     @Test
     fun `a trimmed over-delivery counts as more to come`() {
         assertTrue(nextHasMore(freshCount = 60, hostHasMore = false, overDelivered = true))
+    }
+
+    @Test
+    fun `installing an older page requests a coalesced rebuild instead of folding under the receiver lock`() {
+        assertTrue(shouldSchedulePageRebuild(pageSessionId = "session-1", currentSessionId = "session-1"))
+        assertFalse(shouldSchedulePageRebuild(pageSessionId = "session-1", currentSessionId = "session-2"))
+        assertFalse(shouldSchedulePageRebuild(pageSessionId = null, currentSessionId = "session-1"))
     }
 }

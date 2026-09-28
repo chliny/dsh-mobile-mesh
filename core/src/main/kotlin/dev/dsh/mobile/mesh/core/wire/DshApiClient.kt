@@ -26,6 +26,8 @@ import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventOutcome
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventResult
 import dev.dsh.mobile.mesh.core.wire.dto.SessionAttachmentRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionAttachmentValue
+import dev.dsh.mobile.mesh.core.wire.dto.JobKillRequest
+import dev.dsh.mobile.mesh.core.wire.dto.JobKillValue
 import dev.dsh.mobile.mesh.core.wire.dto.SessionCancelRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionCancelValue
 import dev.dsh.mobile.mesh.core.wire.dto.SessionCreateRequest
@@ -37,6 +39,8 @@ import dev.dsh.mobile.mesh.core.wire.dto.SessionListRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionListValue
 import dev.dsh.mobile.mesh.core.wire.dto.SessionPage
 import dev.dsh.mobile.mesh.core.wire.dto.SessionPageRequest
+import dev.dsh.mobile.mesh.core.wire.dto.SessionProjectionsRequest
+import dev.dsh.mobile.mesh.core.wire.dto.SessionProjectionsValue
 import dev.dsh.mobile.mesh.core.wire.dto.SessionPromptRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionPromptValue
 import dev.dsh.mobile.mesh.core.wire.dto.SessionRenameRequest
@@ -272,10 +276,14 @@ class DshApiClient(
      * relative path against that session's workspace and refuses a browser-chosen absolute
      * target, so there is no longer a way to ask the host to open an arbitrary file.
      */
-    suspend fun sessionOpenWorkspacePath(sessionId: String, path: String): RpcResult<HostOpenPathValue> =
+    suspend fun sessionOpenWorkspacePath(
+        sessionId: String,
+        path: String,
+        application: String? = null,
+    ): RpcResult<HostOpenPathValue> =
         callRequest(
             "session/openWorkspacePath",
-            dev.dsh.mobile.mesh.core.wire.dto.SessionOpenWorkspacePathRequest(sessionId, path),
+            dev.dsh.mobile.mesh.core.wire.dto.SessionOpenWorkspacePathRequest(sessionId, path, application),
         )
 
     /** `session/canOpenWorkspacePath` — whether this deployment can reach a native desktop. */
@@ -374,6 +382,10 @@ class DshApiClient(
     suspend fun sessionPage(request: SessionPageRequest): RpcResult<SessionPage> =
         callRequest("session/page", request)
 
+    /** `session/projections` — reads all registered projections without activating a Session Agent. */
+    suspend fun sessionProjections(request: SessionProjectionsRequest): RpcResult<SessionProjectionsValue?> =
+        callRequest("session/projections", request)
+
     /** `session/modelCatalog` — every currently routable model, grouped by provider. */
     suspend fun sessionModelCatalog(): RpcResult<ModelCatalog> = callEmpty("session/modelCatalog")
 
@@ -407,6 +419,10 @@ class DshApiClient(
     /** `session/cancel` — stops an ordinary session's active turn, preserving pending inbox work. */
     suspend fun sessionCancel(request: SessionCancelRequest): RpcResult<SessionCancelValue> =
         callRequest("session/cancel", request)
+
+    /** `job/kill` — request human cancellation of a job visible to this session. */
+    suspend fun jobKill(request: JobKillRequest): RpcResult<JobKillValue> =
+        callRequest("job/kill", request)
 
     // ------------------------------------------------------------------ subagents
 

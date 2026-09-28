@@ -321,6 +321,27 @@ class EventFoldTest {
     }
 
     @Test
+    fun `native V4 tool result keeps call id error and unwrapped content`() {
+        val events = listOf(
+            event("tool/result", 1, buildJsonObject {
+                put("turn", 1); put("step", 2)
+                putJsonObject("message") {
+                    put("role", "tool")
+                    put("toolCallId", "bash-v4")
+                    put("isError", true)
+                    putJsonArray("content") {
+                        add(buildJsonObject { put("type", "text"); put("text", "command failed") })
+                    }
+                }
+            }),
+        )
+        val result = EventFold("s1").fold(events).nodes.single() as ToolResultNode
+        assertEquals("bash-v4", result.callId)
+        assertTrue(result.isError)
+        assertEquals("command failed", result.content?.jsonArray?.single()?.jsonObject?.get("text")?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun foldsStringUserContentIntoATextBlock() {
         val events = listOf(
             event("user/message", 1, buildJsonObject {

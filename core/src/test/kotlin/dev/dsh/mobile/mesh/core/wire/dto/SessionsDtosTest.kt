@@ -22,6 +22,69 @@ import org.junit.Test
 class SessionsDtosTest {
 
     @Test
+    fun `session list rows decode agent availability and projection provenance`() {
+        val summary = decodeFromString<SessionSummary>(
+            """{"agentAvailable":true,"sessionId":"s1","updatedAt":12,"running":false,"blank":true,
+                "projections":{"kind":"cached","asOfSeq":8,"values":{"sessionListMetadata":{"blank":true,"lastPromptAt":9}}}}""",
+        )
+        assertTrue(summary.agentAvailable)
+        assertEquals("cached", summary.projections!!.kind)
+        assertEquals(8, summary.projections!!.asOfSeq)
+        assertFalse(summary.projections!!.watermarkComparableToLive)
+
+        val cold = decodeFromString<SessionSummary>(
+            """{"agentAvailable":false,"sessionId":"s2","updatedAt":4,"running":false,"blank":true,
+                "projections":{"kind":"sequenced","asOfSeq":-1,"values":{}}}""",
+        )
+        assertFalse(cold.agentAvailable)
+        assertEquals("sequenced", cold.projections!!.kind)
+        assertTrue(cold.projections!!.watermarkComparableToLive)
+    }
+
+    @Test
+    fun `job roster and follow frames decode open job fields`() {
+        val roster = WireJson.decodeFromString(
+            JobListFrameSerializer,
+            """{"type":"rows","jobs":[{"id":"bash-1","kind":"bash","label":"build","status":"running","startedAt":12,"progress":"2/4","owner":"s1","output":{"total":7,"earliest":0},"futureField":true}]}""",
+        )
+        assertEquals("2/4", roster.jobs.single().progress)
+        assertEquals("s1", roster.jobs.single().owner)
+        assertEquals(7L, roster.jobs.single().output.total)
+
+        val output = WireJson.decodeFromString(
+            JobFollowFrameSerializer,
+            """{"type":"output","chunks":[{"at":4,"text":"hi","channel":"log","gapBefore":true}],"next":6,"lossy":true}""",
+        ) as JobFollowFrame.Output
+        assertEquals("log", output.chunks.single().channel)
+        assertTrue(output.chunks.single().gapBefore == true)
+        assertEquals(6L, output.next)
+    }
+
+    @Test
+    fun `legacy session summaries without agent availability still decode`() {
+        val summary = decodeFromString<SessionSummary>(
+            """{"sessionId":"old","updatedAt":3,"running":false,"blank":true,
+                "projections":{"asOfSeq":2,"values":{}}}""",
+        )
+        assertFalse(summary.agentAvailable)
+        assertEquals("cached", summary.projections!!.kind)
+    }
+
+    @Test
+    fun `default follow and page requests omit the optional turn window`() {
+        val follow = encodeToJsonElement(
+            SessionFollowRequest.serializer(),
+            SessionFollowRequest(address = SessionAddress.Session(sessionId = "s1")),
+        ).jsonObject
+        val page = encodeToJsonElement(
+            SessionPageRequest.serializer(),
+            SessionPageRequest(address = SessionAddress.Session(sessionId = "s1"), throughSeq = 9),
+        ).jsonObject
+        assertFalse(follow.containsKey("turnWindow"))
+        assertFalse(page.containsKey("turnWindow"))
+    }
+
+    @Test
     fun `an attachment ref carries the upload's size when the host scaled it`() {
         val ref = decodeFromString<ImageAttachmentRef>(
             """{"attachmentId":"sha256:abc","mediaType":"image/webp","bytes":123456,
@@ -84,6 +147,31 @@ class SessionsDtosTest {
             SessionFollowRequest(address = SessionAddress.Session(sessionId = "s1"), assistantStream = true),
         ).jsonObject
         assertTrue(optedIn["assistantStream"]!!.jsonPrimitive.content.toBoolean())
+    }
+
+    @Test
+    fun `follow and page serialize matching turn windows`() {
+        val window = SessionTurnWindow(minMessages = 24, minTurns = 2)
+        val follow = encodeToJsonElement(
+            SessionFollowRequest.serializer(),
+            SessionFollowRequest(
+                address = SessionAddress.Session(sessionId = "s1"),
+                maxMessages = 40,
+                turnWindow = window,
+            ),
+        ).jsonObject
+        val page = encodeToJsonElement(
+            SessionPageRequest.serializer(),
+            SessionPageRequest(
+                address = SessionAddress.Session(sessionId = "s1"),
+                throughSeq = 12,
+                beforeSeq = 5,
+                maxMessages = 40,
+                turnWindow = window,
+            ),
+        ).jsonObject
+        assertEquals(24, follow["turnWindow"]!!.jsonObject["minMessages"]!!.jsonPrimitive.content.toInt())
+        assertEquals(2, page["turnWindow"]!!.jsonObject["minTurns"]!!.jsonPrimitive.content.toInt())
     }
 
     @Test

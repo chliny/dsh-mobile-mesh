@@ -20,7 +20,9 @@ import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonEncoder
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -74,7 +76,23 @@ sealed class RemoteStreamClientMessage {
         @SerialName("payload") val payload: JsonElement,
     ) : RemoteStreamClientMessage()
 
-    /** Cancel one open logical stream. The host answers with an `end` or an `error`. */
+    /** One value sent through the stream's client-to-host uplink. */
+    @Serializable
+    data class Item(
+        @SerialName("type") override val type: String = "item",
+        @SerialName("streamId") val streamId: String,
+        /** Value sentinel: null omits the value for void items; JsonNull encodes explicit JSON null. */
+        @SerialName("value") val value: JsonElement? = null,
+    ) : RemoteStreamClientMessage()
+
+    /** Half-close the stream's client-to-host uplink. */
+    @Serializable
+    data class End(
+        @SerialName("type") override val type: String = "end",
+        @SerialName("streamId") val streamId: String,
+    ) : RemoteStreamClientMessage()
+
+    /** Cancel one open logical stream. */
     @Serializable
     data class Cancel(
         @SerialName("type") override val type: String = "cancel",
@@ -90,8 +108,15 @@ object RemoteStreamClientMessageSerializer : KSerializer<RemoteStreamClientMessa
 
     override fun serialize(encoder: Encoder, value: RemoteStreamClientMessage) {
         val json = when (value) {
+            is RemoteStreamClientMessage.Item -> buildJsonObject {
+                put("type", value.type)
+                put("streamId", value.streamId)
+                value.value?.let { put("value", it) }
+            }
             is RemoteStreamClientMessage.Open ->
                 encodeToJsonElement(RemoteStreamClientMessage.Open.serializer(), value)
+            is RemoteStreamClientMessage.End ->
+                encodeToJsonElement(RemoteStreamClientMessage.End.serializer(), value)
             is RemoteStreamClientMessage.Cancel ->
                 encodeToJsonElement(RemoteStreamClientMessage.Cancel.serializer(), value)
         }
@@ -102,6 +127,8 @@ object RemoteStreamClientMessageSerializer : KSerializer<RemoteStreamClientMessa
         val json = (decoder as JsonDecoder).decodeJsonElement().jsonObject
         return when (val type = json["type"]?.jsonPrimitive?.contentOrNull ?: "") {
             "open" -> decodeFromJsonElement(RemoteStreamClientMessage.Open.serializer(), json)
+            "item" -> decodeFromJsonElement(RemoteStreamClientMessage.Item.serializer(), json)
+            "end" -> decodeFromJsonElement(RemoteStreamClientMessage.End.serializer(), json)
             "cancel" -> decodeFromJsonElement(RemoteStreamClientMessage.Cancel.serializer(), json)
             else -> throw IllegalArgumentException("unknown remote-stream client message \"$type\"")
         }

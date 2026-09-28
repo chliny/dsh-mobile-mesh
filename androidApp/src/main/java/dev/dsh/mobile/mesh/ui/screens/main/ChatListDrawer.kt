@@ -155,14 +155,8 @@ fun ChatListDrawer(
                 (session.origin != "subagent" || session.running)
         }
     }
-    val searchHits = remember(visibleSessions, workspaces, query, searchResults) {
-        deriveSearchResults(
-            sessions = visibleSessions,
-            workspaces = workspaces,
-            archivedIds = archivedIds,
-            query = query,
-            contentHits = searchResults,
-        )
+    val searchHits = remember(sessions, workspaces, searchResults) {
+        mapSearchResults(sessions = sessions, workspaces = workspaces, contentHits = searchResults)
     }
 
     // Blank sessions are scratch space the harness reuses. Active subagent transcripts remain
@@ -274,8 +268,8 @@ fun ChatListDrawer(
                     singleLine = true,
                     colors = dialogTextFieldColors(),
                 )
-                // Stated once, quietly, and only while searching. Most harnesses ship with the
-                // content index off, so this is a normal capability note — not a failure.
+                // Search results come only from the Harness content-search endpoint; deployments
+                // without that optional service return no search results.
                 if (!contentSearchAvailable && query.isNotBlank()) {
                     Text(
                         stringResource(R.string.chatlist_search_content_off),
@@ -292,7 +286,7 @@ fun ChatListDrawer(
         LazyColumn(modifier = Modifier.weight(1f)) {
             if (query.isNotBlank()) {
                 item(key = "search-header") { SectionHeader(stringResource(R.string.common_search)) }
-                if (searchHits.items.isEmpty()) {
+                if (searchHits.isEmpty()) {
                     item(key = "search-empty") {
                         Text(
                             stringResource(R.string.chatlist_search_empty),
@@ -302,18 +296,8 @@ fun ChatListDrawer(
                         )
                     }
                 }
-                items(searchHits.items, key = { it.session.sessionId }) { hit ->
+                items(searchHits, key = { it.session.sessionId }) { hit ->
                     SearchResultRow(hit, store, scope, onClose)
-                }
-                if (searchHits.hasMore) {
-                    item(key = "search-more") {
-                        Text(
-                            stringResource(R.string.chatlist_search_refine),
-                            style = DsType.caption11,
-                            color = colors.labelCaption,
-                            modifier = Modifier.padding(vertical = DsSpacing.xsmall),
-                        )
-                    }
                 }
                 return@LazyColumn
             }

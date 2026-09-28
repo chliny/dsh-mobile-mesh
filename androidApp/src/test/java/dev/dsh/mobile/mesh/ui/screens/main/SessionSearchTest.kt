@@ -3,32 +3,17 @@ package dev.dsh.mobile.mesh.ui.screens.main
 import dev.dsh.mobile.mesh.data.SessionRow
 import dev.dsh.mobile.mesh.data.WorkspaceRow
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Drawer search.
- *
- * The behaviour under test is the half the app was missing: matching session titles and workspace
- * names locally, so that search still answers on a harness whose content index is off — which is
- * the shipped default (`session-query-sqlite` at `openAt: never`) and was reported in the field as
- * "searching does nothing".
- */
+/** Ensures search presentation preserves the Harness's authoritative result order and scope. */
 class SessionSearchTest {
-
-    private fun session(
-        id: String,
-        title: String? = null,
-        cwd: String? = null,
-        updatedAt: Long = 0L,
-        blank: Boolean = false,
-    ) = SessionRow(
+    private fun session(id: String, title: String? = null, cwd: String? = null, updatedAt: Long = 0L) = SessionRow(
         sessionId = id,
         title = title,
         running = false,
-        blank = blank,
+        blank = false,
         parentSessionId = null,
         origin = null,
         cwd = cwd,
@@ -37,138 +22,49 @@ class SessionSearchTest {
         pendingInteraction = null,
     )
 
-    private fun derive(
-        sessions: List<SessionRow>,
-        workspaces: List<WorkspaceRow> = emptyList(),
-        archived: Set<String> = emptySet(),
-        query: String,
-        content: List<Pair<String, String>> = emptyList(),
-        limit: Int = SEARCH_RESULT_LIMIT,
-    ) = deriveSearchResults(sessions, workspaces, archived, query, content, limit)
-
     @Test
-    fun `a title substring matches`() {
-        val result = derive(listOf(session("a", title = "Fix the language changer")), query = "language")
-        assertEquals(listOf("a"), result.items.map { it.session.sessionId })
-    }
-
-    @Test
-    fun `matching ignores case`() {
-        val result = derive(listOf(session("a", title = "Fix The Language Changer")), query = "LANGUAGE")
-        assertEquals(1, result.items.size)
-    }
-
-    @Test
-    fun `a workspace name matches even when the title does not`() {
-        val result = derive(
-            sessions = listOf(session("a", title = "Untitled")),
-            workspaces = listOf(WorkspaceRow("w", "D:/LabTeto/deepseek-mobile", "deepseek-mobile", listOf("a"))),
-            query = "mobile",
+    fun `maps content hits in server order without local title matching or sorting`() {
+        val sessions = listOf(
+            session("newest", title = "plan later", updatedAt = 900),
+            session("server-first", title = "unrelated", updatedAt = 100),
         )
-        assertEquals(listOf("a"), result.items.map { it.session.sessionId })
-    }
-
-    @Test
-    fun `a session outside any workspace falls back to its folder name`() {
-        val result = derive(
-            listOf(session("a", title = "Untitled", cwd = "D:/LabTeto/deepseek-harness")),
-            query = "harness",
+        val results = mapSearchResults(
+            sessions = sessions,
+            workspaces = emptyList(),
+            contentHits = listOf("server-first" to "server-ranked excerpt"),
         )
-        assertEquals(listOf("a"), result.items.map { it.session.sessionId })
-        assertEquals("deepseek-harness", result.items.single().workspaceLabel)
-    }
-
-    /** A blank session's title is a localized placeholder; matching it would tie results to a language. */
-    @Test
-    fun `blank sessions never match`() {
-        val result = derive(listOf(session("a", title = "Planning work", blank = true)), query = "planning")
-        assertTrue(result.items.isEmpty())
+        assertEquals(listOf("server-first"), results.map { it.session.sessionId })
+        assertEquals("server-ranked excerpt", results.single().snippet)
     }
 
     @Test
-    fun `archived sessions never match`() {
-        val result = derive(
-            sessions = listOf(session("a", title = "Planning work")),
-            archived = setOf("a"),
-            query = "planning",
+    fun `uses local session and workspace data only for result labels`() {
+        val results = mapSearchResults(
+            sessions = listOf(session("a", title = "Release notes", cwd = "/work/repo")),
+            workspaces = listOf(WorkspaceRow("w", "/work/mobile", "Mobile", listOf("a"))),
+            contentHits = listOf("a" to "matching message"),
         )
-        assertTrue(result.items.isEmpty())
+        assertEquals("Mobile", results.single().workspaceLabel)
+        assertEquals("matching message", results.single().snippet)
     }
 
     @Test
-    fun `a blank query returns nothing rather than everything`() {
-        val result = derive(listOf(session("a", title = "Planning work")), query = "   ")
-        assertTrue(result.items.isEmpty())
-        assertFalse(result.hasMore)
-    }
-
-    @Test
-    fun `local rows are ordered newest first`() {
-        val result = derive(
-            listOf(
-                session("old", title = "plan one", updatedAt = 100),
-                session("new", title = "plan two", updatedAt = 900),
-            ),
-            query = "plan",
+    fun `does not synthesize title matches when server returns no content hits`() {
+        val results = mapSearchResults(
+            sessions = listOf(session("a", title = "Release notes")),
+            contentHits = emptyList(),
+            workspaces = emptyList(),
         )
-        assertEquals(listOf("new", "old"), result.items.map { it.session.sessionId })
+        assertTrue(results.isEmpty())
     }
 
-    /** Content search is an extra, so its hits go after everything the title filter already found. */
     @Test
-    fun `content-only hits follow local matches in host order`() {
-        val result = derive(
-            sessions = listOf(
-                session("local", title = "plan the migration", updatedAt = 10),
-                session("remote", title = "unrelated", updatedAt = 999),
-            ),
-            query = "plan",
-            content = listOf("remote" to "…we should plan this…"),
+    fun `does not fabricate a result for an id missing from the current session list`() {
+        val results = mapSearchResults(
+            sessions = emptyList(),
+            workspaces = emptyList(),
+            contentHits = listOf("missing" to "server snippet"),
         )
-        assertEquals(listOf("local", "remote"), result.items.map { it.session.sessionId })
-    }
-
-    @Test
-    fun `a session matched both ways appears once and keeps the snippet`() {
-        val result = derive(
-            sessions = listOf(session("a", title = "plan the migration")),
-            query = "plan",
-            content = listOf("a" to "…we should plan this…"),
-        )
-        assertEquals(1, result.items.size)
-        assertEquals("…we should plan this…", result.items.single().snippet)
-    }
-
-    @Test
-    fun `a purely local match carries no snippet`() {
-        val result = derive(listOf(session("a", title = "plan the migration")), query = "plan")
-        assertNull(result.items.single().snippet)
-    }
-
-    @Test
-    fun `a content hit for an archived session is dropped`() {
-        val result = derive(
-            sessions = listOf(session("a", title = "unrelated")),
-            archived = setOf("a"),
-            query = "plan",
-            content = listOf("a" to "…plan…"),
-        )
-        assertTrue(result.items.isEmpty())
-    }
-
-    @Test
-    fun `results are capped and report that there are more`() {
-        val sessions = (1..10).map { session("s$it", title = "plan $it", updatedAt = it.toLong()) }
-        val result = derive(sessions, query = "plan", limit = 4)
-        assertEquals(4, result.items.size)
-        assertTrue(result.hasMore)
-    }
-
-    @Test
-    fun `an exactly-full page does not claim more`() {
-        val sessions = (1..4).map { session("s$it", title = "plan $it", updatedAt = it.toLong()) }
-        val result = derive(sessions, query = "plan", limit = 4)
-        assertEquals(4, result.items.size)
-        assertFalse(result.hasMore)
+        assertNull(results.firstOrNull())
     }
 }

@@ -220,6 +220,8 @@
     <string name="jobs_completed">Terminées</string>
     <string name="jobs_killed">Interrompues</string>
     <string name="jobs_failed">Échouées</string>
+    <string name="jobs_output_gap">Lacune de sortie : des octets antérieurs ont été évincés ou ignorés.</string>
+    <string name="jobs_output_lossy">Une partie de la sortie a été perdue avant sa lecture.</string>
     <string name="workflow_title">Flux de travail</string>
     <string name="workflow_members">%1$d membres</string>
     <string name="workflow_running">En cours</string>

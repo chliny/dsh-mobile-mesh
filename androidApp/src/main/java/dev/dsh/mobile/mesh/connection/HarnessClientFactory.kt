@@ -71,9 +71,14 @@ class HarnessClientFactory @Inject constructor(
                 java.util.concurrent.TimeUnit.MILLISECONDS,
             )
             .build()
-        return RemoteStreamMux { sink ->
-            WsChannel("$baseUrl$REMOTE_STREAM_MUX_PATH", websocketClient, sink, cookie, config.harnessAuthority)
-        }
+        return RemoteStreamMux(
+            channelFactory = { sink ->
+                WsChannel("$baseUrl$REMOTE_STREAM_MUX_PATH", websocketClient, sink, cookie, config.harnessAuthority)
+            },
+            onConsumerFellBehind = { endpoint, capacity ->
+                android.util.Log.w("HarnessClientFactory", "Stream consumer fell behind endpoint=$endpoint capacity=$capacity")
+            },
+        )
     }
 
     /**

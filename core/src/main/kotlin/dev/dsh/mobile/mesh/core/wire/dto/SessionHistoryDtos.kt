@@ -183,6 +183,15 @@ data class SessionPageRequest(
     @SerialName("beforeSeq") val beforeSeq: Int? = null,
     /** Caps user/assistant message count without dropping tools or state between them. */
     @SerialName("maxMessages") val maxMessages: Int? = null,
+    /** Turn-aligned history window; minima must not exceed maxMessages. */
+    @SerialName("turnWindow") val turnWindow: SessionTurnWindow? = null,
+)
+
+/** Minimum message/turn counts before a history page may stop at a turn boundary. */
+@Serializable
+data class SessionTurnWindow(
+    @SerialName("minMessages") val minMessages: Int,
+    @SerialName("minTurns") val minTurns: Int,
 )
 
 /** One contiguous backwards page of a session log. */
@@ -205,6 +214,8 @@ data class SessionFollowRequest(
     @SerialName("address") val address: SessionAddress,
     @SerialName("maxMessages") val maxMessages: Int? = null,
     @SerialName("assistantStream") val assistantStream: Boolean? = null,
+    /** Turn-aligned opening history window with the same policy used by `session/page`. */
+    @SerialName("turnWindow") val turnWindow: SessionTurnWindow? = null,
 )
 
 // ============================================================================================
@@ -503,7 +514,7 @@ sealed class SessionControlFrame {
         @SerialName("items") val items: List<QueuedInboxItem> = emptyList(),
     ) : SessionControlFrame()
 
-    /** The complete background-job set for one session. */
+    /** Legacy job roster frame sent by hosts predating the job-controller namespace. */
     @Serializable
     data class Jobs(
         @SerialName("type") override val type: String = "jobs",
@@ -533,6 +544,7 @@ sealed class SessionControlFrame {
 data class SessionControlBaseline(
     /** Legacy complete queues from pre-inbox-projection hosts; ignored when a current inbox arrives. */
     @SerialName("queues") val queues: Map<String, List<QueuedInboxItem>> = emptyMap(),
+    /** Legacy job rows, superseded by `job/list` where that endpoint is available. */
     @SerialName("jobs") val jobs: Map<String, List<JobView>> = emptyMap(),
     @SerialName("projections") val projections: Map<String, JsonObject> = emptyMap(),
 )
