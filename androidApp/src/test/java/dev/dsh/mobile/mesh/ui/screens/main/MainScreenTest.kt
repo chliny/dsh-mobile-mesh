@@ -15,8 +15,8 @@ class MainScreenTest {
 
     @Test
     fun `workspace file scope selects a session with the workspace cwd`() {
-        val current = dev.dsh.mobile.mesh.data.SessionRow("current", "current", false, false, null, null, null, null, 0L, null)
-        val sibling = dev.dsh.mobile.mesh.data.SessionRow("sibling", "sibling", false, false, null, null, "/home/me/project", null, 0L, null)
+        val current = dev.dsh.mobile.mesh.data.SessionRow("current", "current", false, false, null, null, null, null, agentAvailable = false, updatedAt = 0L, pendingInteraction = null)
+        val sibling = dev.dsh.mobile.mesh.data.SessionRow("sibling", "sibling", false, false, null, null, "/home/me/project", null, agentAvailable = false, updatedAt = 0L, pendingInteraction = null)
         assertEquals("sibling", workspaceFilesScopeSessionId("current", listOf("current", "sibling"), listOf(current, sibling), "/home/me/project"))
         assertEquals("current", workspaceFilesScopeSessionId("current", listOf("current"), listOf(current), "/home/me/project"))
     }

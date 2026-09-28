@@ -37,44 +37,6 @@ data class QueuedMessage(
     @SerialName("content") val content: List<ContentBlock> = emptyList(),
 )
 
-/** Current lifecycle state of one background job. */
-@Serializable
-enum class JobStatus {
-    @SerialName("running")
-    RUNNING,
-
-    @SerialName("stopping")
-    STOPPING,
-
-    @SerialName("completed")
-    COMPLETED,
-
-    @SerialName("killed")
-    KILLED,
-
-    @SerialName("failed")
-    FAILED,
-}
-
-/** One background job as the client sees it. */
-@Serializable
-data class JobView(
-    /** Registry-issued `<kind>-N` identity, stable for the task's whole life. */
-    @SerialName("id") val id: String,
-    /** Producer kind (`bash`, `pwsh`, `pty-send`, `subagent`, …). */
-    @SerialName("kind") val kind: String,
-    /** Producer-supplied one-line label: the command, or the delegation description. */
-    @SerialName("label") val label: String,
-    /** Current lifecycle state. */
-    @SerialName("status") val status: JobStatus,
-    /** Kind-specific status detail ('exit code: 3'), present once the producer supplied one. */
-    @SerialName("detail") val detail: String? = null,
-    /** Epoch ms when the task was registered. */
-    @SerialName("startedAt") val startedAt: Long,
-    /** Epoch ms when the task settled; absent while live. */
-    @SerialName("finishedAt") val finishedAt: Long? = null,
-)
-
 /** One selectable answer offered to the user. */
 @Serializable
 data class AskUserQuestionOption(

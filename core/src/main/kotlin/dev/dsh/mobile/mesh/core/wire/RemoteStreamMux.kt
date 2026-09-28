@@ -49,6 +49,12 @@ interface RemoteStream {
      */
     suspend fun receive(): JsonElement?
 
+    /** Send one JSON value to the host. Throws when the uplink has ended or the carrier is closed. */
+    fun send(value: JsonElement? = null)
+
+    /** Half-close the client-to-host direction. Idempotent. */
+    fun endUplink()
+
     /** Tell the host to stop. Idempotent, and safe to call on an already-dead stream. */
     fun cancel()
 }
@@ -71,8 +77,13 @@ interface RemoteStream {
  * the host interleaves them freely.
  */
 class RemoteStreamMux(
+    private val streamSignalBufferCapacity: Int = DEFAULT_STREAM_SIGNAL_BUFFER_CAPACITY,
+    private val onConsumerFellBehind: (endpoint: String, capacity: Int) -> Unit = { _, _ -> },
     private val channelFactory: (sink: WsChannelSink) -> WsChannel,
 ) {
+    init {
+        require(streamSignalBufferCapacity > 0) { "streamSignalBufferCapacity must be positive" }
+    }
 
     /** What can arrive on a logical stream. */
     private sealed class Signal {
@@ -81,9 +92,13 @@ class RemoteStreamMux(
         object Ended : Signal()
     }
 
-    private inner class Stream(private val streamId: String) : RemoteStream {
-        val signals: Channel<Signal> = Channel(STREAM_SIGNAL_BUFFER_CAPACITY)
+    private inner class Stream(
+        private val streamId: String,
+        val endpoint: String,
+    ) : RemoteStream {
+        val signals: Channel<Signal> = Channel(streamSignalBufferCapacity)
         private val done = AtomicBoolean(false)
+        private val uplinkEnded = AtomicBoolean(false)
         @Volatile private var terminal: Signal? = null
 
         override suspend fun receive(): JsonElement? = when (val signal = signals.receiveCatching().getOrNull() ?: terminal ?: Signal.Ended) {
@@ -99,10 +114,33 @@ class RemoteStreamMux(
         }
 
         fun terminate(signal: Signal) {
-            terminal = signal
-            // Closing preserves already queued ordered items, then makes receive() observe terminal
-            // even when the bounded queue was full and could not accept one more signal.
-            signals.close()
+            synchronized(lifecycleLock) {
+                done.set(true)
+                uplinkEnded.set(true)
+                terminal = signal
+                // Closing preserves already queued ordered items, then makes receive() observe terminal
+                // even when the bounded queue was full and could not accept one more signal.
+                signals.close()
+            }
+        }
+
+        override fun send(value: JsonElement?) {
+            synchronized(lifecycleLock) {
+                check(!done.get()) { "remote stream is terminal" }
+                check(!uplinkEnded.get()) { "remote stream uplink has ended" }
+                if (!send(RemoteStreamClientMessage.Item(streamId = streamId, value = value))) {
+                    throw carrierFailure(closedCause)
+                }
+            }
+        }
+
+        override fun endUplink() {
+            synchronized(lifecycleLock) {
+                if (done.get() || !uplinkEnded.compareAndSet(false, true)) return
+                if (!send(RemoteStreamClientMessage.End(streamId = streamId))) {
+                    throw carrierFailure(closedCause)
+                }
+            }
         }
 
         override fun cancel() {
@@ -156,11 +194,18 @@ class RemoteStreamMux(
             val stream = streams[message.streamId] ?: return
             when (message) {
                 is RemoteStreamServerMessage.Item -> {
-                    // A paused background consumer must not let socket callbacks retain unbounded
-                    // event history. The protocol requires ordered delivery, so overload ends the
-                    // whole carrier rather than silently dropping a state-changing frame.
+                    // A slow logical stream is isolated to this subscriber: overflowing its
+                    // bounded queue terminates that stream rather than an otherwise healthy shared
+                    // WebSocket carrier. Ordered stateful items are never silently dropped.
                     if (stream.signals.trySend(Signal.Item(message.value ?: JsonObject(emptyMap()))).isFailure) {
-                        failAll(IllegalStateException("remote stream consumer fell behind"))
+                        runCatching { onConsumerFellBehind(stream.endpoint, streamSignalBufferCapacity) }
+                        streams.remove(message.streamId)
+                        stream.terminate(
+                            Signal.Failed(
+                                RpcError("consumer_fell_behind", "remote stream consumer fell behind"),
+                                carrier = false,
+                            ),
+                        )
                     }
                 }
                 is RemoteStreamServerMessage.Error -> {
@@ -240,7 +285,7 @@ class RemoteStreamMux(
      */
     fun open(endpoint: String, args: JsonElement = JsonObject(emptyMap())): RemoteStream {
         val streamId = nextStreamId.getAndIncrement().toString()
-        val stream = Stream(streamId)
+        val stream = Stream(streamId, endpoint)
         // Registration and the first send are one lifecycle transaction. Without this, failAll()
         // can observe an empty map between the check and registration, leaving this stream blocked
         // forever after a concurrent close.
@@ -315,8 +360,8 @@ class RemoteStreamMux(
     }
 
     private companion object {
-        /** Bound callback-thread memory when a retained-background stream consumer stops draining. */
-        const val STREAM_SIGNAL_BUFFER_CAPACITY = 64
+        /** Default bound per stream: absorbs ordinary bursts while keeping callback memory finite. */
+        const val DEFAULT_STREAM_SIGNAL_BUFFER_CAPACITY = 512
     }
 
     private fun carrierFailure(cause: Throwable?): RemoteStreamException =

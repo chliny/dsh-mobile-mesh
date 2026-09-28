@@ -99,6 +99,8 @@ data class HostCreateDirectoryValue(
 data class SessionOpenWorkspacePathRequest(
     @SerialName("sessionId") val sessionId: String,
     @SerialName("path") val path: String,
+    /** Registered native application identifier; omitted to use the operating-system default. */
+    @SerialName("application") val application: String? = null,
 )
 
 /** Value of `session/openWorkspacePath`. */

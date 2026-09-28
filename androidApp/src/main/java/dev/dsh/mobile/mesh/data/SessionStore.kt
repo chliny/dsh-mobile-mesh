@@ -9,6 +9,8 @@ import dev.dsh.mobile.mesh.core.session.ChatBlock
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
 import dev.dsh.mobile.mesh.core.session.UserMessageNode
 import dev.dsh.mobile.mesh.core.session.EventFold
+import dev.dsh.mobile.mesh.core.session.JobOutputBuffer
+import dev.dsh.mobile.mesh.core.session.JobOutputSnapshot
 import dev.dsh.mobile.mesh.core.session.QueueItem
 import dev.dsh.mobile.mesh.core.session.SessionEventEnvelope
 import dev.dsh.mobile.mesh.core.wire.DshApiClient
@@ -40,6 +42,12 @@ import dev.dsh.mobile.mesh.core.wire.dto.HostDescription
 import dev.dsh.mobile.mesh.core.wire.dto.ImageLimitsView
 import dev.dsh.mobile.mesh.core.wire.dto.ImageRejection
 import dev.dsh.mobile.mesh.core.wire.dto.JobView
+import dev.dsh.mobile.mesh.core.wire.dto.JobListRequest
+import dev.dsh.mobile.mesh.core.wire.dto.JobListFrameSerializer
+import dev.dsh.mobile.mesh.core.wire.dto.JobFollowFrame
+import dev.dsh.mobile.mesh.core.wire.dto.JobFollowFrameSerializer
+import dev.dsh.mobile.mesh.core.wire.dto.JobFollowRequest
+import dev.dsh.mobile.mesh.core.wire.dto.JobKillRequest
 import dev.dsh.mobile.mesh.core.wire.dto.PermissionSelect
 import dev.dsh.mobile.mesh.core.wire.dto.PlanStateView
 import dev.dsh.mobile.mesh.core.wire.dto.PluginInventorySnapshot
@@ -68,6 +76,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.SessionForkRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionHistoryRecord
 import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
 import dev.dsh.mobile.mesh.core.wire.dto.SessionPageRequest
+import dev.dsh.mobile.mesh.core.wire.dto.SessionProjectionsRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionProjectionsBlock
 import dev.dsh.mobile.mesh.core.wire.dto.SessionPromptRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionRenameRequest
@@ -119,6 +128,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.withLock
@@ -149,6 +159,7 @@ data class SessionRow(
     val origin: String?,
     val cwd: String?,
     val agentPreset: String?,
+    val agentAvailable: Boolean = false,
     val updatedAt: Long,
     val pendingInteraction: String?, // "approval" | "plan-review" | "question" | null
     val queuedCount: Int = 0,
@@ -348,6 +359,8 @@ class SessionStore @Inject constructor(
 
     private val _jobs = MutableStateFlow<List<JobView>>(emptyList())
     val jobs: StateFlow<List<JobView>> = _jobs.asStateFlow()
+    private val _jobOutputById = MutableStateFlow<Map<String, JobOutputSnapshot>>(emptyMap())
+    val jobOutputById: StateFlow<Map<String, JobOutputSnapshot>> = _jobOutputById.asStateFlow()
 
     private val _skills = MutableStateFlow<List<SkillEntry>>(emptyList())
     val skills: StateFlow<List<SkillEntry>> = _skills.asStateFlow()
@@ -543,8 +556,19 @@ class SessionStore @Inject constructor(
     /** The open session's live journal. Cancelled and replaced whenever the open session changes. */
     private var followJob: Job? = null
 
-    /** Host-wide live control (queue, jobs, projections). One per connection generation. */
+    /** Host-wide live control stream (queues and projections), one per generation. */
     private var controlJob: Job? = null
+
+    /** Visible job roster stream for the selected session. */
+    private var jobListJob: Job? = null
+    private val jobFollowJobs = mutableMapOf<String, Job>()
+    private val jobOutputBuffers = mutableMapOf<String, JobOutputBuffer>()
+    private val followedJobIds = linkedSetOf<String>()
+    private var jobFollowSessionId: String? = null
+    /** Generation whose unsupported job/list error permits legacy control-frame fallback. */
+    private var jobListUnsupportedGeneration: String? = null
+    private var jobListSupportedGeneration: String? = null
+    private var legacyJobRosters = emptyMap<String, List<JobView>>()
 
     /** Workspace registry stream. One per connection generation. */
     private var workspaceJob: Job? = null
@@ -626,6 +650,16 @@ class SessionStore @Inject constructor(
     fun prepareForConnection(hostId: String) {
         followJob?.cancel()
         controlJob?.cancel()
+        jobListJob?.cancel()
+        jobFollowJobs.values.forEach(Job::cancel)
+        jobFollowJobs.clear()
+        followedJobIds.clear()
+        jobFollowSessionId = null
+        jobOutputBuffers.clear()
+        _jobOutputById.value = emptyMap()
+        jobListUnsupportedGeneration = null
+        jobListSupportedGeneration = null
+        legacyJobRosters = emptyMap()
         workspaceJob?.cancel()
         synchronized(lock) {
             connectionHostId = hostId
@@ -649,6 +683,7 @@ class SessionStore @Inject constructor(
             _workspaces.value = emptyList()
             _workspacesLoaded.value = false
             _currentSessionId.value = null
+            _jobs.value = emptyList()
             _currentConversation.value = null
             _hostInfo.value = null
         }
@@ -692,7 +727,11 @@ class SessionStore @Inject constructor(
                     // and loading state looking like a frozen page.
                     followJob?.cancel()
                     controlJob?.cancel()
+                    jobListJob?.cancel()
+                    jobFollowJobs.values.forEach(Job::cancel)
+                    jobFollowJobs.clear()
                     workspaceJob?.cancel()
+                    // Keep followed ids/cursors so the replacement generation can resume them.
                     _loadingOlder.value = false
                     _loadOlderFailed.value = true
                 }
@@ -717,11 +756,10 @@ class SessionStore @Inject constructor(
     }
 
     /**
-     * Open the two host-wide streams for this connection generation.
+     * Open the host-wide session-control and workspace streams for this generation.
      *
-     * Both replace things that used to arrive unbidden on the all-session mux, and both open with
-     * a complete baseline — which is the point: a reconnect replaces the mirror wholesale rather
-     * than leaving whatever the old generation last said. They are cancelled and reopened with
+     * Each opens with a complete baseline, so reconnect replaces its mirror wholesale rather
+     * than leaving values from an older generation. Both are cancelled and reopened with
      * the generation, because a stream's items are only meaningful within the socket that carries
      * them.
      */
@@ -923,8 +961,8 @@ class SessionStore @Inject constructor(
     /**
      * One frame of the host-wide live-control stream.
      *
-     * Job values are complete replacements. Pending input arrives through the authoritative
-     * `inbox` projection, whose value replaces the queue derived by this client.
+     * Pending input arrives through the authoritative `inbox` projection, whose value replaces
+     * the queue derived by this client. Jobs use the separate `job/list` Remote stream.
      */
     private fun handleControlFrame(frame: SessionControlFrame) {
         when (frame) {
@@ -935,16 +973,26 @@ class SessionStore @Inject constructor(
                     (block["values"] as? JsonObject)?.containsKey("inbox") == true
                 }.keys
                 frame.value.projections.forEach { (sid, block) -> applyProjectionBaseline(sid, block) }
+                legacyJobRosters = frame.value.jobs
+                val selected = synchronized(lock) { currentId }
+                if (selected != null && jobListSupportedGeneration != connectionManager.generation?.clientId) {
+                    frame.value.jobs[selected]?.let { applyJobs(selected, it) }
+                }
                 // Compatibility: older hosts have no `inbox` projection and publish queues here.
                 frame.value.queues
                     .filterKeys { it !in inboxSessionIds }
                     .forEach { (sid, items) -> applyLegacyQueue(sid, items) }
-                val sid = synchronized(lock) { currentId } ?: return
-                frame.value.jobs[sid]?.let { jobs -> applyJobs(sid, jobs) }
             }
             // Compatibility with pre-inbox-projection hosts.
             is SessionControlFrame.Queue -> applyLegacyQueue(frame.sessionId, frame.items)
-            is SessionControlFrame.Jobs -> applyJobs(frame.sessionId, frame.jobs)
+            is SessionControlFrame.Jobs -> {
+                legacyJobRosters = legacyJobRosters + (frame.sessionId to frame.jobs)
+                if (jobListUnsupportedGeneration == connectionManager.generation?.clientId ||
+                    jobListSupportedGeneration != connectionManager.generation?.clientId
+                ) {
+                    applyJobs(frame.sessionId, frame.jobs)
+                }
+            }
             is SessionControlFrame.Projection -> {
                 if (frame.key == "inbox") applyInboxProjection(frame.sessionId, frame.value, frame.seq)
                 synchronized(lock) {
@@ -1004,6 +1052,117 @@ class SessionStore @Inject constructor(
     private fun applyJobs(sessionId: String, jobs: List<JobView>) {
         synchronized(lock) {
             if (sessionId == currentId) _jobs.value = jobs
+        }
+    }
+
+    private fun startJobList(sessionId: String) {
+        if (jobFollowSessionId != sessionId) {
+            jobFollowJobs.values.forEach(Job::cancel)
+            jobFollowJobs.clear()
+            followedJobIds.clear()
+            jobOutputBuffers.clear()
+            _jobOutputById.value = emptyMap()
+            jobFollowSessionId = sessionId
+        }
+        jobFollowJobs.values.forEach(Job::cancel)
+        jobFollowJobs.clear()
+        jobListJob?.cancel()
+        val generation = connectionManager.generation
+        if (generation == null) {
+            _jobs.value = emptyList()
+            return
+        }
+        val args = buildJsonObject {
+            put("request", encodeToJsonElement(JobListRequest.serializer(), JobListRequest(sessionId)))
+        }
+        _jobs.value = emptyList()
+        jobListUnsupportedGeneration = null
+        jobListJob = scope.launch {
+            try {
+                generation.mux.openStream("job/list", args).collect { item ->
+                    decodeOrNull(JobListFrameSerializer, item)?.let { frame ->
+                        jobListSupportedGeneration = generation.clientId
+                        jobListUnsupportedGeneration = null
+                        legacyJobRosters = legacyJobRosters - sessionId
+                        applyJobs(sessionId, frame.jobs)
+                        followedJobIds.toList().forEach { jobId -> setJobOutputFollowed(jobId, true) }
+                    }
+                }
+            } catch (failure: kotlinx.coroutines.CancellationException) {
+                throw failure
+            } catch (failure: dev.dsh.mobile.mesh.core.wire.RemoteStreamException) {
+                log("job/list ended for $sessionId", failure)
+                if (isUnsupportedJobListFailure(failure.error, carrierFailure = failure.carrier)) {
+                    jobListUnsupportedGeneration = generation.clientId
+                    legacyJobRosters[sessionId]?.let { applyJobs(sessionId, it) }
+                }
+            } catch (failure: Throwable) {
+                log("job/list ended for $sessionId", failure)
+            }
+        }
+    }
+
+    /** Follow or pause one selected-session job; reopening resumes from its last accepted byte cursor. */
+    fun setJobOutputFollowed(jobId: String, followed: Boolean) {
+        if (!followed) {
+            followedJobIds.remove(jobId)
+            jobFollowJobs.remove(jobId)?.cancel()
+            return
+        }
+        followedJobIds.add(jobId)
+        if (jobFollowJobs[jobId]?.isActive == true) return
+        val sessionId = currentSessionId.value ?: return
+        val generation = connectionManager.generation ?: return
+        val buffer = jobOutputBuffers.getOrPut(jobId) { JobOutputBuffer() }
+        val request = JobFollowRequest(sessionId = sessionId, jobId = jobId, from = buffer.snapshot.cursor)
+        val args = buildJsonObject {
+            put("request", encodeToJsonElement(JobFollowRequest.serializer(), request))
+        }
+        val activeSessionId = sessionId
+        jobFollowJobs[jobId] = scope.launch {
+            try {
+                generation.mux.openStream("job/follow", args).collect { item ->
+                    val frame = decodeOrNull(JobFollowFrameSerializer, item) ?: return@collect
+                    if (currentSessionId.value != activeSessionId || connectionManager.generation?.clientId != generation.clientId) return@collect
+                    buffer.apply(frame)
+                    when (frame) {
+                        is JobFollowFrame.Opened -> updateJobRow(frame.job)
+                        is JobFollowFrame.Status -> {
+                            updateJobRow(frame.job)
+                            followedJobIds.remove(jobId)
+                        }
+                        is JobFollowFrame.Output, is JobFollowFrame.Unknown -> Unit
+                    }
+                    _jobOutputById.value = _jobOutputById.value + (jobId to buffer.snapshot)
+                }
+            } catch (failure: kotlinx.coroutines.CancellationException) {
+                throw failure
+            } catch (failure: Throwable) {
+                if (currentSessionId.value == activeSessionId && connectionManager.generation?.clientId == generation.clientId) {
+                    buffer.fail(failure.message ?: "Job output stream ended")
+                    _jobOutputById.value = _jobOutputById.value + (jobId to buffer.snapshot)
+                }
+                log("job/follow ended for $jobId", failure)
+            } finally {
+                if (jobFollowJobs[jobId] === currentCoroutineContext()[Job]) jobFollowJobs.remove(jobId)
+            }
+        }
+    }
+
+    private fun updateJobRow(job: JobView) {
+        _jobs.value = _jobs.value.map { if (it.id == job.id) job else it }
+    }
+
+    /** Request the registry to stop a job currently visible to the selected session. */
+    suspend fun killJob(jobId: String): Boolean {
+        val sessionId = currentSessionId.value ?: return false
+        val api = apiOrNull() ?: return false
+        return when (val result = api.jobKill(JobKillRequest(sessionId, jobId))) {
+            is RpcResult.Ok -> true
+            is RpcResult.Err -> {
+                log("job/kill failed for $jobId: ${result.error.code}")
+                false
+            }
         }
     }
 
@@ -1194,6 +1353,7 @@ class SessionStore @Inject constructor(
                 origin = item.origin,
                 cwd = item.cwd,
                 agentPreset = item.agentPreset,
+                agentAvailable = item.agentAvailable,
             ) ?: SessionRow(
                 sessionId = item.sessionId,
                 title = title,
@@ -1203,6 +1363,7 @@ class SessionStore @Inject constructor(
                 origin = item.origin,
                 cwd = item.cwd,
                 agentPreset = item.agentPreset,
+                agentAvailable = item.agentAvailable,
                 updatedAt = item.updatedAt,
                 pendingInteraction = null,
             )
@@ -1671,6 +1832,8 @@ class SessionStore @Inject constructor(
             }
         }
         startFollow(sessionId, address)
+        startJobList(sessionId)
+        scope.launch { refreshProjections(sessionId) }
         // A red/orange carrier has no usable API generation. Preserve the user's chosen session
         // locally and let the connection baseline reopen it once green, rather than launching
         // several unary RPCs to the relay that recovery is actively closing.
@@ -1839,7 +2002,7 @@ class SessionStore @Inject constructor(
                     val page = historyTail(envelopes)
                     val overDelivered = envelopes.size > page.size
                     synchronized(lock) {
-                        if (currentId != sid) return@synchronized
+                        if (!shouldSchedulePageRebuild(sid, currentId)) return@synchronized
                         val existingSeqs = currentEvents.mapTo(HashSet()) { it.seq }
                         val fresh = page.filter { it.seq !in existingSeqs }
                         if (fresh.isNotEmpty()) {
@@ -1847,7 +2010,10 @@ class SessionStore @Inject constructor(
                             currentEvents.sortBy { it.seq }
                         }
                         currentHasMore = nextHasMore(fresh.size, r.value.hasMore, overDelivered)
-                        rebuildCurrentLocked()
+                        // Older-page folding can involve thousands of history records. Keep that
+                        // work off the receiver's monitor so live follow consumers can continue
+                        // draining their bounded mux queues while the page is installed.
+                        rebuildTicks.trySend(Unit)
                     }
                 }
                 // Not a connection fault: the session is healthy and the tail still streams, so this
@@ -2335,13 +2501,9 @@ class SessionStore @Inject constructor(
     /**
      * Full-text search across message content.
      *
-     * This is the *optional* half of search, and most deployments do not have it: the shipped
-     * `session-query-sqlite` row is configured `openAt: never`, which keeps exact reads, titles and
-     * lineage traces working while `session.search` fails outright. So a failure here is a normal
-     * condition, not a fault — it is latched into [contentSearchAvailable], never raised as a
-     * connection error, and never retried for the life of the connection. The drawer's own title
-     * and workspace filtering is unaffected and remains the primary way to find a session, exactly
-     * as it is in the harness's web sidebar under the same configuration.
+     * This optional server-side search matches message content across visible sessions. Deployments
+     * may not mount or enable the query provider; a refusal disables further attempts for this
+     * connection. Results are never synthesized from local session titles or workspace names.
      */
     suspend fun search(query: String) {
         val trimmed = query.trim()
@@ -2351,7 +2513,10 @@ class SessionStore @Inject constructor(
             _searchResults.value = emptyList()
             return
         }
-        if (!_contentSearchAvailable.value) return
+        if (!_contentSearchAvailable.value) {
+            _searchResults.value = emptyList()
+            return
+        }
         val api = apiOrNull() ?: run {
             // Disconnected: stale hits would otherwise sit under a query that never ran.
             _searchResults.value = emptyList()
@@ -2375,6 +2540,29 @@ class SessionStore @Inject constructor(
             is RpcResult.Err -> {
                 setConnectionError(r.error.message)
                 null
+            }
+        }
+    }
+
+    /** Refresh the current session's projections without activating its Agent. */
+    suspend fun refreshProjections(sessionId: String? = null) {
+        val targetSessionId = sessionId ?: currentSessionId.value ?: return
+        val api = apiOrNull() ?: return
+        val result = api.sessionProjections(SessionProjectionsRequest(targetSessionId))
+        when (result) {
+            is RpcResult.Ok -> {
+                val baseline = result.value ?: return
+                synchronized(lock) {
+                    if (currentId != targetSessionId) return
+                    baseline.values.forEach { (key, value) -> mergeProjectionLocked(key, baseline.asOfSeq, value) }
+                    baseline.values["inbox"]?.let { applyInboxProjection(targetSessionId, it, baseline.asOfSeq) }
+                    rebuildCurrentLocked()
+                }
+            }
+            is RpcResult.Err -> {
+                if (result.error.code != "session/projections-unavailable") {
+                    log("session/projections failed for $targetSessionId: ${result.error.code}")
+                }
             }
         }
     }

@@ -334,6 +334,11 @@
     <string name="subagents_readonly">This subagent does not accept messages.</string>
     <string name="jobs_title">Background jobs</string>
     <string name="jobs_empty">No background jobs</string>
+    <string name="jobs_stop">Stop background job</string>
+    <string name="jobs_output_gap">Output gap: earlier bytes were evicted or skipped.</string>
+    <string name="jobs_output_lossy">Some output was lost before it could be read.</string>
+    <string name="jobs_kill_requested">Stop requested</string>
+    <string name="jobs_kill_failed">Could not stop job</string>
     <string name="jobs_running">Running</string>
     <string name="jobs_completed">Completed</string>
     <string name="jobs_killed">Killed</string>

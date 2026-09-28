@@ -15,6 +15,8 @@ import kotlinx.serialization.json.JsonElement
 /** One Session list entry. */
 @Serializable
 data class SessionSummary(
+    /** Whether this session currently owns a live Agent; false for older hosts omitting the field. */
+    @SerialName("agentAvailable") val agentAvailable: Boolean = false,
     @SerialName("sessionId") val sessionId: String,
     /** The later of creation and the latest human-authored prompt (epoch ms). */
     @SerialName("updatedAt") val updatedAt: Long,
@@ -37,9 +39,27 @@ data class SessionSummary(
 /** The projection baseline block riding history tail pages and list rows. */
 @Serializable
 data class SessionProjectionsBlock(
+    /** Sequence space; cached watermarks cannot be compared with live event sequence numbers. */
+    @SerialName("kind") val kind: String = "cached",
     /** Seq of the last event the values reflect; -1 for an empty log. */
     @SerialName("asOfSeq") val asOfSeq: Int,
     /** Whole current value per registered projection key. */
+    @SerialName("values") val values: Map<String, JsonElement> = emptyMap(),
+) {
+    /** Whether [asOfSeq] can be compared with event sequence numbers from a live follow. */
+    val watermarkComparableToLive: Boolean get() = kind == "sequenced"
+}
+
+/** Request payload of `session/projections`. */
+@Serializable
+data class SessionProjectionsRequest(
+    @SerialName("sessionId") val sessionId: String,
+)
+
+/** One non-activating projection read; null denotes a missing session. */
+@Serializable
+data class SessionProjectionsValue(
+    @SerialName("asOfSeq") val asOfSeq: Int,
     @SerialName("values") val values: Map<String, JsonElement> = emptyMap(),
 )
 

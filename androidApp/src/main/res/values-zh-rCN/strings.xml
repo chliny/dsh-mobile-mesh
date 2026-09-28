@@ -235,6 +235,11 @@
     <string name="subagents_readonly">该子代理不接受消息。</string>
     <string name="jobs_title">后台任务</string>
     <string name="jobs_empty">没有后台任务</string>
+    <string name="jobs_stop">停止后台任务</string>
+    <string name="jobs_output_gap">输出存在缺口：较早的内容已被清理或跳过。</string>
+    <string name="jobs_output_lossy">部分输出在读取前已丢失。</string>
+    <string name="jobs_kill_requested">已请求停止</string>
+    <string name="jobs_kill_failed">无法停止任务</string>
     <string name="jobs_running">运行中</string>
     <string name="jobs_completed">已完成</string>
     <string name="jobs_killed">已终止</string>

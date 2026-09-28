@@ -84,6 +84,43 @@ class DshApiClientRemoteTest {
     )
 
     @Test
+    fun `job kill calls fenced job remote`() = runTest {
+        val transport = RecordingTransport { path, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """{"outcome":"requested"}""")
+        }
+
+        val result = client(transport).jobKill(
+            dev.dsh.mobile.mesh.core.wire.dto.JobKillRequest(sessionId = "s-1", jobId = "bash-2"),
+        )
+
+        assertEquals("/api/job/kill", transport.lastPath)
+        val args = Json.parseToJsonElement(transport.lastBody!!)
+            .jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject
+        assertEquals("s-1", args["request"]!!.jsonObject["sessionId"]!!.jsonPrimitive.content)
+        assertEquals("bash-2", args["request"]!!.jsonObject["jobId"]!!.jsonPrimitive.content)
+        assertEquals("requested", (result as RpcResult.Ok).value.outcome)
+    }
+
+    @Test
+    fun `session projections calls the named request remote`() = runTest {
+        val transport = RecordingTransport { path, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """{"asOfSeq":17,"values":{"subagentCatalog":[]}}""")
+        }
+
+        val result = client(transport).sessionProjections(
+            dev.dsh.mobile.mesh.core.wire.dto.SessionProjectionsRequest("s-1"),
+        )
+
+        assertEquals("/api/session/projections", transport.lastPath)
+        val args = Json.parseToJsonElement(transport.lastBody!!)
+            .jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject
+        assertEquals("s-1", args["request"]!!.jsonObject["sessionId"]!!.jsonPrimitive.content)
+        assertEquals(17, (result as RpcResult.Ok).value!!.asOfSeq)
+    }
+
+    @Test
     fun `changes summary reads the authenticated json route`() = runTest {
         val transport = RecordingTransport { _, _ -> error("not used") }
         transport.rawBody = """{"turn":3,"files":[{"path":"src/A.kt","display":"src/A.kt","added":2,"deleted":1}],"total":1,"added":2,"deleted":1}"""

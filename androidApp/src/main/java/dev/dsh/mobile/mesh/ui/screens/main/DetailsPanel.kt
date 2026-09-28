@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -131,6 +132,8 @@ fun DetailsPanel(
     val failedLabel = stringResource(R.string.chat_export_failed)
     val copiedLabel = stringResource(R.string.common_copied)
     val forkCreatedLabel = stringResource(R.string.chat_fork_created)
+    val jobKillRequestedLabel = stringResource(R.string.jobs_kill_requested)
+    val jobKillFailedLabel = stringResource(R.string.jobs_kill_failed)
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
@@ -226,7 +229,7 @@ fun DetailsPanel(
                     PlanCard(conv) { next ->
                         scope.launch { store.runCommand(if (next) "/plan" else "/plan off") }
                     }
-                    JobsCard(jobs)
+                    JobsCard(jobs, store, scope, jobKillRequestedLabel, jobKillFailedLabel, toast.second)
                     QueueCard(conv.queue, store)
                     SubagentsCard(subagents, onOpen = onOpenSubagent)
                     WorkflowCard(conv.nodes)
@@ -496,8 +499,17 @@ private fun PlanCard(conversation: ConversationSnapshot, onTogglePlan: (active: 
 }
 
 @Composable
-private fun JobsCard(jobs: List<JobView>) {
+private fun JobsCard(
+    jobs: List<JobView>,
+    store: dev.dsh.mobile.mesh.data.SessionStore,
+    scope: kotlinx.coroutines.CoroutineScope,
+    killRequestedLabel: String,
+    killFailedLabel: String,
+    showToast: (String) -> Unit,
+) {
     val colors = DsTheme.colors
+    val jobOutputs by store.jobOutputById.collectAsState()
+    var expandedJobIds by remember { mutableStateOf(emptySet<String>()) }
     Card(
         title = stringResource(R.string.jobs_title),
         summary = jobs.size.takeIf { it > 0 }?.toString(),
@@ -517,7 +529,18 @@ private fun JobsCard(jobs: List<JobView>) {
             }
         }
         jobs.forEach { job ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            val expanded = job.id in expandedJobIds
+            val output = jobOutputs[job.id]
+            Column(Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        expandedJobIds = if (expanded) expandedJobIds - job.id else expandedJobIds + job.id
+                        store.setJobOutputFollowed(job.id, !expanded)
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 StateDot(jobStatusDot(job.status))
                 Spacer(Modifier.width(DsSpacing.small))
                 Column(Modifier.weight(1f)) {
@@ -542,6 +565,39 @@ private fun JobsCard(jobs: List<JobView>) {
                     style = DsType.caption11,
                     color = colors.labelCaption,
                 )
+                if (job.status == dev.dsh.mobile.mesh.core.wire.dto.JobStatus.RUNNING ||
+                    job.status == dev.dsh.mobile.mesh.core.wire.dto.JobStatus.STOPPING
+                ) {
+                    DsIconButton(
+                        icon = Icons.Default.Close,
+                        onClick = {
+                            scope.launch {
+                                showToast(if (store.killJob(job.id)) killRequestedLabel else killFailedLabel)
+                            }
+                        },
+                        contentDescription = stringResource(R.string.jobs_stop),
+                        iconSize = 16.dp,
+                    )
+                }
+            }
+            if (expanded) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = DsSpacing.large, top = DsSpacing.xsmall, bottom = DsSpacing.small),
+                ) {
+                    if (output?.gapBefore == true) {
+                        Text(stringResource(R.string.jobs_output_gap), style = DsType.caption11, color = colors.labelCaption)
+                    }
+                    if (output?.lossy == true) {
+                        Text(stringResource(R.string.jobs_output_lossy), style = DsType.caption11, color = colors.labelCaption)
+                    }
+                    output?.error?.let { Text(it, style = DsType.caption11, color = colors.labelCaption) }
+                    output?.text?.takeIf { it.isNotEmpty() }?.let {
+                        Text(it, style = DsType.caption11, color = colors.labelSecondary)
+                    }
+                }
+            }
             }
         }
     }
