@@ -1992,7 +1992,7 @@ class SessionStore @Inject constructor(
                 beforeSeq = oldestSeq?.toInt(),
                 maxMessages = HISTORY_PAGE_SIZE,
             )
-            when (val r = withTimeoutOrNull(RPC_TIMEOUT_MS) { api.sessionPage(request) }) {
+            when (val r = withTimeoutOrNull(pageTimeoutForTransport(SESSION_PAGE_TIMEOUT_MS)) { api.sessionPage(request) }) {
                 is RpcResult.Ok -> {
                     clearConnectionError()
                     _loadOlderFailed.value = false
@@ -2018,10 +2018,15 @@ class SessionStore @Inject constructor(
                 }
                 // Not a connection fault: the session is healthy and the tail still streams, so this
                 // offers a retry in the transcript rather than raising a connection banner over it.
-                is RpcResult.Err -> _loadOlderFailed.value = true
-                null -> {
+                is RpcResult.Err -> {
+                    log("session/page failed for $sid: ${r.error.code}: ${r.error.message}")
                     _loadOlderFailed.value = true
-                    setConnectionError("request timed out")
+                }
+                null -> {
+                    log("session/page timed out after ${SESSION_PAGE_TIMEOUT_MS}ms for $sid")
+                    _loadOlderFailed.value = true
+                    // A history page timeout is specific to this read; it does not imply that the
+                    // independent live session/follow carrier disconnected.
                 }
             }
         } finally {
