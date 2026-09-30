@@ -10,7 +10,15 @@ import kotlin.math.roundToLong
 internal fun webSocketPingIntervalMs(
     transport: MeshTransport?,
     initialLatencyMs: Long? = null,
-): Long = adaptivePingIntervalMs(initialLatencyMs)
+): Long = when (transport) {
+    // The mobile ZeroTier relay has a long and jittery RTT. OkHttp's ping deadline is the
+    // interval itself, so an RTT-derived deadline can otherwise expire while the session page
+    // is still being delivered over the same socket.
+    MeshTransport.ZERO_TIER -> ZERO_TIER_PING_INTERVAL_MS
+    else -> adaptivePingIntervalMs(initialLatencyMs)
+}
+
+internal const val ZERO_TIER_PING_INTERVAL_MS = 180_000L
 
 internal const val DEFAULT_ADAPTIVE_PING_INTERVAL_MS = 60_000L
 internal const val ADAPTIVE_PING_MIN_INTERVAL_MS = 30_000L

@@ -39,6 +39,11 @@ class RemoteStreamMuxLivenessTest {
         mux.start()
         mux.awaitOpen()
         val stream = mux.open("session/follow")
+        channel.emitMessage("""{"type":"item","streamId":"1","value":{"ok":true}}""")
+        assertEquals(1L, mux.diagnostics.inboundMessages)
+        assertEquals(1L, mux.diagnostics.outboundMessages)
+        assertEquals(1, mux.diagnostics.activeStreams)
+        stream.receive() // Drain the item before asserting the terminal carrier failure.
         mux.close()
 
         assertTrue(mux.isClosed)

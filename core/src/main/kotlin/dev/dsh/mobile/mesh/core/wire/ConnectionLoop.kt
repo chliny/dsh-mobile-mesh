@@ -101,7 +101,12 @@ interface LoopSinks {
      * this reports *why* so a caller can say so rather than waiting on a timer that cannot know.
      * Default no-op.
      */
-    fun onGenerationFailed(attempt: Int, failure: GenerationFailure) {}
+    fun onGenerationFailed(
+        attempt: Int,
+        failure: GenerationFailure,
+        failedMux: RemoteStreamMux? = null,
+        carrierFailure: Throwable? = null,
+    ) {}
 }
 
 /**
@@ -235,8 +240,10 @@ class ConnectionLoop(
                 is Opened.Failed -> {
                     attempt = if (attempt == Int.MAX_VALUE) attempt else attempt + 1
                     val reported = attempt
+                    val failedMux = current
+                    val carrierFailure = failedMux?.failure ?: if (failedMux?.isClosed == true) MuxClosedException() else null
                     closeGeneration(token, ownerToken)
-                    safeSink { sinks.onGenerationFailed(reported, opened.failure) }
+                    safeSink { sinks.onGenerationFailed(reported, opened.failure, failedMux, carrierFailure) }
                 }
             }
             if (!currentCoroutineContext().isActive) break

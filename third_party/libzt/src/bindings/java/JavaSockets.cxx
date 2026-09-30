@@ -27,6 +27,7 @@
 #include "lwip/stats.h"
 
 #include <jni.h>
+#include <stdlib.h>
 
 extern int zts_errno;
 
@@ -252,19 +253,61 @@ JNIEXPORT jint JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1bsd_1recvfr
     return retval > -1 ? retval : -(zts_errno);
 }
 
+// Never hold a Java array pin across a potentially blocking libzt call.
+static void throw_array_buffer_error(JNIEnv* env, const char* class_name, const char* message)
+{
+    jclass error_class = env->FindClass(class_name);
+    if (error_class) {
+        env->ThrowNew(error_class, message);
+        env->DeleteLocalRef(error_class);
+    }
+}
+
+static jbyte* allocate_socket_buffer(JNIEnv* env, jbyteArray buf, jint offset, jint len)
+{
+    if (! buf) {
+        throw_array_buffer_error(env, "java/lang/NullPointerException", "socket buffer is null");
+        return NULL;
+    }
+    const jsize array_len = env->GetArrayLength(buf);
+    if (offset < 0 || len < 0 || offset > array_len || len > array_len - offset) {
+        throw_array_buffer_error(env, "java/lang/IndexOutOfBoundsException", "socket buffer range is invalid");
+        return NULL;
+    }
+    // malloc(0) may return NULL; still pass a valid pointer to zero-length calls.
+    jbyte* data = static_cast<jbyte*>(malloc(len > 0 ? static_cast<size_t>(len) : 1));
+    if (! data) {
+        throw_array_buffer_error(env, "java/lang/OutOfMemoryError", "native socket buffer allocation failed");
+    }
+    return data;
+}
+
+static jint read_socket_buffer(JNIEnv* env, jint fd, jbyteArray buf, jint offset, jint len)
+{
+    jbyte* data = allocate_socket_buffer(env, buf, offset, len);
+    if (! data) {
+        return 0; // Pending Java exception.
+    }
+    int retval = zts_bsd_read(fd, data, len);
+    const int saved_errno = retval < 0 ? zts_errno : 0;
+    if (retval > 0) {
+        env->SetByteArrayRegion(buf, offset, retval, data);
+    }
+    free(data);
+    if (env->ExceptionCheck()) {
+        return 0;
+    }
+    return retval > -1 ? retval : -saved_errno;
+}
+
 JNIEXPORT jint JNICALL
 Java_com_zerotier_sockets_ZeroTierNative_zts_1bsd_1read(JNIEnv* env, jclass clazz, jint fd, jbyteArray buf)
 {
-    void* data = env->GetPrimitiveArrayCritical(buf, NULL);
-    int retval = zts_bsd_read(fd, data, env->GetArrayLength(buf));
-    env->ReleasePrimitiveArrayCritical(buf, data, 0);
-    return retval > -1 ? retval : -(zts_errno);
-}
-
-ssize_t zts_bsd_read_offset(int fd, void* buf, size_t offset, size_t len)
-{
-    char* cbuf = (char*)buf;
-    return zts_bsd_read(fd, &(cbuf[offset]), len);
+    if (! buf) {
+        throw_array_buffer_error(env, "java/lang/NullPointerException", "socket buffer is null");
+        return 0;
+    }
+    return read_socket_buffer(env, fd, buf, 0, env->GetArrayLength(buf));
 }
 
 JNIEXPORT jint JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1bsd_1read_1offset(
@@ -275,10 +318,7 @@ JNIEXPORT jint JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1bsd_1read_1
     jint offset,
     jint len)
 {
-    void* data = env->GetPrimitiveArrayCritical(buf, NULL);
-    int retval = zts_bsd_read_offset(fd, data, offset, len);
-    env->ReleasePrimitiveArrayCritical(buf, data, 0);
-    return retval > -1 ? retval : -(zts_errno);
+    return read_socket_buffer(env, fd, buf, offset, len);
 }
 
 JNIEXPORT jint JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1bsd_1read_1length(
@@ -288,19 +328,36 @@ JNIEXPORT jint JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1bsd_1read_1
     jbyteArray buf,
     jint len)
 {
-    void* data = env->GetPrimitiveArrayCritical(buf, NULL);
-    int retval = zts_bsd_read(fd, data, len);
-    env->ReleasePrimitiveArrayCritical(buf, data, 0);
-    return retval > -1 ? retval : -(zts_errno);
+    return read_socket_buffer(env, fd, buf, 0, len);
+}
+
+static jint write_socket_buffer(JNIEnv* env, jint fd, jbyteArray buf, jint offset, jint len)
+{
+    jbyte* data = allocate_socket_buffer(env, buf, offset, len);
+    if (! data) {
+        return 0; // Pending Java exception.
+    }
+    if (len > 0) {
+        env->GetByteArrayRegion(buf, offset, len, data);
+        if (env->ExceptionCheck()) {
+            free(data);
+            return 0;
+        }
+    }
+    int retval = zts_bsd_write(fd, data, len);
+    const int saved_errno = retval < 0 ? zts_errno : 0;
+    free(data);
+    return retval > -1 ? retval : -saved_errno;
 }
 
 JNIEXPORT jint JNICALL
 Java_com_zerotier_sockets_ZeroTierNative_zts_1bsd_1write(JNIEnv* env, jclass clazz, jint fd, jbyteArray buf)
 {
-    void* data = env->GetPrimitiveArrayCritical(buf, NULL);
-    int retval = zts_bsd_write(fd, data, env->GetArrayLength(buf));
-    env->ReleasePrimitiveArrayCritical(buf, data, 0);
-    return retval > -1 ? retval : -(zts_errno);
+    if (! buf) {
+        throw_array_buffer_error(env, "java/lang/NullPointerException", "socket buffer is null");
+        return 0;
+    }
+    return write_socket_buffer(env, fd, buf, 0, env->GetArrayLength(buf));
 }
 
 JNIEXPORT jint JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1bsd_1write_1offset(
@@ -311,10 +368,7 @@ JNIEXPORT jint JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1bsd_1write_
     jint offset,
     jint len)
 {
-    void* data = env->GetPrimitiveArrayCritical(&(buf[offset]), NULL);   // PENDING: check?
-    int retval = zts_bsd_write(fd, data, len);
-    env->ReleasePrimitiveArrayCritical(buf, data, 0);
-    return retval > -1 ? retval : -(zts_errno);
+    return write_socket_buffer(env, fd, buf, offset, len);
 }
 
 JNIEXPORT jint JNICALL

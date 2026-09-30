@@ -5,13 +5,7 @@ import org.junit.Test
 
 class WebSocketHeartbeatPolicyTest {
     @Test
-    fun `ZeroTier starts with a long heartbeat window`() {
-        assertEquals(180_000L, webSocketPingIntervalMs(MeshTransport.ZERO_TIER))
-    }
-
-    @Test
     fun `all transports derive a bounded interval from first latency`() {
-        assertEquals(40_000L, webSocketPingIntervalMs(MeshTransport.ZERO_TIER, 1_250L))
         assertEquals(40_000L, webSocketPingIntervalMs(MeshTransport.TAILSCALE, 1_250L))
         assertEquals(40_000L, webSocketPingIntervalMs(null, 1_250L))
         assertEquals(30_008L, adaptivePingIntervalMs(1L))
@@ -24,7 +18,12 @@ class WebSocketHeartbeatPolicyTest {
     }
 
     @Test
-    fun `all transports use the same long default heartbeat`() {
+    fun `ZeroTier relay heartbeat is not derived from slow initial latency`() {
+        assertEquals(180_000L, webSocketPingIntervalMs(MeshTransport.ZERO_TIER, 5_299L))
+    }
+
+    @Test
+    fun `other transports use the adaptive heartbeat`() {
         assertEquals(180_000L, webSocketPingIntervalMs(MeshTransport.TAILSCALE))
         assertEquals(180_000L, webSocketPingIntervalMs(null))
     }

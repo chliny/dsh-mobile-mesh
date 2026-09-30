@@ -53,6 +53,8 @@ class ConnectionLoopHandshakeTest {
     private class Recorder : LoopSinks {
         val steps = CopyOnWriteArrayList<HandshakeStep>()
         val failures = CopyOnWriteArrayList<Pair<Int, GenerationFailure>>()
+        val failedMuxes = CopyOnWriteArrayList<RemoteStreamMux?>()
+        val carrierFailures = CopyOnWriteArrayList<Throwable?>()
         val connected = CopyOnWriteArrayList<HostGeneration>()
         val frames = CopyOnWriteArrayList<RemoteEventFrame>()
         val states = CopyOnWriteArrayList<ConnectionState>()
@@ -70,8 +72,10 @@ class ConnectionLoopHandshakeTest {
         override fun onHandshakeStep(step: HandshakeStep) {
             steps.add(step)
         }
-        override fun onGenerationFailed(attempt: Int, failure: GenerationFailure) {
+        override fun onGenerationFailed(attempt: Int, failure: GenerationFailure, failedMux: RemoteStreamMux?, carrierFailure: Throwable?) {
             failures.add(attempt to failure)
+            failedMuxes.add(failedMux)
+            carrierFailures.add(carrierFailure)
         }
     }
 
@@ -195,6 +199,17 @@ class ConnectionLoopHandshakeTest {
 
         val failure = recorder.failures.first().second as GenerationFailure.MuxFailed
         assertEquals(TransportFailure.UNAUTHENTICATED, failure.kind)
+    }
+
+    @Test
+    fun `ready timeout on a healthy mux reports no carrier failure`() = runBlocking {
+        val recorder = Recorder()
+        val loop = loop(recorder, open = { sink -> sink.onOpen() })
+        loop.start()
+        assertTrue(await { recorder.failures.isNotEmpty() })
+        loop.stop()
+        assertTrue(recorder.failedMuxes.first()?.isClosed == true)
+        assertEquals(null, recorder.carrierFailures.first())
     }
 
     @Test

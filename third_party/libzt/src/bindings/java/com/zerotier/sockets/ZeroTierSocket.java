@@ -644,8 +644,8 @@ public class ZeroTierSocket {
         if (timeout < 0) {
             throw new IllegalArgumentException("Error: SO_TIMEOUT < 0");
         }
-        // TODO: This is incorrect
-        if (ZeroTierNative.zts_set_recv_timeout(_zfd, timeout, timeout) != ZeroTierNative.ZTS_ERR_OK) {
+        // Android Socket SO_TIMEOUT is milliseconds; libzt expects seconds and microseconds.
+        if (ZeroTierNative.zts_set_recv_timeout(_zfd, timeout / 1000, (timeout % 1000) * 1000) != ZeroTierNative.ZTS_ERR_OK) {
             throw new SocketException("Error: Could not set SO_RCVTIMEO");
         }
     }
