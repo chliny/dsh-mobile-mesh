@@ -32,7 +32,7 @@ DeepSeek Harness 可以在主机上执行命令和读写文件。请优先使用
 
 ## 兼容版本
 
-已测试版本：[dsh-v0.1.6-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.6-alpha.2)，对应包版本 `0.1.6-alpha.2`。
+App 会在连接时探测部分 Harness API，并缓存结果供自动重连复用，以兼容不同后端版本。
 
 ## 参考
 
