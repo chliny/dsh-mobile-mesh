@@ -103,7 +103,7 @@ jobs:
           DSH_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           DSH_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           DSH_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: ./gradlew :androidApp:assembleRelease --stacktrace
+        run: ./gradlew :androidApp:assembleRelease --build-cache --stacktrace
 
       # Guard against a silently ABI-split or native-stripped artifact: a
       # "universal" release has to carry both native libraries for every ABI.
