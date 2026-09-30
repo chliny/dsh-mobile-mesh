@@ -70,6 +70,11 @@ private fun SubagentRow(entry: SubagentListEntry, onClick: () -> Unit) {
     val modeLabel = when (entry) {
         is SubagentListEntry.ChildOneShot -> stringResource(R.string.subagents_oneshot)
         is SubagentListEntry.ChildContinuable -> stringResource(R.string.subagents_continuable)
+        is SubagentListEntry.Projected -> when (entry.entry.mode) {
+            "one-shot" -> stringResource(R.string.subagents_oneshot)
+            "continuable" -> stringResource(R.string.subagents_continuable)
+            else -> null
+        }
         else -> null
     }
     Row(

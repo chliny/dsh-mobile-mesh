@@ -86,6 +86,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.SessionSummary
 import dev.dsh.mobile.mesh.core.wire.dto.SessionUpdateQueueRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SkillEntry
 import dev.dsh.mobile.mesh.core.wire.dto.SkillListRequest
+import dev.dsh.mobile.mesh.core.wire.dto.SubagentCatalogProjectionEntry
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentListEntry
 import dev.dsh.mobile.mesh.core.wire.dto.TokenUsageView
 import dev.dsh.mobile.mesh.core.wire.dto.USER_QUESTIONS_REQUEST_EVENT
@@ -271,6 +272,10 @@ internal fun conversationForSelectedSession(
 
 internal fun shouldOpenControlBaseline(phase: ConnectionPhase): Boolean =
     phase == ConnectionPhase.CONNECTED
+
+/** Prefer the active host identity; a changing mux clientId is never a durable host key. */
+internal fun sessionBaselineHostId(activeHostId: String?, fallbackHostId: String?): String? =
+    activeHostId ?: fallbackHostId
 
 internal fun shouldRefreshSessionsForNotification(event: String): Boolean =
     event == "api-session/added"
@@ -518,7 +523,6 @@ class SessionStore @Inject constructor(
      */
     private var connectionHostId: String? = null
     private var sessionListBaselineHostId: String? = null
-    private val generationHosts = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val conversationCache = object : LinkedHashMap<String, ConversationSnapshot>(8, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ConversationSnapshot>?): Boolean = size > 8
     }
@@ -692,7 +696,10 @@ class SessionStore @Inject constructor(
     private fun observeConnection() {
         scope.launch {
             connectionManager.connectedGenerations.collect { generation ->
-                val hostId = generationHosts[generation.clientId]
+                // The connected generation is authoritative for the active host. clientId changes
+                // across mux retries and is not a host ID; deriving baseline ownership from it
+                // could leave the session drawer empty forever after a reconnect.
+                val hostId = sessionBaselineHostId(connectionManager.state.value.host?.id, connectionHostId)
                 if (hostId != null && sessionListBaselineHostId != hostId) {
                     connectionHostId = hostId
                     triggerBaseline()
@@ -822,7 +829,7 @@ class SessionStore @Inject constructor(
 
     private suspend fun baseline() {
         val baselineGeneration = connectionManager.generation ?: return
-        val baselineHostId = generationHosts[baselineGeneration.clientId] ?: connectionHostId
+        val baselineHostId = sessionBaselineHostId(connectionManager.state.value.host?.id, connectionHostId)
         if (baselineHostId != connectionManager.state.value.host?.id) return
         // Whether content search works is a fact about the harness we just reached, so a fresh
         // connection re-earns the answer rather than inheriting the previous host's.
@@ -1536,6 +1543,11 @@ class SessionStore @Inject constructor(
         val existing = currentProjections[key]
         if (existing == null || seq >= existing.seq) {
             currentProjections[key] = ProjectionValue(seq, value)
+            if (key == "subagentCatalog" && connectionManager.supportsSubagentCatalogProjection) {
+                decodeSubagentCatalogProjection(value)?.let { entries ->
+                    _subagents.value = entries.map { SubagentListEntry.Projected(it) }
+                }
+            }
         }
     }
 
@@ -1634,7 +1646,7 @@ class SessionStore @Inject constructor(
     // ------------------------------------------------------------------ public RPC surface
     suspend fun refreshSessions() {
         val generation = connectionManager.generation ?: return
-        val hostId = generationHosts[generation.clientId] ?: connectionHostId
+        val hostId = sessionBaselineHostId(connectionManager.state.value.host?.id, connectionHostId)
         refreshSessions(generation, hostId)
     }
 
@@ -1652,6 +1664,7 @@ class SessionStore @Inject constructor(
         if (!generationIsCurrent()) return
         when (val r = api.sessionList(null)) {
             is RpcResult.Ok -> {
+                Log.i(TAG, "session/list baseline returned count=${r.value.items.size}")
                 if (!generationIsCurrent()) {
                     return
                 }
@@ -1684,7 +1697,10 @@ class SessionStore @Inject constructor(
                     emitSessionsLocked()
                 }
             }
-            is RpcResult.Err -> setConnectionError(r.error.message)
+            is RpcResult.Err -> {
+                Log.w(TAG, "session/list baseline failed code=${r.error.code}")
+                setConnectionError(r.error.message)
+            }
         }
     }
 
@@ -1708,19 +1724,7 @@ class SessionStore @Inject constructor(
             return null
         }
         val api = apiOrNull() ?: return null
-        val mode = when (val result = api.subagentList(parentId)) {
-            is RpcResult.Ok -> result.value.entries.firstOrNull { subagentEntryId(it) == sessionId }?.let {
-                when (it) {
-                    is SubagentListEntry.ChildOneShot -> it.mode
-                    is SubagentListEntry.ChildContinuable -> it.mode
-                    else -> null
-                }
-            }
-            is RpcResult.Err -> {
-                setConnectionError(result.error.message)
-                null
-            }
-        } ?: run {
+        val mode = subagentModeFromParent(api, parentId, sessionId) ?: run {
             setConnectionError("Subagent mode is unavailable")
             return null
         }
@@ -1735,19 +1739,7 @@ class SessionStore @Inject constructor(
     /** Open a child through its direct parent, matching the Web session-controller API. */
     suspend fun openSubagentSession(parentSessionId: String, childSessionId: String) {
         val api = apiOrNull() ?: return
-        val mode = when (val result = api.subagentList(parentSessionId)) {
-            is RpcResult.Ok -> result.value.entries.firstOrNull { subagentEntryId(it) == childSessionId }?.let {
-                when (it) {
-                    is SubagentListEntry.ChildOneShot -> it.mode
-                    is SubagentListEntry.ChildContinuable -> it.mode
-                    else -> null
-                }
-            }
-            is RpcResult.Err -> {
-                setConnectionError(result.error.message)
-                null
-            }
-        } ?: return
+        val mode = subagentModeFromParent(api, parentSessionId, childSessionId) ?: return
         openSessionAtAddress(
             childSessionId,
             SessionAddress.Subagent(
@@ -2551,6 +2543,7 @@ class SessionStore @Inject constructor(
 
     /** Refresh the current session's projections without activating its Agent. */
     suspend fun refreshProjections(sessionId: String? = null) {
+        if (!connectionManager.supportsSubagentCatalogProjection) return
         val targetSessionId = sessionId ?: currentSessionId.value ?: return
         val api = apiOrNull() ?: return
         val result = api.sessionProjections(SessionProjectionsRequest(targetSessionId))
@@ -2577,9 +2570,67 @@ class SessionStore @Inject constructor(
         loadSkills(sid)
     }
 
+    private suspend fun subagentModeFromParent(
+        api: DshApiClient,
+        parentSessionId: String,
+        childSessionId: String,
+    ): String? {
+        if (connectionManager.subagentCatalogProtocolUndetermined) {
+            setConnectionError("Subagent API cannot be identified until the host has a session")
+            return null
+        }
+        if (subagentCatalogSource(connectionManager.supportsSubagentCatalogProjection) == SubagentCatalogSource.PROJECTION) {
+            return when (val result = api.sessionProjections(SessionProjectionsRequest(parentSessionId))) {
+                is RpcResult.Ok -> {
+                    val projection = result.value?.values?.get("subagentCatalog") ?: run {
+                        setConnectionError("Subagent catalog projection is unavailable")
+                        return null
+                    }
+                    decodeSubagentCatalogProjection(projection)
+                        ?.firstOrNull { it.id == childSessionId }
+                        ?.mode?.takeIf { it == "one-shot" || it == "continuable" }
+                }
+                is RpcResult.Err -> {
+                    setConnectionError(result.error.message)
+                    null
+                }
+            }
+        }
+        return when (val result = api.subagentList(parentSessionId)) {
+            is RpcResult.Ok -> result.value.entries.firstOrNull { subagentEntryId(it) == childSessionId }
+                ?.let(::subagentEntryMode)
+            is RpcResult.Err -> {
+                setConnectionError(result.error.message)
+                null
+            }
+        }
+    }
+
     suspend fun refreshSubagents() {
         val sid = currentSessionId.value ?: return
         val api = apiOrNull() ?: return
+        if (connectionManager.subagentCatalogProtocolUndetermined) {
+            // An empty session list cannot establish whether the host provides the parent catalog.
+            // Do not guess and call the removed list route on an otherwise modern host.
+            setConnectionError("Subagent API cannot be identified until the host has a session")
+            return
+        }
+        if (subagentCatalogSource(connectionManager.supportsSubagentCatalogProjection) == SubagentCatalogSource.PROJECTION) {
+            when (val result = api.sessionProjections(SessionProjectionsRequest(sid))) {
+                is RpcResult.Ok -> {
+                    val projection = result.value?.values?.get("subagentCatalog") ?: run {
+                        setConnectionError("Subagent catalog projection is unavailable")
+                        return
+                    }
+                    val entries = decodeSubagentCatalogProjection(projection) ?: return
+                    synchronized(lock) {
+                        if (currentId == sid) _subagents.value = entries.map { SubagentListEntry.Projected(it) }
+                    }
+                }
+                is RpcResult.Err -> setConnectionError(result.error.message)
+            }
+            return
+        }
         when (val r = api.subagentList(sid)) {
             is RpcResult.Ok -> synchronized(lock) {
                 if (currentId == sid) _subagents.value = r.value.entries
@@ -2604,6 +2655,7 @@ class SessionStore @Inject constructor(
         val mode = when (entry) {
             is SubagentListEntry.ChildOneShot -> "one-shot"
             is SubagentListEntry.ChildContinuable -> "continuable"
+            is SubagentListEntry.Projected -> entry.entry.mode.takeIf { it == "one-shot" || it == "continuable" }
             else -> null
         }
         _subagentMode.value = mode
@@ -2995,8 +3047,22 @@ class SessionStore @Inject constructor(
     private fun subagentEntryId(entry: SubagentListEntry): String? = when (entry) {
         is SubagentListEntry.ChildOneShot -> entry.id
         is SubagentListEntry.ChildContinuable -> entry.id
+        is SubagentListEntry.Projected -> entry.entry.id
         is SubagentListEntry.Diagnostic -> entry.id
         is UnknownSubagentListEntry -> null
+    }
+
+    /** Decodes the authoritative parent projection without synthesizing child identities. */
+    private fun decodeSubagentCatalogProjection(value: JsonElement): List<SubagentCatalogProjectionEntry>? =
+        runCatching {
+            decodeFromJsonElement(ListSerializer(SubagentCatalogProjectionEntry.serializer()), value)
+        }.onFailure { setConnectionError("Invalid subagentCatalog projection: ${it.message}") }.getOrNull()
+
+    private fun subagentEntryMode(entry: SubagentListEntry): String? = when (entry) {
+        is SubagentListEntry.ChildOneShot -> entry.mode
+        is SubagentListEntry.ChildContinuable -> entry.mode
+        is SubagentListEntry.Projected -> entry.entry.mode.takeIf { it == "one-shot" || it == "continuable" }
+        else -> null
     }
 
     /**
@@ -3073,3 +3139,8 @@ class SessionStore @Inject constructor(
         const val REBUILD_INTERVAL_MS = 50L
     }
 }
+
+internal enum class SubagentCatalogSource { PROJECTION, LEGACY_LIST }
+
+internal fun subagentCatalogSource(supportsSubagentCatalogProjection: Boolean): SubagentCatalogSource =
+    if (supportsSubagentCatalogProjection) SubagentCatalogSource.PROJECTION else SubagentCatalogSource.LEGACY_LIST

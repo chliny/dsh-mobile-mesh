@@ -1,6 +1,8 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
 import dev.dsh.mobile.mesh.data.SessionRow
+import dev.dsh.mobile.mesh.core.wire.dto.SubagentCatalogProjectionEntry
+import dev.dsh.mobile.mesh.core.wire.dto.SubagentListEntry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -13,6 +15,16 @@ import org.junit.Test
  * belongs at the top level, not tucked inside the session it branched from.
  */
 class SubagentTreeTest {
+    @Test
+    fun `modern catalog displays the parent child id and label without inventing activity`() {
+        val entry = SubagentListEntry.Projected(
+            SubagentCatalogProjectionEntry("child", 1720000000000L, "continuable", "Worker"),
+        )
+        assertEquals("child", subagentId(entry))
+        assertEquals("Worker", subagentLabel(entry))
+        assertTrue(!subagentRunning(entry))
+    }
+
 
     private fun session(
         id: String,

@@ -99,6 +99,7 @@ internal fun PresetsSheet(
                                     when (entry.trust) {
                                         AgentPresetTrust.SYSTEM -> R.string.presets_system
                                         AgentPresetTrust.USER -> R.string.presets_user
+                                        AgentPresetTrust.UNKNOWN, null -> R.string.presets_user
                                     },
                                 ),
                             )

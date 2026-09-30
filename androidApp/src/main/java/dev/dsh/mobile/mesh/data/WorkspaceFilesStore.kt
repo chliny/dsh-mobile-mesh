@@ -1,6 +1,7 @@
 package dev.dsh.mobile.mesh.data
 
 import dev.dsh.mobile.mesh.connection.ConnectionManager
+import dev.dsh.mobile.mesh.connection.HarnessProtocol
 import dev.dsh.mobile.mesh.core.wire.DshApiClient
 import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryEntry
@@ -184,7 +185,7 @@ class WorkspaceFilesStore @Inject constructor(
 
     fun readBytes(workspaceKey: String, sessionId: String, path: String) {
         val safePath = validWorkspaceFilePath(path) ?: return
-        readPreview(workspaceKey, sessionId, safePath) { api -> api.workspaceFilesReadAll(sessionId, safePath) }
+        readPreview(workspaceKey, sessionId, safePath) { api -> api.workspaceFilesReadAll(sessionId, safePath, legacyReadAll = connectionManager.harnessProtocol == HarnessProtocol.LEGACY_SUBAGENTS) }
     }
 
     private fun <T> readPreview(

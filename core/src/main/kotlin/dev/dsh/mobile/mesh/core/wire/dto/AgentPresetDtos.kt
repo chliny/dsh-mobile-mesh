@@ -5,7 +5,8 @@ import kotlinx.serialization.Serializable
 
 /**
  * Agent-preset DTOs, ported from `packages/host/apiproxy/src/api/agent-presets.schema.ts` and
- * `packages/host/apiproxy/src/api/agent-presets.ts` (v0.1.1-rc.2).
+ * `packages/host/apiproxy/src/api/agent-presets.ts` (v0.1.1-rc.2). Current registry rosters
+ * omit legacy `trust`, `authorable`, and `hasDocument`; absent values remain explicitly unknown.
  */
 
 /** Trust tier of an agent preset. */
@@ -16,13 +17,17 @@ enum class AgentPresetTrust {
 
     @SerialName("user")
     USER,
+
+    /** Current Registry API no longer transmits preset trust. */
+    @SerialName("unknown")
+    UNKNOWN,
 }
 
 /** AgentPresetEntry row of `agentPreset.list`. */
 @Serializable
 data class AgentPresetEntry(
     @SerialName("id") val id: String,
-    @SerialName("trust") val trust: AgentPresetTrust,
+    @SerialName("trust") val trust: AgentPresetTrust? = null,
     @SerialName("isDefault") val isDefault: Boolean,
     @SerialName("name") val name: String? = null,
     @SerialName("description") val description: String? = null,
@@ -34,8 +39,8 @@ data class AgentPresetEntry(
 @Serializable
 data class AgentPresetListValue(
     @SerialName("presets") val presets: List<AgentPresetEntry> = emptyList(),
-    @SerialName("authorable") val authorable: Boolean,
-    @SerialName("hasDocument") val hasDocument: Boolean,
+    @SerialName("authorable") val authorable: Boolean = false,
+    @SerialName("hasDocument") val hasDocument: Boolean = false,
 )
 
 /** Request payload of `agentPreset.select`. */
@@ -61,7 +66,7 @@ data class AgentPresetReadRequest(
 @Serializable
 data class AgentPresetReadValue(
     @SerialName("agentPreset") val agentPreset: String,
-    @SerialName("trust") val trust: AgentPresetTrust,
+    @SerialName("trust") val trust: AgentPresetTrust? = null,
     @SerialName("content") val content: String,
     @SerialName("name") val name: String? = null,
     @SerialName("description") val description: String? = null,
@@ -113,7 +118,7 @@ data class AgentPresetDocument(
     /** The preset the composition belongs to. */
     @SerialName("agentPreset") val agentPreset: String,
     /** Trust of the root this preset was discovered under. */
-    @SerialName("trust") val trust: AgentPresetTrust,
+    @SerialName("trust") val trust: AgentPresetTrust? = null,
     /** The composition exactly as stored. */
     @SerialName("content") val content: String,
     /** Display name the preset published. */
