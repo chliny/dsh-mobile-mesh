@@ -96,7 +96,17 @@ class EventFold(private val sessionId: String) {
             // Seed the fold from the snapshot's nodes (rebuild buffers from scratch). A provisional
             // streaming node is not durable and would otherwise be re-added as though it were.
             state.blank = initial.blank
-            state.nodes.addAll(initial.nodes.filterNot { it is AssistantMessageNode && it.streaming })
+            initial.nodes.filterNot { it is AssistantMessageNode && it.streaming }.forEach { node ->
+                val index = state.nodes.size
+                state.nodes.add(node)
+                if (node is AssistantMessageNode) {
+                    node.turn?.let { turn ->
+                        state.assistantSeqs.add(node.seq)
+                        state.assistantIndexByTurn[turn] = index
+                        if (node.interrupted) state.interruptedTurns.add(turn)
+                    }
+                }
+            }
             state.running = initial.running
             state.hasMore = initial.hasMore
         }
@@ -137,6 +147,10 @@ private class FoldState(private val sessionId: String) {
 
     private val openByKey = linkedMapOf<String, OpenAssistant>()
     private val compactionNodeById = mutableMapOf<String, Int>()
+    /** Constant-time duplicate settlement guard and last assistant index per turn. */
+    val assistantSeqs = HashSet<Long>()
+    val assistantIndexByTurn = HashMap<Int, Int>()
+    val interruptedTurns = HashSet<Int>()
 
     fun snapshot(): ConversationSnapshot = ConversationSnapshot(
         sessionId = sessionId,
@@ -263,10 +277,11 @@ private class FoldState(private val sessionId: String) {
                     else -> fromMessage
                 }
                 openByKey.remove(key)
-                if (nodes.none { it is AssistantMessageNode && it.seq == event.seq }) {
-                    nodes.add(
-                        AssistantMessageNode(event.seq, messageId, turn, step, blocks, usage, interrupted),
-                    )
+                if (assistantSeqs.add(event.seq)) {
+                    val index = nodes.size
+                    nodes.add(AssistantMessageNode(event.seq, messageId, turn, step, blocks, usage, interrupted))
+                    assistantIndexByTurn[turn] = index
+                    if (interrupted) interruptedTurns.add(turn)
                 }
             }
 
@@ -519,11 +534,9 @@ private class FoldState(private val sessionId: String) {
      * the search lands on the previous, complete one. That was equally true before rc.8.
      */
     private fun markInterrupted(turn: Int) {
-        if (nodes.any { it is AssistantMessageNode && it.turn == turn && it.interrupted }) return
-        val index = nodes.indexOfLast { it is AssistantMessageNode && it.turn == turn }
-        if (index >= 0) {
-            val node = nodes[index] as AssistantMessageNode
-            nodes[index] = node.copy(interrupted = true)
-        }
+        if (!interruptedTurns.add(turn)) return
+        val index = assistantIndexByTurn[turn] ?: return
+        val node = nodes[index] as? AssistantMessageNode ?: return
+        nodes[index] = node.copy(interrupted = true)
     }
 }
