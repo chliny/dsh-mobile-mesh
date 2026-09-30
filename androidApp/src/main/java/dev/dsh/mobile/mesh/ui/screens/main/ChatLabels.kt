@@ -58,6 +58,7 @@ internal fun workflowMemberDot(status: String?): StateDotState = when (status) {
 internal fun subagentId(entry: SubagentListEntry): String? = when (entry) {
     is SubagentListEntry.ChildOneShot -> entry.id
     is SubagentListEntry.ChildContinuable -> entry.id
+    is SubagentListEntry.Projected -> entry.entry.id
     is SubagentListEntry.Diagnostic -> entry.id
     else -> null
 }
@@ -65,6 +66,7 @@ internal fun subagentId(entry: SubagentListEntry): String? = when (entry) {
 internal fun subagentLabel(entry: SubagentListEntry): String? = when (entry) {
     is SubagentListEntry.ChildOneShot -> entry.label
     is SubagentListEntry.ChildContinuable -> entry.label
+    is SubagentListEntry.Projected -> entry.entry.label
     is SubagentListEntry.Diagnostic -> entry.reason
     else -> null
 }
@@ -87,8 +89,8 @@ internal fun subagentRunning(entry: SubagentListEntry): Boolean = when (entry) {
  * whatever language the client is in. The harness's own web UI covers this by overriding the
  * built-ins with its own translations, and this is the same table for the same four ids.
  *
- * Keyed on `trust == SYSTEM` exactly as the reference is: a preset someone wrote themselves and
- * happened to call `standard` is theirs, and keeps the name they gave it.
+ * Legacy Hosts expose trust directly; newer registry responses omit it, so only an explicit system
+ * row gets the built-in name override. Unknown trust preserves the server's own display name.
  */
 private fun builtInPresetStrings(id: String): Pair<Int, Int>? = when (id) {
     "standard" -> R.string.preset_standard_name to R.string.preset_standard_desc

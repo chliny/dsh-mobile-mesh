@@ -320,15 +320,23 @@ class DshApiClient(
         },
     )
 
-    /** Read a complete bounded file as base64 bytes. */
-    suspend fun workspaceFilesReadAll(sessionId: String, path: String): RpcResult<WorkspaceFileBytes> =
-        call(
-            "workspaceFiles/readAll",
-            args {
-                put("workspaceFileScopeId", JsonPrimitive(sessionId))
-                put("path", JsonPrimitive(path))
-            },
-        )
+    /** Read the complete file using whichever bounded byte-read API this Host exposes. */
+    suspend fun workspaceFilesReadAll(
+        sessionId: String,
+        path: String,
+        legacyReadAll: Boolean = false,
+    ): RpcResult<WorkspaceFileBytes> = if (legacyReadAll) {
+        call("workspaceFiles/readAll", args {
+            put("workspaceFileScopeId", JsonPrimitive(sessionId))
+            put("path", JsonPrimitive(path))
+        })
+    } else {
+        call("workspaceFiles/readBytes", args {
+            put("workspaceFileScopeId", JsonPrimitive(sessionId))
+            put("path", JsonPrimitive(path))
+            put("options", JsonObject(emptyMap()))
+        })
+    }
 
     /** Read a bounded byte window for binary/document fallback renderers. */
     suspend fun workspaceFilesReadBytes(
@@ -336,14 +344,22 @@ class DshApiClient(
         path: String,
         offset: Int = 0,
         length: Int? = null,
+        legacyRange: Boolean = false,
     ): RpcResult<WorkspaceFileBytes> = call(
         "workspaceFiles/readBytes",
         args {
             put("workspaceFileScopeId", JsonPrimitive(sessionId))
             put("path", JsonPrimitive(path))
-            put("range", buildJsonObject {
-                put("offset", JsonPrimitive(offset))
-                if (length != null) put("length", JsonPrimitive(length))
+            put(if (legacyRange) "range" else "options", buildJsonObject {
+                if (legacyRange) {
+                    put("offset", JsonPrimitive(offset))
+                    if (length != null) put("length", JsonPrimitive(length))
+                } else {
+                    put("range", buildJsonObject {
+                        put("offset", JsonPrimitive(offset))
+                        if (length != null) put("length", JsonPrimitive(length))
+                    })
+                }
             })
         },
     )
@@ -361,6 +377,13 @@ class DshApiClient(
         call(
             "session/list",
             args { put("_request", encodeToJsonElement(SessionListRequest.serializer(), SessionListRequest(cursor))) },
+        )
+
+    /** Inspect a read-only list response before decoding optional fields away during protocol detection. */
+    suspend fun sessionListProbe(): RpcResult<JsonElement> =
+        call(
+            "session/list",
+            args { put("_request", encodeToJsonElement(SessionListRequest.serializer(), SessionListRequest())) },
         )
 
     /** `session/search` — searches the user/assistant/steering surface across visible sessions. */

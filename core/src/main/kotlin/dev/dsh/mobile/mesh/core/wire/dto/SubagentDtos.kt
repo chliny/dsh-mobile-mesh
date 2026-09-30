@@ -67,6 +67,11 @@ sealed class SubagentListEntry {
         override val kind: String get() = "child"
     }
 
+    /** Presentation of a parent-owned `subagentCatalog` projection row. */
+    data class Projected(val entry: SubagentCatalogProjectionEntry) : SubagentListEntry() {
+        override val kind: String get() = "projection"
+    }
+
     /** A durable row whose transcript cannot be classified by this runtime. */
     @Serializable
     data class Diagnostic(
@@ -98,6 +103,8 @@ object SubagentListEntrySerializer : KSerializer<SubagentListEntry> {
                 encodeToJsonElement(SubagentListEntry.ChildOneShot.serializer(), value).withKind(value.kind)
             is SubagentListEntry.ChildContinuable ->
                 encodeToJsonElement(SubagentListEntry.ChildContinuable.serializer(), value).withKind(value.kind)
+            is SubagentListEntry.Projected ->
+                encodeToJsonElement(SubagentCatalogProjectionEntry.serializer(), value.entry).withKind(value.kind)
             is SubagentListEntry.Diagnostic ->
                 encodeToJsonElement(SubagentListEntry.Diagnostic.serializer(), value).withKind(value.kind)
             is UnknownSubagentListEntry -> value.raw
@@ -117,6 +124,9 @@ object SubagentListEntrySerializer : KSerializer<SubagentListEntry> {
                     decodeFromJsonElement(SubagentListEntry.ChildOneShot.serializer(), json)
                 }
             }
+            "projection" -> SubagentListEntry.Projected(
+                decodeFromJsonElement(SubagentCatalogProjectionEntry.serializer(), json),
+            )
             "diagnostic" -> decodeFromJsonElement(SubagentListEntry.Diagnostic.serializer(), json)
             else -> UnknownSubagentListEntry(kind, json)
         }
@@ -132,6 +142,16 @@ private fun JsonElement.withKind(kind: String): JsonElement = JsonObject(
         putAll(this@withKind.jsonObject)
         put("kind", JsonPrimitive(kind))
     },
+)
+
+/** Parent-owned `session/projections.values.subagentCatalog` direct-child row. */
+@Serializable
+data class SubagentCatalogProjectionEntry(
+    @SerialName("id") val id: String,
+    @SerialName("createdAt") val createdAt: Long,
+    /** `one-shot`, `continuable`, or `unknown`. */
+    @SerialName("mode") val mode: String,
+    @SerialName("label") val label: String? = null,
 )
 
 /** Complete direct-child catalog plus the delivery-time parent availability hint. */

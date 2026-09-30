@@ -65,9 +65,10 @@ sealed class SessionAddress {
         @SerialName("kind") override val kind: String = "subagent",
         @SerialName("parentSessionId") val parentSessionId: String,
         @SerialName("childSessionId") val childSessionId: String,
-        /** 'one-shot' | 'continuable'. */
+        /** 'one-shot' | 'continuable' | 'unknown'; unsupported modes remain unopenable. */
         @SerialName("mode") val mode: String,
     ) : SessionAddress()
+
 }
 
 /** Custom `kind`-dispatching serializer for [SessionAddress]. */
@@ -88,7 +89,11 @@ object SessionAddressSerializer : KSerializer<SessionAddress> {
         val json = (decoder as JsonDecoder).decodeJsonElement().jsonObject
         return when (val kind = json["kind"]?.jsonPrimitive?.contentOrNull ?: "") {
             "session" -> decodeFromJsonElement(SessionAddress.Session.serializer(), json)
-            "subagent" -> decodeFromJsonElement(SessionAddress.Subagent.serializer(), json)
+            "subagent" -> {
+                val address = decodeFromJsonElement(SessionAddress.Subagent.serializer(), json)
+                if (address.mode == "unknown") throw IllegalArgumentException("unsupported subagent transcript mode")
+                address
+            }
             else -> throw IllegalArgumentException("unknown session address kind \"$kind\"")
         }
     }

@@ -103,6 +103,20 @@ class DshApiClientRemoteTest {
     }
 
     @Test
+    fun `protocol probe reads raw session summary field without decoding defaults`() = runTest {
+        val transport = RecordingTransport { _, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """{"items":[{"sessionId":"one","agentAvailable":true}]}""")
+        }
+        val result = client(transport).sessionListProbe() as RpcResult.Ok
+        assertEquals("/api/session/list", transport.lastPath)
+        assertTrue(result.value.jsonObject["items"]!!.jsonArray[0].jsonObject.containsKey("agentAvailable"))
+        val args = Json.parseToJsonElement(transport.lastBody!!)
+            .jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject
+        assertTrue(args.containsKey("_request"))
+    }
+
+    @Test
     fun `session projections calls the named request remote`() = runTest {
         val transport = RecordingTransport { path, body ->
             val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content

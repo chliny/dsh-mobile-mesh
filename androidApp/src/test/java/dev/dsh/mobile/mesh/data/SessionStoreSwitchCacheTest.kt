@@ -20,9 +20,23 @@ import org.junit.Test
  */
 class SessionStoreSwitchCacheTest {
     @Test
+    fun `modern hosts use the parent projection and never the removed subagents list endpoint`() {
+        assertEquals(SubagentCatalogSource.PROJECTION, subagentCatalogSource(true))
+        assertEquals(SubagentCatalogSource.LEGACY_LIST, subagentCatalogSource(false))
+    }
+
+    @Test
     fun `connected state without published api is a publication race`() {
         assertTrue(requiresApiPublication(dev.dsh.mobile.mesh.connection.ConnectionPhase.CONNECTED, apiPresent = false))
         assertFalse(requiresApiPublication(dev.dsh.mobile.mesh.connection.ConnectionPhase.CONNECTED, apiPresent = true))
+    }
+
+    @Test
+    fun `session baseline is keyed by active host rather than changing mux client id`() {
+        assertEquals("host-a", sessionBaselineHostId("host-a", "host-a"))
+        assertEquals("host-a", sessionBaselineHostId("host-a", "fallback"))
+        assertEquals("fallback", sessionBaselineHostId(null, "fallback"))
+        assertNull(sessionBaselineHostId(null, null))
     }
 
     @Test

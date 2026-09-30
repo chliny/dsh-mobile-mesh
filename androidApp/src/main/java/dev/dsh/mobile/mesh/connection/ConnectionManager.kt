@@ -41,6 +41,10 @@ import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Deliberately excludes exception messages, which can contain endpoint or account details. */
+internal fun safeTransportDiagnostic(cause: Throwable): String =
+    "${cause.javaClass.simpleName}:${TransportFailures.classify(cause).name}"
+
 /** UI-facing connection state. */
 enum class ConnectionPhase { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING }
 
@@ -182,7 +186,16 @@ class ConnectionManager @Inject constructor(
     private data class ConnectionIntent(
         val host: HostConfig,
         val afterTransportReady: suspend (String) -> Unit,
+        val protocolSelection: HarnessProtocolSelection = HarnessProtocolSelection(),
     )
+    @Volatile private var activeProtocol: HarnessProtocol? = null
+    /** Immutable API family detected by the current explicit connection intent. */
+    val harnessProtocol: HarnessProtocol? get() = activeProtocol
+    /** The selected API family replaces `subagents/list` with a parent projection. */
+    val supportsSubagentCatalogProjection: Boolean
+        get() = activeProtocol == HarnessProtocol.PARENT_CATALOG
+    val subagentCatalogProtocolUndetermined: Boolean
+        get() = activeProtocol == HarnessProtocol.UNDETERMINED
     private val lifecycle = ConnectionLifecycleCoordinator<ConnectionIntent>()
     private var teardownJob: Job? = null
     @Volatile private var connectJob: Job? = null
@@ -209,6 +222,8 @@ class ConnectionManager @Inject constructor(
     @Volatile private var keepConnectedInBackground = false
     @Volatile private var foregroundProbeJob: Job? = null
     @Volatile private var publishedGenerationNeedsProbe = false
+    /** Failure reason from the last retired mux, retained across ConnectionLoop's reconnect window. */
+    @Volatile private var lastMuxCarrierFailure: Throwable? = null
     /** Latest desired host retained across a background-disabled suspension. */
     @Volatile private var suspendedHost: HostConfig? = null
     private var suspendedTransportReady: (suspend (String) -> Unit)? = null
@@ -310,6 +325,7 @@ class ConnectionManager @Inject constructor(
                 foregroundCheckPending = needsLivenessProbe,
             )
             connectedGenerations.tryEmit(generation)
+            lastMuxCarrierFailure = null
             maybeStartService()
             }
         }
@@ -322,6 +338,8 @@ class ConnectionManager @Inject constructor(
             // reconnect because the loop does not need to rebuild this stateless client.
             val current = _state.value
             if (state == ConnectionState.RECONNECTING) {
+                val carrierFailure = generation?.mux?.failure ?: lastMuxCarrierFailure
+                if (carrierFailure != null) lastMuxCarrierFailure = carrierFailure
                 generation = null
                 // The loop emits RECONNECTING for its first generation after a carrier replacement.
                 // That is not a second carrier loss: the replacement's own ready handshake is still
@@ -334,14 +352,14 @@ class ConnectionManager @Inject constructor(
                 // dead relay. A new loop also announces RECONNECTING as its first state.
                 if (current.phase == ConnectionPhase.CONNECTED) {
                     markCarrierRecoveryNeeded()
-                    // A generic mux reconnect is not proof that a ZeroTier-only carrier died. Let
-                    // the loop retry on the existing relay; only SSH's terminal callback, an explicit
-                    // network handover, or a foreground end-to-end probe may renew that carrier.
+                    // Renew the local mesh relay only when the old mux carries an actual I/O failure;
+                    // readiness/business errors belong to the host and can use the existing relay.
                     if (appInForeground && shouldRenewCarrierAfterLoopFailure(
                             sshEnabled = activeHost?.sshEnabled == true,
                             networkRecoveryPending = networkRecoveryGate.isPending() || networkLostWhileConnected,
                             recoveryInFlight = synchronized(recoveryLock) { transportRecoveryInFlight },
                             failedAttempt = 1,
+                            isCarrierFailure = loopFailureIsCarrierFailure(carrierFailure),
                         )) recoverTransportAfterCarrierLoss()
                 }
             }
@@ -375,9 +393,13 @@ class ConnectionManager @Inject constructor(
             }
         }
 
-        override fun onGenerationFailed(attempt: Int, failure: GenerationFailure) {
+        override fun onGenerationFailed(attempt: Int, failure: GenerationFailure, failedMux: RemoteStreamMux?, carrierFailure: Throwable?) {
             loopFence.runIfCurrent(token) {
-            Log.w("ConnectionManager", "Generation $attempt failed: $failure")
+            val muxDiagnostics = failedMux?.diagnostics?.let { stats ->
+                " mux=in:${stats.inboundMessages},out:${stats.outboundMessages},streams:${stats.activeStreams}"
+            } ?: ""
+            val safeCause = carrierFailure?.let(::safeTransportDiagnostic) ?: "none"
+            Log.w("ConnectionManager", "Generation $attempt failed: $failure carrierCause=$safeCause$muxDiagnostics")
             _state.value = _state.value.copy(
                 failure = ConnectFailure.from(failure),
                 attempts = attempt,
@@ -389,6 +411,7 @@ class ConnectionManager @Inject constructor(
                     networkRecoveryPending = networkRecoveryGate.isPending() || networkLostWhileConnected,
                     recoveryInFlight = synchronized(recoveryLock) { transportRecoveryInFlight },
                     failedAttempt = attempt,
+                    isCarrierFailure = loopFailureIsCarrierFailure(carrierFailure ?: lastMuxCarrierFailure),
                 ) && loopFailureCanRenewCarrier(failure) && shouldRenewCarrierAfterGenerationFailure(
                     hasActiveHost = activeHost != null,
                     appInForeground = appInForeground,
@@ -430,6 +453,7 @@ class ConnectionManager @Inject constructor(
         config: HostConfig,
         afterTransportReady: suspend (baseUrl: String) -> Unit = {},
     ) {
+        activeProtocol = null
         val target = lifecycle.request(ConnectionIntent(config, afterTransportReady))
         suspendedHost = config
         suspendedTransportReady = afterTransportReady
@@ -626,9 +650,35 @@ class ConnectionManager @Inject constructor(
             }
             val publishStartedAt = timing?.start("publish")
             val nextApi = clientFactory.clientFor(config, baseUrl = baseUrl)
+            // The ready frame has no version. Session summaries gained `agentAvailable` in the
+            // same host change that replaced subagents/list with the parent catalog. Inspect this
+            // read-only list once after pairing; reconnects reuse the intent's observed result.
+            // Protocol discovery is optional; do not make a slow metadata read prevent publishing
+            // an already-ready transport. The ordinary session baseline fetches the authoritative
+            // list once the generation is online.
+            val selectedProtocol = target.value.protocolSelection.detect(
+                probe = {
+                    runCatching { nextApi.sessionListProbe() }.getOrElse { error ->
+                        if (error is CancellationException) throw error
+                        throw ProtocolProbeException("probe", error.message ?: "session/list probe failed")
+                    }
+                },
+                probeProjection = {
+                    runCatching {
+                        nextApi.sessionProjections(dev.dsh.mobile.mesh.core.wire.dto.SessionProjectionsRequest("__dsh_mobile_protocol_probe__"))
+                    }.getOrElse { error ->
+                        if (error is CancellationException) throw error
+                        throw ProtocolProbeException("probe", error.message ?: "session/projections probe failed")
+                    }
+                },
+            )
+            val selection = target.value.protocolSelection
+            Log.d("ConnectionManager", "Harness API generation detected: $selectedProtocol; capability results=${selection.capabilities}")
+            Log.d("ConnectionManager", "Session API protocol selected: $selectedProtocol")
             synchronized(publicationLock) {
                 if (!lifecycle.accepts(target.token)) return
                 pendingTransportReady = null
+                activeProtocol = selectedProtocol
                 api = nextApi
                 eventApis.clear()
                 val token = loopFence.next()
@@ -668,6 +718,7 @@ class ConnectionManager @Inject constructor(
     }
 
     fun disconnect() {
+        activeProtocol = null
         lifecycle.disconnect()
         scope.launch { hostsStore.setActiveConnectionId(null) }
         suspendedHost = null
@@ -693,6 +744,7 @@ class ConnectionManager @Inject constructor(
 
     private fun retirePublishedConnection() {
         publishedGenerationNeedsProbe = false
+        lastMuxCarrierFailure = null
         synchronized(publicationLock) {
             loopFence.invalidate()
             loop?.stop()
@@ -1191,7 +1243,7 @@ class ConnectionManager @Inject constructor(
         foregroundProbeJob = scope.launch {
             val carrierOpen = !expectedGeneration.mux.isClosed
             val result = if (carrierOpen) runCatching {
-                kotlinx.coroutines.withTimeout(FOREGROUND_PROBE_TIMEOUT_MS) { expectedApi.connectionProbe() }
+                kotlinx.coroutines.withTimeout(foregroundProbeTimeoutMs(activeHost?.meshTransport)) { expectedApi.connectionProbe() }
             }.getOrNull() else null
             val reachedHost = foregroundProbeReachedHost(carrierOpen, result)
             if (!mayPublishAfterForegroundProbe(
