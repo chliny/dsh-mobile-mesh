@@ -236,6 +236,33 @@ class EventFoldTest {
     }
 
     @Test
+    fun `large assistant history preserves duplicate and interrupted semantics`() {
+        val events = buildList {
+            repeat(20_000) { index ->
+                val turn = index + 1
+                add(event("assistant/message", index.toLong() * 2, buildJsonObject {
+                    put("turn", turn); put("step", 1)
+                    putJsonObject("message") {
+                        put("id", "a$turn")
+                        putJsonArray("content") {
+                            add(buildJsonObject { put("type", "text"); put("text", "reply-$turn") })
+                        }
+                    }
+                }))
+                add(event("turn/end", index.toLong() * 2 + 1, buildJsonObject {
+                    put("turn", turn)
+                    putJsonObject("reason") { put("kind", "interrupted") }
+                }))
+            }
+        }
+        val snapshot = EventFold("large").fold(events)
+        val assistants = snapshot.nodes.filterIsInstance<AssistantMessageNode>()
+        assertEquals(20_000, assistants.size)
+        assertTrue(assistants.all { it.interrupted })
+        assertEquals("reply-20000", assistants.last().plainText)
+    }
+
+    @Test
     fun unknownEventBecomesOtherNode() {
         val events = listOf(
             event("mystery/event", 0, buildJsonObject { put("x", 1) }),
