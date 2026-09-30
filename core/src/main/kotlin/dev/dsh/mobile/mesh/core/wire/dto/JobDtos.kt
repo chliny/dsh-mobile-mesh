@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.serialization.InternalSerializationApi::class)
+
 package dev.dsh.mobile.mesh.core.wire.dto
 
 import dev.dsh.mobile.mesh.core.wire.decodeFromJsonElement
