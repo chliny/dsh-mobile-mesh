@@ -102,7 +102,7 @@ class ProtocolEndToEndTest {
         }
         override fun onStateChange(state: ConnectionState) = Unit
         override fun onHandshakeStep(step: HandshakeStep) = Unit
-        override fun onGenerationFailed(attempt: Int, failure: GenerationFailure) {
+        override fun onGenerationFailed(attempt: Int, failure: GenerationFailure, failedMux: RemoteStreamMux?, carrierFailure: Throwable?) {
             failures.add(failure)
         }
     }

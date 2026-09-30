@@ -69,8 +69,12 @@ public class ZeroTierInputStream extends InputStream {
         byte[] buf = new byte[1];
         // Unlike a native read(), if nothing is read we should return -1
         int retval = ZeroTierNative.zts_bsd_read(zfd, buf);
-        if ((retval == 0) | (retval == -104) /* EINTR, from SO_RCVTIMEO */) {
+        if (retval == 0) {
             return -1;
+        }
+        if (retval == -11 || retval == -104) {
+            // lwIP reports SO_RCVTIMEO as EAGAIN (11); older JNI paths used EINTR (104).
+            throw new java.net.SocketTimeoutException("libzt receive timed out");
         }
         if (retval < 0) {
             throw new IOException("read(), errno=" + retval);
@@ -89,8 +93,12 @@ public class ZeroTierInputStream extends InputStream {
         Objects.requireNonNull(destBuffer, "input byte array must not be null");
         // Unlike a native read(), if nothing is read we should return -1
         int retval = ZeroTierNative.zts_bsd_read(zfd, destBuffer);
-        if ((retval == 0) | (retval == -104) /* EINTR, from SO_RCVTIMEO */) {
+        if (retval == 0) {
             return -1;
+        }
+        if (retval == -11 || retval == -104) {
+            // lwIP reports SO_RCVTIMEO as EAGAIN (11); older JNI paths used EINTR (104).
+            throw new java.net.SocketTimeoutException("libzt receive timed out");
         }
         if (retval < 0) {
             throw new IOException("read(destBuffer), errno=" + retval);
@@ -123,8 +131,12 @@ public class ZeroTierInputStream extends InputStream {
         }
         // Unlike a native read(), if nothing is read we should return -1
         int retval = ZeroTierNative.zts_bsd_read_offset(zfd, destBuffer, offset, numBytes);
-        if ((retval == 0) | (retval == -104) /* EINTR, from SO_RCVTIMEO */) {
+        if (retval == 0) {
             return -1;
+        }
+        if (retval == -11 || retval == -104) {
+            // lwIP reports SO_RCVTIMEO as EAGAIN (11); older JNI paths used EINTR (104).
+            throw new java.net.SocketTimeoutException("libzt receive timed out");
         }
         if (retval < 0) {
             throw new IOException("read(destBuffer, offset, numBytes), errno=" + retval);

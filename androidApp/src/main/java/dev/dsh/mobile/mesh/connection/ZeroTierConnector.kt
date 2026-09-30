@@ -23,6 +23,8 @@ import kotlin.coroutines.coroutineContext
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -312,6 +314,7 @@ private class ZeroTierRelay(
 ) : Closeable {
     private val server = ServerSocket(0, 32, InetAddress.getByName("127.0.0.1"))
     private val workers = ConcurrentHashMap.newKeySet<ZeroTierForwardWorker>()
+    private val nextWorkerId = AtomicLong()
     @Volatile private var running = false
     val localPort: Int get() = server.localPort
     val relay: MeshRelay get() = MeshRelay("127.0.0.1", localPort)
@@ -346,22 +349,28 @@ private class ZeroTierRelay(
     }
 
     private fun forward(local: Socket) {
+        val workerId = nextWorkerId.incrementAndGet()
+        val startedAt = System.nanoTime()
         var remote: ZeroTierSocket? = null
         var handedToWorker = false
         try {
             remote = connect()
             val connectedRemote = remote ?: return
-            // libzt maps SO_RCVTIMEO expiry to InputStream.read() == -1. The worker treats that as a
-            // poll while active and as the bounded wake-up signal after close(), avoiding a concurrent
-            // native close from the relay lifecycle thread.
-            runCatching { connectedRemote.setSoTimeout(NATIVE_READ_POLL_MILLIS) }
+            Log.d(TAG, "relay worker=$workerId nativeConnectedMs=${TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)}")
+            // Patched libzt reports the timeout as SocketTimeoutException and a peer close as EOF.
+            // The timeout bounds the read's wake-up after relay shutdown without racing native close.
+            connectedRemote.setSoTimeout(NATIVE_READ_POLL_MILLIS)
             val worker = ZeroTierForwardWorker(
                 local = local,
                 remoteInput = connectedRemote.inputStream,
                 remoteOutput = connectedRemote.outputStream,
                 closeRemote = { connectedRemote.close() },
                 executor = executor,
-                onFinished = { workers.remove(it) },
+                onFinished = {
+                    workers.remove(it)
+                    val stats = it.diagnostics
+                    Log.d(TAG, "relay worker=$workerId finished elapsedMs=${TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)} localToNative=${stats.localToRemoteBytes}:${stats.localToRemoteEnd} nativeToLocal=${stats.remoteToLocalBytes}:${stats.remoteToLocalEnd}")
+                },
             )
             workers.add(worker)
             handedToWorker = true
@@ -423,6 +432,22 @@ internal class ZeroTierForwardWorker(
     private val closing = AtomicBoolean(false)
     private val finished = CountDownLatch(2)
     private val remoteClosed = AtomicBoolean(false)
+    private val localToRemoteBytes = AtomicLong()
+    private val remoteToLocalBytes = AtomicLong()
+    private val localToRemoteEnd = AtomicReference("active")
+    private val remoteToLocalEnd = AtomicReference("active")
+
+    data class Diagnostics(
+        val localToRemoteBytes: Long,
+        val remoteToLocalBytes: Long,
+        val localToRemoteEnd: String,
+        val remoteToLocalEnd: String,
+    )
+
+    val diagnostics: Diagnostics get() = Diagnostics(
+        localToRemoteBytes.get(), remoteToLocalBytes.get(),
+        localToRemoteEnd.get(), remoteToLocalEnd.get(),
+    )
 
     fun start() {
         synchronized(stateLock) {
@@ -446,9 +471,9 @@ internal class ZeroTierForwardWorker(
             started.set(true)
             var submitted = 0
             try {
-                executor.execute { copy(localInput, remoteOutput, pollEndOfStream = false) }
+                executor.execute { copy(localInput, remoteOutput, pollEndOfStream = false, localToRemoteBytes, localToRemoteEnd) }
                 submitted = 1
-                executor.execute { copy(remoteInput, localOutput, pollEndOfStream = true) }
+                executor.execute { copy(remoteInput, localOutput, pollEndOfStream = true, remoteToLocalBytes, remoteToLocalEnd) }
                 submitted = 2
             } catch (_: java.util.concurrent.RejectedExecutionException) {
                 closing.set(true)
@@ -467,24 +492,36 @@ internal class ZeroTierForwardWorker(
         finish()
     }
 
-    private fun copy(input: InputStream, output: OutputStream, pollEndOfStream: Boolean) {
+    private fun copy(input: InputStream, output: OutputStream, pollEndOfStream: Boolean, bytes: AtomicLong, end: AtomicReference<String>) {
         try {
             val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
             while (!closing.get()) {
                 val count = try {
                     input.read(buffer)
-                } catch (_: IOException) {
+                } catch (_: java.net.SocketTimeoutException) {
+                    if (pollEndOfStream) continue
+                    end.set("local-timeout")
+                    break
+                } catch (error: IOException) {
+                    end.set("read:${error.javaClass.simpleName}:${error.message?.substringAfter("errno=", "unknown")?.toIntOrNull() ?: "unknown"}")
                     break
                 }
                 if (count > 0) {
-                    if (runCatching { output.write(buffer, 0, count) }.isFailure) break
-                } else if (!pollEndOfStream) {
+                    try {
+                        output.write(buffer, 0, count)
+                        bytes.addAndGet(count.toLong())
+                    } catch (error: Throwable) {
+                        end.set("write:${error.javaClass.simpleName}:${error.message?.substringAfter("errno=", "unknown")?.toIntOrNull() ?: "unknown"}")
+                        break
+                    }
+                } else if (count < 0) {
+                    end.set(if (pollEndOfStream) "native-eof" else "local-eof")
                     break
                 }
-                // For libzt, -1 can mean SO_RCVTIMEO rather than peer EOF. Poll again while active;
-                // after close() it becomes the bounded exit path without closing native I/O here.
+                // Timeouts are exceptions (not EOF); only a positive read forwards data.
             }
         } finally {
+            end.compareAndSet("active", "relay-close")
             finished.countDown()
             // Closing the Java loopback socket is safe from either direction and wakes its peer.
             runCatching { local.close() }

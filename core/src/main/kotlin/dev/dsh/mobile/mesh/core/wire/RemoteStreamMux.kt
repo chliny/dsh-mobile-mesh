@@ -7,6 +7,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.RemoteStreamServerMessageSerializer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.LongAdder
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -164,6 +165,17 @@ class RemoteStreamMux(
     private val opened = CompletableDeferred<Unit>()
     private val closed = CompletableDeferred<Unit>()
     private val channelClosed = AtomicBoolean(false)
+    private val inboundMessages = LongAdder()
+    private val outboundMessages = LongAdder()
+
+    data class Diagnostics(
+        val inboundMessages: Long,
+        val outboundMessages: Long,
+        val activeStreams: Int,
+    )
+
+    val diagnostics: Diagnostics
+        get() = Diagnostics(inboundMessages.sum(), outboundMessages.sum(), streams.size)
 
     @Volatile
     private var closedCause: Throwable? = null
@@ -177,6 +189,7 @@ class RemoteStreamMux(
         }
 
         override fun onMessage(text: String) {
+            inboundMessages.increment()
             val message = try {
                 WireJson.decodeFromString(RemoteStreamServerMessageSerializer, text)
             } catch (e: SerializationException) {
@@ -336,7 +349,9 @@ class RemoteStreamMux(
 
     private fun send(message: RemoteStreamClientMessage): Boolean {
         val text = WireJson.encodeToString(RemoteStreamClientMessageSerializer, message)
-        return channel?.send(text) ?: false
+        val sent = channel?.send(text) ?: false
+        if (sent) outboundMessages.increment()
+        return sent
     }
 
     /**

@@ -5,6 +5,7 @@ import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.TransportFailure
 import dev.dsh.mobile.mesh.core.wire.TransportFailures
 import kotlinx.serialization.json.JsonPrimitive
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -13,7 +14,7 @@ import org.junit.Test
 class ForegroundLivenessTest {
     @Test
     fun `ZeroTier probe allows native relay resume budget`() {
-        assertTrue(foregroundProbeTimeoutMs(MeshTransport.ZERO_TIER) > foregroundProbeTimeoutMs(MeshTransport.TAILSCALE))
+        assertEquals(ZERO_TIER_FOREGROUND_PROBE_TIMEOUT_MS, foregroundProbeTimeoutMs(MeshTransport.ZERO_TIER))
         assertTrue(foregroundProbeTimeoutMs(MeshTransport.ZERO_TIER) > FOREGROUND_PROBE_TIMEOUT_MS)
     }
 
@@ -44,6 +45,12 @@ class ForegroundLivenessTest {
             carrierOpen = false,
             result = null,
         ))
+    }
+
+    @Test
+    fun `ZeroTier probe timeout allows native relay resume budget`() {
+        assertEquals(12_000L, foregroundProbeTimeoutMs(MeshTransport.ZERO_TIER))
+        assertEquals(FOREGROUND_PROBE_TIMEOUT_MS, foregroundProbeTimeoutMs(MeshTransport.TAILSCALE))
     }
 
     @Test

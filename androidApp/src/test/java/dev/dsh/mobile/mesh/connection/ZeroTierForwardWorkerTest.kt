@@ -13,6 +13,27 @@ import org.junit.Test
 
 class ZeroTierForwardWorkerTest {
     @Test
+    fun `native EOF terminates relay immediately instead of polling as timeout`() {
+        val executor = Executors.newFixedThreadPool(2)
+        val localInput = CloseBlockingInputStream()
+        val local = FakeSocket(localInput, ByteArrayOutputStream()) { localInput.release() }
+        val finished = CountDownLatch(1)
+        val worker = ZeroTierForwardWorker(
+            local = local,
+            remoteInput = java.io.ByteArrayInputStream(byteArrayOf()),
+            remoteOutput = ByteArrayOutputStream(),
+            closeRemote = {},
+            executor = executor,
+            onFinished = { finished.countDown() },
+        )
+        try {
+            worker.start()
+            assertTrue("native EOF must close loopback promptly", finished.await(1, TimeUnit.SECONDS))
+            assertTrue(worker.diagnostics.remoteToLocalEnd == "native-eof")
+        } finally { executor.shutdownNow() }
+    }
+
+    @Test
     fun `close wakes both directions before native socket closes`() {
         val executor = Executors.newFixedThreadPool(2)
         val localInput = CloseBlockingInputStream()

@@ -1,5 +1,8 @@
 package dev.dsh.mobile.mesh.connection
 
+import dev.dsh.mobile.mesh.core.wire.RemoteStreamException
+import dev.dsh.mobile.mesh.core.wire.TransportFailures
+import dev.dsh.mobile.mesh.core.wire.TransportFailure
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -15,11 +18,28 @@ internal fun shouldRenewCarrierAfterLoopFailure(
     networkRecoveryPending: Boolean,
     recoveryInFlight: Boolean,
     failedAttempt: Int,
+    isCarrierFailure: Boolean = true,
 ): Boolean = !recoveryInFlight && (
-    sshEnabled ||
+    sshEnabled && isCarrierFailure ||
         networkRecoveryPending ||
-        failedAttempt >= ZERO_TIER_RENEW_AFTER_FAILURES
+        isCarrierFailure && failedAttempt >= ZERO_TIER_RENEW_AFTER_FAILURES
 )
+
+internal fun loopFailureIsCarrierFailure(cause: Throwable?): Boolean {
+    // No concrete cause means a timeout may have come from the ready frame while the carrier is
+    // healthy. A raw close cause, by contrast, is captured from the physical WebSocket.
+    if (cause == null) return false
+    val streamFailure = cause as? RemoteStreamException ?: return true // raw mux close cause is the physical socket failure
+    if (!streamFailure.carrier) return false
+    val kind = TransportFailures.of(streamFailure.error) ?: return false
+    return kind in setOf(
+        TransportFailure.REFUSED,
+        TransportFailure.TIMEOUT,
+        TransportFailure.DNS,
+        TransportFailure.UNREACHABLE,
+        TransportFailure.TLS,
+    )
+}
 
 internal const val ZERO_TIER_RENEW_AFTER_FAILURES = 3
 

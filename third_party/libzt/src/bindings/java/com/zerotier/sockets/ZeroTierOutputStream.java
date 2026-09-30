@@ -50,10 +50,7 @@ public class ZeroTierOutputStream extends OutputStream {
      */
     public void write(byte[] originBuffer) throws IOException
     {
-        int bytesWritten = ZeroTierNative.zts_bsd_write(zfd, originBuffer);
-        if (bytesWritten < 0) {
-            throw new IOException("write(originBuffer[]), errno=" + bytesWritten);
-        }
+        write(originBuffer, 0, originBuffer.length);
     }
 
     /**
@@ -75,9 +72,13 @@ public class ZeroTierOutputStream extends OutputStream {
         if ((offset + numBytes) > originBuffer.length) {
             throw new IndexOutOfBoundsException("(offset+numBytes) > originBuffer.length");
         }
-        int bytesWritten = ZeroTierNative.zts_bsd_write_offset(zfd, originBuffer, offset, numBytes);
-        if (bytesWritten < 0) {
-            throw new IOException("write(originBuffer[],offset,numBytes), errno=" + bytesWritten);
+        while (numBytes > 0) {
+            int written = ZeroTierNative.zts_bsd_write_offset(zfd, originBuffer, offset, numBytes);
+            if (written <= 0) {
+                throw new IOException("write(originBuffer[],offset,numBytes), result=" + written);
+            }
+            offset += written;
+            numBytes -= written;
         }
     }
 

@@ -293,6 +293,11 @@ fun SettingsScreen(
                         style = DsType.small13,
                         color = colors.labelTertiary,
                     )
+                    Text(
+                        stringResource(R.string.settings_api_compatibility),
+                        style = DsType.small13,
+                        color = colors.labelTertiary,
+                    )
                 }
 
                 Spacer(Modifier.height(DsSpacing.xlarge))

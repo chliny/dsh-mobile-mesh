@@ -3,6 +3,7 @@ package dev.dsh.mobile.mesh.connection
 import dev.dsh.mobile.mesh.core.wire.GenerationFailure
 import dev.dsh.mobile.mesh.core.wire.TransportFailure
 import dev.dsh.mobile.mesh.core.wire.RpcError
+import dev.dsh.mobile.mesh.core.wire.RemoteStreamException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertFalse
@@ -37,6 +38,56 @@ class CarrierRecoveryPolicyTest {
                 ),
             ),
         )
+    }
+
+    @Test
+    fun `host readiness timeout does not immediately recycle the local relay`() {
+        assertFalse(shouldRenewCarrierAfterLoopFailure(
+            sshEnabled = false,
+            networkRecoveryPending = false,
+            recoveryInFlight = false,
+            failedAttempt = 1,
+            isCarrierFailure = false,
+        ))
+    }
+
+    @Test
+    fun `ready handshake timeout without a carrier cause does not recycle ZeroTier`() {
+        assertFalse(loopFailureIsCarrierFailure(null))
+        assertFalse(shouldRenewCarrierAfterLoopFailure(
+            sshEnabled = false,
+            networkRecoveryPending = false,
+            recoveryInFlight = false,
+            failedAttempt = ZERO_TIER_RENEW_AFTER_FAILURES,
+            isCarrierFailure = loopFailureIsCarrierFailure(null),
+        ))
+    }
+
+    @Test
+    fun `raw mux close cause identifies a physical carrier loss`() {
+        assertTrue(loopFailureIsCarrierFailure(java.io.IOException("socket closed")))
+    }
+
+    @Test
+    fun `logical stream failure does not identify a dead socket`() {
+        val hostError = RemoteStreamException(RpcError("internal", "host stream ended"), carrier = false)
+        assertFalse(loopFailureIsCarrierFailure(hostError))
+    }
+
+    @Test
+    fun `carrier ping timeout renews the ZeroTier relay after threshold`() {
+        val timeout = RemoteStreamException(
+            RpcError("internal", "ping timeout", JsonObject(mapOf("transport" to JsonPrimitive(TransportFailure.TIMEOUT.name)))),
+            carrier = true,
+        )
+        assertTrue(loopFailureIsCarrierFailure(timeout))
+        assertTrue(shouldRenewCarrierAfterLoopFailure(
+            sshEnabled = false,
+            networkRecoveryPending = false,
+            recoveryInFlight = false,
+            failedAttempt = ZERO_TIER_RENEW_AFTER_FAILURES,
+            isCarrierFailure = loopFailureIsCarrierFailure(timeout),
+        ))
     }
 
     @Test
