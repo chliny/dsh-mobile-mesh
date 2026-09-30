@@ -31,7 +31,7 @@ DeepSeek Harness peut exécuter des commandes et lire ou écrire des fichiers su
 
 ## Compatibilité
 
-Version testée : [dsh-v0.1.6-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.6-alpha.2), paquet `0.1.6-alpha.2`.
+L’application vérifie certaines API Harness lors de la connexion et mémorise les résultats pour les reconnexions automatiques, afin de choisir des appels compatibles avec différentes versions.
 
 ## Références
 

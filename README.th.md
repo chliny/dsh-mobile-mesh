@@ -31,7 +31,7 @@ DeepSeek Harness สามารถรันคำสั่งและอ่า
 
 ## ความเข้ากันได้
 
-เวอร์ชันที่ทดสอบแล้ว: [dsh-v0.1.6-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.6-alpha.2), package `0.1.6-alpha.2`
+แอปจะตรวจสอบ Harness API บางส่วนเมื่อเชื่อมต่อและเก็บผลไว้ใช้เมื่อเชื่อมต่อใหม่โดยอัตโนมัติ เพื่อเลือกเรียก API ให้เข้ากันได้กับ backend ต่างเวอร์ชัน
 
 ## อ้างอิง
 

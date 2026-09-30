@@ -31,7 +31,7 @@ DeepSeek Harness host पर commands चला और files पढ़/लिख
 
 ## संगतता
 
-परीक्षित संस्करण: [dsh-v0.1.6-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.6-alpha.2), package `0.1.6-alpha.2`।
+ऐप कनेक्शन के समय कुछ Harness API की जाँच करता है और automatic reconnect के लिए परिणाम cache करता है, ताकि अलग-अलग backend versions के अनुरूप अनुरोध चुने जा सकें।
 
 ## संदर्भ
 
