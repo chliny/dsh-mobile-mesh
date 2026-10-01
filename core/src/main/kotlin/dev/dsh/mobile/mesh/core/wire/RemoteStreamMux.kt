@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.put
 
 /**
  * A logical stream failed, or the socket carrying it did.
@@ -29,7 +30,7 @@ class RemoteStreamException(
     val carrier: Boolean,
 ) : Exception(error.message)
 
-/** Sentinel recorded when the mux is closed deliberately rather than by a failure. */
+/** Fallback recorded when the mux is closed deliberately rather than by a failure. */
 class MuxClosedException : Exception("remote stream mux closed")
 
 /**
@@ -98,6 +99,7 @@ class RemoteStreamMux(
         val endpoint: String,
     ) : RemoteStream {
         val signals: Channel<Signal> = Channel(streamSignalBufferCapacity)
+        val carrierTerminated = CompletableDeferred<Unit>()
         private val done = AtomicBoolean(false)
         private val uplinkEnded = AtomicBoolean(false)
         @Volatile private var terminal: Signal? = null
@@ -114,8 +116,13 @@ class RemoteStreamMux(
             }
         }
 
+        suspend fun awaitCarrierTermination() {
+            carrierTerminated.await()
+        }
+
         fun terminate(signal: Signal) {
             synchronized(lifecycleLock) {
+                if (signal is Signal.Failed && signal.carrier) carrierTerminated.complete(Unit)
                 done.set(true)
                 uplinkEnded.set(true)
                 terminal = signal
@@ -167,6 +174,7 @@ class RemoteStreamMux(
     private val channelClosed = AtomicBoolean(false)
     private val inboundMessages = LongAdder()
     private val outboundMessages = LongAdder()
+    private val carrierTerminal = CompletableDeferred<Throwable?>()
 
     data class Diagnostics(
         val inboundMessages: Long,
@@ -284,9 +292,12 @@ class RemoteStreamMux(
         closedCause?.let { throw it }
     }
 
-    /** Suspend until the physical WebSocket closes. */
-    suspend fun awaitClosed() {
-        closed.await()
+    /** Suspend until the physical WebSocket closes, returning the terminal carrier cause. */
+    suspend fun awaitClosed(): Throwable? = carrierTerminal.await()
+
+    /** Observe a carrier termination without consuming the logical stream's ordered items. */
+    suspend fun awaitStreamCarrierTermination(stream: RemoteStream) {
+        (stream as? Stream)?.awaitCarrierTermination() ?: closed.await()
     }
 
     /**
@@ -364,6 +375,7 @@ class RemoteStreamMux(
         synchronized(lifecycleLock) {
             val closure = cause ?: MuxClosedException()
             if (closedCause == null) closedCause = closure
+            carrierTerminal.complete(closure)
             closed.complete(Unit)
             // Unblocks awaitOpen for a socket that failed its upgrade and never opened at all.
             opened.complete(Unit)
@@ -384,10 +396,17 @@ class RemoteStreamMux(
 
     private fun carrierError(cause: Throwable): RpcError {
         val status = (cause as? RpcTransportException)?.status ?: 0
+        val details = when (cause) {
+            is WebSocketClosedException -> kotlinx.serialization.json.buildJsonObject {
+                put("transport", TransportFailures.classify(cause).name)
+                put("websocketCloseCode", cause.code)
+            }
+            else -> TransportFailures.details(TransportFailures.classify(cause), status)
+        }
         return RpcError(
             code = "internal",
             message = cause.message ?: "remote stream carrier failed",
-            details = TransportFailures.details(TransportFailures.classify(cause), status),
+            details = details,
         )
     }
 }

@@ -307,12 +307,13 @@ class ConnectionLoopHandshakeTest {
         )
         try {
             loop.start()
-            assertTrue("expected three short-lived ready generations", await { sleeps.size == 3 })
+            assertTrue("expected three short-lived ready generations", await { sleeps.size >= 3 })
             assertEquals(3, recorder.connected.size)
             assertTrue("first backoff was $sleeps", sleeps[0] in 100L..200L)
             assertTrue("second backoff was $sleeps", sleeps[1] in 200L..400L)
             assertTrue("bounded third backoff was $sleeps", sleeps[2] in 200L..400L)
-            assertTrue(recorder.failures.isEmpty())
+            assertEquals(3, recorder.failures.size)
+            assertTrue(recorder.carrierFailures.all { it is MuxClosedException })
         } finally {
             loop.stop()
         }
@@ -326,7 +327,7 @@ class ConnectionLoopHandshakeTest {
         val thirdGenerationStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
         recorder.onConnection = { generation ->
             // First carrier fails quickly; the next survives long enough to reset its retry streak.
-            clock.addAndGet(if (recorder.connected.size == 1) 1_000_000 else 11_000_000_000L)
+            clock.addAndGet(if (recorder.connected.size == 1) 1_000_000 else 60_001_000_000L)
             generation.mux.close()
         }
         var created = 0
@@ -449,6 +450,45 @@ class ConnectionLoopHandshakeTest {
         loop.stop()
 
         assertEquals(listOf(ConnectionState.RECONNECTING, ConnectionState.CONNECTED), recorder.states)
+    }
+
+    @Test
+    fun `carrier close after ready reports cause and increasing backoff`() = runBlocking {
+        val recorder = Recorder()
+        val close = WebSocketClosedException(1001, "peer restart")
+        val sleeps = CopyOnWriteArrayList<Long>()
+        var generation = 0
+        val loop = ConnectionLoop(
+            muxFactory = {
+                generation++
+                RemoteStreamMux { sink ->
+                    FakeChannel(sink) { channelSink ->
+                        onSend = { _, text ->
+                            if (text.contains("\"type\":\"open\"")) {
+                                val id = streamIdOf(text)
+                                channelSink.onMessage(item(id, readyFrame))
+                                channelSink.onClosed(close)
+                            }
+                        }
+                        channelSink.onOpen()
+                    }
+                }
+            },
+            sinks = recorder,
+            config = LoopConfig(durableGenerationMs = 60_000, delay = { sleeps += it }),
+        )
+        try {
+            loop.start()
+            assertTrue(await { recorder.failures.size >= 3 })
+            assertTrue(recorder.connected.size >= recorder.failures.size)
+            assertTrue(recorder.connected.size - recorder.failures.size <= 1)
+            assertEquals(1001, (recorder.carrierFailures.first() as WebSocketClosedException).code)
+            assertTrue(sleeps[0] in 500L..1_000L)
+            assertTrue(sleeps[1] in 1_000L..2_000L)
+            assertTrue(sleeps[2] in 2_000L..4_000L)
+        } finally {
+            loop.stop()
+        }
     }
 
     @Test
