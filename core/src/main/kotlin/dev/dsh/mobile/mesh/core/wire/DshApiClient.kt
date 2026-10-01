@@ -939,6 +939,9 @@ class DshApiClient(
             is RpcResult.Err -> result
         }
 
+    /** Permission preset catalog, introduced after the legacy projection bundled its options. */
+    suspend fun permissionPresetsCatalog(): RpcResult<JsonElement> = callEmpty("permissionPresets/catalog")
+
     /** `fileReferences/list` — file-reference completion candidates for a composer mention. */
     suspend fun fileReferencesList(sessionId: String, query: String): RpcResult<JsonElement> =
         call(

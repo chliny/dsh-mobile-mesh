@@ -161,6 +161,17 @@ class PermissionDtosTest {
     }
 
     @Test
+    fun `modern current value projection can join a separately probed catalog`() {
+        val projection = decodeFromString<PermissionSelect>("""{"currentValue":"workspace-write"}""")
+        assertTrue(projection.options.isEmpty())
+        val choices = listOf(
+            PresetOption("workspace-write", "Workspace write"),
+            PresetOption("danger-full-access", "Full access"),
+        )
+        assertEquals(choices, projection.withOptions(choices).selectable)
+    }
+
+    @Test
     fun `labels are humanised the same way the desktop client does`() {
         assertEquals("Full access", displayPermissionPreset("danger-full-access", "danger-full-access"))
         assertEquals("Workspace Write", displayPermissionPreset("workspace-write", "workspace-write"))

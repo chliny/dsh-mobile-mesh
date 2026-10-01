@@ -196,6 +196,9 @@ class ConnectionManager @Inject constructor(
         get() = activeProtocol == HarnessProtocol.PARENT_CATALOG
     val subagentCatalogProtocolUndetermined: Boolean
         get() = activeProtocol == HarnessProtocol.UNDETERMINED
+    /** Modern permission projections carry only currentValue; catalog RPC supplies selectable options. */
+    val supportsPermissionPresetsCatalog: Boolean
+        get() = activeProtocol == HarnessProtocol.PARENT_CATALOG
     private val lifecycle = ConnectionLifecycleCoordinator<ConnectionIntent>()
     private var teardownJob: Job? = null
     @Volatile private var connectJob: Job? = null

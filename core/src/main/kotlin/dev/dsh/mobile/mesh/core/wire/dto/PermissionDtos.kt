@@ -29,9 +29,12 @@ data class PresetOption(
 /** The whole `permissions` projection payload: every option plus the effective one. */
 @Serializable
 data class PermissionSelect(
+    /** Legacy hosts included the catalog in this projection; modern hosts moved it to permissionPresets/catalog. */
     @SerialName("options") val options: List<PresetOption> = emptyList(),
     @SerialName("currentValue") val currentValue: String,
 ) {
+    /** New hosts publish only currentValue here; fallback options are used only if version probing says legacy. */
+    fun withOptions(catalog: List<PresetOption>): PermissionSelect = copy(options = catalog)
     /** The options a client may switch to — [CUSTOM_PRESET] is derived, never selectable. */
     val selectable: List<PresetOption> get() = options.filterNot { it.value == CUSTOM_PRESET }
 
