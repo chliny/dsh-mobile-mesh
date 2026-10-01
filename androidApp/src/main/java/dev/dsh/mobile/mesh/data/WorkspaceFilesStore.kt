@@ -91,7 +91,8 @@ class WorkspaceFilesStore @Inject constructor(
     }
 
     fun searchReferences(workspaceKey: String, sessionId: String, query: String) {
-        if (query.isBlank()) return
+        // An empty query is meaningful: the composer invokes this immediately after `@` so the
+        // host can return its initial reference candidates before the user types a path prefix.
         val api = connectionManager.connectedApi ?: return
         referenceSearchJob?.cancel()
         referenceSearchJob = scope.launch {
