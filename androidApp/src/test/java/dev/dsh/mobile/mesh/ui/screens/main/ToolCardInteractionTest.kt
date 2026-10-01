@@ -15,6 +15,7 @@ class ToolCardInteractionTest {
     fun `mention matching remains active for the latest whitespace-delimited token`() {
         assertEquals("src/main.kt", mentionQueryForDraft("please inspect @src/main.kt"))
         assertEquals("src", mentionQueryForDraft("@src"))
+        // Empty query is valid and requests the initial candidate list immediately after `@`.
         assertEquals("", mentionQueryForDraft("@"))
         assertEquals(null, mentionQueryForDraft("@src/main.kt "))
     }
