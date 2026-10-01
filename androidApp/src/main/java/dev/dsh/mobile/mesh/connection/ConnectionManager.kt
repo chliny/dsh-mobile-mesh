@@ -42,8 +42,11 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /** Deliberately excludes exception messages, which can contain endpoint or account details. */
-internal fun safeTransportDiagnostic(cause: Throwable): String =
-    "${cause.javaClass.simpleName}:${TransportFailures.classify(cause).name}"
+internal fun safeTransportDiagnostic(cause: Throwable): String = when (cause) {
+    is dev.dsh.mobile.mesh.core.wire.WebSocketClosedException ->
+        "WebSocketClosedException:code=${cause.code}:${TransportFailures.classify(cause).name}"
+    else -> "${cause.javaClass.simpleName}:${TransportFailures.classify(cause).name}"
+}
 
 /** UI-facing connection state. */
 enum class ConnectionPhase { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING }
@@ -361,7 +364,7 @@ class ConnectionManager @Inject constructor(
                             sshEnabled = activeHost?.sshEnabled == true,
                             networkRecoveryPending = networkRecoveryGate.isPending() || networkLostWhileConnected,
                             recoveryInFlight = synchronized(recoveryLock) { transportRecoveryInFlight },
-                            failedAttempt = 1,
+                            failedAttempt = current.attempts + 1,
                             isCarrierFailure = loopFailureIsCarrierFailure(carrierFailure),
                         )) recoverTransportAfterCarrierLoss()
                 }
