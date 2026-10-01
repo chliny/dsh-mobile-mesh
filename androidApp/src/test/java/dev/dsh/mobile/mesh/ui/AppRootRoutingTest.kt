@@ -21,9 +21,20 @@ class AppRootRoutingTest {
     }
 
     @Test
-    fun `recreated connection list does not treat recovery as explicit selection`() {
-        // awaitingSelectedConnection is transient and intentionally not saveable: after a process
-        // recreation it resets to false, so successful recovery cannot impersonate a user tap.
+    fun `killed app keeps pending first connection selection for successful recovery`() {
+        // The selected host is saved with Compose state. On process recreation its successful
+        // connection must still route to sessions rather than leave the user on startup connections.
+        assertTrue(shouldRouteSelectedConnection(
+            phaseConnected = true,
+            selectedAuthority = "host:22",
+            activeAuthority = "host:22",
+            editing = false,
+            awaitingSelectedConnection = true,
+        ))
+    }
+
+    @Test
+    fun `recovery without a pending selection does not route from connection list`() {
         assertFalse(shouldRouteSelectedConnection(
             phaseConnected = true,
             selectedAuthority = "host:22",
