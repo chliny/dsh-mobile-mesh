@@ -298,6 +298,7 @@ class ConnectionLoopHandshakeTest {
                 baseDelayMs = 100,
                 maxDelayMs = 400,
                 jitterCapMs = 400,
+                durableGenerationMs = 10_000,
                 nanoTime = clock::get,
                 delay = { ms ->
                     sleeps.add(ms)
