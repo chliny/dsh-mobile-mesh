@@ -318,6 +318,12 @@ interface WsChannelSink {
  * The browser-session cookie is required on the upgrade too, so a missing session costs the entire
  * connection generation rather than one call.
  */
+class WebSocketClosedException(val code: Int, reason: String) : IOException(
+    "WebSocket closed code=$code reason=${reason.take(MAX_CLOSE_REASON_LENGTH)}",
+)
+
+private const val MAX_CLOSE_REASON_LENGTH = 120
+
 open class WsChannel(
     private val url: String,
     private val client: OkHttpClient,
@@ -344,7 +350,10 @@ open class WsChannel(
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-            sink.onClosed(null)
+            // Preserve the peer's close frame in diagnostics. A clean WebSocket close is still a
+            // mux carrier loss: without code/reason the reconnect loop can only report a generic
+            // "remote stream mux closed", which hides server restarts and policy closes.
+            sink.onClosed(WebSocketClosedException(code, reason))
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {

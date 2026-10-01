@@ -52,8 +52,38 @@ class RemoteStreamMuxLivenessTest {
         assertTrue(failure is RemoteStreamException)
         assertTrue((failure as RemoteStreamException).carrier)
         assertEquals(1, channel.closedCount)
+        assertTrue(mux.awaitClosed() is MuxClosedException)
         mux.close()
         assertEquals(1, channel.closedCount)
+    }
+
+    @Test
+    fun `awaitClosed returns the carrier cause when no stream observes closure`() = runBlocking {
+        lateinit var channel: FakeChannel
+        val mux = RemoteStreamMux { sink -> FakeChannel(sink).also { channel = it } }
+        mux.start()
+        mux.awaitOpen()
+        val peerClose = WebSocketClosedException(1012, "backend restart")
+
+        channel.emitClosed(peerClose)
+
+        assertTrue(mux.awaitClosed() === peerClose)
+        assertTrue(mux.failure === peerClose)
+    }
+
+    @Test
+    fun `stream carrier terminal latch wakes independently of queued items`() = runBlocking {
+        lateinit var channel: FakeChannel
+        val mux = RemoteStreamMux(streamSignalBufferCapacity = 4) { sink -> FakeChannel(sink).also { channel = it } }
+        mux.start()
+        mux.awaitOpen()
+        val stream = mux.open("\$events")
+        channel.emitMessage("""{"type":"item","streamId":"1","value":{"type":"ready","clientId":"a","host":{"home":"/"}}}""")
+        channel.emitClosed(WebSocketClosedException(1001, "closing"))
+
+        assertTrue(stream.receive() != null)
+        mux.awaitStreamCarrierTermination(stream)
+        assertEquals(1001, (mux.failure as WebSocketClosedException).code)
     }
 
     @Test
@@ -162,6 +192,21 @@ class RemoteStreamMuxLivenessTest {
         assertTrue(runCatching { stream.send(JsonPrimitive("late")) }.isFailure)
         stream.endUplink()
         assertEquals(1, channel.sent.size)
+    }
+
+    @Test
+    fun `peer websocket close code and bounded reason survive mux failure`() = runBlocking {
+        lateinit var channel: FakeChannel
+        val mux = RemoteStreamMux { sink -> FakeChannel(sink).also { channel = it } }
+        mux.start()
+        mux.awaitOpen()
+        val stream = mux.open("session/control")
+        val close = WebSocketClosedException(1001, "server restart")
+        channel.emitClosed(close)
+
+        assertEquals(close, mux.failure)
+        assertEquals(1001, (mux.failure as WebSocketClosedException).code)
+        assertTrue((receiveFailure(stream) as RemoteStreamException).carrier)
     }
 
     @Test

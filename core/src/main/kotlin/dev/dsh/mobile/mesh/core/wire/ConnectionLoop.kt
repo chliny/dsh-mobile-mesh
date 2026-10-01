@@ -142,10 +142,12 @@ class LoopConfig(
     val delay: suspend (Long) -> Unit = ::defaultSleep,
     /** Monotonic clock for measuring how long a ready generation actually stayed established. */
     val nanoTime: () -> Long = System::nanoTime,
+    /** Ready carrier must remain alive this long before its reconnect backoff streak is cleared. */
+    val durableGenerationMs: Long = DEFAULT_DURABLE_GENERATION_MS,
 )
 
 // A ready carrier must survive long enough to be considered established, not merely handshake.
-private const val DURABLE_GENERATION_NANOS = 10_000_000_000L
+const val DEFAULT_DURABLE_GENERATION_MS = 60_000L
 
 /** Default reconnect sleep (delegates to kotlinx.coroutines.delay). */
 private suspend fun defaultSleep(ms: Long) {
@@ -224,16 +226,26 @@ class ConnectionLoop(
                     val establishedAt = config.nanoTime()
                     safeSink { sinks.onConnected(opened.generation) }
                     safeSink { sinks.onStateChange(ConnectionState.CONNECTED) }
-                    consumeEvents(opened.events, opened.generation.mux, opened.generation.clientId)
-                    closeGeneration(token, ownerToken)
-                    // A ready frame alone does not make a healthy carrier: a peer that repeatedly
-                    // closes immediately after ready must grow the same bounded backoff as a failed
-                    // handshake. Only a sustained generation clears the streak, so its first drop
-                    // still reconnects immediately.
-                    attempt = if (config.nanoTime() - establishedAt >= DURABLE_GENERATION_NANOS) {
+                    val completed = try {
+                        consumeEvents(opened.events, opened.generation.mux, opened.generation.clientId, establishedAt)
+                    } finally {
+                        closeGeneration(token, ownerToken)
+                    }
+                    val carrierFailure = completed.first
+                    val endedAt = completed.second
+                    // A carrier that closes after ready is still a failed generation. Report it just
+                    // like a failed handshake so UI/recovery policy sees the real close code and the
+                    // retry streak is retained until a genuinely durable carrier survives.
+                    attempt = if (endedAt - establishedAt >= config.durableGenerationMs * 1_000_000L) {
                         0
                     } else {
                         if (attempt == Int.MAX_VALUE) attempt else attempt + 1
+                    }
+                    if (carrierFailure != null) {
+                        val reported = attempt
+                        val cause = carrierFailure
+                        val failure = GenerationFailure.MuxFailed(TransportFailures.classify(cause), cause.message)
+                        safeSink { sinks.onGenerationFailed(reported, failure, opened.generation.mux, cause) }
                     }
                 }
 
@@ -241,7 +253,7 @@ class ConnectionLoop(
                     attempt = if (attempt == Int.MAX_VALUE) attempt else attempt + 1
                     val reported = attempt
                     val failedMux = current
-                    val carrierFailure = failedMux?.failure ?: if (failedMux?.isClosed == true) MuxClosedException() else null
+                    val carrierFailure = opened.carrierFailure ?: failedMux?.failure ?: if (failedMux?.isClosed == true) MuxClosedException() else null
                     closeGeneration(token, ownerToken)
                     safeSink { sinks.onGenerationFailed(reported, opened.failure, failedMux, carrierFailure) }
                 }
@@ -257,7 +269,7 @@ class ConnectionLoop(
     /** Outcome of one handshake attempt: the ready generation, or why it did not open. */
     private sealed class Opened {
         data class Ok(val generation: HostGeneration, val events: RemoteStream) : Opened()
-        data class Failed(val failure: GenerationFailure) : Opened()
+        data class Failed(val failure: GenerationFailure, val carrierFailure: Throwable? = null) : Opened()
     }
 
     /**
@@ -324,7 +336,7 @@ class ConnectionLoop(
                 ),
             )
         } catch (e: RemoteStreamException) {
-            return Opened.Failed(GenerationFailure.ReadyFailed(e.error))
+            return Opened.Failed(GenerationFailure.ReadyFailed(e.error), carrierFailure = if (e.carrier) mux.failure ?: e else null)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -364,15 +376,19 @@ class ConnectionLoop(
     }
 
     /** Forward `$events` frames until its carrier fails. */
-    private suspend fun consumeEvents(events: RemoteStream, mux: RemoteStreamMux, clientId: String) {
+    private suspend fun consumeEvents(events: RemoteStream, mux: RemoteStreamMux, clientId: String, establishedAt: Long): Pair<Throwable?, Long> {
+        var carrierFailure: Throwable? = null
+        var endedAt = establishedAt
         try {
             while (true) {
                 val value = events.receive()
                 if (value == null) {
                     // `$events` can be a finite bootstrap stream. Its clean end does not close the
                     // shared mux, whose session streams remain usable until the carrier ends.
-                    mux.awaitClosed()
-                    return
+                    mux.awaitStreamCarrierTermination(events)
+                    carrierFailure = mux.failure ?: mux.awaitClosed()
+                    endedAt = config.nanoTime()
+                    break
                 }
                 val frame = decodeEventFrame(value)
                 // One unparseable frame is not worth ending a generation over: the allowlist
@@ -390,15 +406,21 @@ class ConnectionLoop(
             // not turn into a visible "remote stream carrier failed" retry attempt.
             throw e
         } catch (e: RemoteStreamException) {
-            if (!e.carrier) {
+            if (e.carrier) {
+                carrierFailure = mux.failure ?: e
+                endedAt = config.nanoTime()
+            } else {
                 // `$events` is one logical stream on the shared mux. A host-level failure of
                 // that stream does not invalidate the session/control streams on the same socket.
-                mux.awaitClosed()
+                mux.awaitStreamCarrierTermination(events)
+                carrierFailure = mux.failure ?: mux.awaitClosed()
+                endedAt = config.nanoTime()
             }
         } finally {
             // The shared mux owns the carrier lifecycle. Cancelling the logical events stream here
             // can race a reconnect/close on native-backed transports; close the generation instead.
         }
+        return carrierFailure to endedAt
     }
 
     private fun decodeEventFrame(value: JsonElement): RemoteEventFrame? = try {
