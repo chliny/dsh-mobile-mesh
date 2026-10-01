@@ -15,7 +15,7 @@ import kotlinx.serialization.json.booleanOrNull
 /** Session API generation: a parent-catalog host replaced `subagents/list`. */
 enum class HarnessProtocol { LEGACY_SUBAGENTS, PARENT_CATALOG, UNDETERMINED }
 
-enum class HarnessCapability { SUBAGENT_PROJECTION }
+enum class HarnessCapability { SUBAGENT_PROJECTION, PERMISSION_PRESETS_CATALOG }
 
 /** Keep optional version discovery from consuming the whole connection operation timeout. */
 internal const val HARNESS_PROTOCOL_PROBE_TIMEOUT_MS = 8_000L

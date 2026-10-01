@@ -49,6 +49,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.JobFollowFrameSerializer
 import dev.dsh.mobile.mesh.core.wire.dto.JobFollowRequest
 import dev.dsh.mobile.mesh.core.wire.dto.JobKillRequest
 import dev.dsh.mobile.mesh.core.wire.dto.PermissionSelect
+import dev.dsh.mobile.mesh.core.wire.dto.PresetOption
 import dev.dsh.mobile.mesh.core.wire.dto.PlanStateView
 import dev.dsh.mobile.mesh.core.wire.dto.PluginInventorySnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.PromptContentPart
@@ -138,6 +139,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -437,7 +439,21 @@ class SessionStore @Inject constructor(
     // deriving keeps them in lockstep with the transcript and adds no round trips. A null value
     // means the key is absent — the harness composes no such service — and callers hide the UI.
 
-    val permissions: StateFlow<PermissionSelect?> = projectionOf(PermissionSelect.serializer(), "permissions")
+    /**
+     * Legacy hosts include `options` in the session projection. New hosts publish only currentValue
+     * and expose their live process catalog via permissionPresets/catalog; do not fabricate choices
+     * when that catalog is unavailable.
+     */
+    private val permissionOptions = MutableStateFlow<List<PresetOption>?>(null)
+    val permissions: StateFlow<PermissionSelect?> = combine(
+        currentConversation,
+        permissionOptions,
+    ) { conversation, catalog ->
+        val element = conversation?.projections?.get("permissions") ?: return@combine null
+        val select = runCatching { decodeFromJsonElement(PermissionSelect.serializer(), element) }.getOrNull()
+            ?: return@combine null
+        if (connectionManager.supportsPermissionPresetsCatalog && catalog != null) select.withOptions(catalog) else select
+    }.stateIn(scope, SharingStarted.Eagerly, null)
     val sessionStats: StateFlow<SessionStatsView?> = projectionOf(SessionStatsView.serializer(), "sessionStats")
     val tokenUsage: StateFlow<TokenUsageView?> = projectionOf(TokenUsageView.serializer(), "tokenUsage")
     val contextPressure: StateFlow<ContextPressureView?> =
@@ -704,6 +720,7 @@ class SessionStore @Inject constructor(
                     connectionHostId = hostId
                     triggerBaseline()
                 }
+                if (connectionManager.supportsPermissionPresetsCatalog) refreshPermissionOptions()
                 if (currentSessionId.value != null) {
                     reopenSelectedSessionAfterReconnect()
                 }
@@ -1826,6 +1843,7 @@ class SessionStore @Inject constructor(
         startFollow(sessionId, address)
         startJobList(sessionId)
         scope.launch { refreshProjections(sessionId) }
+        if (connectionManager.supportsPermissionPresetsCatalog) scope.launch { refreshPermissionOptions() }
         // A red/orange carrier has no usable API generation. Preserve the user's chosen session
         // locally and let the connection baseline reopen it once green, rather than launching
         // several unary RPCs to the relay that recovery is actively closing.
@@ -2537,6 +2555,26 @@ class SessionStore @Inject constructor(
             is RpcResult.Err -> {
                 setConnectionError(r.error.message)
                 null
+            }
+        }
+    }
+
+    /** Refresh host-scoped permission choices for modern hosts; legacy choices remain projection-owned. */
+    suspend fun refreshPermissionOptions() {
+        if (!connectionManager.supportsPermissionPresetsCatalog) {
+            permissionOptions.value = null
+            return
+        }
+        val api = apiOrNull() ?: return
+        when (val result = api.permissionPresetsCatalog()) {
+            is RpcResult.Ok -> {
+                val root = result.value as? JsonObject ?: return
+                permissionOptions.value = (root["options"] as? JsonArray).orEmpty().mapNotNull { row ->
+                    runCatching { decodeFromJsonElement(PresetOption.serializer(), row) }.getOrNull()
+                }
+            }
+            is RpcResult.Err -> {
+                log("permissionPresets/catalog unavailable (${result.error.code}): ${result.error.message}")
             }
         }
     }

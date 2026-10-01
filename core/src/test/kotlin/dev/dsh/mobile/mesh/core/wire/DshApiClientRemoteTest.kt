@@ -135,6 +135,19 @@ class DshApiClientRemoteTest {
     }
 
     @Test
+    fun `permission catalog reads modern catalog remote`() = runTest {
+        val transport = RecordingTransport { path, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """{"options":[{"value":"workspace-write","name":"Workspace write"}]}""")
+        }
+
+        val result = client(transport).permissionPresetsCatalog()
+
+        assertEquals("/api/permissionPresets/catalog", transport.lastPath)
+        assertTrue((result as RpcResult.Ok).value.jsonObject["options"]!!.jsonArray.isNotEmpty())
+    }
+
+    @Test
     fun `changes summary reads the authenticated json route`() = runTest {
         val transport = RecordingTransport { _, _ -> error("not used") }
         transport.rawBody = """{"turn":3,"files":[{"path":"src/A.kt","display":"src/A.kt","added":2,"deleted":1}],"total":1,"added":2,"deleted":1}"""

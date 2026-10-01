@@ -41,6 +41,21 @@ class HarnessProtocolSelectionTest {
         })
     }
 
+    @Test fun `version discriminator can gate the modern permission catalog`() {
+        val old = HarnessProtocolSelection()
+        val modern = HarnessProtocolSelection()
+        runBlocking {
+            assertEquals(HarnessProtocol.LEGACY_SUBAGENTS, old.detect {
+                RpcResult.Ok(list("""{"items":[{"sessionId":"s1"}]}"""))
+            })
+            assertEquals(HarnessProtocol.PARENT_CATALOG, modern.detect {
+                RpcResult.Ok(list("""{"items":[{"sessionId":"s1","agentAvailable":true}]}"""))
+            })
+        }
+        assertEquals(false, old.selected == HarnessProtocol.PARENT_CATALOG)
+        assertEquals(true, modern.selected == HarnessProtocol.PARENT_CATALOG)
+    }
+
     @Test fun `empty or inconsistent summaries cannot be guessed as a version`() {
         assertNull(classifySessionList(list("""{"items":[]}""")))
         assertNull(classifySessionList(list("""{"items":[{"sessionId":"a"},{"sessionId":"b","agentAvailable":true}]}""")))
