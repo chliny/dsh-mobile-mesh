@@ -275,6 +275,18 @@ internal fun conversationForSelectedSession(
 internal fun shouldOpenControlBaseline(phase: ConnectionPhase): Boolean =
     phase == ConnectionPhase.CONNECTED
 
+/** Ignore a second baseline request for the same published generation. */
+internal fun shouldQueueBaselineForGeneration(
+    generationClientId: String?,
+    lastQueuedClientId: String?,
+): Boolean = generationClientId == null || generationClientId != lastQueuedClientId
+
+internal fun shouldReopenSessionForGeneration(
+    selectedSessionId: String?,
+    generationClientId: String,
+    lastOpened: Pair<String, String>?,
+): Boolean = selectedSessionId != null && lastOpened != (generationClientId to selectedSessionId)
+
 /** Prefer the active host identity; a changing mux clientId is never a durable host key. */
 internal fun sessionBaselineHostId(activeHostId: String?, fallbackHostId: String?): String? =
     activeHostId ?: fallbackHostId
@@ -303,6 +315,8 @@ class SessionStore @Inject constructor(
     private val baselineStateLock = Any()
     private var baselineRunning = false
     private var baselineDirty = false
+    private var baselineQueuedClientId: String? = null
+    private var selectedSessionReopened: Pair<String, String>? = null
     /** Serialize session selection so rapid taps cannot interleave follow/metadata replacement. */
     private val sessionSwitchMutex = Mutex()
     /** Latest-wins queue: rapid drawer taps must not backlog one network switch per tap. */
@@ -612,7 +626,7 @@ class SessionStore @Inject constructor(
         // StateFlow collector sees no transition and the control baseline would never be opened,
         // leaving queues created by another client invisible until a reconnect.
         if (shouldOpenControlBaseline(connectionManager.state.value.phase)) {
-            triggerBaseline()
+            triggerBaseline(connectionManager.generation?.clientId)
         }
     }
 
@@ -716,12 +730,16 @@ class SessionStore @Inject constructor(
                 // across mux retries and is not a host ID; deriving baseline ownership from it
                 // could leave the session drawer empty forever after a reconnect.
                 val hostId = sessionBaselineHostId(connectionManager.state.value.host?.id, connectionHostId)
-                if (hostId != null && sessionListBaselineHostId != hostId) {
-                    connectionHostId = hostId
-                    triggerBaseline()
-                }
+                if (hostId != null && sessionListBaselineHostId != hostId) connectionHostId = hostId
+                triggerBaseline(generation.clientId)
                 if (connectionManager.supportsPermissionPresetsCatalog) refreshPermissionOptions()
-                if (currentSessionId.value != null) {
+                val selectedSessionId = currentSessionId.value
+                if (shouldReopenSessionForGeneration(
+                        selectedSessionId,
+                        generation.clientId,
+                        selectedSessionReopened,
+                    )) {
+                    selectedSessionReopened = generation.clientId to selectedSessionId!!
                     reopenSelectedSessionAfterReconnect()
                 }
             }
@@ -736,13 +754,15 @@ class SessionStore @Inject constructor(
                 prev = state
                 if (initialConnect || reconnect) {
                     state.host?.id?.let { connectionHostId = it }
-                    triggerBaseline()
-                    if (shouldReopenSessionAfterReconnect(
-                            hasSelectedSession = currentSessionId.value != null,
-                            hasConnectionGeneration = connectionManager.generation != null,
-                        )) {
-                        scope.launch { reopenSelectedSessionAfterReconnect() }
+                    val generation = connectionManager.generation
+                    if (generation == null) {
+                        triggerBaseline()
+                    } else {
+                        triggerBaseline(generation.clientId)
                     }
+                    // connectedGenerations owns session reopening for a published generation.
+                    // This state collector remains a fallback for initial state transitions where
+                    // no generation event was observed yet.
                 }
                 if (state.phase == ConnectionPhase.RECONNECTING || state.phase == ConnectionPhase.DISCONNECTED) {
                     _workspacesLoaded.value = false
@@ -811,8 +831,12 @@ class SessionStore @Inject constructor(
     private fun <T> decodeOrNull(serializer: kotlinx.serialization.KSerializer<T>, item: JsonElement): T? =
         runCatching { decodeFromJsonElement(serializer, item) }.getOrNull()
 
-    private fun triggerBaseline() {
+    private fun triggerBaseline(generationClientId: String? = null) {
         val shouldStart = synchronized(baselineStateLock) {
+            if (!shouldQueueBaselineForGeneration(generationClientId, baselineQueuedClientId)) {
+                return@synchronized false
+            }
+            baselineQueuedClientId = generationClientId
             baselineDirty = true
             if (baselineRunning) false else {
                 baselineRunning = true

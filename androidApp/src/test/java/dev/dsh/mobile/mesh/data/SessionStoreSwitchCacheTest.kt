@@ -46,6 +46,23 @@ class SessionStoreSwitchCacheTest {
     }
 
     @Test
+    fun `baseline is queued at most once per published generation`() {
+        assertTrue(shouldQueueBaselineForGeneration("generation-1", null))
+        assertFalse(shouldQueueBaselineForGeneration("generation-1", "generation-1"))
+        assertTrue(shouldQueueBaselineForGeneration("generation-2", "generation-1"))
+        assertTrue(shouldQueueBaselineForGeneration(null, "generation-1"))
+    }
+
+    @Test
+    fun `selected session is reopened once per generation and session pair`() {
+        assertTrue(shouldReopenSessionForGeneration("session-a", "generation-1", null))
+        assertFalse(shouldReopenSessionForGeneration("session-a", "generation-1", "generation-1" to "session-a"))
+        assertTrue(shouldReopenSessionForGeneration("session-a", "generation-2", "generation-1" to "session-a"))
+        assertTrue(shouldReopenSessionForGeneration("session-b", "generation-1", "generation-1" to "session-a"))
+        assertFalse(shouldReopenSessionForGeneration(null, "generation-1", null))
+    }
+
+    @Test
     fun `already connected store must open control baseline`() {
         assertTrue(shouldOpenControlBaseline(dev.dsh.mobile.mesh.connection.ConnectionPhase.CONNECTED))
         assertFalse(shouldOpenControlBaseline(dev.dsh.mobile.mesh.connection.ConnectionPhase.RECONNECTING))
