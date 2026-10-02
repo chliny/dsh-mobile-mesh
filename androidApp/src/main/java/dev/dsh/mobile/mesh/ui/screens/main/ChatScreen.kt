@@ -116,7 +116,7 @@ fun ChatScreen(
     val loadingOlder by store.loadingOlder.collectAsStateWithLifecycle()
     val loadOlderFailed by store.loadOlderFailed.collectAsStateWithLifecycle()
     val pendingApproval by store.pendingApproval.collectAsStateWithLifecycle()
-    val pendingQuestions by store.pendingQuestions.collectAsStateWithLifecycle()
+    val pendingQuestions by store.visibleQuestions.collectAsStateWithLifecycle()
     val permissions by store.permissions.collectAsStateWithLifecycle()
     val pendingPermission by store.pendingPermission.collectAsStateWithLifecycle()
     val agentPresets by store.agentPresets.collectAsStateWithLifecycle()
@@ -545,6 +545,9 @@ fun ChatScreen(
                 )
             }
             if (questions != null) {
+                questions.remainingMs?.let { remaining ->
+                    Text(stringResource(R.string.question_expires_in, (remaining + 999L) / 1_000L), style = DsType.caption11, color = colors.labelTertiary)
+                }
                 var planBusy by remember(questions.rpcId) { mutableStateOf(false) }
                 // A plan review rides the question channel but is a different decision, so it gets
                 // the card built for it. The narrowing decides which — and hands back anything the
@@ -567,6 +570,7 @@ fun ChatScreen(
                             AskUserQuestionAnswer(
                                 listOf(AskUserQuestionAnswerItem(review.id, listOf(option.label))),
                             ),
+                            questions.callId,
                         )
                     }
                     PlanReviewPanel(
@@ -579,7 +583,7 @@ fun ChatScreen(
                         onDiscuss = {
                             planBusy = true
                             scope.launch {
-                                val outcome = store.dismissQuestions(questions.sessionId)
+                                val outcome = store.dismissQuestions(questions.sessionId, questions.callId)
                                 if (shouldClearComposerDraftAfterQuestionDismiss(outcome)) {
                                     draft = ""
                                     draftStore.clear(questions.sessionId)
@@ -595,9 +599,9 @@ fun ChatScreen(
                         requestKey = questions.rpcId,
                         questions = questions.items,
                         onSubmit = { answer ->
-                            refusalOf(store.answerQuestions(questions.sessionId, answer))
+                            refusalOf(store.answerQuestions(questions.sessionId, answer, questions.callId))
                         },
-                        onDismiss = { refusalOf(store.dismissQuestions(questions.sessionId)) },
+                        onDismiss = { refusalOf(store.dismissQuestions(questions.sessionId, questions.callId)) },
                     )
                 }
             }

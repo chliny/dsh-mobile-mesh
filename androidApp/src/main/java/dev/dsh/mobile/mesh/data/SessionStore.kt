@@ -24,6 +24,8 @@ import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionAnswer
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionIntent
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionItem
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionRequestEvent
+import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionWait
+import dev.dsh.mobile.mesh.core.wire.dto.UserQuestionsProjectionView
 import dev.dsh.mobile.mesh.core.wire.dto.CUSTOM_PRESET
 import dev.dsh.mobile.mesh.core.wire.dto.CommandDescriptor
 import dev.dsh.mobile.mesh.core.wire.dto.CommandSubmitAttachment
@@ -120,6 +122,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -248,6 +253,9 @@ data class PendingQuestions(
     val sessionId: String,
     val rpcId: String,
     val items: List<AskUserQuestionItem>,
+    val callId: String? = null,
+    val foreground: Boolean = false,
+    val remainingMs: Long? = null,
 )
 
 /**
@@ -426,6 +434,21 @@ class SessionStore @Inject constructor(
 
     private val _pendingQuestions = MutableStateFlow<PendingQuestions?>(null)
     val pendingQuestions: StateFlow<PendingQuestions?> = _pendingQuestions.asStateFlow()
+    val userQuestions: StateFlow<UserQuestionsProjectionView?> =
+        projectionOf(UserQuestionsProjectionView.serializer(), "userQuestions")
+    val visibleQuestions: StateFlow<PendingQuestions?> = combine(_pendingQuestions, userQuestions, currentSessionId) {
+        pending, projection, sessionId ->
+        if (sessionId == null) null else {
+            val foreground = pending?.takeIf { it.sessionId == sessionId && it.foreground }
+            val continued = continuedQuestion(projection, foreground?.callId)
+            if (continued != null) PendingQuestions(
+                sessionId = sessionId,
+                rpcId = continued.callId,
+                items = continued.questions,
+                callId = continued.callId,
+            ) else pending?.takeIf { it.sessionId == sessionId && questionRoute(it, projection) != QuestionRoute.None }
+        }
+    }.stateIn(scope, SharingStarted.Eagerly, null)
 
     private val _commands = MutableStateFlow<List<CommandDescriptor>>(emptyList())
     val commands: StateFlow<List<CommandDescriptor>> = _commands.asStateFlow()
@@ -535,6 +558,7 @@ class SessionStore @Inject constructor(
     private val approvalRequests = HashMap<String, ApprovalRequest>() // eventId -> request
     private val questionEventBySession = HashMap<String, String>() // sessionId -> eventId
     private val questionClientBySession = HashMap<String, String>() // sessionId -> generation clientId
+    private val questionWaitJobs = HashMap<String, Job>() // eventId -> attached foreground wait
 
     // Open-session fold state.
     private var currentId: String? = null
@@ -683,6 +707,9 @@ class SessionStore @Inject constructor(
     /** Clear the visible session mirror before a user-selected host starts connecting. */
     fun prepareForConnection(hostId: String) {
         followJob?.cancel()
+        questionWaitJobs.values.forEach(Job::cancel)
+        questionWaitJobs.clear()
+        _pendingQuestions.value = null
         controlJob?.cancel()
         jobListJob?.cancel()
         jobFollowJobs.values.forEach(Job::cancel)
@@ -770,6 +797,9 @@ class SessionStore @Inject constructor(
                     // deliver another frame until OkHttp's carrier timeout, leaving stale collectors
                     // and loading state looking like a frozen page.
                     followJob?.cancel()
+                    questionWaitJobs.values.forEach(Job::cancel)
+                    questionWaitJobs.clear()
+                    _pendingQuestions.value = null
                     controlJob?.cancel()
                     jobListJob?.cancel()
                     jobFollowJobs.values.forEach(Job::cancel)
@@ -960,7 +990,7 @@ class SessionStore @Inject constructor(
                 val request = runCatching {
                     decodeFromJsonElement(AskUserQuestionRequestEvent.serializer(), frame.request)
                 }.getOrNull() ?: return
-                handleQuestionRequested(frame.eventId, frame.agentId, request.questions, frame.clientId)
+                handleQuestionRequested(frame.eventId, frame.agentId, request.questions, frame.clientId, request.wait)
             }
             else -> log("unhandled waterfall ${frame.event}")
         }
@@ -974,6 +1004,7 @@ class SessionStore @Inject constructor(
      * checked.
      */
     private fun handleWaterfallCancelled(eventId: String) {
+        questionWaitJobs.remove(eventId)?.cancel()
         // A Web client can answer before Android has finished publishing its local registry. Use the
         // visible state as a second correlation source so a remote answer cannot leave a stale panel.
         val visibleApproval = _pendingApproval.value
@@ -1361,7 +1392,12 @@ class SessionStore @Inject constructor(
         sessionId: String,
         questions: List<AskUserQuestionItem>,
         clientId: String?,
+        wait: AskUserQuestionWait?,
     ) {
+        if (shouldAttachQuestionWait(wait?.timed, wait?.callId)) {
+            attachQuestionWait(eventId, sessionId, wait!!.callId, questions, clientId)
+            return
+        }
         synchronized(lock) {
             questionEventBySession[sessionId] = eventId
             if (clientId != null) questionClientBySession[sessionId] = clientId
@@ -1374,6 +1410,73 @@ class SessionStore @Inject constructor(
             emitSessionsLocked()
         }
         _pendingQuestions.value = PendingQuestions(sessionId, eventId, questions)
+    }
+
+    /** Claim before showing a timed prompt; a failed claim must never offer an unanswerable card. */
+    private fun attachQuestionWait(
+        eventId: String,
+        sessionId: String,
+        callId: String,
+        questions: List<AskUserQuestionItem>,
+        clientId: String?,
+    ) {
+        questionWaitJobs.remove(eventId)?.cancel()
+        val generation = connectionManager.generation?.takeIf { it.clientId == clientId } ?: return
+        questionWaitJobs[eventId] = scope.launch {
+            try {
+                coroutineScope {
+                    val opening = Channel<Long>(1)
+                    val stream = launch {
+                        try {
+                            generation.mux.userQuestionsAttachWait(sessionId, callId).collect { remaining ->
+                                opening.trySend(remaining.remainingMs.coerceAtLeast(0L))
+                            }
+                        } finally {
+                            opening.close()
+                        }
+                    }
+                    try {
+                        val duration = opening.receiveCatching().getOrNull() ?: return@coroutineScope
+                        synchronized(lock) {
+                            questionEventBySession[sessionId] = eventId
+                            questionClientBySession[sessionId] = generation.clientId
+                            addPendingLocked(sessionId, "question")
+                            emitSessionsLocked()
+                        }
+                        _pendingQuestions.value = PendingQuestions(sessionId, eventId, questions, callId, true, duration)
+                        val deadline = android.os.SystemClock.elapsedRealtime() + duration
+                        while (stream.isActive && _pendingQuestions.value?.rpcId == eventId) {
+                            val left = (deadline - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+                            if (left == 0L) {
+                                // The Host pauses its timer while this Client holds the claim.
+                                connectionManager.apiForEvent(generation.clientId)?.answerEvent(
+                                    generation.clientId, eventId, RemoteEventOutcome.Rejected(
+                                        error = RemoteEventRejection("UserQuestionError", "question wait timed out", "ASK_TIMED_OUT"),
+                                    ),
+                                )
+                                break
+                            }
+                            delay(minOf(200L, left))
+                            _pendingQuestions.value = _pendingQuestions.value?.takeIf { it.rpcId == eventId }?.copy(
+                                remainingMs = (deadline - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0L),
+                            )
+                        }
+                        // An accepted reply must retain the claim until the Host settles the wait.
+                        if (stream.isActive && connectionManager.generation?.clientId == generation.clientId) stream.join()
+                    } finally {
+                        stream.cancel()
+                    }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                log("question wait claim failed for $callId", failure)
+            } finally {
+                questionWaitJobs.remove(eventId)
+                clearQuestions(sessionId, eventId)
+                if (connectionManager.generation?.clientId == generation.clientId) refreshProjections(sessionId)
+            }
+        }
     }
 
     // ------------------------------------------------------------------ session list state updates
@@ -2417,7 +2520,16 @@ class SessionStore @Inject constructor(
      * therefore reached the wire, was accepted, and simply never reached the model — the user's
      * typed answer deleted in transit with nothing to show for it.
      */
-    suspend fun answerQuestions(sessionId: String, answer: AskUserQuestionAnswer): QuestionOutcome {
+    suspend fun answerQuestions(sessionId: String, answer: AskUserQuestionAnswer, callId: String? = null): QuestionOutcome {
+        if (callId != null && _pendingQuestions.value?.callId != callId) {
+            val continued = userQuestions.value?.active?.any { it.callId == callId && it.state == "continued" } == true
+            if (!continued) return QuestionOutcome.Refused("not-pending")
+            val api = apiOrNull() ?: return QuestionOutcome.Unsent("no connection is available")
+            return when (val result = api.userQuestionsAnswer(sessionId, callId, answer)) {
+                is RpcResult.Ok -> if (result.value) QuestionOutcome.Accepted else QuestionOutcome.Refused("not-pending")
+                is RpcResult.Err -> QuestionOutcome.Unsent("${result.error.code}: ${result.error.message}")
+            }
+        }
         val eventId = pendingQuestionEvent(sessionId) ?: return QuestionOutcome.Refused("not-pending")
         val clientId = pendingQuestionClientId(sessionId)
             ?: return QuestionOutcome.Unsent("no event generation is available")
@@ -2462,7 +2574,10 @@ class SessionStore @Inject constructor(
      * the tool call as cancelled. The code has to be exactly `cancelled`; the proxy refuses an
      * `ok:false` carrying any other.
      */
-    suspend fun dismissQuestions(sessionId: String): QuestionOutcome {
+    suspend fun dismissQuestions(sessionId: String, callId: String? = null): QuestionOutcome {
+        if (callId != null && _pendingQuestions.value?.callId != callId) {
+            return QuestionOutcome.Refused("continued questions require an answer")
+        }
         val eventId = pendingQuestionEvent(sessionId) ?: return QuestionOutcome.Refused("not-pending")
         val clientId = pendingQuestionClientId(sessionId)
             ?: return QuestionOutcome.Unsent("no event generation is available")

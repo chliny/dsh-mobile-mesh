@@ -422,6 +422,15 @@ data class ApprovalRequestEvent(
 @Serializable
 data class AskUserQuestionRequestEvent(
     @SerialName("questions") val questions: List<AskUserQuestionItem> = emptyList(),
+    /** Absent on legacy indefinite requests. Timed requests identify the tool call and claim mode. */
+    @SerialName("wait") val wait: AskUserQuestionWait? = null,
+)
+
+/** Foreground wait metadata from a timed `user-questions/request` waterfall. */
+@Serializable
+data class AskUserQuestionWait(
+    @SerialName("callId") val callId: String,
+    @SerialName("timed") val timed: Boolean? = null,
 )
 
 /**

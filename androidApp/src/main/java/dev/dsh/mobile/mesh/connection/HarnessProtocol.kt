@@ -15,7 +15,7 @@ import kotlinx.serialization.json.booleanOrNull
 /** Session API generation: a parent-catalog host replaced `subagents/list`. */
 enum class HarnessProtocol { LEGACY_SUBAGENTS, PARENT_CATALOG, UNDETERMINED }
 
-enum class HarnessCapability { SUBAGENT_PROJECTION, PERMISSION_PRESETS_CATALOG, TERMINAL }
+enum class HarnessCapability { SUBAGENT_PROJECTION, PERMISSION_PRESETS_CATALOG, TERMINAL, USER_QUESTIONS }
 
 /** Keep optional version discovery from consuming the whole connection operation timeout. */
 internal const val HARNESS_PROTOCOL_PROBE_TIMEOUT_MS = 8_000L
@@ -30,6 +30,11 @@ internal class HarnessProtocolSelection {
 
     fun supports(capability: HarnessCapability): Boolean? =
         synchronized(mutableCapabilities) { mutableCapabilities[capability] }
+
+    /** A registered projection is positive evidence; its absence is not proof of an older Host. */
+    fun observeProjectionKeys(values: Map<String, JsonElement>) {
+        if (values.containsKey("userQuestions")) record(HarnessCapability.USER_QUESTIONS, true)
+    }
 
     private fun record(capability: HarnessCapability, supported: Boolean) {
         synchronized(mutableCapabilities) { mutableCapabilities[capability] = supported }

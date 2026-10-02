@@ -139,6 +139,18 @@ class HarnessProtocolSelectionTest {
         assertNull(selection.supports(HarnessCapability.TERMINAL))
     }
 
+    @Test fun `user questions projection is positive evidence cached for reconnect`() = runBlocking {
+        val selection = HarnessProtocolSelection()
+        assertNull(selection.supports(HarnessCapability.USER_QUESTIONS))
+        selection.observeProjectionKeys(mapOf("todos" to kotlinx.serialization.json.JsonNull))
+        assertNull(selection.supports(HarnessCapability.USER_QUESTIONS))
+        selection.observeProjectionKeys(mapOf("userQuestions" to list("""{"active":[],"settled":[]}""")))
+        assertEquals(true, selection.supports(HarnessCapability.USER_QUESTIONS))
+        selection.observeProjectionKeys(emptyMap())
+        assertEquals(true, selection.supports(HarnessCapability.USER_QUESTIONS))
+        assertNull(HarnessProtocolSelection().supports(HarnessCapability.USER_QUESTIONS))
+    }
+
     @Test fun `authentication and unrelated failures do not select any version`() {
         val intent = HarnessProtocolSelection()
         assertThrows(ProtocolProbeException::class.java) {
