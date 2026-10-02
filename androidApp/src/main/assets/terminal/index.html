@@ -1,0 +1,18 @@
+<!doctype html>
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"><link rel="stylesheet" href="xterm.css"><style>html,body{height:100%;width:100%;margin:0;background:#10141d;overflow:hidden} #terminal{position:fixed;top:0;left:0;height:100vh;width:100%;background:#10141d;overflow:hidden} .xterm{padding:4px;box-sizing:border-box} </style></head><body><div id="terminal"></div><script src="xterm.js"></script><script src="addon-fit.js"></script><script>
+'use strict';
+const term = new Terminal({cursorBlink:true,allowTransparency:false,scrollback:1000,convertEol:false,fontFamily:'monospace, "Noto Color Emoji"',fontSize:14,theme:{background:'#10141d',foreground:'#e6eaf1',cursor:'#f8f8f2'}});
+const fitAddon=new FitAddon.FitAddon();term.loadAddon(fitAddon);
+term.open(document.getElementById('terminal'));
+term.onData(data => AndroidTerminal.input(data));
+term.onResize(({cols,rows}) => AndroidTerminal.resize(cols,rows));
+function fit() {const container=document.getElementById('terminal'); container.style.height=window.innerHeight+'px'; fitAddon.fit();}
+new ResizeObserver(fit).observe(document.getElementById('terminal'));
+window.addEventListener('resize',fit);
+window.terminalReset=(text)=>{term.reset();term.write(text);};
+window.terminalWrite=(text)=>term.write(text);
+window.terminalFocus=()=>term.focus();
+window.terminalInput=(text)=>AndroidTerminal.input(text);
+window.terminalDimensions=()=>[term.cols,term.rows];
+requestAnimationFrame(fit);
+</script></body></html>

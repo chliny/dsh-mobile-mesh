@@ -20,6 +20,13 @@
     <string name="common_error">Something went wrong</string>
     <string name="common_close">Close</string>
     <string name="common_back">Back</string>
+    <string name="terminal_title">Terminal</string>
+    <string name="terminal_new">New terminal</string>
+    <string name="terminal_close">Close terminal</string>
+    <string name="terminal_input">Terminal input</string>
+    <string name="terminal_send">Send</string>
+    <string name="terminal_offline">Connect to the host to use the terminal</string>
+    <string name="terminal_input_full">Terminal input is busy; retry after it catches up</string>
     <string name="workspace_files_title">Workspace files</string>
     <string name="workspace_files_refresh">Refresh files</string>
     <string name="workspace_files_binary">This file cannot be previewed as text.</string>

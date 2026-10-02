@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat
 import dev.dsh.mobile.mesh.core.wire.ConnectionLoop
 import dev.dsh.mobile.mesh.core.wire.ConnectionState
 import dev.dsh.mobile.mesh.core.wire.DshApiClient
+import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.dto.HostDescription
 import dev.dsh.mobile.mesh.core.wire.LoopConfig
 import dev.dsh.mobile.mesh.core.wire.GenerationFailure
@@ -36,6 +37,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
@@ -194,6 +198,8 @@ class ConnectionManager @Inject constructor(
     @Volatile private var activeProtocol: HarnessProtocol? = null
     /** Immutable API family detected by the current explicit connection intent. */
     val harnessProtocol: HarnessProtocol? get() = activeProtocol
+    private val _terminalAvailable = MutableStateFlow(false)
+    val terminalAvailable: StateFlow<Boolean> = _terminalAvailable.asStateFlow()
     /** The selected API family replaces `subagents/list` with a parent projection. */
     val supportsSubagentCatalogProjection: Boolean
         get() = activeProtocol == HarnessProtocol.PARENT_CATALOG
@@ -293,6 +299,7 @@ class ConnectionManager @Inject constructor(
             loopFence.runIfCurrent(token) {
             val generationApi = api ?: return@runIfCurrent
             this@ConnectionManager.generation = generation
+            if (publishedGenerationNeedsProbe) _terminalAvailable.value = false
             eventApis[generation.clientId] = generationApi
             val host = activeHost
             val previousState = _state.value
@@ -401,6 +408,7 @@ class ConnectionManager @Inject constructor(
 
         override fun onGenerationFailed(attempt: Int, failure: GenerationFailure, failedMux: RemoteStreamMux?, carrierFailure: Throwable?) {
             loopFence.runIfCurrent(token) {
+            _terminalAvailable.value = false
             val muxDiagnostics = failedMux?.diagnostics?.let { stats ->
                 " mux=in:${stats.inboundMessages},out:${stats.outboundMessages},streams:${stats.activeStreams}"
             } ?: ""
@@ -460,6 +468,7 @@ class ConnectionManager @Inject constructor(
         afterTransportReady: suspend (baseUrl: String) -> Unit = {},
     ) {
         activeProtocol = null
+        _terminalAvailable.value = false
         val target = lifecycle.request(ConnectionIntent(config, afterTransportReady))
         suspendedHost = config
         suspendedTransportReady = afterTransportReady
@@ -679,12 +688,36 @@ class ConnectionManager @Inject constructor(
                 },
             )
             val selection = target.value.protocolSelection
+            // `terminal/list` takes a caller-controlled session ID and is a safe no-create probe.
+            // Unknown/transient errors leave the entry hidden; a subsequent generation retries.
+            val probeSessionId = runCatching { nextApi.sessionListProbe() }
+                .getOrNull()?.let { (it as? RpcResult.Ok)?.value }
+                ?.let { it as? JsonObject }
+                ?.get("items") as? JsonArray
+
+            val knownSessionId = probeSessionId?.firstNotNullOfOrNull { row ->
+                (row as? kotlinx.serialization.json.JsonObject)?.get("sessionId")
+                    ?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }
+            }
+            val terminalSupported = try {
+                if (knownSessionId == null) false else
+                kotlinx.coroutines.withTimeoutOrNull(HARNESS_PROTOCOL_PROBE_TIMEOUT_MS) {
+                    selection.probeBooleanCapability(HarnessCapability.TERMINAL) {
+                        nextApi.terminalList(knownSessionId)
+                    }
+                } == true
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                false
+            }
             Log.d("ConnectionManager", "Harness API generation detected: $selectedProtocol; capability results=${selection.capabilities}")
             Log.d("ConnectionManager", "Session API protocol selected: $selectedProtocol")
             synchronized(publicationLock) {
                 if (!lifecycle.accepts(target.token)) return
                 pendingTransportReady = null
                 activeProtocol = selectedProtocol
+                _terminalAvailable.value = terminalSupported
                 api = nextApi
                 eventApis.clear()
                 val token = loopFence.next()
@@ -725,6 +758,7 @@ class ConnectionManager @Inject constructor(
 
     fun disconnect() {
         activeProtocol = null
+        _terminalAvailable.value = false
         lifecycle.disconnect()
         scope.launch { hostsStore.setActiveConnectionId(null) }
         suspendedHost = null

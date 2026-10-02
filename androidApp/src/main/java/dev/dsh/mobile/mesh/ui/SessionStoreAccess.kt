@@ -3,6 +3,7 @@ package dev.dsh.mobile.mesh.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import dev.dsh.mobile.mesh.connection.ConnectionManager
 import dev.dsh.mobile.mesh.connection.HostsStore
 import dev.dsh.mobile.mesh.data.ChatDraftStore
 import dev.dsh.mobile.mesh.data.SessionStore
@@ -27,6 +28,7 @@ interface SessionStoreEntryPoint {
     fun chatDraftStore(): ChatDraftStore
     fun workspaceFilesStore(): WorkspaceFilesStore
     fun hostsStore(): HostsStore
+    fun connectionManager(): ConnectionManager
     fun appNavigationState(): AppNavigationState
 }
 
@@ -52,6 +54,14 @@ internal fun rememberWorkspaceFilesStore(): WorkspaceFilesStore {
     val context = LocalContext.current.applicationContext
     return remember {
         EntryPointAccessors.fromApplication(context, SessionStoreEntryPoint::class.java).workspaceFilesStore()
+    }
+}
+
+@Composable
+internal fun rememberConnectionManager(): ConnectionManager {
+    val context = LocalContext.current.applicationContext
+    return remember {
+        EntryPointAccessors.fromApplication(context, SessionStoreEntryPoint::class.java).connectionManager()
     }
 }
 

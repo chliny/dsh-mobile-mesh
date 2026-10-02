@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.automirrored.outlined.List
@@ -78,6 +79,8 @@ internal fun ChatTopBar(
     onOpenSubagents: () -> Unit,
     onOpenDetails: () -> Unit,
     onOpenFiles: () -> Unit,
+    onOpenTerminal: () -> Unit,
+    terminalAvailable: Boolean,
     onTabChange: (ChatTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -112,6 +115,15 @@ internal fun ChatTopBar(
                 contentAlignment = Alignment.Center,
             ) {
                 ConnectionStatusDot(connectionPhase)
+            }
+            if (terminalAvailable) {
+                DsIconButton(
+                    icon = Icons.Filled.Terminal,
+                    contentDescription = stringResource(R.string.terminal_title),
+                    onClick = onOpenTerminal,
+                    tint = colors.labelTertiary,
+                    iconSize = 20.dp,
+                )
             }
             DsIconButton(
                 icon = Icons.Filled.Folder,

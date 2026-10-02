@@ -110,6 +110,35 @@ class HarnessProtocolSelectionTest {
         assertEquals(HarnessProtocol.UNDETERMINED, intent.selected)
     }
 
+    @Test fun `terminal capability probe only accepts existing route and caches result`() = runBlocking {
+        val modern = HarnessProtocolSelection()
+        var calls = 0
+        assertEquals(true, modern.probeBooleanCapability(HarnessCapability.TERMINAL) {
+            calls++
+            RpcResult.Ok(emptyList<Any>())
+        })
+        assertEquals(true, modern.probeBooleanCapability(HarnessCapability.TERMINAL) {
+            error("cached terminal capability must not probe again")
+        })
+        assertEquals(1, calls)
+
+        val old = HarnessProtocolSelection()
+        assertEquals(false, old.probeBooleanCapability(HarnessCapability.TERMINAL) {
+            RpcResult.Err(RpcError("internal", "HTTP 404", TransportFailures.details(TransportFailure.NOT_FOUND, 404)))
+        })
+        assertEquals(false, old.supports(HarnessCapability.TERMINAL))
+    }
+
+    @Test fun `terminal capability refuses to interpret auth errors as missing route`() {
+        val selection = HarnessProtocolSelection()
+        assertThrows(ProtocolProbeException::class.java) {
+            runBlocking { selection.probeBooleanCapability(HarnessCapability.TERMINAL) {
+                RpcResult.Err(RpcError("unauthenticated", "HTTP 401"))
+            } }
+        }
+        assertNull(selection.supports(HarnessCapability.TERMINAL))
+    }
+
     @Test fun `authentication and unrelated failures do not select any version`() {
         val intent = HarnessProtocolSelection()
         assertThrows(ProtocolProbeException::class.java) {
