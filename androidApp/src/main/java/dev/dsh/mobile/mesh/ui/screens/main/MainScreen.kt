@@ -72,6 +72,7 @@ internal fun workspaceFilesScopeSessionId(
 
 private sealed interface MainPage {
     data object Chat : MainPage
+    data object Terminal : MainPage
     data class Files(
         val path: String = ".",
         val rootTitle: String? = null,
@@ -92,6 +93,7 @@ internal data class MainPageRoute(
 
 private fun MainPage.toRoute(): MainPageRoute = when (this) {
     MainPage.Chat -> MainPageRoute()
+    MainPage.Terminal -> MainPageRoute("terminal")
     is MainPage.Files -> MainPageRoute("files", path, rootTitle.orEmpty(), rootTitle = rootTitle, rootPath = rootPath)
     is MainPage.Preview -> {
         val files = returnPage as? MainPage.Files
@@ -100,11 +102,12 @@ private fun MainPage.toRoute(): MainPageRoute = when (this) {
 }
 
 internal fun MainPageRoute.restoredKind(): String = when (kind) {
-    "files", "preview" -> kind
+    "files", "preview", "terminal" -> kind
     else -> "chat"
 }
 
 private fun MainPageRoute.toPage(): MainPage = when (restoredKind()) {
+    "terminal" -> MainPage.Terminal
     "files" -> MainPage.Files(path, rootTitle, rootPath)
     "preview" -> MainPage.Preview(
         path,
@@ -144,6 +147,8 @@ fun MainScreen(
     val scope = rememberCoroutineScope()
 
     val store = dev.dsh.mobile.mesh.ui.rememberSessionStore()
+    val connectionManager = dev.dsh.mobile.mesh.ui.rememberConnectionManager()
+    val terminalAvailable by connectionManager.terminalAvailable.collectAsStateWithLifecycle()
     val navigationState = dev.dsh.mobile.mesh.ui.rememberAppNavigationState()
     val sessionId by store.currentSessionId.collectAsStateWithLifecycle()
     val visibleChatSessionId = sessionId.takeIf { page == MainPage.Chat }
@@ -173,6 +178,7 @@ fun MainScreen(
             navigate(MainPage.Chat)
         } else {
             when (val current = page) {
+                MainPage.Terminal -> TerminalScreen(sessionId = sid, onBack = { navigate(MainPage.Chat) })
                 is MainPage.Files -> WorkspaceFilesScreen(
                     workspaceKey = workspaceKey ?: "session:$sid",
                     sessionId = scopeSessionId ?: sid,
@@ -281,6 +287,8 @@ fun MainScreen(
                         scope.launch { store.openSubagentSession(parentId, childId) }
                     }
                 },
+                terminalAvailable = terminalAvailable,
+                onOpenTerminal = { navigate(MainPage.Terminal) },
                 onOpenFiles = {
                     navigate(MainPage.Files(path = rootPath, rootTitle = rootDirectoryName, rootPath = rootPath))
                 },

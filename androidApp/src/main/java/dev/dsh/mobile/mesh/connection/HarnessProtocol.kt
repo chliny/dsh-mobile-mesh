@@ -15,7 +15,7 @@ import kotlinx.serialization.json.booleanOrNull
 /** Session API generation: a parent-catalog host replaced `subagents/list`. */
 enum class HarnessProtocol { LEGACY_SUBAGENTS, PARENT_CATALOG, UNDETERMINED }
 
-enum class HarnessCapability { SUBAGENT_PROJECTION, PERMISSION_PRESETS_CATALOG }
+enum class HarnessCapability { SUBAGENT_PROJECTION, PERMISSION_PRESETS_CATALOG, TERMINAL }
 
 /** Keep optional version discovery from consuming the whole connection operation timeout. */
 internal const val HARNESS_PROTOCOL_PROBE_TIMEOUT_MS = 8_000L
@@ -91,16 +91,11 @@ internal class HarnessProtocolSelection {
                 classifyProjectionRoute(projection)
             }
             is RpcResult.Err -> {
-                // A temporary timeout must not tear down a transport that has already completed
-                // its ready handshake. Leave the API family unknown; the session-list baseline will
-                // retry against the published client and report a real data-fetch error if needed.
                 if (TransportFailures.of(result.error) == TransportFailure.TIMEOUT ||
                     TransportFailures.of(result.error) == TransportFailure.OTHER && result.error.message.contains("timeout", ignoreCase = true)
                 ) {
                     HarnessProtocol.UNDETERMINED
                 } else {
-                    // No Session Controller can serve the app; a missing *list* route does not identify
-                    // a usable older release. Preserve the transport diagnostic without guessing.
                     val kind = TransportFailures.of(result.error)
                     throw ProtocolProbeException(
                         result.error.code,
@@ -109,12 +104,12 @@ internal class HarnessProtocolSelection {
                 }
             }
         }
-    }
+}
 
 /** The mandatory `agentAvailable` summary field arrived in the same backend change as the catalog. */
 internal fun classifySessionList(value: JsonElement): HarnessProtocol? {
     val rows = ((value as? JsonObject)?.get("items") as? JsonArray) ?: return null
-    if (rows.isEmpty()) return null // An empty corpus has no release discriminator: never guess.
+    if (rows.isEmpty()) return null
     val availability = rows.map { (it as? JsonObject)?.get("agentAvailable") }
     if (availability.all { it is JsonPrimitive && !it.isString && it.booleanOrNull != null }) {
         return HarnessProtocol.PARENT_CATALOG

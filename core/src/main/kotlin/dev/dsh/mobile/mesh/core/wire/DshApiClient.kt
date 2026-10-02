@@ -60,6 +60,9 @@ import dev.dsh.mobile.mesh.core.wire.dto.SubagentCatalog
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentInterruptValue
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentPromptRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentPromptValue
+import dev.dsh.mobile.mesh.core.wire.dto.TerminalCreateRequest
+import dev.dsh.mobile.mesh.core.wire.dto.TerminalEnvironment
+import dev.dsh.mobile.mesh.core.wire.dto.WebTerminalInfo
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceArchiveSessionRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceArchiveValue
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceUnarchiveSessionRequest
@@ -446,6 +449,49 @@ class DshApiClient(
     /** `job/kill` — request human cancellation of a job visible to this session. */
     suspend fun jobKill(request: JobKillRequest): RpcResult<JobKillValue> =
         callRequest("job/kill", request)
+
+    // ------------------------------------------------------------------ session terminals
+
+    /** List host-retained terminals without activating a session Agent. */
+    suspend fun terminalList(sessionId: String): RpcResult<List<WebTerminalInfo>> =
+        call("terminal/list", args { put("sessionId", JsonPrimitive(sessionId)) })
+
+    /** Read the execution environment for a session Agent. */
+    suspend fun terminalEnvironment(agentId: String): RpcResult<TerminalEnvironment> =
+        call("terminal/environment", args { put("agentId", JsonPrimitive(agentId)) })
+
+    /** Create or retrieve one terminal by its caller-minted identity. */
+    suspend fun terminalCreate(agentId: String, request: TerminalCreateRequest): RpcResult<WebTerminalInfo> =
+        call("terminal/create", args {
+            put("agentId", JsonPrimitive(agentId))
+            put("request", encodeToJsonElement(TerminalCreateRequest.serializer(), request))
+        })
+
+    /** Send UTF-8 input through the current writable attachment. */
+    suspend fun terminalWrite(agentId: String, id: String, attachmentId: String, data: String): RpcResult<JsonElement> =
+        call("terminal/write", args {
+            put("agentId", JsonPrimitive(agentId))
+            put("id", JsonPrimitive(id))
+            put("attachmentId", JsonPrimitive(attachmentId))
+            put("data", JsonPrimitive(data))
+        })
+
+    /** Resize a PTY through its current writable attachment. */
+    suspend fun terminalResize(agentId: String, id: String, attachmentId: String, cols: Int, rows: Int): RpcResult<JsonElement> =
+        call("terminal/resize", args {
+            put("agentId", JsonPrimitive(agentId))
+            put("id", JsonPrimitive(id))
+            put("attachmentId", JsonPrimitive(attachmentId))
+            put("cols", JsonPrimitive(cols))
+            put("rows", JsonPrimitive(rows))
+        })
+
+    /** Close a terminal identity; the host makes repeated closes succeed. */
+    suspend fun terminalClose(agentId: String, id: String): RpcResult<JsonElement> =
+        call("terminal/close", args {
+            put("agentId", JsonPrimitive(agentId))
+            put("id", JsonPrimitive(id))
+        })
 
     // ------------------------------------------------------------------ subagents
 

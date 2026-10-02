@@ -89,6 +89,8 @@ fun ChatScreen(
     reconnectAttempt: Int,
     onReconnect: () -> Unit,
     onOpenFiles: () -> Unit = {},
+    onOpenTerminal: () -> Unit = {},
+    terminalAvailable: Boolean = false,
     onOpenFile: (String, String) -> Unit = { _, _ -> },
     onOpenSubagent: (String) -> Unit = {},
 ) {
@@ -432,6 +434,8 @@ fun ChatScreen(
                 onOpenSubagents = { sheet = ChatSheet.Subagents },
                 onOpenDetails = onOpenDetails,
                 onOpenFiles = onOpenFiles,
+                onOpenTerminal = onOpenTerminal,
+                terminalAvailable = terminalAvailable,
                 onTabChange = { tab = it },
             )
 

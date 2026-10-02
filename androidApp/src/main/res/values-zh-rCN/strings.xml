@@ -19,6 +19,13 @@
     <string name="common_error">出了点问题</string>
     <string name="common_close">关闭</string>
     <string name="common_back">返回</string>
+    <string name="terminal_title">终端</string>
+    <string name="terminal_new">新建终端</string>
+    <string name="terminal_close">关闭终端</string>
+    <string name="terminal_input">终端输入</string>
+    <string name="terminal_send">发送</string>
+    <string name="terminal_offline">连接主机后使用终端</string>
+    <string name="terminal_input_full">终端输入繁忙，请稍后重试</string>
     <string name="workspace_files_title">工作区文件</string>
     <string name="workspace_files_refresh">刷新文件</string>
     <string name="common_edit">编辑</string>
