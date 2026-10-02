@@ -198,6 +198,9 @@ class ConnectionManager @Inject constructor(
     @Volatile private var activeProtocol: HarnessProtocol? = null
     /** Immutable API family detected by the current explicit connection intent. */
     val harnessProtocol: HarnessProtocol? get() = activeProtocol
+    @Volatile private var activeUserQuestionsCapability: Boolean? = null
+    /** True only after a read-only projection positively identifies the timed question service. */
+    val supportsUserQuestionsRemote: Boolean get() = activeUserQuestionsCapability == true
     private val _terminalAvailable = MutableStateFlow(false)
     val terminalAvailable: StateFlow<Boolean> = _terminalAvailable.asStateFlow()
     /** The selected API family replaces `subagents/list` with a parent projection. */
@@ -468,6 +471,7 @@ class ConnectionManager @Inject constructor(
         afterTransportReady: suspend (baseUrl: String) -> Unit = {},
     ) {
         activeProtocol = null
+        activeUserQuestionsCapability = null
         _terminalAvailable.value = false
         val target = lifecycle.request(ConnectionIntent(config, afterTransportReady))
         suspendedHost = config
@@ -699,6 +703,24 @@ class ConnectionManager @Inject constructor(
                 (row as? kotlinx.serialization.json.JsonObject)?.get("sessionId")
                     ?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }
             }
+            // This read cannot create or activate a Session. A registered projection is definitive
+            // evidence of the optional Remote, but a missing projection never means unsupported.
+            if (knownSessionId != null && selection.supports(HarnessCapability.USER_QUESTIONS) != true) {
+                try {
+                    kotlinx.coroutines.withTimeoutOrNull(HARNESS_PROTOCOL_PROBE_TIMEOUT_MS) {
+                        when (val result = nextApi.sessionProjections(
+                            dev.dsh.mobile.mesh.core.wire.dto.SessionProjectionsRequest(knownSessionId),
+                        )) {
+                            is RpcResult.Ok -> result.value?.let { selection.observeProjectionKeys(it.values) }
+                            is RpcResult.Err -> Unit
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // This optional read is inconclusive when a provider is absent or the host is busy.
+                }
+            }
             val terminalSupported = try {
                 if (knownSessionId == null) false else
                 kotlinx.coroutines.withTimeoutOrNull(HARNESS_PROTOCOL_PROBE_TIMEOUT_MS) {
@@ -717,6 +739,7 @@ class ConnectionManager @Inject constructor(
                 if (!lifecycle.accepts(target.token)) return
                 pendingTransportReady = null
                 activeProtocol = selectedProtocol
+                activeUserQuestionsCapability = selection.supports(HarnessCapability.USER_QUESTIONS)
                 _terminalAvailable.value = terminalSupported
                 api = nextApi
                 eventApis.clear()
@@ -758,6 +781,7 @@ class ConnectionManager @Inject constructor(
 
     fun disconnect() {
         activeProtocol = null
+        activeUserQuestionsCapability = null
         _terminalAvailable.value = false
         lifecycle.disconnect()
         scope.launch { hostsStore.setActiveConnectionId(null) }

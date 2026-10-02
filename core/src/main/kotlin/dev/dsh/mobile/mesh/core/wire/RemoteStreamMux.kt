@@ -1,5 +1,6 @@
 package dev.dsh.mobile.mesh.core.wire
 
+import dev.dsh.mobile.mesh.core.wire.dto.UserQuestionWaitRemaining
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteStreamClientMessage
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteStreamClientMessageSerializer
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteStreamServerMessage
@@ -12,6 +13,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -348,6 +350,16 @@ class RemoteStreamMux(
             stream.cancel()
         }
     }
+
+    /**
+     * Claim a live root agent's foreground wait. The host emits one remaining duration, then
+     * holds the stream open until the wait settles; cancellation releases this Client's claim.
+     */
+    fun userQuestionsAttachWait(agentId: String, callId: String): Flow<UserQuestionWaitRemaining> =
+        openStream("userQuestions/attachWait", JsonObject(mapOf(
+            "agentId" to kotlinx.serialization.json.JsonPrimitive(agentId),
+            "callId" to kotlinx.serialization.json.JsonPrimitive(callId),
+        ))).map { decodeFromJsonElement(UserQuestionWaitRemaining.serializer(), it) }
 
     /** Tear the socket down and fail every open logical stream. Idempotent. */
     fun close() {

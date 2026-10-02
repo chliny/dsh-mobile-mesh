@@ -60,6 +60,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.SubagentCatalog
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentInterruptValue
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentPromptRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentPromptValue
+import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionAnswer
 import dev.dsh.mobile.mesh.core.wire.dto.TerminalCreateRequest
 import dev.dsh.mobile.mesh.core.wire.dto.TerminalEnvironment
 import dev.dsh.mobile.mesh.core.wire.dto.WebTerminalInfo
@@ -449,6 +450,16 @@ class DshApiClient(
     /** `job/kill` — request human cancellation of a job visible to this session. */
     suspend fun jobKill(request: JobKillRequest): RpcResult<JobKillValue> =
         callRequest("job/kill", request)
+
+    // ------------------------------------------------------------------ user questions
+
+    /** Answer a continued timed call on its exact live root agent; false if it is no longer continued. */
+    suspend fun userQuestionsAnswer(agentId: String, callId: String, answer: AskUserQuestionAnswer): RpcResult<Boolean> =
+        call("userQuestions/answer", args {
+            put("agentId", JsonPrimitive(agentId))
+            put("callId", JsonPrimitive(callId))
+            put("answer", encodeToJsonElement(AskUserQuestionAnswer.serializer(), answer))
+        })
 
     // ------------------------------------------------------------------ session terminals
 

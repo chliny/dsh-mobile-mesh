@@ -55,6 +55,8 @@ sealed class AskUserQuestionIntent {
     data class PlanReview(
         /** The option label that approves the plan; every other option declines it. */
         @SerialName("approve") val approve: String,
+        /** Logged tool invocation whose arguments contain the reviewed plan. */
+        @SerialName("callId") val callId: String? = null,
     ) : AskUserQuestionIntent()
 }
 
@@ -78,12 +80,8 @@ data class AskUserQuestionItem(
 )
 
 /**
- * Answer to one question. `custom` rides the *item*, not the batch beside it — the harness
- * schema (`packages/host/apiproxy/src/api/questions.schema.ts`) puts it here, and a key placed
- * anywhere else is stripped by its zod parse without a word, so the answer arrives empty.
- *
- * The codec suppresses explicit nulls, so an absent `custom` is omitted rather than sent as
- * `null` — which is what `matchesQuestions` treats as "no free text" (it rejects a *blank* one).
+ * Answer to one question. `custom` rides the item, not the batch beside it. The codec suppresses
+ * explicit nulls, so an absent `custom` is omitted rather than sent as `null`.
  */
 @Serializable
 data class AskUserQuestionAnswerItem(
@@ -96,12 +94,8 @@ data class AskUserQuestionAnswerItem(
 )
 
 /**
- * The human's answer to a whole `question/requested` batch.
- *
- * One item per question, in request order: the host checks the count and the id at each index
- * (`matchesQuestions`, `packages/host/apiproxy/src/api-proxy.ts`) and refuses the response
- * outright if either differs, leaving the tool blocked. A question the user skipped is still
- * answered — with an empty selection.
+ * The human's structured answer batch. `userQuestions/answer` requires each continued question
+ * id exactly once; order does not matter. An empty selection is still an answer.
  */
 @Serializable
 data class AskUserQuestionAnswer(
