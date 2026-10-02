@@ -12,9 +12,10 @@ object DshCore {
      * version string, and there is no version-shaped branch in the client at all — see
      * `docs/COMPATIBILITY.md`.
      *
-     * The current compatibility target is DeepSeek Harness tag `dsh-v0.1.6-alpha.2`. The wire
-     * remains backward-compatible with the session and workspace-file protocol used by this client;
-     * the tag is the release tested for the current DTOs and call shapes.
+     * The current compatibility target is DeepSeek Harness tag `dsh-v0.2.0-rc.2`. The tag is the
+     * release tested for the current DTOs and call shapes; older hosts remain supported through
+     * the connection-time protocol detection and optional API handling described in
+     * `docs/COMPATIBILITY.md`.
      */
-    const val PROTOCOL_BASELINE = "0.1.6-alpha.2"
+    const val PROTOCOL_BASELINE = "0.2.0-rc.2"
 }
