@@ -49,9 +49,19 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** Only a successful, empty initial server list may provision a terminal on entry. */
-internal fun shouldAutoCreateTerminal(initialList: Boolean, webReady: Boolean, existingCount: Int): Boolean =
-    initialList && webReady && existingCount == 0
+/** The first successful list or explicit request claims the initial PTY slot, exactly once. */
+internal class InitialTerminalCreation {
+    var pending = true
+        private set
+
+    fun listed(existingCount: Int): Boolean {
+        if (!pending) return false
+        pending = false
+        return existingCount == 0
+    }
+
+    fun manual() { pending = false }
+}
 
 /** One session-owned Host PTY. Navigating away detaches it without terminating the shell. */
 @SuppressLint("SetJavaScriptEnabled")
@@ -80,35 +90,33 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
     var webReady by remember { mutableStateOf(false) }
     var dimensions by remember { mutableStateOf(80 to 24) }
     var screen by remember { mutableStateOf<WebView?>(null) }
-    var initialListPending by remember(sessionId) { mutableStateOf(true) }
-    var initialListSucceeded by remember(sessionId) { mutableStateOf(false) }
+    val initialCreation = remember(sessionId) { InitialTerminalCreation() }
     var creating by remember(sessionId) { mutableStateOf(false) }
     var refreshVersion by remember(sessionId) { mutableStateOf(0) }
-    suspend fun refresh() {
-        val version = ++refreshVersion
-        when (val result = manager.connectedApi?.terminalList(sessionId)) {
-            is RpcResult.Ok -> if (version == refreshVersion) {
-                terminals = result.value
-                if (selected !in terminals.map { it.id }) selected = terminals.firstOrNull()?.id
-                if (initialListPending) initialListSucceeded = true
-                if (initialListPending && terminals.isNotEmpty()) initialListPending = false
-            }
-            is RpcResult.Err -> if (version == refreshVersion) status = result.error.message
-            null -> if (version == refreshVersion) status = context.getString(R.string.terminal_offline)
-        }
-    }
-    suspend fun createTerminal() {
+    suspend fun createTerminal(onCreated: suspend () -> Unit) {
         if (creating) return
         creating = true
         try {
             when (val result = manager.connectedApi?.terminalCreate(sessionId, TerminalCreateRequest(
                 UUID.randomUUID().toString(), dimensions.first.coerceIn(2, maxDimensions.first), dimensions.second.coerceIn(1, maxDimensions.second),
             ))) {
-                is RpcResult.Ok -> { selected = result.value.id; refresh() }
-                is RpcResult.Err -> { status = result.error.message; initialListPending = false }
+                is RpcResult.Ok -> { selected = result.value.id; onCreated() }
+                is RpcResult.Err -> status = result.error.message
                 null -> status = context.getString(R.string.terminal_offline)
             }
         } finally { creating = false }
+    }
+    suspend fun refresh() {
+        val version = ++refreshVersion
+        when (val result = manager.connectedApi?.terminalList(sessionId)) {
+            is RpcResult.Ok -> if (version == refreshVersion) {
+                terminals = result.value
+                if (selected !in terminals.map { it.id }) selected = terminals.firstOrNull()?.id
+                if (initialCreation.listed(terminals.size) && !creating) createTerminal { refresh() }
+            }
+            is RpcResult.Err -> if (version == refreshVersion) status = result.error.message
+            null -> if (version == refreshVersion) status = context.getString(R.string.terminal_offline)
+        }
     }
     fun render(name: String, text: String) {
         // JSON string encoding is a valid JavaScript string literal (quotes, controls and emojis).
@@ -117,12 +125,6 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
     }
     fun write(data: String) {
         if (inputQueue?.offer(data) == false) status = context.getString(R.string.terminal_input_full)
-    }
-    LaunchedEffect(webReady, initialListPending, initialListSucceeded, terminals, creating) {
-        if (shouldAutoCreateTerminal(initialListPending && initialListSucceeded, webReady, terminals.size) && !creating) {
-            initialListPending = false
-            createTerminal()
-        }
     }
     LaunchedEffect(sessionId) {
         suspend fun updateFromHost() {
@@ -228,7 +230,11 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
         Row(Modifier.fillMaxWidth()) {
             TextButton(onClick = onBack) { Text(stringResource(R.string.common_back)) }
             Text(stringResource(R.string.terminal_title), modifier = Modifier.weight(1f).padding(top = 12.dp))
-            TextButton(onClick = { scope.launch { createTerminal() } }, enabled = !creating) { Text("+") }
+            TextButton(onClick = {
+                // An explicit request wins over an in-flight initial list; never auto-create a second PTY.
+                initialCreation.manual()
+                scope.launch { createTerminal { refresh() } }
+            }, enabled = !creating && (!initialCreation.pending || status.isNotEmpty())) { Text("+") }
             TextButton(onClick = {
                 val id = selected ?: return@TextButton
                 scope.launch {

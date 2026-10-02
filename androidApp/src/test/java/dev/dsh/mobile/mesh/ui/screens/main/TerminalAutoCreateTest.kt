@@ -5,14 +5,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TerminalAutoCreateTest {
-    @Test fun createsOnlyAfterSuccessfulEmptyInitialListAndReadyRenderer() {
-        assertFalse(shouldAutoCreateTerminal(false, true, 0))
-        assertFalse(shouldAutoCreateTerminal(true, false, 0))
-        assertTrue(shouldAutoCreateTerminal(true, true, 0))
+    @Test fun createsImmediatelyOnFirstEmptyListWithoutWaitingForWebView() {
+        val creation = InitialTerminalCreation()
+        assertTrue(creation.pending)
+        assertTrue(creation.listed(0))
+        assertFalse(creation.pending)
+        assertFalse(creation.listed(0)) // reconnect/list refresh cannot create again
     }
 
-    @Test fun reusesExistingTerminalAndNeverCreatesAfterInitialDecision() {
-        assertFalse(shouldAutoCreateTerminal(true, true, 1))
-        assertFalse(shouldAutoCreateTerminal(false, true, 0))
+    @Test fun existingShellSuppressesAutomaticCreation() {
+        val creation = InitialTerminalCreation()
+        assertFalse(creation.listed(1))
+        assertFalse(creation.listed(0)) // closing the last shell does not auto-create
+    }
+
+    @Test fun plusPressedBeforeFirstListPreventsSecondCreation() {
+        val creation = InitialTerminalCreation()
+        creation.manual()
+        assertFalse(creation.pending)
+        assertFalse(creation.listed(0))
     }
 }
