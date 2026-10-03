@@ -64,8 +64,11 @@ fun MarkdownText(
     text: String,
     modifier: Modifier = Modifier,
     imageResolver: (suspend (String) -> String?)? = null,
+    onOpenLink: ((String) -> Unit)? = null,
 ) {
     val colors = DsTheme.colors
+    val uriHandler = LocalUriHandler.current
+    val openLink = onOpenLink ?: uriHandler::openUri
     // `remember` covers a composed row, while this bounded process cache also covers LazyColumn
     // disposal/recomposition when older transcript rows leave and re-enter the viewport.
     val blocks = remember(text) { MarkdownParseCache.getOrParse(text) }
@@ -81,18 +84,19 @@ fun MarkdownText(
                         3 -> DsType.mdH3
                         else -> DsType.mdH4
                     }
-                    InlineMarkdown(block.text, style.copy(color = colors.labelPrimary), Modifier.padding(top = 10.dp))
+                    InlineMarkdown(block.text, style.copy(color = colors.labelPrimary), Modifier.padding(top = 10.dp), openLink)
                 }
                 is MdBlock.Paragraph -> InlineMarkdown(
                     block.lines.joinToString(" "),
                     DsType.mdBody.copy(color = colors.labelPrimary),
                     Modifier.fillMaxWidth(),
+                    openLink,
                 )
-                is MdBlock.MdList -> MdListBlock(block)
-                is MdBlock.Blockquote -> MdBlockquote(block)
+                is MdBlock.MdList -> MdListBlock(block, openLink)
+                is MdBlock.Blockquote -> MdBlockquote(block, openLink)
                 is MdBlock.Code -> CodeBlock(block.lang, block.code)
                 is MdBlock.Table -> block.rows.forEach { row ->
-                    InlineMarkdown(row, DsType.mdSmall.copy(color = colors.labelTertiary), Modifier.fillMaxWidth())
+                    InlineMarkdown(row, DsType.mdSmall.copy(color = colors.labelTertiary), Modifier.fillMaxWidth(), openLink)
                 }
             }
             }
@@ -359,15 +363,14 @@ private fun parseInlineSegments(text: String): List<InlineSegment> {
 
 /** Renders one line of markdown with bold/italic/code/link spans. */
 @Composable
-private fun InlineMarkdown(text: String, style: TextStyle, modifier: Modifier = Modifier) {
+private fun InlineMarkdown(text: String, style: TextStyle, modifier: Modifier = Modifier, onOpenLink: (String) -> Unit) {
     val colors = DsTheme.colors
-    val uriHandler = LocalUriHandler.current
     val codeStyle = style.copy(
         fontFamily = DsType.codeFont,
         color = colors.labelPrimary,
     )
-    val result = remember(text, style, codeStyle, colors, uriHandler) {
-        buildInlineContent(text, codeStyle, colors, uriHandler::openUri)
+    val result = remember(text, style, codeStyle, colors, onOpenLink) {
+        buildInlineContent(text, codeStyle, colors, onOpenLink)
     }
     BasicText(
         result,
@@ -408,7 +411,7 @@ internal fun buildInlineContent(
 // ---- Block renderers --------------------------------------------------------
 
 @Composable
-private fun MdListBlock(block: MdBlock.MdList) {
+private fun MdListBlock(block: MdBlock.MdList, onOpenLink: (String) -> Unit) {
     val colors = DsTheme.colors
     Column(Modifier.fillMaxWidth().padding(start = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         block.items.forEachIndexed { index, item ->
@@ -420,14 +423,14 @@ private fun MdListBlock(block: MdBlock.MdList) {
                     modifier = Modifier.width(if (block.ordered) 28.dp else 18.dp),
                 )
                 Spacer(Modifier.width(6.dp))
-                InlineMarkdown(item, DsType.mdBody.copy(color = colors.labelPrimary), Modifier.weight(1f))
+                InlineMarkdown(item, DsType.mdBody.copy(color = colors.labelPrimary), Modifier.weight(1f), onOpenLink)
             }
         }
     }
 }
 
 @Composable
-private fun MdBlockquote(block: MdBlock.Blockquote) {
+private fun MdBlockquote(block: MdBlock.Blockquote, onOpenLink: (String) -> Unit) {
     val colors = DsTheme.colors
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(vertical = 2.dp)) {
         Box(
@@ -440,7 +443,7 @@ private fun MdBlockquote(block: MdBlock.Blockquote) {
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             block.lines.forEach { line ->
-                InlineMarkdown(line, DsType.mdSmall.copy(color = colors.labelTertiary), Modifier.fillMaxWidth())
+                InlineMarkdown(line, DsType.mdSmall.copy(color = colors.labelTertiary), Modifier.fillMaxWidth(), onOpenLink)
             }
         }
     }
