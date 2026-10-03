@@ -33,6 +33,9 @@ enum class TransportFailure {
     /** The name did not resolve. */
     DNS,
 
+    /** The peer closed the byte stream without a WebSocket close frame (EOF). */
+    PEER_CLOSED,
+
     /** No route / port unreachable — usually a different network. */
     UNREACHABLE,
 
@@ -101,6 +104,7 @@ object TransportFailures {
     private fun classifyIo(t: Throwable): TransportFailure = when (t) {
         is RpcTransportException -> classify(t)
         is SocketTimeoutException -> TransportFailure.TIMEOUT
+        is java.io.EOFException -> TransportFailure.PEER_CLOSED
         is UnknownHostException -> TransportFailure.DNS
         is NoRouteToHostException, is PortUnreachableException -> TransportFailure.UNREACHABLE
         is ConnectException -> TransportFailure.REFUSED

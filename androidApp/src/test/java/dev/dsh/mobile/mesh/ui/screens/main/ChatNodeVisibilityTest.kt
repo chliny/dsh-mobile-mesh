@@ -3,6 +3,7 @@ package dev.dsh.mobile.mesh.ui.screens.main
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ChatBlock
 import dev.dsh.mobile.mesh.core.session.ContextMessageNode
+import dev.dsh.mobile.mesh.core.session.CompactionNode
 import dev.dsh.mobile.mesh.core.session.OtherNode
 import dev.dsh.mobile.mesh.core.session.ToolCallNode
 import dev.dsh.mobile.mesh.core.session.ToolResultNode
@@ -63,6 +64,14 @@ class ChatNodeVisibilityTest {
         assertFalse(node.rendersContent())
         assertTrue(node.copy(blocks = node.blocks + ChatBlock("text", "done")).rendersContent())
         assertTrue(node.copy(interrupted = true).rendersContent())
+    }
+
+    @Test
+    fun `only replacement checkpoint compaction node is visible`() {
+        val lifecycle = CompactionNode(1, "compaction/summary", kotlinx.serialization.json.JsonNull)
+        val checkpoint = CompactionNode(2, "checkpoint", kotlinx.serialization.json.JsonNull)
+        assertFalse(lifecycle.rendersContent())
+        assertTrue(checkpoint.rendersContent())
     }
 
     @Test

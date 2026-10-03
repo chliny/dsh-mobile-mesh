@@ -117,6 +117,51 @@ class EventFoldTest {
     }
 
     @Test
+    fun `checkpoint projects one compaction marker and hides replacement user bubble`() {
+        val events = listOf(
+            event("compaction/start", 1, buildJsonObject { put("compactionId", "c1") }),
+            event("compaction/summary", 2, buildJsonObject {
+                put("compactionId", "c1")
+                putJsonArray("summary") { add(buildJsonObject { put("type", "text"); put("text", "Summary once") }) }
+                putJsonArray("shadowedSeqs") { add(kotlinx.serialization.json.JsonPrimitive(1)) }
+                put("shadowedTokenCount", 42)
+            }),
+            event("user/message", 3, buildJsonObject {
+                put("id", "checkpoint")
+                putJsonObject("source") {
+                    put("kind", "compact-checkpoint")
+                    put("compactionId", "c1")
+                }
+                putJsonArray("content") { add(buildJsonObject { put("type", "text"); put("text", "Summary once") }) }
+            }),
+            event("compaction/end", 4, buildJsonObject { put("compactionId", "c1") }),
+        )
+        val nodes = EventFold("s1").fold(events).nodes
+        assertEquals(1, nodes.filterIsInstance<CompactionNode>().count { it.kind == "checkpoint" })
+        assertEquals(1, nodes.filterIsInstance<CompactionNode>().count { it.kind != "checkpoint" })
+        assertEquals(0, nodes.filterIsInstance<ContextMessageNode>().size)
+        val marker = nodes.filterIsInstance<CompactionNode>().single { it.kind == "checkpoint" }
+        assertEquals(3L, marker.seq)
+        assertEquals("c1", marker.data.jsonObject["compactionId"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `checkpoint without loaded lifecycle still projects marker from replacement content`() {
+        val checkpoint = event("user/message", 10, buildJsonObject {
+            put("id", "checkpoint")
+            putJsonObject("source") {
+                put("kind", "compact-checkpoint")
+                put("compactionId", "not-loaded")
+            }
+            putJsonArray("content") { add(buildJsonObject { put("type", "text"); put("text", "Page summary") }) }
+        })
+        val nodes = EventFold("s1").fold(listOf(checkpoint)).nodes
+        assertEquals(1, nodes.size)
+        assertTrue(nodes.single() is CompactionNode)
+        assertEquals("checkpoint", (nodes.single() as CompactionNode).kind)
+    }
+
+    @Test
     fun `repeated retry failures appear once in expanded details`() {
         val events = listOf(
             event("llm/retry", 1, buildJsonObject {

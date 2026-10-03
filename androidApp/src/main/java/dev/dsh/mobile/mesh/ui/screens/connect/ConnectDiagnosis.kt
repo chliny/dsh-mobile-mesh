@@ -95,6 +95,7 @@ sealed interface ConnectFailure {
             TransportFailure.REFUSED -> Refused
             TransportFailure.TIMEOUT, TransportFailure.UNREACHABLE -> Timeout
             TransportFailure.DNS -> DnsFailure
+            TransportFailure.PEER_CLOSED -> StreamsBlocked
             TransportFailure.NOT_FOUND, TransportFailure.NOT_A_HARNESS -> NotAHarness
             TransportFailure.TLS -> TlsFailure
             TransportFailure.OTHER -> message?.takeIf { it.isNotBlank() }?.let { Other(it) } ?: fallback

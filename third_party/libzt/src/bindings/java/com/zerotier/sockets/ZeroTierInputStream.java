@@ -72,8 +72,8 @@ public class ZeroTierInputStream extends InputStream {
         if (retval == 0) {
             return -1;
         }
-        if (retval == -11 || retval == -104) {
-            // lwIP reports SO_RCVTIMEO as EAGAIN (11); older JNI paths used EINTR (104).
+        if (retval == -11) {
+            // lwIP reports SO_RCVTIMEO as EAGAIN (11); EINTR is 4, not ECONNRESET (104).
             throw new java.net.SocketTimeoutException("libzt receive timed out");
         }
         if (retval < 0) {
@@ -96,8 +96,8 @@ public class ZeroTierInputStream extends InputStream {
         if (retval == 0) {
             return -1;
         }
-        if (retval == -11 || retval == -104) {
-            // lwIP reports SO_RCVTIMEO as EAGAIN (11); older JNI paths used EINTR (104).
+        if (retval == -11) {
+            // lwIP reports SO_RCVTIMEO as EAGAIN (11); EINTR is 4, not ECONNRESET (104).
             throw new java.net.SocketTimeoutException("libzt receive timed out");
         }
         if (retval < 0) {
@@ -134,8 +134,8 @@ public class ZeroTierInputStream extends InputStream {
         if (retval == 0) {
             return -1;
         }
-        if (retval == -11 || retval == -104) {
-            // lwIP reports SO_RCVTIMEO as EAGAIN (11); older JNI paths used EINTR (104).
+        if (retval == -11) {
+            // lwIP reports SO_RCVTIMEO as EAGAIN (11); EINTR is 4, not ECONNRESET (104).
             throw new java.net.SocketTimeoutException("libzt receive timed out");
         }
         if (retval < 0) {
@@ -154,11 +154,19 @@ public class ZeroTierInputStream extends InputStream {
         int pendingDataSize = ZeroTierNative.zts_get_pending_data_size(zfd);
         byte[] buf = new byte[pendingDataSize];
         int retval = ZeroTierNative.zts_bsd_read(zfd, buf);
-        if ((retval == 0) | (retval == -104) /* EINTR, from SO_RCVTIMEO */) {
-            // No action needed
+        if (retval == -11) {
+            throw new java.net.SocketTimeoutException("libzt receive timed out");
         }
         if (retval < 0) {
             throw new IOException("readAllBytes(), errno=" + retval);
+        }
+        if (retval == 0) {
+            return new byte[0];
+        }
+        if (retval != buf.length) {
+            byte[] result = new byte[retval];
+            System.arraycopy(buf, 0, result, 0, retval);
+            return result;
         }
         return buf;
     }
@@ -187,8 +195,8 @@ public class ZeroTierInputStream extends InputStream {
             return 0;
         }
         int retval = ZeroTierNative.zts_bsd_read_offset(zfd, destBuffer, offset, numBytes);
-        if ((retval == 0) | (retval == -104) /* EINTR, from SO_RCVTIMEO */) {
-            // No action needed
+        if (retval == -11) {
+            throw new java.net.SocketTimeoutException("libzt receive timed out");
         }
         if (retval < 0) {
             throw new IOException("readNBytes(destBuffer, offset, numBytes), errno=" + retval);
@@ -211,10 +219,17 @@ public class ZeroTierInputStream extends InputStream {
         int bufSize = (int)Math.min(2048, bytesRemaining);
         byte[] buf = new byte[bufSize];
         while (bytesRemaining > 0) {
-            if ((bytesRead = ZeroTierNative.zts_bsd_read_length(zfd, buf, (int)Math.min(bufSize, bytesRemaining)))
-                < 0) {
+            int retval = ZeroTierNative.zts_bsd_read_length(zfd, buf, (int)Math.min(bufSize, bytesRemaining));
+            if (retval == -11) {
+                throw new java.net.SocketTimeoutException("libzt receive timed out");
+            }
+            if (retval < 0) {
+                throw new IOException("skip(), errno=" + retval);
+            }
+            if (retval == 0) {
                 break;
             }
+            bytesRead = retval;
             bytesRemaining -= bytesRead;
         }
         return numBytes - bytesRemaining;

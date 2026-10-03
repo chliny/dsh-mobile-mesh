@@ -46,9 +46,11 @@ class SessionStoreSwitchCacheTest {
     }
 
     @Test
-    fun `baseline is queued at most once per published generation`() {
+    fun `baseline deduplicates connected-generation events but permits explicit refresh`() {
         assertTrue(shouldQueueBaselineForGeneration("generation-1", null))
         assertFalse(shouldQueueBaselineForGeneration("generation-1", "generation-1"))
+        assertFalse(shouldQueueBaselineForRequest("generation-1", "generation-1", force = false))
+        assertTrue(shouldQueueBaselineForRequest("generation-1", "generation-1", force = true))
         assertTrue(shouldQueueBaselineForGeneration("generation-2", "generation-1"))
         assertTrue(shouldQueueBaselineForGeneration(null, "generation-1"))
     }

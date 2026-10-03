@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.io.EOFException
 import java.io.IOException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
@@ -34,6 +35,11 @@ class TransportFailureTest {
     @Test
     fun `socket exception subtypes map to their own kinds`() {
         assertEquals(TransportFailure.TIMEOUT, TransportFailures.classify(SocketTimeoutException()))
+        assertEquals(TransportFailure.PEER_CLOSED, TransportFailures.classify(EOFException()))
+        assertEquals(
+            TransportFailure.PEER_CLOSED,
+            TransportFailures.classify(RpcTransportException(0, "websocket carrier failure", EOFException())),
+        )
         assertEquals(TransportFailure.DNS, TransportFailures.classify(UnknownHostException("nope.local")))
         assertEquals(TransportFailure.UNREACHABLE, TransportFailures.classify(NoRouteToHostException()))
         assertEquals(TransportFailure.UNREACHABLE, TransportFailures.classify(PortUnreachableException()))

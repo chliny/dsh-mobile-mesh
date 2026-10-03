@@ -7,7 +7,7 @@
 DSH Mobile Mesh 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的非官方 Android 远程控制端。Agent、Shell、文件和工作区继续运行在安装 DeepSeek Harness 的服务器上。
 
 - 查看工作区、会话、历史消息和实时回复。
-- 查看工具结果，发送文字、图片和文件。
+- 查看工具结果，发送文字、图片和文件；代码文件按页读取并按可见区域高亮，常见配置、标记和样式文件也支持着色。
 - 管理目标、计划、待办、审批、提问、任务、工作流和子代理。
 - 切换模型、预设和技能，执行 DeepSeek Harness 斜杠命令。
 - 搜索会话、查看轨迹和用量、导出日志并接收通知。

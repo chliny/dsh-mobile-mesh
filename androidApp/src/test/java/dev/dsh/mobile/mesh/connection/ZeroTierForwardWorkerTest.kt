@@ -13,6 +13,60 @@ import org.junit.Test
 
 class ZeroTierForwardWorkerTest {
     @Test
+    fun `request preface classifier handles split lines and only whitelisted routes`() {
+        assertTrue(ZeroTierForwardWorker.classifyHttpPreface("GET /api/remote".toByteArray(), complete = false) == null)
+        val partialLine = "GET /api/remote.mux HTTP/1.1\r".toByteArray()
+        assertTrue(ZeroTierForwardWorker.classifyHttpPreface(partialLine, complete = false) == null)
+        val muxLine = "GET /api/remote.mux HTTP/1.1\r\nHost: secret.example\r\nCookie: secret\r\n".toByteArray()
+        assertTrue(ZeroTierForwardWorker.classifyHttpPreface(muxLine, complete = true) == "GET /api/remote.mux")
+        val listRoute = "POST /api/session/list?token=secret HTTP/1.1\r\n".toByteArray()
+        assertTrue(ZeroTierForwardWorker.classifyHttpPreface(listRoute, complete = true) == "POST /api/session/list")
+        val privatePath = "POST /api/session/private-method?token=secret HTTP/1.1\r\n".toByteArray()
+        assertTrue(ZeroTierForwardWorker.classifyHttpPreface(privatePath, complete = true) == "POST other-path")
+    }
+
+    @Test
+    fun `socket relay errors use bounded errno categories without logging native messages`() {
+        assertTrue(ZeroTierForwardWorker.safeSocketErrorCategory(java.io.IOException("recv failed errno=11 (EAGAIN)")) == "EAGAIN")
+        assertTrue(ZeroTierForwardWorker.safeSocketErrorCategory(java.io.IOException("native read errno=-4")) == "EINTR")
+        assertTrue(ZeroTierForwardWorker.safeSocketErrorCategory(java.io.IOException("native read errno=104")) == "RESET")
+        assertTrue(ZeroTierForwardWorker.safeSocketErrorCategory(java.io.IOException("recv failed errno=200 (service unavailable)")) == "SERVICE")
+        assertTrue(ZeroTierForwardWorker.safeSocketErrorCategory(java.io.IOException("private endpoint /path?secret=x")) == "OTHER")
+        assertTrue(ZeroTierForwardWorker.safeSocketErrorCategory(java.io.IOException("errno=-104")) == "RESET")
+        assertTrue(ZeroTierForwardWorker.safeSocketErrorCategory(java.io.IOException("unavailable errno=2000")) == "OTHER")
+        assertTrue(ZeroTierForwardWorker.readFailureReason(java.io.IOException("temporary failure errno=104")) == "read:IOException:RESET")
+        assertTrue(ZeroTierForwardWorker.readFailureReason(java.net.SocketException("Connection reset by peer")) == "read:SocketException:RESET")
+        assertTrue(ZeroTierForwardWorker.readFailureReason(java.io.IOException("private endpoint /secret?token=x")) == "read:IOException:OTHER")
+        assertTrue(ZeroTierForwardWorker.writeFailureReason(java.net.SocketException("Broken pipe errno=32")) == "write:SocketException:BROKEN_PIPE")
+    }
+
+    @Test
+    fun `response status classifier extracts only the numeric HTTP status`() {
+        assertTrue(ZeroTierForwardWorker.classifyHttpStatus("HTTP/1.1 200 OK\r\nSet-Cookie: secret\r\n".toByteArray()) == 200)
+        assertTrue(ZeroTierForwardWorker.classifyHttpStatus("HTTP/1.1 503 Service Unavailable\r\n".toByteArray()) == 503)
+        assertTrue(ZeroTierForwardWorker.classifyHttpStatus("not an HTTP response\r\n".toByteArray()) == null)
+        assertTrue(ZeroTierForwardWorker.classifyHttpStatus("HTTP/1.1 200".toByteArray()) == null)
+    }
+
+    @Test
+    fun `request classification maps safe display labels into lifecycle categories`() {
+        assertTrue(ZeroTierForwardWorker.requestClass("GET /api/remote.mux") == "GET_REMOTE_MUX")
+        assertTrue(ZeroTierForwardWorker.requestClass("POST /api/session/list") == "POST_SESSION_API")
+        assertTrue(ZeroTierForwardWorker.requestClass("POST other-path") == "POST_OTHER")
+        assertTrue(ZeroTierForwardWorker.requestClass("tls-record") == "TLS")
+        assertTrue(ZeroTierForwardWorker.requestClass("empty") == "EMPTY")
+        assertTrue(ZeroTierForwardWorker.requestClass("ascii-letter") == "ASCII_OTHER")
+    }
+
+    @Test
+    fun `request preface classifier recognizes TLS and safely buckets non HTTP prefixes`() {
+        assertTrue(ZeroTierForwardWorker.classifyHttpPreface(byteArrayOf(0x16, 0x03, 0x01), complete = false) == "tls-record")
+        assertTrue(ZeroTierForwardWorker.classifyHttpPreface(byteArrayOf(0x17, 0x03, 0x03), complete = false) == "tls-record")
+        assertTrue(ZeroTierForwardWorker.classifyHttpPreface(byteArrayOf(1, 2, 3), complete = true) == "binary-other")
+        assertTrue(ZeroTierForwardWorker.classifyHttpPreface(byteArrayOf(0x41, 0x42), complete = true) == "ascii-letter")
+    }
+
+    @Test
     fun `native EOF terminates relay immediately instead of polling as timeout`() {
         val executor = Executors.newFixedThreadPool(2)
         val localInput = CloseBlockingInputStream()
@@ -30,6 +84,34 @@ class ZeroTierForwardWorkerTest {
             worker.start()
             assertTrue("native EOF must close loopback promptly", finished.await(1, TimeUnit.SECONDS))
             assertTrue(worker.diagnostics.remoteToLocalEnd == "native-eof")
+            assertTrue(worker.diagnostics.remoteToLocalReadBytes == 0L)
+            assertTrue(worker.diagnostics.remoteToLocalBytes == 0L)
+            assertTrue(worker.diagnostics.localToRemoteReadBytes == 0L)
+            assertTrue(worker.diagnostics.localToRemoteBytes == 0L)
+        } finally { executor.shutdownNow() }
+    }
+
+    @Test
+    fun `local EOF half closes native output while preserving host response`() {
+        val executor = Executors.newFixedThreadPool(2)
+        val localOutput = ByteArrayOutputStream()
+        val remoteOutputShutdown = CountDownLatch(1)
+        val workerFinished = CountDownLatch(1)
+        val worker = ZeroTierForwardWorker(
+            local = FakeSocket(EndOfStreamInputStream(), localOutput) {},
+            remoteInput = java.io.ByteArrayInputStream("response".toByteArray()),
+            remoteOutput = ByteArrayOutputStream(),
+            closeRemote = {},
+            shutdownRemoteOutput = { remoteOutputShutdown.countDown() },
+            executor = executor,
+            onFinished = { workerFinished.countDown() },
+        )
+        try {
+            worker.start()
+            assertTrue("client FIN was not forwarded as native half-close", remoteOutputShutdown.await(1, TimeUnit.SECONDS))
+            assertTrue("host response did not finish", workerFinished.await(1, TimeUnit.SECONDS))
+            assertTrue(localOutput.toString() == "response")
+            assertTrue(worker.diagnostics.localToRemoteEnd == "local-eof")
         } finally { executor.shutdownNow() }
     }
 
@@ -150,13 +232,17 @@ class ZeroTierForwardWorkerTest {
     }
 
     private class FakeSocket(
-        private val input: CloseBlockingInputStream,
+        private val input: InputStream,
         private val output: ByteArrayOutputStream,
         private val onClose: () -> Unit,
     ) : Socket() {
         override fun getInputStream(): InputStream = input
         override fun getOutputStream() = output
         override fun close() = onClose()
+    }
+
+    private class EndOfStreamInputStream : InputStream() {
+        override fun read(): Int = -1
     }
 
     private class CloseBlockingInputStream : InputStream() {

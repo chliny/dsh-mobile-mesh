@@ -146,6 +146,7 @@ class DiscoveryEngine @Inject constructor(
                 TransportFailure.REFUSED -> ProbeOutcome.Refused
                 TransportFailure.TIMEOUT -> ProbeOutcome.Timeout
                 TransportFailure.DNS -> ProbeOutcome.DnsFailure
+                TransportFailure.PEER_CLOSED -> ProbeOutcome.Other(result.error.message)
                 TransportFailure.UNREACHABLE -> ProbeOutcome.Unreachable
                 TransportFailure.NOT_FOUND, TransportFailure.NOT_A_HARNESS -> ProbeOutcome.NotAHarness
                 TransportFailure.TLS -> ProbeOutcome.TlsFailure

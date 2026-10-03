@@ -35,6 +35,7 @@ internal fun loopFailureIsCarrierFailure(cause: Throwable?): Boolean {
     return kind in setOf(
         TransportFailure.REFUSED,
         TransportFailure.TIMEOUT,
+        TransportFailure.PEER_CLOSED,
         TransportFailure.DNS,
         TransportFailure.UNREACHABLE,
         TransportFailure.TLS,

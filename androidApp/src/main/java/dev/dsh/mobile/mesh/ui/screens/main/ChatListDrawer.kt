@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -101,6 +102,20 @@ private const val SORT_MANUAL = "manual"
 private const val SORT_UPDATED = "updated"
 internal const val SESSION_PAGE_SIZE = 5
 
+internal enum class SessionListEmptyState { LOADING, FAILED, EMPTY, NOT_EMPTY }
+
+internal fun sessionListEmptyState(
+    anyShown: Boolean,
+    baselineLoaded: Boolean,
+    baselineFailed: Boolean,
+    generationMatches: Boolean = true,
+) = when {
+    anyShown -> SessionListEmptyState.NOT_EMPTY
+    !generationMatches || !baselineLoaded -> SessionListEmptyState.LOADING
+    baselineFailed -> SessionListEmptyState.FAILED
+    else -> SessionListEmptyState.EMPTY
+}
+
 /**
  * The chat history: workspaces, their sessions, and search.
  *
@@ -120,6 +135,10 @@ fun ChatListDrawer(
     val hostsStore = rememberHostsStore()
 
     val sessions by store.sessions.collectAsStateWithLifecycle()
+    val sessionsBaselineLoaded by store.sessionsBaselineLoaded.collectAsStateWithLifecycle()
+    val sessionsBaselineFailed by store.sessionsBaselineFailed.collectAsStateWithLifecycle()
+    val sessionsBaselineGenerationId by store.sessionsBaselineGenerationId.collectAsStateWithLifecycle()
+    val sessionsCurrentGenerationId by store.sessionsCurrentGenerationId.collectAsStateWithLifecycle()
     val workspaces by store.workspaces.collectAsStateWithLifecycle()
     val workspacesLoaded by store.workspacesLoaded.collectAsStateWithLifecycle()
     val archivedIds by store.archivedSessionIds.collectAsStateWithLifecycle()
@@ -419,11 +438,41 @@ fun ChatListDrawer(
             }
 
             if (!anyShown) {
+                val currentGenerationBaseline = sessionsBaselineGenerationId != null &&
+                    sessionsBaselineGenerationId == sessionsCurrentGenerationId
+                val emptyState = sessionListEmptyState(
+                    anyShown = false,
+                    baselineLoaded = sessionsBaselineLoaded,
+                    baselineFailed = sessionsBaselineFailed,
+                    generationMatches = currentGenerationBaseline,
+                )
                 item(key = "empty") {
-                    EmptyHero(
-                        headline = stringResource(R.string.chatlist_empty),
-                        subtitle = stringResource(R.string.chatlist_empty_hint),
-                    )
+                    if (emptyState == SessionListEmptyState.LOADING) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = DsSpacing.large),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            CircularProgressIndicator(color = colors.accent)
+                            Text(
+                                text = stringResource(R.string.chatlist_loading_sessions),
+                                style = DsType.caption11,
+                                color = colors.labelCaption,
+                                modifier = Modifier.padding(top = DsSpacing.small),
+                            )
+                        }
+                    } else if (emptyState == SessionListEmptyState.FAILED) {
+                        Text(
+                            text = stringResource(R.string.chatlist_sessions_load_failed),
+                            style = DsType.std14,
+                            color = colors.labelTertiary,
+                            modifier = Modifier.padding(vertical = DsSpacing.large),
+                        )
+                    } else if (emptyState == SessionListEmptyState.EMPTY) {
+                        EmptyHero(
+                            headline = stringResource(R.string.chatlist_empty),
+                            subtitle = stringResource(R.string.chatlist_empty_hint),
+                        )
+                    }
                 }
             }
         }

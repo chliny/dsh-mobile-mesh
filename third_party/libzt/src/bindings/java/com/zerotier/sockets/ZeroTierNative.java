@@ -486,6 +486,7 @@ public class ZeroTierNative {
     public static native int zts_get_blocking(int fd);
     public static native int zts_set_keepalive(int fd, int enabled);
     public static native int zts_get_keepalive(int fd);
+    public static native int zts_bsd_setsockopt_int(int fd, int level, int option, int value);
     // struct hostent* gethostbyname(/*const*/ String name);
     // public static native int zts_dns_set_server(uint8_t index, /*const*/ ip_addr* addr);
     // ip_addr* dns_get_server(uint8_t index);
