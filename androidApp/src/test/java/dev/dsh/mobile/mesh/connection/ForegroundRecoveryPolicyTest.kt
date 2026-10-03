@@ -107,6 +107,12 @@ class ForegroundRecoveryPolicyTest {
         assertFalse(shouldRetryRecoveryAfterForegroundResume(recoveryFailed = false, hasActiveHost = true, lifecycleCanRun = true))
         assertFalse(shouldRetryRecoveryAfterForegroundResume(recoveryFailed = true, hasActiveHost = false, lifecycleCanRun = true))
         assertFalse(shouldRetryRecoveryAfterForegroundResume(recoveryFailed = true, hasActiveHost = true, lifecycleCanRun = false))
+        assertFalse(shouldRetryRecoveryAfterForegroundResume(
+            recoveryFailed = true, hasActiveHost = true, lifecycleCanRun = true, phase = ConnectionPhase.CONNECTED,
+        ))
+        assertTrue(shouldRetryRecoveryAfterForegroundResume(
+            recoveryFailed = true, hasActiveHost = true, lifecycleCanRun = true, phase = ConnectionPhase.RECONNECTING,
+        ))
     }
 
     @Test
