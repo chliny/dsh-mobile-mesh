@@ -7,6 +7,7 @@ import com.zerotier.sockets.ZeroTierNative
 import com.zerotier.sockets.ZeroTierNode
 import com.zerotier.sockets.ZeroTierSocket
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.IOException
 import java.net.InetAddress
@@ -329,8 +330,12 @@ private class ZeroTierRelay(
                 try {
                     while (running) {
                         val local = try { server.accept() } catch (_: IOException) { break }
+                        val acceptedAt = System.nanoTime()
+                        val clientPort = runCatching { local.port }.getOrDefault(-1)
+                        val relayPort = runCatching { local.localPort }.getOrDefault(-1)
+                        Log.d(TAG, "relay accepted clientPort=$clientPort relayPort=$relayPort peer=${runCatching { local.inetAddress?.hostAddress }.getOrNull() ?: "unknown"} targetPort=$remotePort")
                         try {
-                            executor.execute { forward(local) }
+                            executor.execute { forward(local, acceptedAt, clientPort) }
                         } catch (_: java.util.concurrent.RejectedExecutionException) {
                             runCatching { local.close() }
                             break
@@ -348,15 +353,25 @@ private class ZeroTierRelay(
         }
     }
 
-    private fun forward(local: Socket) {
+    private fun forward(local: Socket, acceptedAt: Long, clientPort: Int) {
         val workerId = nextWorkerId.incrementAndGet()
-        val startedAt = System.nanoTime()
+        val startedAt = acceptedAt
         var remote: ZeroTierSocket? = null
         var handedToWorker = false
         try {
-            remote = connect()
-            val connectedRemote = remote ?: return
-            Log.d(TAG, "relay worker=$workerId nativeConnectedMs=${TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)}")
+            val connected = connect() ?: return
+            remote = connected.first
+            val connectedRemote = connected.first
+            // Enable TCP keepalive as an additional safety net for long-lived forwarded sockets.
+            val keepAliveConfigured = runCatching {
+                connectedRemote.setKeepAliveEnabled(true)
+                connectedRemote.setTcpKeepIdle(TCP_KEEP_IDLE_SECONDS)
+                connectedRemote.getKeepAlive()
+            }.getOrDefault(false)
+            Log.d(TAG, "ZeroTier TCP keepalive configured=$keepAliveConfigured idleSeconds=$TCP_KEEP_IDLE_SECONDS")
+            val targetAddress = connected.second
+            val localPort = runCatching { local.port }.getOrDefault(-1)
+            Log.d(TAG, "relay worker=$workerId connected clientPort=$clientPort localPort=$localPort target=$targetAddress:$remotePort connectMs=${TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)}")
             // Patched libzt reports the timeout as SocketTimeoutException and a peer close as EOF.
             // The timeout bounds the read's wake-up after relay shutdown without racing native close.
             connectedRemote.setSoTimeout(NATIVE_READ_POLL_MILLIS)
@@ -365,11 +380,21 @@ private class ZeroTierRelay(
                 remoteInput = connectedRemote.inputStream,
                 remoteOutput = connectedRemote.outputStream,
                 closeRemote = { connectedRemote.close() },
+                shutdownRemoteOutput = { connectedRemote.shutdownOutput() },
                 executor = executor,
+                onRequestClassified = { requestClass ->
+                    Log.d(TAG, "relay worker=$workerId requestClass=$requestClass clientPort=$clientPort")
+                },
+                onResponseStatus = { status ->
+                    Log.d(TAG, "relay worker=$workerId responseStatus=$status clientPort=$clientPort")
+                },
+                onRpcEndpoint = { endpoint ->
+                    Log.d(TAG, "relay worker=$workerId rpcEndpoint=$endpoint clientPort=$clientPort")
+                },
                 onFinished = {
                     workers.remove(it)
                     val stats = it.diagnostics
-                    Log.d(TAG, "relay worker=$workerId finished elapsedMs=${TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)} localToNative=${stats.localToRemoteBytes}:${stats.localToRemoteEnd} nativeToLocal=${stats.remoteToLocalBytes}:${stats.remoteToLocalEnd}")
+                    Log.d(TAG, "relay worker=$workerId finished clientPort=$clientPort localPort=$localPort target=$targetAddress:$remotePort elapsedMs=${TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)} requestClass=${stats.requestClass} endpoint=${stats.rpcEndpoint} responseStatus=${stats.responseStatus.takeIf { status -> status >= 0 } ?: "none"} localToNative=read:${stats.localToRemoteReadBytes},written:${stats.localToRemoteBytes},end:${stats.localToRemoteEnd} nativeToLocal=read:${stats.remoteToLocalReadBytes},written:${stats.remoteToLocalBytes},end:${stats.remoteToLocalEnd}")
                 },
             )
             workers.add(worker)
@@ -387,14 +412,14 @@ private class ZeroTierRelay(
         }
     }
 
-    private fun connect(): ZeroTierSocket? {
+    private fun connect(): Pair<ZeroTierSocket, String>? {
         addresses.forEach { address ->
             val family = if (':' in address) ZeroTierNative.ZTS_AF_INET6 else ZeroTierNative.ZTS_AF_INET
             val socket = runCatching { ZeroTierSocket(family, ZeroTierNative.ZTS_SOCK_STREAM, 0) }.getOrNull() ?: return@forEach
             try {
                 socket.connect(address, remotePort)
                 Log.d(TAG, "ZeroTier relay connected to $address:$remotePort")
-                return socket
+                return socket to address
             } catch (error: IOException) {
                 Log.w(TAG, "ZeroTier relay failed to connect to $address:$remotePort", error)
                 runCatching { socket.close() }
@@ -416,6 +441,7 @@ private class ZeroTierRelay(
     private companion object {
         const val TAG = "ZeroTierRelay"
         const val NATIVE_READ_POLL_MILLIS = 250
+        const val TCP_KEEP_IDLE_SECONDS = 30
     }
 }
 
@@ -426,6 +452,10 @@ internal class ZeroTierForwardWorker(
     private val closeRemote: () -> Unit,
     private val executor: ExecutorService,
     private val onFinished: (ZeroTierForwardWorker) -> Unit,
+    private val shutdownRemoteOutput: () -> Unit = {},
+    private val onRequestClassified: (String) -> Unit = {},
+    private val onResponseStatus: (Int) -> Unit = {},
+    private val onRpcEndpoint: (String) -> Unit = {},
 ) : Closeable {
     private val stateLock = Any()
     private val started = AtomicBoolean(false)
@@ -433,21 +463,120 @@ internal class ZeroTierForwardWorker(
     private val finished = CountDownLatch(2)
     private val remoteClosed = AtomicBoolean(false)
     private val localToRemoteBytes = AtomicLong()
+    private val localToRemoteReadBytes = AtomicLong()
     private val remoteToLocalBytes = AtomicLong()
+    private val remoteToLocalReadBytes = AtomicLong()
     private val localToRemoteEnd = AtomicReference("active")
     private val remoteToLocalEnd = AtomicReference("active")
+    private val requestClassification = AtomicReference("unclassified")
+    private val responseStatus = AtomicReference(-1)
+    private val requestEndpoint = AtomicReference("unknown")
 
     data class Diagnostics(
+        val requestClass: String,
+        val rpcEndpoint: String,
+        val responseStatus: Int,
         val localToRemoteBytes: Long,
+        val localToRemoteReadBytes: Long,
         val remoteToLocalBytes: Long,
+        val remoteToLocalReadBytes: Long,
         val localToRemoteEnd: String,
         val remoteToLocalEnd: String,
     )
 
     val diagnostics: Diagnostics get() = Diagnostics(
-        localToRemoteBytes.get(), remoteToLocalBytes.get(),
+        requestClassification.get(), requestEndpoint.get(), responseStatus.get(), localToRemoteBytes.get(), localToRemoteReadBytes.get(),
+        remoteToLocalBytes.get(), remoteToLocalReadBytes.get(),
         localToRemoteEnd.get(), remoteToLocalEnd.get(),
     )
+
+    companion object {
+        fun readFailureReason(error: IOException): String = "read:${error.javaClass.simpleName}:${safeSocketErrorCategory(error)}"
+
+        fun writeFailureReason(error: Throwable): String = "write:${error.javaClass.simpleName}:${safeSocketErrorCategory(error)}"
+
+        fun safeSocketErrorCategory(error: Throwable): String {
+            val message = error.message.orEmpty()
+            val nativeErrno = Regex("errno=(-?\\d+)").find(message)?.groupValues?.get(1)?.toIntOrNull()?.let { kotlin.math.abs(it) }
+            return when {
+                message.contains("temporarily unavailable", ignoreCase = true) || nativeErrno == 11 -> "EAGAIN"
+                nativeErrno == 4 -> "EINTR"
+                message.contains("service unavailable", ignoreCase = true) || nativeErrno == 200 -> "SERVICE"
+                message.contains("connection reset", ignoreCase = true) || nativeErrno == 104 -> "RESET"
+                message.contains("broken pipe", ignoreCase = true) || nativeErrno == 32 -> "BROKEN_PIPE"
+                message.contains("timed out", ignoreCase = true) || nativeErrno == 110 -> "TIMEOUT"
+                else -> "OTHER"
+            }
+        }
+
+        private val SAFE_ROUTES = mapOf(
+            "/api/session/list" to "SESSION_LIST",
+            "/api/session/projections" to "SESSION_PROJECTIONS",
+            "/api/session/modelCatalog" to "SESSION_MODEL_CATALOG",
+            "/api/session/page" to "SESSION_PAGE",
+            "/api/session/follow" to "SESSION_FOLLOW",
+            "/api/session/search" to "SESSION_SEARCH",
+            "/api/host/describe" to "HOST_DESCRIBE",
+            "/api/health" to "HEALTH",
+        )
+
+        /** Classify only a bounded request-line prefix; headers, query strings and bodies are never logged. */
+        private fun ByteArray.indexOfCrLf(): Int {
+            for (index in 0 until size - 1) {
+                if (this[index] == 13.toByte() && this[index + 1] == 10.toByte()) return index
+            }
+            return -1
+        }
+
+        fun requestClass(classification: String): String = when {
+            classification == "GET /api/remote.mux" -> "GET_REMOTE_MUX"
+            classification.startsWith("POST /api/session/") -> "POST_SESSION_API"
+            classification.startsWith("POST /api/host/") -> "POST_HOST_API"
+            classification == "POST /api/health" -> "POST_HEALTH"
+            classification.startsWith("POST /api/") -> "POST_API_OTHER"
+            classification == "tls-record" -> "TLS"
+            classification.startsWith("GET ") -> "GET_OTHER"
+            classification.startsWith("POST ") -> "POST_OTHER"
+            classification == "empty" -> "EMPTY"
+            classification.startsWith("ascii-") -> "ASCII_OTHER"
+            else -> "NON_HTTP"
+        }
+
+        fun classifyHttpStatus(bytes: ByteArray): Int? {
+            val lineEnd = bytes.indexOfCrLf()
+            if (lineEnd < 0) return null
+            val line = bytes.copyOfRange(0, lineEnd).toString(Charsets.ISO_8859_1)
+            val parts = line.split(' ', limit = 3)
+            if (parts.size < 2 || !parts[0].startsWith("HTTP/")) return null
+            return parts[1].toIntOrNull()?.takeIf { it in 100..599 }
+        }
+
+        fun classifyHttpPreface(bytes: ByteArray, complete: Boolean): String? {
+            if (bytes.isEmpty()) return if (complete) "empty" else null
+            val first = bytes[0].toInt() and 0xff
+            if (first == 0x16) return "tls-record"
+            if (first == 0x17) return "tls-record"
+            if (first !in 0x20..0x7e) return "binary-other"
+            val text = bytes.toString(Charsets.ISO_8859_1)
+            val lineEnd = bytes.indexOfCrLf()
+            if (lineEnd < 0 && !complete) return null
+            val requestLine = if (lineEnd >= 0) text.substring(0, lineEnd) else text
+            val parts = requestLine.split(' ', limit = 3)
+            if (parts.size == 3 && parts[0].length in 1..12 && parts[0].all(Char::isLetter) &&
+                parts[2].startsWith("HTTP/")) {
+                val method = parts[0].uppercase()
+                val safeRoute = parts[1].substringBefore('?').let { path ->
+                    path.takeIf { it == "/api/remote.mux" || (method == "POST" && SAFE_ROUTES.containsKey(path)) }
+                }
+                return when {
+                    method == "GET" && safeRoute == "/api/remote.mux" -> "GET /api/remote.mux"
+                    method == "POST" && safeRoute != null -> "POST ${safeRoute}"
+                    else -> "$method other-path"
+                }
+            }
+            return if (first in 0x41..0x5a || first in 0x61..0x7a) "ascii-letter" else "ascii-other"
+        }
+    }
 
     fun start() {
         synchronized(stateLock) {
@@ -471,9 +600,9 @@ internal class ZeroTierForwardWorker(
             started.set(true)
             var submitted = 0
             try {
-                executor.execute { copy(localInput, remoteOutput, pollEndOfStream = false, localToRemoteBytes, localToRemoteEnd) }
+                executor.execute { copy(localInput, remoteOutput, pollEndOfStream = false, localToRemoteBytes, localToRemoteReadBytes, localToRemoteEnd) }
                 submitted = 1
-                executor.execute { copy(remoteInput, localOutput, pollEndOfStream = true, remoteToLocalBytes, remoteToLocalEnd) }
+                executor.execute { copy(remoteInput, localOutput, pollEndOfStream = true, remoteToLocalBytes, remoteToLocalReadBytes, remoteToLocalEnd) }
                 submitted = 2
             } catch (_: java.util.concurrent.RejectedExecutionException) {
                 closing.set(true)
@@ -492,9 +621,14 @@ internal class ZeroTierForwardWorker(
         finish()
     }
 
-    private fun copy(input: InputStream, output: OutputStream, pollEndOfStream: Boolean, bytes: AtomicLong, end: AtomicReference<String>) {
+    private fun copy(input: InputStream, output: OutputStream, pollEndOfStream: Boolean, bytes: AtomicLong, readBytes: AtomicLong, end: AtomicReference<String>) {
         try {
             val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            // The local socket supplies HTTP request bytes; the native socket supplies server responses.
+            var preface = if (!pollEndOfStream) ByteArrayOutputStream(128) else null
+            var responseLine = if (pollEndOfStream) ByteArrayOutputStream(64) else null
+            var responseReported = false
+            var prefaceReported = false
             while (!closing.get()) {
                 val count = try {
                     input.read(buffer)
@@ -503,19 +637,59 @@ internal class ZeroTierForwardWorker(
                     end.set("local-timeout")
                     break
                 } catch (error: IOException) {
-                    end.set("read:${error.javaClass.simpleName}:${error.message?.substringAfter("errno=", "unknown")?.toIntOrNull() ?: "unknown"}")
+                    end.set(readFailureReason(error))
                     break
                 }
                 if (count > 0) {
+                    if (!responseReported && responseLine != null) {
+                        val capture = minOf(count, 128 - responseLine.size())
+                        responseLine.write(buffer, 0, capture)
+                        val status = classifyHttpStatus(responseLine.toByteArray())
+                        if (status != null) {
+                            responseStatus.set(status)
+                            onResponseStatus(status)
+                            responseReported = true
+                            responseLine = null
+                        } else if (responseLine.size() >= 128) {
+                            responseReported = true
+                            responseLine = null
+                        }
+                    }
+                    if (!prefaceReported && preface != null) {
+                        val capture = minOf(count, 256 - preface.size())
+                        preface.write(buffer, 0, capture)
+                        val bytes = preface.toByteArray()
+                        val classified = classifyHttpPreface(bytes, complete = preface.size() >= 256 || bytes.indexOfCrLf() >= 0)
+                        if (classified != null) {
+                            val requestClass = requestClass(classified)
+                            requestClassification.set(requestClass)
+                            onRequestClassified(requestClass)
+                            if (classified.startsWith("POST /api/")) {
+                                val route = classified.removePrefix("POST ")
+                                val endpoint = SAFE_ROUTES[route] ?: "OTHER"
+                                requestEndpoint.set(endpoint)
+                                onRpcEndpoint(endpoint)
+                            }
+                            prefaceReported = true
+                            preface = null
+                        }
+                    }
+                    readBytes.addAndGet(count.toLong())
                     try {
                         output.write(buffer, 0, count)
                         bytes.addAndGet(count.toLong())
                     } catch (error: Throwable) {
-                        end.set("write:${error.javaClass.simpleName}:${error.message?.substringAfter("errno=", "unknown")?.toIntOrNull() ?: "unknown"}")
+                        end.set(writeFailureReason(error))
                         break
                     }
                 } else if (count < 0) {
                     end.set(if (pollEndOfStream) "native-eof" else "local-eof")
+                    if (!pollEndOfStream) {
+                        // Preserve TCP half-close: deliver FIN to the host but keep its response
+                        // readable. Closing the whole socket here can truncate POST replies when a
+                        // loopback client shuts down its output after sending the request body.
+                        runCatching(shutdownRemoteOutput)
+                    }
                     break
                 }
                 // Timeouts are exceptions (not EOF); only a positive read forwards data.

@@ -158,6 +158,8 @@
     <string name="chatlist_search_hint">Search sessions</string>
     <string name="chatlist_empty">No sessions yet</string>
     <string name="chatlist_empty_hint">Start a new session from the harness or from here.</string>
+    <string name="chatlist_loading_sessions">Loading sessions…</string>
+    <string name="chatlist_sessions_load_failed">Couldn’t load sessions. Check the connection and try again.</string>
     <string name="chatlist_workspaces">Workspaces</string>
     <string name="chatlist_sessions">Sessions</string>
     <string name="chatlist_subagents">Subagents</string>

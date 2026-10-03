@@ -177,7 +177,6 @@ class RemoteStreamMux(
     private val inboundMessages = LongAdder()
     private val outboundMessages = LongAdder()
     private val carrierTerminal = CompletableDeferred<Throwable?>()
-
     data class Diagnostics(
         val inboundMessages: Long,
         val outboundMessages: Long,

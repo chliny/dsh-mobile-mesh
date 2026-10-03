@@ -27,6 +27,7 @@
 #include "lwip/stats.h"
 
 #include <jni.h>
+#include <errno.h>
 #include <stdlib.h>
 
 extern int zts_errno;
@@ -288,8 +289,18 @@ static jint read_socket_buffer(JNIEnv* env, jint fd, jbyteArray buf, jint offset
     if (! data) {
         return 0; // Pending Java exception.
     }
+    errno = 0;
     int retval = zts_bsd_read(fd, data, len);
-    const int saved_errno = retval < 0 ? zts_errno : 0;
+    // zts_bsd_read() can return ZTS_ERR_SERVICE without setting zts_errno. Encoding
+    // that API error as -zts_errno can turn it into 0, which Java interprets as EOF.
+    if (retval == ZTS_ERR_SERVICE) {
+        free(data);
+        return ZTS_ERR_SERVICE;
+    }
+    // lwIP also writes zts_errno globally; another relay worker can overwrite it
+    // before JNI observes it. Capture this thread's errno instead. lwIP's set_errno
+    // only writes nonzero failures, so clear stale errno before entering lwip_read.
+    const int saved_errno = retval < 0 ? (errno != 0 ? errno : EIO) : 0;
     if (retval > 0) {
         env->SetByteArrayRegion(buf, offset, retval, data);
     }
@@ -344,8 +355,11 @@ static jint write_socket_buffer(JNIEnv* env, jint fd, jbyteArray buf, jint offse
             return 0;
         }
     }
+    errno = 0;
     int retval = zts_bsd_write(fd, data, len);
-    const int saved_errno = retval < 0 ? zts_errno : 0;
+    // Like reads, writes must not convert another worker's global zts_errno.
+    // A failed write returning zero would otherwise look like an empty write.
+    const int saved_errno = retval < 0 ? (errno != 0 ? errno : EIO) : 0;
     free(data);
     return retval > -1 ? retval : -saved_errno;
 }
@@ -374,8 +388,10 @@ JNIEXPORT jint JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1bsd_1write_
 JNIEXPORT jint JNICALL
 Java_com_zerotier_sockets_ZeroTierNative_zts_1bsd_1write_1byte(JNIEnv* env, jclass clazz, jint fd, jbyte buf)
 {
+    errno = 0;
     int retval = zts_bsd_write(fd, &buf, 1);
-    return retval > -1 ? retval : -(zts_errno);
+    const int saved_errno = retval < 0 ? (errno != 0 ? errno : EIO) : 0;
+    return retval > -1 ? retval : -saved_errno;
 }
 
 JNIEXPORT jint JNICALL
@@ -1019,6 +1035,12 @@ JNIEXPORT jint JNICALL
 Java_com_zerotier_sockets_ZeroTierNative_zts_1get_1keepalive(JNIEnv* jenv, jclass clazz, jint fd)
 {
     return zts_get_keepalive(fd);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_zerotier_sockets_ZeroTierNative_zts_1bsd_1setsockopt_1int(JNIEnv* jenv, jclass clazz, jint fd, jint level, jint option, jint value)
+{
+    return zts_bsd_setsockopt(fd, level, option, &value, sizeof(value));
 }
 
 struct hostent*

@@ -120,6 +120,8 @@
     <string name="chatlist_search_hint">搜索会话</string>
     <string name="chatlist_empty">暂无会话</string>
     <string name="chatlist_empty_hint">可以从 Harness 或在这里开始新会话。</string>
+    <string name="chatlist_loading_sessions">正在加载会话…</string>
+    <string name="chatlist_sessions_load_failed">会话加载失败，请检查连接后重试。</string>
     <string name="chatlist_workspaces">工作区</string>
     <string name="chatlist_sessions">会话</string>
     <string name="chatlist_subagents">子代理</string>

@@ -289,6 +289,26 @@ internal fun shouldQueueBaselineForGeneration(
     lastQueuedClientId: String?,
 ): Boolean = generationClientId == null || generationClientId != lastQueuedClientId
 
+internal fun shouldQueueBaselineForRequest(
+    generationClientId: String?,
+    lastQueuedClientId: String?,
+    force: Boolean,
+): Boolean = force || shouldQueueBaselineForGeneration(generationClientId, lastQueuedClientId)
+
+/** Fixed, privacy-safe source labels for authoritative session baseline scheduling. */
+private enum class BaselineTriggerSource(val label: String) {
+    STORE_INITIALIZED("store-initialized"),
+    CONNECTED_GENERATION("connected-generation"),
+    CONNECTION_STATE_FALLBACK("connection-state-fallback"),
+    SESSION_ADDED_NOTIFICATION("session-added-notification"),
+    SESSION_CREATED("session-created"),
+}
+
+internal fun shouldResetSessionBaselineForGeneration(
+    publishedClientId: String,
+    currentClientId: String?,
+): Boolean = publishedClientId != currentClientId
+
 internal fun shouldReopenSessionForGeneration(
     selectedSessionId: String?,
     generationClientId: String,
@@ -324,6 +344,8 @@ class SessionStore @Inject constructor(
     private var baselineRunning = false
     private var baselineDirty = false
     private var baselineQueuedClientId: String? = null
+    private var baselineWorkerSerial = 0L
+    private var baselineActiveWorkerId: Long? = null
     private var selectedSessionReopened: Pair<String, String>? = null
     /** Serialize session selection so rapid taps cannot interleave follow/metadata replacement. */
     private val sessionSwitchMutex = Mutex()
@@ -343,6 +365,14 @@ class SessionStore @Inject constructor(
     // ------------------------------------------------------------------ public StateFlows
     private val _sessions = MutableStateFlow<List<SessionRow>>(emptyList())
     val sessions: StateFlow<List<SessionRow>> = _sessions.asStateFlow()
+    private val _sessionsBaselineLoaded = MutableStateFlow(false)
+    val sessionsBaselineLoaded: StateFlow<Boolean> = _sessionsBaselineLoaded.asStateFlow()
+    private val _sessionsBaselineFailed = MutableStateFlow(false)
+    val sessionsBaselineFailed: StateFlow<Boolean> = _sessionsBaselineFailed.asStateFlow()
+    private val _sessionsBaselineGenerationId = MutableStateFlow<String?>(null)
+    val sessionsBaselineGenerationId: StateFlow<String?> = _sessionsBaselineGenerationId.asStateFlow()
+    private val _sessionsCurrentGenerationId = MutableStateFlow<String?>(null)
+    val sessionsCurrentGenerationId: StateFlow<String?> = _sessionsCurrentGenerationId.asStateFlow()
 
     private val _workspaces = MutableStateFlow<List<WorkspaceRow>>(emptyList())
     val workspaces: StateFlow<List<WorkspaceRow>> = _workspaces.asStateFlow()
@@ -577,6 +607,9 @@ class SessionStore @Inject constructor(
      */
     private var connectionHostId: String? = null
     private var sessionListBaselineHostId: String? = null
+    private var sessionListBaselineGenerationId: String? = null
+    private var sessionListBaselineCount: Int? = null
+    private var sessionListBaselineState: String = "never"
     private val conversationCache = object : LinkedHashMap<String, ConversationSnapshot>(8, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ConversationSnapshot>?): Boolean = size > 8
     }
@@ -651,7 +684,7 @@ class SessionStore @Inject constructor(
         // StateFlow collector sees no transition and the control baseline would never be opened,
         // leaving queues created by another client invisible until a reconnect.
         if (shouldOpenControlBaseline(connectionManager.state.value.phase)) {
-            triggerBaseline(connectionManager.generation?.clientId)
+            triggerBaseline(connectionManager.generation?.clientId, source = BaselineTriggerSource.STORE_INITIALIZED)
         }
     }
 
@@ -742,6 +775,14 @@ class SessionStore @Inject constructor(
             pendingQueueSubmissionBySession.clear()
             followCursor = null
             _sessions.value = emptyList()
+            _sessionsBaselineLoaded.value = false
+            _sessionsBaselineFailed.value = false
+            sessionListBaselineHostId = null
+            sessionListBaselineGenerationId = null
+            _sessionsBaselineGenerationId.value = null
+            _sessionsCurrentGenerationId.value = null
+            sessionListBaselineCount = null
+            sessionListBaselineState = "loading"
             _workspaces.value = emptyList()
             _workspacesLoaded.value = false
             _currentSessionId.value = null
@@ -759,7 +800,12 @@ class SessionStore @Inject constructor(
                 // could leave the session drawer empty forever after a reconnect.
                 val hostId = sessionBaselineHostId(connectionManager.state.value.host?.id, connectionHostId)
                 if (hostId != null && sessionListBaselineHostId != hostId) connectionHostId = hostId
-                triggerBaseline(generation.clientId)
+                if (shouldResetSessionBaselineForGeneration(generation.clientId, _sessionsCurrentGenerationId.value)) {
+                    _sessionsCurrentGenerationId.value = generation.clientId
+                    _sessionsBaselineLoaded.value = false
+                    _sessionsBaselineFailed.value = false
+                }
+                triggerBaseline(generation.clientId, source = BaselineTriggerSource.CONNECTED_GENERATION)
                 if (connectionManager.supportsPermissionPresetsCatalog) refreshPermissionOptions()
                 val selectedSessionId = currentSessionId.value
                 if (shouldReopenSessionForGeneration(
@@ -784,9 +830,9 @@ class SessionStore @Inject constructor(
                     state.host?.id?.let { connectionHostId = it }
                     val generation = connectionManager.generation
                     if (generation == null) {
-                        triggerBaseline()
+                        triggerBaseline(source = BaselineTriggerSource.CONNECTION_STATE_FALLBACK)
                     } else {
-                        triggerBaseline(generation.clientId)
+                        triggerBaseline(generation.clientId, source = BaselineTriggerSource.CONNECTION_STATE_FALLBACK)
                     }
                     // connectedGenerations owns session reopening for a published generation.
                     // This state collector remains a fallback for initial state transitions where
@@ -862,29 +908,46 @@ class SessionStore @Inject constructor(
     private fun <T> decodeOrNull(serializer: kotlinx.serialization.KSerializer<T>, item: JsonElement): T? =
         runCatching { decodeFromJsonElement(serializer, item) }.getOrNull()
 
-    private fun triggerBaseline(generationClientId: String? = null) {
-        val shouldStart = synchronized(baselineStateLock) {
-            if (!shouldQueueBaselineForGeneration(generationClientId, baselineQueuedClientId)) {
-                return@synchronized false
+    private fun triggerBaseline(
+        generationClientId: String? = null,
+        force: Boolean = false,
+        source: BaselineTriggerSource = BaselineTriggerSource.CONNECTED_GENERATION,
+    ) {
+        val workerId = synchronized(baselineStateLock) {
+            if (!shouldQueueBaselineForRequest(
+                    generationClientId = generationClientId,
+                    lastQueuedClientId = baselineQueuedClientId,
+                    force = force,
+                )) {
+                Log.d(TAG, "baseline request coalesced source=${source.label} generationKnown=${generationClientId != null}")
+                return
             }
             baselineQueuedClientId = generationClientId
             baselineDirty = true
-            if (baselineRunning) false else {
+            if (baselineRunning) {
+                Log.d(TAG, "baseline request queued source=${source.label} force=$force workerRunning=true generationKnown=${generationClientId != null}")
+                null
+            } else {
                 baselineRunning = true
-                true
+                (++baselineWorkerSerial).also { baselineActiveWorkerId = it }
             }
         }
-        if (!shouldStart) return
+        if (workerId == null) return
+        Log.d(TAG, "baseline worker started worker=$workerId source=${source.label} force=$force generationKnown=${generationClientId != null}")
         scope.launch {
             try {
                 while (true) {
-                    synchronized(baselineStateLock) {
+                    val shouldContinue = synchronized(baselineStateLock) {
                         if (!baselineDirty) {
                             baselineRunning = false
                             return@launch
                         }
                         baselineDirty = false
+                        true
                     }
+                    if (!shouldContinue) return@launch
+                    val activeWorker = synchronized(baselineStateLock) { baselineActiveWorkerId }
+                    Log.d(TAG, "baseline run begin worker=$activeWorker")
                     baselineMutex.withLock {
                         try {
                             baseline()
@@ -894,15 +957,28 @@ class SessionStore @Inject constructor(
                     }
                 }
             } finally {
-                synchronized(baselineStateLock) { baselineRunning = false }
+                val completedWorker = synchronized(baselineStateLock) {
+                    if (baselineActiveWorkerId == workerId) {
+                        baselineRunning = false
+                        baselineActiveWorkerId = null
+                    }
+                    workerId
+                }
+                Log.d(TAG, "baseline worker finished worker=$completedWorker")
             }
         }
     }
 
     private suspend fun baseline() {
-        val baselineGeneration = connectionManager.generation ?: return
+        val baselineGeneration = connectionManager.generation ?: run {
+            Log.w(TAG, "baseline skipped reason=no-generation")
+            return
+        }
         val baselineHostId = sessionBaselineHostId(connectionManager.state.value.host?.id, connectionHostId)
-        if (baselineHostId != connectionManager.state.value.host?.id) return
+        if (baselineHostId != connectionManager.state.value.host?.id) {
+            Log.w(TAG, "baseline skipped reason=host-mismatch expectedSet=${baselineHostId != null}")
+            return
+        }
         // Whether content search works is a fact about the harness we just reached, so a fresh
         // connection re-earns the answer rather than inheriting the previous host's.
         _contentSearchAvailable.value = true
@@ -953,7 +1029,14 @@ class SessionStore @Inject constructor(
         when (event) {
             "api-session/added" -> {
                 args.firstOrNull()?.let { onSessionAdded(it) }
-                scope.launch { refreshSessions() }
+                scope.launch {
+                    val generation = connectionManager.generation
+                    if (generation != null) triggerBaseline(
+                        generation.clientId,
+                        force = true,
+                        source = BaselineTriggerSource.SESSION_ADDED_NOTIFICATION,
+                    ) else refreshSessions()
+                }
             }
             "api-session/removed" -> str(0)?.let { onSessionRemoved(it) }
             "api-session/status" -> {
@@ -1291,6 +1374,7 @@ class SessionStore @Inject constructor(
                 archived = frame.value.archivedSessionIds.toSet()
                 _archivedSessionIds.value = archived
                 emitWorkspacesLocked()
+                logSessionListPresentationSnapshotLocked("workspace-baseline")
             }
             is WorkspaceFollowFrame.Upsert -> upsertWorkspace(frame.workspace)
             is WorkspaceFollowFrame.Remove -> removeWorkspace(frame.workspaceId)
@@ -1763,6 +1847,31 @@ class SessionStore @Inject constructor(
         _sessions.value = rows
     }
 
+    private fun logSessionListPresentationSnapshot(source: String) = synchronized(lock) {
+        logSessionListPresentationSnapshotLocked(source)
+    }
+
+    /** Counts only, so we can separate an empty server list from locally filtered presentation. */
+    private fun logSessionListPresentationSnapshotLocked(source: String) {
+        val archivedCount = sessionRows.keys.count { it in archived }
+        val blankCount = sessionRows.values.count { it.blank }
+        val completedChildCount = sessionRows.values.count { it.origin == "subagent" && !it.running }
+        val workspaceLinkedIds = workspaceRows.values.flatMapTo(HashSet()) { it.sessionIds }
+        val workspaceLinkedCount = workspaceLinkedIds.count { it in sessionRows }
+        val unarchivedCount = sessionRows.keys.count { it !in archived }
+        val unlinkedUnarchivedCount = sessionRows.keys.count { it !in archived && it !in workspaceLinkedIds }
+        val listableCount = sessionRows.values.count { row ->
+            row.sessionId !in archived && !row.blank && (row.origin != "subagent" || row.running)
+        }
+        Log.d(
+            TAG,
+            "session-list snapshot source=$source serverRows=${sessionRows.size} workspaces=${workspaceRows.size} " +
+                "baseline=${sessionListBaselineState}:${sessionListBaselineCount ?: -1} generationKnown=${sessionListBaselineGenerationId != null} " +
+                "workspaceLinks=$workspaceLinkedCount unarchived=$unarchivedCount unlinked=$unlinkedUnarchivedCount " +
+                "archived=$archivedCount blank=$blankCount completedSubagents=$completedChildCount listable=$listableCount",
+        )
+    }
+
     private fun emitWorkspacesLocked() {
         val ordered = workspaceOrder.mapNotNull { workspaceRows[it] } +
             workspaceRows.values.filter { it.workspaceId !in workspaceOrder }
@@ -1815,12 +1924,23 @@ class SessionStore @Inject constructor(
             val currentHostId = connectionManager.state.value.host?.id
             isCurrentHostResult(expectedGenerationId, currentGenerationId, expectedHostId, currentHostId)
         }
-        if (!generationIsCurrent()) return
+        if (!generationIsCurrent()) {
+            Log.w(TAG, "session/list skipped reason=stale-generation generationCurrent=false")
+            return
+        }
+        Log.d(TAG, "session/list request begin generationCurrent=${generationIsCurrent()}")
         when (val r = api.sessionList(null)) {
             is RpcResult.Ok -> {
-                Log.i(TAG, "session/list baseline returned count=${r.value.items.size}")
                 if (!generationIsCurrent()) {
+                    Log.w(TAG, "session/list result ignored reason=stale-generation generationCurrent=false")
                     return
+                }
+                sessionListBaselineCount = r.value.items.size
+                sessionListBaselineState = "ok"
+                if (r.value.items.isEmpty()) {
+                    Log.w(TAG, "session/list empty response generationCurrent=true")
+                } else {
+                    Log.i(TAG, "session/list baseline returned count=${r.value.items.size} generationCurrent=true")
                 }
                 clearConnectionError()
                 synchronized(lock) {
@@ -1848,11 +1968,29 @@ class SessionStore @Inject constructor(
                     }
                     if (currentId != null) rebuildCurrentLocked()
                     sessionListBaselineHostId = expectedHostId
+                    sessionListBaselineGenerationId = expectedGenerationId
+                    _sessionsBaselineGenerationId.value = expectedGenerationId
+                    _sessionsBaselineLoaded.value = true
+                    _sessionsBaselineFailed.value = false
                     emitSessionsLocked()
+                    logSessionListPresentationSnapshotLocked("session-list")
                 }
             }
             is RpcResult.Err -> {
-                Log.w(TAG, "session/list baseline failed code=${r.error.code}")
+                if (!generationIsCurrent()) {
+                    Log.w(TAG, "session/list error ignored reason=stale-generation generationCurrent=false")
+                    return
+                }
+                sessionListBaselineState = "error"
+                _sessionsBaselineGenerationId.value = expectedGenerationId
+                _sessionsBaselineLoaded.value = true
+                _sessionsBaselineFailed.value = true
+                logSessionListPresentationSnapshot("session-list-error")
+                Log.w(
+                    TAG,
+                    "session/list baseline failed transport=${dev.dsh.mobile.mesh.core.wire.TransportFailures.of(r.error)} " +
+                        "httpStatus=${dev.dsh.mobile.mesh.core.wire.TransportFailures.statusOf(r.error)} generationCurrent=true",
+                )
                 setConnectionError(r.error.message)
             }
         }
@@ -2199,7 +2337,12 @@ class SessionStore @Inject constructor(
         val api = apiOrNull() ?: return
         when (val r = api.sessionCreate(SessionCreateRequest(workspaceId = workspaceId, cwd = cwd))) {
             is RpcResult.Ok -> {
-                refreshSessions()
+                val generation = connectionManager.generation
+                if (generation != null) triggerBaseline(
+                    generation.clientId,
+                    force = true,
+                    source = BaselineTriggerSource.SESSION_CREATED,
+                ) else refreshSessions()
                 openSession(r.value.sessionId)
             }
             is RpcResult.Err -> setConnectionError(r.error.message)

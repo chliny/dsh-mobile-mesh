@@ -89,7 +89,9 @@ internal fun ChatNode.rendersContent(): Boolean = when (this) {
     // Always draws.
     is ToolCallNode -> true
     is PlanModeNode -> true
-    is CompactionNode -> true
+    // Lifecycle records remain in the folded snapshot for checkpoint pairing, but the visible
+    // transcript owns exactly one marker at each replacement checkpoint.
+    is CompactionNode -> this.kind == "checkpoint"
     is RetryNode -> true
     is TurnErrorNode -> true
     is CommandNode -> true

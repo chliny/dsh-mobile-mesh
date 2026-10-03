@@ -164,8 +164,14 @@ public class ZeroTierDatagramSocket {
             packet.getData(),
             0,
             packet.getLength());
-        if ((bytesRead <= 0) | (bytesRead == -104) /* EINTR, from SO_RCVTIMEO */) {
+        if (bytesRead == -11) {
+            throw new java.net.SocketTimeoutException("libzt receive timed out");
+        }
+        if (bytesRead < 0) {
             throw new IOException("read(DatagramPacket), errno=" + bytesRead);
+        }
+        if (bytesRead == 0) {
+            throw new java.net.SocketTimeoutException("libzt receive returned no datagram");
         }
     }
 

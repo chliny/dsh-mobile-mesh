@@ -69,6 +69,22 @@ class CarrierRecoveryPolicyTest {
     }
 
     @Test
+    fun `physical websocket EOF is classified as carrier failure for renewal`() {
+        val failure = RemoteStreamException(
+            RpcError("internal", "remote stream carrier failed", JsonObject(mapOf("transport" to JsonPrimitive(TransportFailure.PEER_CLOSED.name)))),
+            carrier = true,
+        )
+        assertTrue(loopFailureIsCarrierFailure(failure))
+        assertTrue(shouldRenewCarrierAfterLoopFailure(
+            sshEnabled = false,
+            networkRecoveryPending = false,
+            recoveryInFlight = false,
+            failedAttempt = ZERO_TIER_RENEW_AFTER_FAILURES,
+            isCarrierFailure = loopFailureIsCarrierFailure(failure),
+        ))
+    }
+
+    @Test
     fun `logical stream failure does not identify a dead socket`() {
         val hostError = RemoteStreamException(RpcError("internal", "host stream ended"), carrier = false)
         assertFalse(loopFailureIsCarrierFailure(hostError))

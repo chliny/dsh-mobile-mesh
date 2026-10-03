@@ -228,19 +228,39 @@ private class FoldState(private val sessionId: String) {
             "user/message" -> {
                 blank = false
                 val messageId = data.jsonObject["id"]?.jsonPrimitive?.contentOrNull
-                val sourceKind = (data.jsonObject["source"] as? JsonObject)?.get("kind")?.jsonPrimitive?.contentOrNull
+                val source = data.jsonObject["source"] as? JsonObject
+                val sourceKind = source?.get("kind")?.jsonPrimitive?.contentOrNull
                 val blocks = parseBlocks(data.jsonObject["content"])
-                // The harness gives injected model context the `user/message` event type and the
-                // model-facing `user` role, but its source preserves who authored it. Keep source
-                // `user` messages on the user-bubble path; absent provenance remains backward-
-                // compatible with older host logs.
-                nodes.add(
-                    if (sourceKind == null || sourceKind == "user") {
-                        UserMessageNode(event.seq, messageId, blocks, sourceKind)
-                    } else {
-                        ContextMessageNode(event.seq, messageId, blocks, sourceKind)
-                    },
-                )
+                val compactionCheckpointId = if (sourceKind == "compact-checkpoint") {
+                    source?.get("compactionId")?.jsonPrimitive?.contentOrNull
+                } else null
+                if (compactionCheckpointId != null) {
+                    val lifecycle = compactionNodeById[compactionCheckpointId]
+                        ?.let { nodes.getOrNull(it) as? CompactionNode }
+                    val lifecycleData = lifecycle?.data as? JsonObject
+                    val checkpointSummary = lifecycleData?.get("summary") ?: data.jsonObject["content"]
+                    val checkpointData = kotlinx.serialization.json.buildJsonObject {
+                        lifecycleData?.forEach { (key, value) -> put(key, value) }
+                        put("summary", checkpointSummary ?: kotlinx.serialization.json.JsonArray(emptyList()))
+                        put("checkpoint", data)
+                    }
+                    nodes.add(CompactionNode(event.seq, "checkpoint", checkpointData))
+                }
+                // Checkpoint messages are logged as ordinary surface rows in the journal, but the
+                // transcript renders their summary through the correlated CompactionNode above.
+                if (compactionCheckpointId == null) {
+                    // The harness gives injected model context the `user/message` event type and the
+                    // model-facing `user` role, but its source preserves who authored it. Keep source
+                    // `user` messages on the user-bubble path; absent provenance remains backward-
+                    // compatible with older host logs.
+                    nodes.add(
+                        if (sourceKind == null || sourceKind == "user") {
+                            UserMessageNode(event.seq, messageId, blocks, sourceKind)
+                        } else {
+                            ContextMessageNode(event.seq, messageId, blocks, sourceKind)
+                        },
+                    )
+                }
             }
 
             // Durable agent-session changes are developer-role model context. Their payload is

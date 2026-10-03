@@ -556,6 +556,21 @@ public class ZeroTierSocket {
         }
     }
 
+    /** Configure libzt lwIP TCP_KEEPIDLE in seconds. */
+    public void setTcpKeepIdle(int seconds) throws SocketException
+    {
+        if (_isClosed) {
+            throw new SocketException("Error: ZeroTierSocket is closed");
+        }
+        if (seconds < 1) {
+            throw new IllegalArgumentException("TCP_KEEPIDLE must be at least one second");
+        }
+        if (ZeroTierNative.zts_bsd_setsockopt_int(_zfd, ZeroTierNative.ZTS_IPPROTO_TCP,
+                ZeroTierNative.ZTS_TCP_KEEPIDLE, seconds) != ZeroTierNative.ZTS_ERR_OK) {
+            throw new SocketException("Error: Could not set TCP_KEEPIDLE");
+        }
+    }
+
     /**
      * Set the size of the receive buffer for the ZeroTierSocket's ZeroTierInputStream.
      * @param bufferSize Size of receive buffer

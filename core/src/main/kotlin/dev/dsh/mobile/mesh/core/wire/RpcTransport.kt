@@ -310,10 +310,8 @@ interface WsChannelSink {
  * and `cancel` to get anything at all — so [send] is the substantive difference here, not an
  * extra.
  *
- * The host sends RFC 6455 Ping at `websocketHeartbeatIntervalMs` (30s by default) and OkHttp
- * answers Pong at the protocol layer, so idle liveness needs no application code and no
- * application-level heartbeat frame. There is no Pong deadline upstream; half-open detection is
- * left to TCP.
+ * The host sends RFC 6455 Ping at `websocketHeartbeatIntervalMs` and OkHttp answers Pong at the
+ * protocol layer, so idle liveness needs no application frame.
  *
  * The browser-session cookie is required on the upgrade too, so a missing session costs the entire
  * connection generation rather than one call.

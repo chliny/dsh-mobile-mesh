@@ -800,8 +800,10 @@ private fun CompactionRow(node: CompactionNode, onOpenLink: (String) -> Unit) {
     val summaryText = remember(node.data) {
         runCatching {
             val data = node.data as? JsonObject
-            val array = data?.get("summary") as? JsonArray
-            array?.mapNotNull { (it as? JsonObject)?.get("text").asString() }
+            val checkpoint = data?.get("checkpoint") as? JsonObject
+            val blocks = (data?.get("summary") as? JsonArray)
+                ?: (checkpoint?.get("content") as? JsonArray)
+            blocks?.mapNotNull { (it as? JsonObject)?.get("text").asString() }
                 ?.joinToString("\n")
                 ?.takeIf { it.isNotBlank() }
                 ?: data?.get("text").asString()
