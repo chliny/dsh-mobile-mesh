@@ -112,6 +112,15 @@ class TextMateCodeHighlighterTest {
         assertTrue(tokenizer.highlight(chunks, 1).spanStyles.isEmpty())
     }
 
+    @Test fun `Kotlin changed-file diff routes visible lines through TextMate`() {
+        val chunks = listOf("fun answer(): Int {", "    return 42", "}")
+        val tokenizer = highlighter()
+        val expected = tokenizer.highlight(chunks, 1)
+        val rendered = highlightPreviewCode(chunks[1], "src/Main.kt", false, tokenizer, chunks, 1)
+        assertEquals(expected, rendered)
+        assertTrue(rendered.spanStyles.isNotEmpty())
+    }
+
     @Test fun `Kotlin preview retains library syntax colors while grammar is still loading`() {
         val code = "val answer = 42 // comment"
         val rendered = highlightPreviewCode(code, "src/Main.kt", false, null, listOf(code), 0)

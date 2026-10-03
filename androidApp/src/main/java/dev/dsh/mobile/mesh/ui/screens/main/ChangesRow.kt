@@ -1,6 +1,8 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
+import android.util.Log
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,11 +16,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.ChangesNode
 import dev.dsh.mobile.mesh.core.wire.RpcResult
@@ -26,6 +32,8 @@ import dev.dsh.mobile.mesh.core.wire.dto.ChangesDiff
 import dev.dsh.mobile.mesh.core.wire.dto.ChangesSummary
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
 import dev.dsh.mobile.mesh.ui.components.KodeViewCode
+import dev.dsh.mobile.mesh.ui.components.TextMateCodeHighlighter
+import dev.dsh.mobile.mesh.ui.components.textMateGrammarAsset
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 
@@ -70,6 +78,18 @@ private fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, session
         }
         loading = false
     }
+    val context = LocalContext.current
+    val assets = context.applicationContext.assets
+    val grammarAsset = textMateGrammarAsset(path)
+    val darkMode = isSystemInDarkTheme()
+    val themeAsset = if (darkMode) "textmate-dark.json" else "textmate-light.json"
+    val textMate by produceState<TextMateCodeHighlighter?>(null, path, themeAsset, diff) {
+        value = if (diff is ChangesDiff.Text && grammarAsset != null) withContext(Dispatchers.Default) {
+            runCatching { TextMateCodeHighlighter(assets.open(grammarAsset), assets.open(themeAsset)) }
+                .onFailure { Log.w("CodeHighlight", "Failed to load TextMate grammar for changed file $path", it) }
+                .getOrNull()
+        } else null
+    }
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(Modifier.fillMaxWidth().clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(path, display) }) {
             Icon(Icons.Outlined.Description, contentDescription = null, tint = DsTheme.colors.labelSecondary)
@@ -77,20 +97,31 @@ private fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, session
             Text("+$added -$deleted", style = DsType.caption11, color = DsTheme.colors.labelTertiary)
         }
         when (val value = diff) {
-            is ChangesDiff.Text -> value.hunks.take(3).flatMap { it.lines }.take(12).forEach { line ->
-                val marker = line.firstOrNull()?.takeIf { it == '+' || it == '-' || it == ' ' }
-                val source = if (marker == null) line else line.drop(1)
-                Row(Modifier.fillMaxWidth().padding(start = 24.dp)) {
-                    if (marker != null) Text(marker.toString(), style = DsType.caption11, color = when (marker) {
-                        '+' -> DsTheme.colors.labelPrimary
-                        '-' -> DsTheme.colors.labelPrimary
-                        else -> DsTheme.colors.labelTertiary
-                    })
-                    KodeViewCode(
-                        code = source,
-                        pathOrLanguage = value.path,
-                        modifier = Modifier.weight(1f),
-                    )
+            is ChangesDiff.Text -> {
+                val lines = value.hunks.take(3).flatMap { it.lines }.take(12)
+                val codeChunks = lines.map { line ->
+                    val marker = line.firstOrNull()?.takeIf { it == '+' || it == '-' || it == ' ' }
+                    if (marker == null) line else line.drop(1)
+                }
+                lines.forEachIndexed { lineIndex, line ->
+                    val marker = line.firstOrNull()?.takeIf { it == '+' || it == '-' || it == ' ' }
+                    val source = codeChunks[lineIndex]
+                    Row(Modifier.fillMaxWidth().padding(start = 24.dp)) {
+                        if (marker != null) Text(marker.toString(), style = DsType.caption11, color = when (marker) {
+                            '+' -> DsTheme.colors.labelPrimary
+                            '-' -> DsTheme.colors.labelPrimary
+                            else -> DsTheme.colors.labelTertiary
+                        })
+                        KodeViewCode(
+                            code = source,
+                            pathOrLanguage = value.path,
+                            textMate = textMate,
+                            chunks = codeChunks,
+                            chunkIndex = lineIndex,
+                            darkMode = darkMode,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
             is ChangesDiff.Unavailable -> Text(value.kind, style = DsType.caption11, color = DsTheme.colors.labelTertiary, modifier = Modifier.padding(start = 24.dp))
