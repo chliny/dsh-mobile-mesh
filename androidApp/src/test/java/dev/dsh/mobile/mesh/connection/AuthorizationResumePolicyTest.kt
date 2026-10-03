@@ -11,6 +11,23 @@ class AuthorizationResumePolicyTest {
     }
 
     @Test
+    fun `paused lifecycle authorization remains resumable while mayRun is false`() {
+        val lifecycle = ConnectionLifecycleCoordinator<String>().apply {
+            foreground()
+            request("host")
+            pauseForAuthorization()
+        }
+        assertFalse(lifecycle.mayRun())
+        assertTrue(shouldStartAuthorizationResume(
+            authorizationPending = true,
+            lifecycleForegroundOrRetained = lifecycle.mayResumeAuthorization(),
+            operationInFlight = false,
+        ))
+        lifecycle.resumeAfterAuthorization()
+        assertTrue(lifecycle.mayRun())
+    }
+
+    @Test
     fun `active authorization resume is not restarted by polling`() {
         assertFalse(shouldStartAuthorizationResume(true, true, true))
     }

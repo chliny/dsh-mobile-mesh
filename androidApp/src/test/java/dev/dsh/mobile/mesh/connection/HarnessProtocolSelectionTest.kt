@@ -15,6 +15,13 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class HarnessProtocolSelectionTest {
+    @Test fun `established reconnect skips optional protocol probes even when still undetermined`() {
+        assertEquals(HarnessProtocol.PARENT_CATALOG, protocolForRecoveredConnection(true, true, HarnessProtocol.PARENT_CATALOG))
+        assertEquals(HarnessProtocol.UNDETERMINED, protocolForRecoveredConnection(true, true, null))
+        assertNull(protocolForRecoveredConnection(false, true, HarnessProtocol.PARENT_CATALOG))
+        assertNull(protocolForRecoveredConnection(true, false, null))
+    }
+
     private fun list(json: String) = Json.parseToJsonElement(json)
 
     @Test fun `new summary field selects parent catalog once across reconnect`() = runBlocking {

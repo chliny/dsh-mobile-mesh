@@ -230,6 +230,7 @@ class ConnectionManager @Inject constructor(
     @Volatile private var recoveryJob: Job? = null
     @Volatile private var recoveryRetryJob: Job? = null
     @Volatile private var foregroundRetryNeedsResume = false
+    @Volatile private var recoveryRetryWaitingForOperation = false
     @Volatile private var probeRecoveryPending = false
     @Volatile private var appInForeground = false
     @Volatile private var backgroundedAtMs = 0L
@@ -379,14 +380,12 @@ class ConnectionManager @Inject constructor(
                         )) recoverTransportAfterCarrierLoss()
                 }
             }
-            val phase = when {
-                state == ConnectionState.CONNECTED -> ConnectionPhase.CONNECTED
-                // The loop opens every generation the same way, but the first one is not a
-                // *re*connect — calling it that is what let a never-connected attempt look like a
-                // healthy session dropping, and hid it from the connect screen entirely.
-                current.hasConnected -> ConnectionPhase.RECONNECTING
-                else -> ConnectionPhase.CONNECTING
-            }
+            val probePending = publishedGenerationNeedsProbe || foregroundProbeJob?.isActive == true
+            val phase = publishedLoopPhase(
+                state = state,
+                hasConnected = current.hasConnected,
+                probePending = probePending,
+            )
             // Note: does not clear `failure`. The loop emits this on every retry, so clearing here
             // would erase the explanation a fraction of a second after showing it.
             _state.value = current.copy(
@@ -514,9 +513,13 @@ class ConnectionManager @Inject constructor(
             connectJob = job
         }
         job.invokeOnCompletion {
-            synchronized(operationLock) {
-                if (connectJob === job) connectJob = null
+            val ownsOperationSlot = synchronized(operationLock) {
+                if (!mayCompleteRecoveryOperation(job, connectJob)) false else {
+                    connectJob = null
+                    true
+                }
             }
+            if (!ownsOperationSlot) return@invokeOnCompletion
             // A handover noticed while this operation was already building its relay must not be
             // dropped: that operation dialled the retired path, so re-arm recovery now the slot is free.
             synchronized(recoveryLock) {
@@ -530,6 +533,14 @@ class ConnectionManager @Inject constructor(
             if (carrierRecoverySucceededPendingHandover) {
                 carrierRecoverySucceededPendingHandover = false
                 if (networkRecoveryGate.isPending()) startPendingNetworkRecovery()
+            }
+            if (recoveryRetryWaitingForOperation && lifecycle.mayRun()) {
+                recoveryRetryWaitingForOperation = false
+                val retryToken = lifecycle.current()
+                if (retryToken != null) {
+                    Log.d("ConnectionManager", "Retrying recovery after prior operation released its slot")
+                    startRecovery(0)
+                }
             }
             if (carrierRecoveryPending && startRecovery(0)) {
                 carrierRecoveryPending = false
@@ -563,6 +574,7 @@ class ConnectionManager @Inject constructor(
         val intent = target.value
         val config = intent.host
         val epoch = lifecycleEpoch
+        val previouslyConnected = _state.value.hasConnected
         val timing = if (reconnect) RecoveryTiming() else null
         val operationStartedAt = timing?.start("operation")
         activeHost = config
@@ -601,7 +613,12 @@ class ConnectionManager @Inject constructor(
                 )
                 return
             }
-            val willRetry = reconnect && lifecycle.mayRun() && error !is MeshAuthorizationPending
+            val willRetry = shouldRetryConnectionOperation(
+                reconnect = reconnect,
+                hasConnected = _state.value.hasConnected,
+                lifecycleMayRun = lifecycle.mayRun(),
+                failure = error,
+            )
             Log.w(
                 "ConnectionManager",
                 "Connection operation failed (reconnect=$reconnect, timeout=${error is TimeoutCancellationException}): ${error.message}",
@@ -675,7 +692,9 @@ class ConnectionManager @Inject constructor(
             // Protocol discovery is optional; do not make a slow metadata read prevent publishing
             // an already-ready transport. The ordinary session baseline fetches the authoritative
             // list once the generation is online.
-            val selectedProtocol = target.value.protocolSelection.detect(
+            val selectedProtocol = protocolForRecoveredConnection(
+                reconnect, previouslyConnected, target.value.protocolSelection.selected,
+            ) ?: target.value.protocolSelection.detect(
                 probe = {
                     runCatching { nextApi.sessionListProbe() }.getOrElse { error ->
                         if (error is CancellationException) throw error
@@ -694,8 +713,16 @@ class ConnectionManager @Inject constructor(
             val selection = target.value.protocolSelection
             // `terminal/list` takes a caller-controlled session ID and is a safe no-create probe.
             // Unknown/transient errors leave the entry hidden; a subsequent generation retries.
-            val probeSessionId = runCatching { nextApi.sessionListProbe() }
-                .getOrNull()?.let { (it as? RpcResult.Ok)?.value }
+            // Optional capability discovery must not hold a recovered mux behind another slow
+            // session/list call. Reconnect reuses the intent's previously observed capabilities.
+            val probeSessionId = if (reconnect && previouslyConnected) null else try {
+                kotlinx.coroutines.withTimeoutOrNull(2_000L) { nextApi.sessionListProbe() }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+                ?.let { (it as? RpcResult.Ok)?.value }
                 ?.let { it as? JsonObject }
                 ?.get("items") as? JsonArray
 
@@ -795,6 +822,7 @@ class ConnectionManager @Inject constructor(
         lifecycleEpoch++
         carrierRecoveryPending = false
         probeRecoveryPending = false
+        recoveryRetryWaitingForOperation = false
         foregroundProbeJob?.cancel()
         foregroundProbeJob = null
         recoveryRetryJob?.cancel()
@@ -1017,6 +1045,12 @@ class ConnectionManager @Inject constructor(
                 return@launch
             }
             recoveryRetryJob = null
+            if (synchronized(operationLock) { connectJob?.isActive == true }) {
+                recoveryRetryWaitingForOperation = true
+                Log.d("ConnectionManager", "Recovery retry elapsed while prior operation is cleaning up; retry retained")
+                return@launch
+            }
+            recoveryRetryWaitingForOperation = false
             if (shouldUsePendingNetworkRecoveryOnRetry(networkRecoveryGate.isPending())) {
                 startPendingNetworkRecovery()
             } else {
@@ -1336,6 +1370,7 @@ class ConnectionManager @Inject constructor(
                         foregroundCheckPending = false,
                         recoveryOverlayVisible = false,
                     )
+                    connectedGenerations.tryEmit(expectedGeneration)
                 }
                 Log.d("ConnectionManager", "Published generation end-to-end probe succeeded")
             } else {
@@ -1447,7 +1482,7 @@ class ConnectionManager @Inject constructor(
         authorizationResumeMutex.withLock {
             if (!shouldStartAuthorizationResume(
                     authorizationPending = _state.value.authorizationPending != null,
-                    lifecycleMayRun = lifecycle.mayRun(),
+                    lifecycleForegroundOrRetained = lifecycle.mayResumeAuthorization(),
                     operationInFlight = synchronized(operationLock) { connectJob?.isActive == true },
                 )) return
             lifecycle.resumeAfterAuthorization()
