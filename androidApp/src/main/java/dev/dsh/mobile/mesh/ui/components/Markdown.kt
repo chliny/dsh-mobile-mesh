@@ -35,9 +35,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -357,12 +361,13 @@ private fun parseInlineSegments(text: String): List<InlineSegment> {
 @Composable
 private fun InlineMarkdown(text: String, style: TextStyle, modifier: Modifier = Modifier) {
     val colors = DsTheme.colors
+    val uriHandler = LocalUriHandler.current
     val codeStyle = style.copy(
         fontFamily = DsType.codeFont,
         color = colors.labelPrimary,
     )
-    val result = remember(text, style, codeStyle, colors) {
-        buildInlineContent(text, codeStyle, colors)
+    val result = remember(text, style, codeStyle, colors, uriHandler) {
+        buildInlineContent(text, codeStyle, colors, uriHandler::openUri)
     }
     BasicText(
         result,
@@ -371,10 +376,11 @@ private fun InlineMarkdown(text: String, style: TextStyle, modifier: Modifier = 
     )
 }
 
-private fun buildInlineContent(
+internal fun buildInlineContent(
     text: String,
     codeStyle: TextStyle,
     colors: DsColors,
+    onOpenUri: (String) -> Unit,
 ): AnnotatedString {
     val builder = AnnotatedString.Builder()
     parseInlineSegments(text).forEach { segment ->
@@ -386,8 +392,13 @@ private fun buildInlineContent(
                 SpanStyle(fontFamily = codeStyle.fontFamily, color = codeStyle.color),
             ) { append(segment.text) }
             is InlineSegment.Link -> {
-                // v1 renders links as accent-colored text (no click-through).
-                builder.withStyle(SpanStyle(color = colors.accent)) { append(segment.text) }
+                builder.withLink(
+                    LinkAnnotation.Clickable(
+                        tag = segment.url,
+                        styles = TextLinkStyles(SpanStyle(color = colors.accent)),
+                        linkInteractionListener = { onOpenUri(segment.url) },
+                    ),
+                ) { append(segment.text) }
             }
         }
     }
