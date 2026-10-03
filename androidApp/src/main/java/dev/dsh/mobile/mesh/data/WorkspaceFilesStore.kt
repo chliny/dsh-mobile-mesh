@@ -39,6 +39,9 @@ internal fun normalizeWorkspaceFilesRequestPath(path: String): String =
 internal fun validWorkspaceFilePath(path: String): String? =
     path.trim().takeIf { it.isNotEmpty() }
 
+private fun isMarkdownPreviewPath(path: String): Boolean =
+    path.substringAfterLast('.', "").lowercase() in setOf("md", "markdown", "mdown", "mkd")
+
 sealed interface DirectoryLevel {
     data object Loading : DirectoryLevel
     data class Ready(val listing: WorkspaceDirectoryListing) : DirectoryLevel
@@ -52,9 +55,27 @@ data class WorkspaceFilesState(
     val previewLoadingMore: Boolean = false,
 )
 
+/** Bound each rendered code item so append-only server pages never retokenize already visible items. */
+internal fun previewCodeChunks(text: String, maxChars: Int = 8_192): List<String> {
+    require(maxChars > 0)
+    if (text.isEmpty()) return listOf("")
+    val chunks = ArrayList<String>()
+    var start = 0
+    while (start < text.length) {
+        var end = (start + maxChars).coerceAtMost(text.length)
+        if (end < text.length) {
+            val lineEnd = text.lastIndexOf('\n', end - 1)
+            if (lineEnd >= start) end = lineEnd + 1
+        }
+        chunks.add(text.substring(start, end))
+        start = end
+    }
+    return chunks
+}
+
 sealed interface PreviewState {
     data object Loading : PreviewState
-    data class Text(val value: WorkspaceFileText) : PreviewState
+    data class Text(val value: WorkspaceFileText, val chunks: List<String> = previewCodeChunks(value.text)) : PreviewState
     data class Bytes(val value: WorkspaceFileBytes) : PreviewState
     data class Failed(val code: String, val message: String) : PreviewState
 }
@@ -162,7 +183,7 @@ class WorkspaceFilesStore @Inject constructor(
 
     fun readText(workspaceKey: String, sessionId: String, path: String, offset: Int = 1, limit: Int = PREVIEW_PAGE_LINES) {
         val safePath = validWorkspaceFilePath(path) ?: return
-        readPreview(workspaceKey, sessionId, safePath, append = offset > 1) { api ->
+        readPreview(workspaceKey, sessionId, safePath, append = offset > 1, keepWholeText = isMarkdownPreviewPath(safePath)) { api ->
             api.workspaceFilesRead(sessionId, safePath, offset = offset, limit = limit)
         }
     }
@@ -172,7 +193,7 @@ class WorkspaceFilesStore @Inject constructor(
         val current = _state.value.preview as? PreviewState.Text ?: return
         if (current.value.eof || _state.value.previewLoadingMore) return
         _state.value = _state.value.copy(previewLoadingMore = true)
-        readPreview(workspaceKey, sessionId, path, append = true, onFinished = {
+        readPreview(workspaceKey, sessionId, path, append = true, keepWholeText = isMarkdownPreviewPath(safePath), onFinished = {
             _state.value = _state.value.copy(previewLoadingMore = false)
         }) { api ->
             api.workspaceFilesRead(
@@ -194,6 +215,7 @@ class WorkspaceFilesStore @Inject constructor(
         sessionId: String,
         path: String,
         append: Boolean = false,
+        keepWholeText: Boolean = true,
         onFinished: () -> Unit = {},
         request: suspend (DshApiClient) -> RpcResult<T>,
     ) {
@@ -204,7 +226,7 @@ class WorkspaceFilesStore @Inject constructor(
             try {
                 when (val result = request(api)) {
                     is RpcResult.Ok -> updateIfCurrent(workspaceKey) {
-                        copy(preview = if (append) appendPreview(preview, previewValue(result.value)) else previewValue(result.value))
+                        copy(preview = if (append) appendPreview(preview, previewValue(result.value), keepWholeText) else previewValue(result.value))
                     }
                     is RpcResult.Err -> updateIfCurrent(workspaceKey) { copy(preview = PreviewState.Failed(result.error.code, result.error.message)) }
                 }
@@ -214,14 +236,15 @@ class WorkspaceFilesStore @Inject constructor(
         }
     }
 
-    private fun appendPreview(existing: PreviewState?, next: PreviewState): PreviewState = when {
+    private fun appendPreview(existing: PreviewState?, next: PreviewState, keepWholeText: Boolean): PreviewState = when {
         existing is PreviewState.Text && next is PreviewState.Text -> PreviewState.Text(
-            next.value.copy(
+            value = next.value.copy(
                 offset = existing.value.offset,
-                text = existing.value.text + next.value.text,
+                text = if (keepWholeText) existing.value.text + next.value.text else "",
                 lines = existing.value.lines + next.value.lines,
                 eof = next.value.eof,
             ),
+            chunks = existing.chunks + next.chunks,
         )
         else -> next
     }

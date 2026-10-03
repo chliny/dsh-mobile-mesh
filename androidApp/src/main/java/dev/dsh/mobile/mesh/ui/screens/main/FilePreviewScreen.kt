@@ -4,7 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -19,6 +19,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,6 +30,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -35,6 +38,10 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.data.PreviewState
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.components.KodeViewCode
+import dev.dsh.mobile.mesh.ui.components.TextMateCodeHighlighter
+import dev.dsh.mobile.mesh.ui.components.textMateGrammarAsset
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import dev.dsh.mobile.mesh.ui.components.MarkdownText
 import dev.dsh.mobile.mesh.ui.components.markdownImagePath
 import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
@@ -62,13 +69,27 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
     val store = rememberWorkspaceFilesStore()
     val state by store.state.collectAsStateWithLifecycle()
     val previewListState = rememberLazyListState()
+    val context = LocalContext.current
+    val assets = context.applicationContext.assets
+    val grammarAsset = textMateGrammarAsset(path)
+    val themeAsset = if (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+        android.content.res.Configuration.UI_MODE_NIGHT_YES) "textmate-dark.json" else "textmate-light.json"
+    val preview = state.preview
+    val firstChunk = (preview as? PreviewState.Text)?.chunks?.firstOrNull()
+    val version = (preview as? PreviewState.Text)?.value?.version
+    val textMate by produceState<TextMateCodeHighlighter?>(null, workspaceKey, sessionId, path, themeAsset, version, firstChunk) {
+        value = if (firstChunk != null && grammarAsset != null) withContext(Dispatchers.Default) {
+            runCatching { TextMateCodeHighlighter(assets.open(grammarAsset), assets.open(themeAsset)) }
+                .onFailure { Log.w("CodeHighlight", "Failed to load TextMate grammar for $path", it) }
+                .getOrNull()
+        } else null
+    }
     var refreshing by remember { mutableStateOf(false) }
     BackHandler(onBack = onBack)
     LaunchedEffect(workspaceKey, sessionId, path) {
         store.reset(workspaceKey)
         store.readText(workspaceKey, sessionId, path)
     }
-    val preview = state.preview
     LaunchedEffect(preview, workspaceKey, sessionId, path) {
         snapshotFlow {
             val layout = previewListState.layoutInfo
@@ -109,8 +130,8 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
                     state = previewListState,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                 ) {
-                    item {
-                        if (isMarkdownPath(path)) {
+                    if (isMarkdownPath(path)) {
+                        item {
                             MarkdownText(
                                 preview.value.text,
                                 modifier = Modifier.fillMaxWidth(),
@@ -118,11 +139,16 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
                                     resolveMarkdownImage(source, path, store, sessionId)
                                 },
                             )
-                        } else {
+                        }
+                    } else {
+                        itemsIndexed(preview.chunks, key = { index, _ -> index }) { index, chunk ->
                             SelectionContainer {
                                 KodeViewCode(
-                                    code = preview.value.text,
+                                    code = chunk,
                                     pathOrLanguage = path,
+                                    textMate = textMate,
+                                    chunks = preview.chunks,
+                                    chunkIndex = index,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                             }

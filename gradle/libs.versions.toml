@@ -16,6 +16,7 @@ okhttp = "4.12.0"
 sshj = "0.39.0"
 highlights = "1.0.0"
 kodeview = "0.9.0"
+textmate = "0.2.0"
 datastore = "1.1.1"
 workManager = "2.10.0"
 splashscreen = "1.0.1"
@@ -58,6 +59,7 @@ okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor",
 sshj = { group = "com.hierynomus", name = "sshj", version.ref = "sshj" }
 highlights = { group = "dev.snipme", name = "highlights-jvm", version.ref = "highlights" }
 kodeview = { group = "dev.snipme", name = "kodeview-jvm", version.ref = "kodeview" }
+textmate-core = { group = "io.github.ivan-magda", name = "kotlin-textmate-core", version.ref = "textmate" }
 ktor-server-core = { group = "io.ktor", name = "ktor-server-core", version.ref = "ktor" }
 ktor-server-netty = { group = "io.ktor", name = "ktor-server-netty", version.ref = "ktor" }
 ktor-server-websockets = { group = "io.ktor", name = "ktor-server-websockets", version.ref = "ktor" }
