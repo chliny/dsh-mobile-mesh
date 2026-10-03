@@ -1,5 +1,9 @@
 package dev.dsh.mobile.mesh.connection
 
+import dev.dsh.mobile.mesh.core.wire.ConnectionState
+import dev.dsh.mobile.mesh.core.wire.TransportFailure
+import dev.dsh.mobile.mesh.core.wire.TransportFailures
+
 /** Immutable foreground-resume facts used to choose the cheapest safe recovery action. */
 internal data class ForegroundRecoveryFacts(
     val phase: ConnectionPhase,
@@ -50,6 +54,18 @@ internal fun shouldVerifyRearmedGeneration(
     appInForeground: Boolean,
     recoveryInFlight: Boolean,
 ): Boolean = needsProbe && appInForeground && !recoveryInFlight
+
+/** Loop readiness cannot overrule a still-pending end-to-end foreground verification. */
+internal fun publishedLoopPhase(
+    state: ConnectionState,
+    hasConnected: Boolean,
+    probePending: Boolean,
+): ConnectionPhase = when {
+    state == ConnectionState.CONNECTED && probePending -> ConnectionPhase.RECONNECTING
+    state == ConnectionState.CONNECTED -> ConnectionPhase.CONNECTED
+    hasConnected -> ConnectionPhase.RECONNECTING
+    else -> ConnectionPhase.CONNECTING
+}
 
 internal fun shouldProbePublishedGeneration(
     hasConnected: Boolean,
@@ -121,6 +137,20 @@ internal fun shouldCarryNetworkHandoverAfterCarrierRecovery(
     networkRecoveryPending: Boolean,
     transportSucceeded: Boolean,
 ): Boolean = reconnect && !hasClaimedHandover && networkRecoveryPending && transportSucceeded
+
+/** Keep a failed recovery's retry armed until a replacement operation actually claims the slot. */
+internal fun shouldDeferRecoveryRetryUntilOperationReleased(operationInFlight: Boolean): Boolean = operationInFlight
+
+/** A cancelled predecessor must not acknowledge its successor's handover or retry flags. */
+internal fun mayCompleteRecoveryOperation(completedJob: Any, currentJob: Any?): Boolean = completedJob === currentJob
+
+/** A transient name lookup after Android resumes networking is not a terminal manual-connect error. */
+internal fun shouldRetryConnectionOperation(
+    reconnect: Boolean,
+    hasConnected: Boolean,
+    lifecycleMayRun: Boolean,
+    failure: Throwable,
+): Boolean = lifecycleMayRun && (reconnect || hasConnected || TransportFailures.classify(failure) == TransportFailure.DNS)
 
 internal fun shouldRetryRecoveryAfterForegroundResume(
     recoveryFailed: Boolean,

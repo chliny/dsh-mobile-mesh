@@ -1,11 +1,38 @@
 package dev.dsh.mobile.mesh.connection
 
+import dev.dsh.mobile.mesh.core.wire.ConnectionState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ForegroundRecoveryPolicyTest {
+    @Test
+    fun `transient DNS failure on resumed initial connection is retried`() {
+        val dns = java.net.UnknownHostException("name lookup temporarily unavailable")
+        assertTrue(shouldRetryConnectionOperation(false, false, true, dns))
+        assertFalse(shouldRetryConnectionOperation(false, false, false, dns))
+        assertTrue(shouldRetryConnectionOperation(true, true, true, java.io.IOException("relay down")))
+        assertFalse(shouldRetryConnectionOperation(false, false, true, IllegalArgumentException("bad settings")))
+    }
+
+    @Test
+    fun `obsolete operation completion cannot clear successor recovery state`() {
+        val oldJob = Any()
+        val newJob = Any()
+        assertFalse(mayCompleteRecoveryOperation(oldJob, newJob))
+        assertFalse(mayCompleteRecoveryOperation(oldJob, null))
+        assertTrue(mayCompleteRecoveryOperation(newJob, newJob))
+    }
+
+    @Test
+    fun `loop connected callback cannot publish through pending foreground probe`() {
+        assertEquals(ConnectionPhase.RECONNECTING, publishedLoopPhase(ConnectionState.CONNECTED, hasConnected = true, probePending = true))
+        assertEquals(ConnectionPhase.CONNECTED, publishedLoopPhase(ConnectionState.CONNECTED, hasConnected = true, probePending = false))
+        assertEquals(ConnectionPhase.CONNECTING, publishedLoopPhase(ConnectionState.RECONNECTING, hasConnected = false, probePending = false))
+        assertEquals(ConnectionPhase.RECONNECTING, publishedLoopPhase(ConnectionState.RECONNECTING, hasConnected = true, probePending = false))
+    }
+
     @Test
     fun `connected generation publishes only after live generation and lifecycle checks`() {
         assertTrue(shouldPublishConnectedGeneration(true, true))
@@ -66,6 +93,12 @@ class ForegroundRecoveryPolicyTest {
         assertTrue(shouldVerifyRearmedGeneration(true, true, false))
         assertFalse(shouldVerifyRearmedGeneration(true, false, false))
         assertFalse(shouldVerifyRearmedGeneration(false, true, false))
+    }
+
+    @Test
+    fun `retry tick retains retry intent while failed operation cleanup owns slot`() {
+        assertTrue(shouldDeferRecoveryRetryUntilOperationReleased(operationInFlight = true))
+        assertFalse(shouldDeferRecoveryRetryUntilOperationReleased(operationInFlight = false))
     }
 
     @Test

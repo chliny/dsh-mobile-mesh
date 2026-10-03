@@ -63,6 +63,27 @@ class ConnectionLifecycleCoordinatorTest {
     }
 
     @Test
+    fun `authorization pause can resume once lifecycle foregrounds without being generally runnable`() {
+        val coordinator = foregroundCoordinator()
+        coordinator.request("A")
+        coordinator.pauseForAuthorization()
+        assertFalse(coordinator.mayRun())
+        assertTrue(coordinator.mayResumeAuthorization())
+        val resumed = coordinator.resumeAfterAuthorization()
+        assertTrue(coordinator.mayRun())
+        assertTrue(coordinator.accepts(resumed!!.token))
+    }
+
+    @Test
+    fun `authorization cannot resume while backgrounded without retention`() {
+        val coordinator = foregroundCoordinator()
+        coordinator.request("A")
+        coordinator.pauseForAuthorization()
+        coordinator.background()
+        assertFalse(coordinator.mayResumeAuthorization())
+    }
+
+    @Test
     fun `retry invalidates failed operation without changing target`() {
         val coordinator = foregroundCoordinator()
         val failed = coordinator.request("A")

@@ -3,6 +3,6 @@ package dev.dsh.mobile.mesh.connection
 /** Pending authorization stays visible while one bounded resume attempt is in flight. */
 internal fun shouldStartAuthorizationResume(
     authorizationPending: Boolean,
-    lifecycleMayRun: Boolean,
+    lifecycleForegroundOrRetained: Boolean,
     operationInFlight: Boolean,
-): Boolean = authorizationPending && lifecycleMayRun && !operationInFlight
+): Boolean = authorizationPending && lifecycleForegroundOrRetained && !operationInFlight

@@ -90,6 +90,10 @@ internal class ConnectionLifecycleCoordinator<T> {
     @Synchronized
     fun mayRun(): Boolean = mayRunLocked() && !authorizationPaused
 
+    /** Authorization resume must check lifecycle eligibility before clearing authorizationPaused. */
+    @Synchronized
+    fun mayResumeAuthorization(): Boolean = foreground || retainInBackground
+
     @Synchronized
     fun accepts(token: Token): Boolean =
         mayRunLocked() && desired != null &&

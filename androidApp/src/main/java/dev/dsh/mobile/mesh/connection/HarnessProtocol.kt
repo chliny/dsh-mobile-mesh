@@ -20,6 +20,13 @@ enum class HarnessCapability { SUBAGENT_PROJECTION, PERMISSION_PRESETS_CATALOG, 
 /** Keep optional version discovery from consuming the whole connection operation timeout. */
 internal const val HARNESS_PROTOCOL_PROBE_TIMEOUT_MS = 8_000L
 
+/** An established host's reconnect never waits on optional metadata before reopening its mux. */
+internal fun protocolForRecoveredConnection(
+    reconnect: Boolean,
+    previouslyConnected: Boolean,
+    selected: HarnessProtocol?,
+): HarnessProtocol? = if (reconnect && previouslyConnected) selected ?: HarnessProtocol.UNDETERMINED else null
+
 /** One connection intent's observed protocol; automatic retries reuse its settled result. */
 internal class HarnessProtocolSelection {
     private val lock = Mutex()
