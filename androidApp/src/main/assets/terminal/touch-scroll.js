@@ -31,11 +31,11 @@ function installTerminalTouchScrolling(container, term) {
     if (term.buffer.active.type !== 'normal' || term.buffer.active.baseY === 0) { lastY = y; return; }
     const rowHeight = container.getBoundingClientRect().height / Math.max(1, term.rows);
     if (!(rowHeight > 0)) { lastY = y; return; }
-    // xterm's negative line delta reveals older output; positive returns to newer output.
-    const lines = Math.trunc((y - lastY) / rowHeight);
+    // Follow requested direction: finger up shows newer output; finger down shows older output.
+    const lines = Math.trunc((lastY - y) / rowHeight);
     if (lines !== 0) {
       term.scrollLines(lines);
-      lastY += lines * rowHeight; // preserve partial rows across small movements
+      lastY -= lines * rowHeight; // preserve partial rows across small movements
     }
   }, {passive: false});
   const end = () => { lastY = null; vertical = false; };

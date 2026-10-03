@@ -47,14 +47,14 @@ test('vertical finger swipes move scrollback by rows in both directions and clam
     const { touch, sent, buffer, listeners } = fixture();
     assert.equal(listeners.get('touchmove').options.passive, false);
     touch('touchstart', 300);
-    assert.equal(touch('touchmove', 230), true); // finger up: older lines
-    assert.equal(buffer.viewportY, 97); // finger up moves toward older output
+    assert.equal(touch('touchmove', 230), true); // finger up: newer lines
+    assert.equal(buffer.viewportY, 100); // clamped at newest output
     touch('touchmove', 220); // fractional movement retained (80px / 20px = 4 lines)
-    assert.equal(buffer.viewportY, 96);
-    touch('touchmove', 400); // finger down: newer lines, clamped to bottom
     assert.equal(buffer.viewportY, 100);
+    touch('touchmove', 400); // finger down: older lines
+    assert.equal(buffer.viewportY, 91);
     touch('touchend', 400);
-    assert.deepEqual(sent, [-3, -1, 9]);
+    assert.deepEqual(sent, [3, 1, -9]);
 });
 
 test('tap, horizontal gesture, multitouch, and scrollbar do not scroll or cancel input', () => {
