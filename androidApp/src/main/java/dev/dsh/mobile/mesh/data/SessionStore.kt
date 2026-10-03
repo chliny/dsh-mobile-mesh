@@ -603,6 +603,7 @@ class SessionStore @Inject constructor(
 
     /** User prompts rendered immediately while the follow stream catches up. */
     private val optimisticPromptBySession = mutableMapOf<String, MutableList<OptimisticPrompt>>()
+    private val promptQueueReconciliation = PromptQueueReconciliation()
     /** Accepted prompt awaiting the first authoritative turn event. */
     private val pendingPromptBySession = mutableSetOf<String>()
     /** Queue-mode submission awaiting the next authoritative session/control snapshot. */
@@ -1107,6 +1108,7 @@ class SessionStore @Inject constructor(
             if (!shouldApplyInboxProjection(previousSeq, seq)) return
             if (seq != null && (previousSeq == null || seq > previousSeq)) inboxProjectionSeqBySession[sessionId] = seq
             queueBySession[sessionId] = nextQueue
+            reconcileQueuedPromptsLocked(sessionId, nextQueue)
             pendingQueueSubmissionBySession.remove(sessionId)
             if (sessionId == currentId) {
                 currentQueue = nextQueue
@@ -1115,10 +1117,18 @@ class SessionStore @Inject constructor(
         }
     }
 
+    /** Server queue ownership overrides any locally guessed transcript placement. */
+    private fun reconcileQueuedPromptsLocked(sessionId: String, queue: List<QueueItem>) {
+        val queuedRequestIds = promptQueueReconciliation.observe(queue)
+        optimisticPromptBySession[sessionId]?.removeAll { it.requestId in queuedRequestIds }
+        if (optimisticPromptBySession[sessionId].isNullOrEmpty()) optimisticPromptBySession.remove(sessionId)
+    }
+
     /** Install an authoritative complete queue from either current or legacy host protocol. */
     private fun setQueue(sessionId: String, nextQueue: List<QueueItem>) {
         synchronized(lock) {
             queueBySession[sessionId] = nextQueue
+            reconcileQueuedPromptsLocked(sessionId, nextQueue)
             pendingQueueSubmissionBySession.remove(sessionId)
             if (sessionId == currentId) {
                 currentQueue = nextQueue
@@ -2362,35 +2372,44 @@ class SessionStore @Inject constructor(
             content = content,
             clientTimeZone = zone,
         )
-        return when (val r = api.sessionPrompt(request)) {
+        synchronized(lock) { promptQueueReconciliation.begin(request.requestId) }
+        val result = try {
+            api.sessionPrompt(request)
+        } catch (failure: Throwable) {
+            synchronized(lock) { promptQueueReconciliation.discard(request.requestId) }
+            throw failure
+        }
+        return when (val r = result) {
             is RpcResult.Ok -> {
-                // The RPC is accepted before session/follow necessarily echoes the user event. Keep
-                // one local row visible immediately; the authoritative follow event removes it by
-                // request id or matching text.
+                // The server queue can arrive before this RPC returns. Its request id, not a
+                // possibly stale running bit after reconnect, decides whether this is pending.
                 synchronized(lock) {
-                    if (shouldShowOptimisticQueue(safeMode, runningAtSubmission)) {
-                        // A running turn's queue is owned by the server control stream. Do not paint
-                        // a local queue row: an accepted RPC can still be rejected before admission,
-                        // and that echo is not visible to the Web client. The authoritative queue frame
-                        // is the only source that may render this submission.
+                    val renderTranscript = promptQueueReconciliation.shouldRenderTranscript(
+                        request.requestId, safeMode, runningAtSubmission, queueBySession[sid].orEmpty(),
+                    )
+                    if (!renderTranscript) {
+                        // Pending input belongs solely to the server inbox. Never paint a transcript
+                        // row when the authoritative queue confirms this request, even if the local
+                        // running bit was stale during a weak-network recovery.
                     } else {
                         pendingPromptBySession += sid
                         addOptimisticPrompt(sid, request.requestId, content)
                     }
                     if (currentId == sid) rebuildCurrentLocked()
                 }
-                // Keep the local queue row until the authoritative control stream observes this
-                // request. The Web client uses the same settlement rule; a timeout would make a
-                // valid remote queue item disappear during a slow or disconnected period.
+                // The control stream alone supplies queue rows; it may arrive before or after
+                // this response without causing a duplicate local transcript message.
                 PromptOutcome.Ok
             }
             is RpcResult.Err -> if (r.error.code == ATTACHMENT_INVALID) {
+                synchronized(lock) { promptQueueReconciliation.discard(request.requestId) }
                 // The host declined the attachments, not the connection. Report it where they are
                 // so the composer can keep them and say which bound they crossed.
                 val reason = (r.error.details as? JsonObject)
                     ?.get("reason")?.jsonPrimitive?.contentOrNull
                 PromptOutcome.Rejected(imageRejectionOf(reason.orEmpty()), reason)
             } else {
+                synchronized(lock) { promptQueueReconciliation.discard(request.requestId) }
                 setConnectionError(r.error.message)
                 PromptOutcome.Failed(r.error.message)
             }
