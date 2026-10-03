@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,6 +85,33 @@ import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
+/** Workspace links use the same preview callback as read/write tool rows. */
+internal fun markdownWorkspaceLinkPath(target: String): String? {
+    val link = target.trim().trim('<', '>')
+    if (link.isBlank() || link.startsWith('#') || link.startsWith("//")) return null
+    if (link.startsWith("file:", ignoreCase = true)) {
+        return runCatching { java.net.URI(link).takeIf { it.host.isNullOrBlank() }?.path }.getOrNull()?.takeIf { it.isNotBlank() }
+    }
+    // A Windows drive is a path; any other scheme belongs to the platform URI handler.
+    if (link.matches(Regex("^[A-Za-z][A-Za-z0-9+.-]*:.*")) && !link.matches(Regex("^[A-Za-z]:[\\\\/].*"))) return null
+    val path = link.substringBefore('#').substringBefore('?')
+    return path.takeIf { it.isNotBlank() && it != "." }
+}
+
+private fun markdownLinkHasExternalScheme(target: String): Boolean =
+    target.trim().startsWith("//") ||
+        (target.trim().matches(Regex("^[A-Za-z][A-Za-z0-9+.-]*:.*")) &&
+            !target.trim().matches(Regex("^[A-Za-z]:[\\\\/].*")))
+
+internal fun openMarkdownLink(context: ChatNodeContext, target: String, onOpenUri: (String) -> Unit) {
+    val path = markdownWorkspaceLinkPath(target)
+    if (path != null) {
+        context.onOpenFile?.invoke(path, basename(path))
+    } else if (!target.trim().startsWith('#') && markdownLinkHasExternalScheme(target)) {
+        onOpenUri(target)
+    }
+}
+
 /** Everything one transcript row needs that is not on the node itself. */
 internal fun openWorkspacePath(context: ChatNodeContext, path: String, title: String, onOpen: ((String, String) -> Unit)?) {
     val clean = path.trim().trim('"').replace('\\', '/')
@@ -117,6 +145,8 @@ internal data class ChatNodeContext(
 @Composable
 internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
     val colors = DsTheme.colors
+    val uriHandler = LocalUriHandler.current
+    val onOpenLink: (String) -> Unit = { target -> openMarkdownLink(context, target, uriHandler::openUri) }
     when (node) {
         // Turn boundaries are structure, not content — the transcript shows the work, not the frame.
         is TurnStartNode -> Unit
@@ -149,10 +179,10 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
                 }
             }
             val text = node.displayText()
-            if (text.isNotBlank()) MarkdownUserBubble(text)
+            if (text.isNotBlank()) MarkdownUserBubble(text, onOpenLink)
         }
 
-        is ContextMessageNode -> ContextInjectionRow(node)
+        is ContextMessageNode -> ContextInjectionRow(node, onOpenLink)
 
         is AssistantMessageNode -> AssistantMessage(node, context)
 
@@ -192,7 +222,7 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
             warn = true,
         )
 
-        is CompactionNode -> CompactionRow(node)
+        is CompactionNode -> CompactionRow(node, onOpenLink)
 
         is RetryNode -> RetryRow(node)
 
@@ -268,7 +298,7 @@ private fun RetryRow(node: RetryNode) {
 
 /** A Markdown-rendered user message bubble. */
 @Composable
-private fun MarkdownUserBubble(text: String) {
+private fun MarkdownUserBubble(text: String, onOpenLink: (String) -> Unit) {
     val colors = DsTheme.colors
     BoxWithConstraints(
         modifier = Modifier.fillMaxWidth(),
@@ -281,13 +311,13 @@ private fun MarkdownUserBubble(text: String) {
                 .border(1.dp, colors.borderL3, DsShapes.bubble)
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         ) {
-            MarkdownText(text)
+            MarkdownText(text, onOpenLink = onOpenLink)
         }
     }
 }
 
 @Composable
-private fun ContextInjectionRow(node: ContextMessageNode) {
+private fun ContextInjectionRow(node: ContextMessageNode, onOpenLink: (String) -> Unit) {
     val text = node.displayText()
     var expanded by remember(node.seq) { mutableStateOf(false) }
     DisclosureRow(
@@ -305,7 +335,7 @@ private fun ContextInjectionRow(node: ContextMessageNode) {
                 .border(1.dp, DsTheme.colors.borderL2, DsShapes.block)
                 .padding(10.dp),
         ) {
-            MarkdownText(text)
+            MarkdownText(text, onOpenLink = onOpenLink)
         }
     }
 }
@@ -389,6 +419,8 @@ private fun WaitingForModel(context: ChatNodeContext) {
 @Composable
 private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContext) {
     val colors = DsTheme.colors
+    val uriHandler = LocalUriHandler.current
+    val onOpenLink: (String) -> Unit = { target -> openMarkdownLink(context, target, uriHandler::openUri) }
     val isLast = context.nodes.lastOrNull()?.seq == node.seq
     // A message the harness marked as a cancelled turn's prefix arrives before that turn's end,
     // so `running` is still true for a frame. Without this the last thing the user sees after
@@ -405,7 +437,7 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
     ) {
         node.blocks.forEachIndexed { index, block ->
             when (block.kind) {
-                "text" -> MarkdownText(block.text.orEmpty())
+                "text" -> MarkdownText(block.text.orEmpty(), onOpenLink = onOpenLink)
                 "reasoning" -> {
                     val expanded = reasoningExpanded[index] ?: false
                     ThinkingRow(
@@ -416,7 +448,7 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
                         streaming = streaming,
                     )
                     AnimatedVisibility(visible = expanded) {
-                        MarkdownText(block.text.orEmpty())
+                        MarkdownText(block.text.orEmpty(), onOpenLink = onOpenLink)
                     }
                 }
                 // Tool calls arrive as their own nodes and render as cards; the inline block is a
@@ -764,7 +796,7 @@ internal fun directFilePathForTool(variant: ToolRowVariant, card: dev.dsh.mobile
 }
 
 @Composable
-private fun CompactionRow(node: CompactionNode) {
+private fun CompactionRow(node: CompactionNode, onOpenLink: (String) -> Unit) {
     val summaryText = remember(node.data) {
         runCatching {
             val data = node.data as? JsonObject
@@ -785,7 +817,7 @@ private fun CompactionRow(node: CompactionNode) {
         expanded = expanded,
         onToggle = { expanded = !expanded },
     ) {
-        if (!summaryText.isNullOrBlank()) MarkdownText(summaryText)
+        if (!summaryText.isNullOrBlank()) MarkdownText(summaryText, onOpenLink = onOpenLink)
     }
 }
 
