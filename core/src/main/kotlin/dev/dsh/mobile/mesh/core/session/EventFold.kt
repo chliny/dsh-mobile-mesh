@@ -106,6 +106,9 @@ class EventFold(private val sessionId: String) {
                         if (node.interrupted) state.interruptedTurns.add(turn)
                     }
                 }
+                if (node is CompactionNode) {
+                    compactionId(node.data)?.let { state.compactionNodeById[it] = index }
+                }
             }
             state.running = initial.running
             state.hasMore = initial.hasMore
@@ -146,7 +149,7 @@ private class FoldState(private val sessionId: String) {
     }
 
     private val openByKey = linkedMapOf<String, OpenAssistant>()
-    private val compactionNodeById = mutableMapOf<String, Int>()
+    val compactionNodeById = mutableMapOf<String, Int>()
     /** Constant-time duplicate settlement guard and last assistant index per turn. */
     val assistantSeqs = HashSet<Long>()
     val assistantIndexByTurn = HashMap<Int, Int>()
@@ -238,6 +241,23 @@ private class FoldState(private val sessionId: String) {
                         ContextMessageNode(event.seq, messageId, blocks, sourceKind)
                     },
                 )
+            }
+
+            // Durable agent-session changes are developer-role model context. Their payload is
+            // nested under `message` (unlike user/message); show its actual content in the
+            // existing context disclosure, never a generic event label or a user bubble.
+            "developer/message" -> {
+                val message = (data as? JsonObject)?.get("message") as? JsonObject
+                val blocks = parseBlocks(message?.get("content"))
+                if (blocks.isNotEmpty()) {
+                    blank = false
+                    nodes.add(ContextMessageNode(
+                        event.seq,
+                        message?.get("id")?.jsonPrimitive?.contentOrNull,
+                        blocks,
+                        "developer",
+                    ))
+                }
             }
 
             // System prompts are model context, not user transcript content. The web client owns
@@ -350,8 +370,17 @@ private class FoldState(private val sessionId: String) {
 
             "compaction/start", "compaction/end", "compaction/prune", "compaction/summary" -> {
                 val id = compactionId(data)
-                val index = id?.let { compactionNodeById[it] }
-                    ?: nodes.indexOfLast { it is CompactionNode && (id == null || compactionId(it.data) == id) }
+                // Legacy ID-less compactions can coalesce with one another, but a model-free
+                // prune has no compactionId by contract and must not overwrite an identified
+                // summary/start/end (even if that is the most recent compaction row).
+                val index = if (event.type == "compaction/prune") {
+                    -1
+                } else {
+                    id?.let { compactionNodeById[it] }
+                        ?: nodes.indexOfLast {
+                            it is CompactionNode && it.kind != "compaction/prune" && compactionId(it.data) == id
+                        }
+                }
                 if (index >= 0) {
                     val previous = nodes[index] as CompactionNode
                     nodes[index] = previous.copy(

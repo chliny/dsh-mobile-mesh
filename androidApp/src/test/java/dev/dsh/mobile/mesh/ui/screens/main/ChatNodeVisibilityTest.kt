@@ -66,6 +66,19 @@ class ChatNodeVisibilityTest {
     }
 
     @Test
+    fun `a file-only user message renders its attachment chip without text`() {
+        val node = UserMessageNode(
+            seq = 8,
+            messageId = "file-only",
+            blocks = listOf(ChatBlock("file", text = "notes.txt")),
+            sourceKind = "user",
+        )
+        assertTrue(node.rendersContent())
+        assertEquals("", node.displayText())
+        assertTrue(node.copy(blocks = listOf(ChatBlock("image"))).rendersContent())
+    }
+
+    @Test
     fun `an empty user message draws nothing`() {
         val node = UserMessageNode(seq = 8, messageId = null, blocks = emptyList(), sourceKind = "user")
         assertFalse(node.rendersContent())
@@ -88,6 +101,18 @@ class ChatNodeVisibilityTest {
         )
         assertTrue(node.rendersContent())
         assertEquals("runtime instructions", node.displayText())
+    }
+
+    @Test
+    fun `a developer message is renderable as context without a user bubble`() {
+        val node = ContextMessageNode(
+            seq = 9,
+            messageId = "dev-1",
+            blocks = listOf(ChatBlock("text", text = "New session tools")),
+            sourceKind = "developer",
+        )
+        assertTrue(node.rendersContent())
+        assertEquals("New session tools", node.displayText())
     }
 
     @Test

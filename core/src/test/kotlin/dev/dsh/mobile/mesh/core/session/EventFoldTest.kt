@@ -56,6 +56,67 @@ class EventFoldTest {
     }
 
     @Test
+    fun `id-less prune cannot replace an identified compaction summary`() {
+        val events = listOf(
+            event("compaction/start", 1, buildJsonObject { put("compactionId", "c1") }),
+            event("compaction/summary", 2, buildJsonObject {
+                put("compactionId", "c1")
+                putJsonArray("summary") { add(buildJsonObject { put("text", "Preserved context") }) }
+            }),
+            event("compaction/prune", 3, buildJsonObject {
+                putJsonObject("shadowedRange") { put("start", 10); put("end", 12) }
+                putJsonArray("shadowedSeqs") { add(kotlinx.serialization.json.JsonPrimitive(10)) }
+                put("shadowedTokenCount", 100)
+            }),
+            event("compaction/end", 4, buildJsonObject { put("compactionId", "c1") }),
+        )
+        val compacted = EventFold("s1").fold(events).nodes.filterIsInstance<CompactionNode>()
+        assertEquals(2, compacted.size)
+        assertEquals(4L, compacted[0].seq)
+        assertEquals("compaction/end", compacted[0].kind)
+        assertEquals("c1", compacted[0].data.jsonObject["compactionId"]?.jsonPrimitive?.content)
+        assertEquals("Preserved context", compacted[0].data.jsonObject["summary"]?.jsonArray?.single()?.jsonObject?.get("text")?.jsonPrimitive?.content)
+        assertEquals("compaction/prune", compacted[1].kind)
+        assertEquals(3L, compacted[1].seq)
+        assertEquals("100", compacted[1].data.jsonObject["shadowedTokenCount"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `separate ID-less prune events do not merge and old ID-less lifecycle still merges`() {
+        val events = listOf(
+            event("compaction/start", 1, buildJsonObject { put("text", "Legacy start") }),
+            event("compaction/summary", 2, buildJsonObject {
+                putJsonArray("summary") { add(buildJsonObject { put("text", "Legacy summary") }) }
+            }),
+            event("compaction/prune", 3, buildJsonObject { put("shadowedTokenCount", 10) }),
+            event("compaction/prune", 4, buildJsonObject { put("shadowedTokenCount", 20) }),
+        )
+        val compacted = EventFold("s1").fold(events).nodes.filterIsInstance<CompactionNode>()
+        assertEquals(3, compacted.size)
+        assertEquals(2L, compacted[0].seq)
+        assertEquals("Legacy summary", compacted[0].data.jsonObject["summary"]?.jsonArray?.single()?.jsonObject?.get("text")?.jsonPrimitive?.content)
+        assertEquals(listOf(3L, 4L), compacted.drop(1).map { it.seq })
+    }
+
+    @Test
+    fun `incremental compaction keeps identified summary when ID-less prune arrives`() {
+        val initial = EventFold("s1").fold(listOf(
+            event("compaction/summary", 1, buildJsonObject {
+                put("compactionId", "c1")
+                putJsonArray("summary") { add(buildJsonObject { put("text", "Saved summary") }) }
+            }),
+        ))
+        val incremental = EventFold.Incremental(initial, "s1")
+        val result = incremental.apply(event("compaction/prune", 2, buildJsonObject { put("shadowedTokenCount", 10) }))!!
+        val compacted = result.nodes.filterIsInstance<CompactionNode>()
+        assertEquals(2, compacted.size)
+        assertEquals("Saved summary", compacted.first().data.jsonObject["summary"]?.jsonArray?.single()?.jsonObject?.get("text")?.jsonPrimitive?.content)
+        assertEquals("compaction/prune", compacted.last().kind)
+        val ended = incremental.apply(event("compaction/end", 3, buildJsonObject { put("compactionId", "c1") }))!!
+        assertEquals(3L, ended.nodes.filterIsInstance<CompactionNode>().first().seq)
+    }
+
+    @Test
     fun `repeated retry failures appear once in expanded details`() {
         val events = listOf(
             event("llm/retry", 1, buildJsonObject {
@@ -420,6 +481,43 @@ class EventFoldTest {
         assertEquals("runtime instructions", context.previewText)
         assertTrue(nodes[1] is UserMessageNode)
         assertTrue(nodes.none { it is OtherNode })
+    }
+
+    @Test
+    fun `developer message content is context rather than an unknown event or user bubble`() {
+        val events = listOf(
+            event("developer/message", 1, buildJsonObject {
+                put("turn", 1); put("step", 2); put("headerSeq", 0)
+                putJsonObject("message") {
+                    put("id", "developer-1"); put("role", "developer")
+                    putJsonArray("content") {
+                        add(buildJsonObject { put("type", "text"); put("text", "Added search tool") })
+                    }
+                    putJsonObject("source") { put("kind", "user") }
+                }
+            }),
+        )
+        val snapshot = EventFold("s1").fold(events)
+        assertFalse(snapshot.blank)
+        val context = snapshot.nodes.single() as ContextMessageNode
+        assertEquals("developer-1", context.messageId)
+        assertEquals("developer", context.sourceKind)
+        assertEquals("Added search tool", context.previewText)
+        assertEquals("text", context.blocks.single().kind)
+    }
+
+    @Test
+    fun `empty developer message produces no context row`() {
+        val snapshot = EventFold("s1").fold(listOf(
+            event("developer/message", 1, buildJsonObject {
+                putJsonObject("message") {
+                    put("id", "empty"); put("role", "developer")
+                    putJsonArray("content") { }
+                }
+            }),
+        ))
+        assertTrue(snapshot.nodes.isEmpty())
+        assertTrue(snapshot.blank)
     }
 
     @Test

@@ -68,7 +68,7 @@ internal fun ChatNode.rendersContent(): Boolean = when (this) {
     is OtherNode -> type !in STRUCTURAL_EVENT_TYPES
 
     // Content that can still fold to nothing.
-    is UserMessageNode -> blocks.any { it.kind == "image" } || displayText().isNotBlank()
+    is UserMessageNode -> blocks.any { it.kind == "image" || it.kind == "file" } || displayText().isNotBlank()
     is ContextMessageNode -> displayText().isNotBlank()
     is AssistantMessageNode -> interrupted || blocks.any { block ->
         when (block.kind) {
