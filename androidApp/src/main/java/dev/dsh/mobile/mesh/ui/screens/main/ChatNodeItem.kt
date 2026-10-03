@@ -817,7 +817,7 @@ private fun CompactionRow(node: CompactionNode, onOpenLink: (String) -> Unit) {
         summary = summaryPreview ?: stringResource(R.string.chat_compaction_summary),
         icon = FeatherIcons.Archive,
         expanded = expanded,
-        onToggle = { expanded = !expanded },
+        onToggle = if (!summaryText.isNullOrBlank()) ({ expanded = !expanded }) else null,
     ) {
         if (!summaryText.isNullOrBlank()) MarkdownText(summaryText, onOpenLink = onOpenLink)
     }
