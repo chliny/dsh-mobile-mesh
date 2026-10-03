@@ -396,7 +396,7 @@ internal fun buildInlineContent(
                     LinkAnnotation.Clickable(
                         tag = segment.url,
                         styles = TextLinkStyles(SpanStyle(color = colors.accent)),
-                        linkInteractionListener = { onOpenUri(segment.url) },
+                        linkInteractionListener = { runCatching { onOpenUri(segment.url) } },
                     ),
                 ) { append(segment.text) }
             }

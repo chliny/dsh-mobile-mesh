@@ -25,4 +25,18 @@ class MarkdownLinkTest {
         link.linkInteractionListener?.onClick(link)
         assertEquals("https://example.com/docs", opened)
     }
+
+    @Test
+    fun `link launcher failure does not crash transcript click handling`() {
+        val annotated = buildInlineContent(
+            text = "[unsupported](unsupported-scheme:value)",
+            codeStyle = TextStyle(fontFamily = FontFamily.Monospace),
+            colors = dev.dsh.mobile.mesh.ui.theme.DsThemeTokens.light,
+            onOpenUri = { throw IllegalStateException("No activity can open this URI") },
+        )
+        val link = annotated.getLinkAnnotations(0, annotated.length).single().item as LinkAnnotation.Clickable
+
+        // An unavailable handler should leave the transcript usable, rather than crashing the app.
+        link.linkInteractionListener?.onClick(link)
+    }
 }
