@@ -1,9 +1,10 @@
 <!doctype html>
-<html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"><link rel="stylesheet" href="xterm.css"><style>html,body{height:100%;width:100%;margin:0;background:#10141d;overflow:hidden} #terminal{position:fixed;top:0;left:0;height:100vh;width:100%;background:#10141d;overflow:hidden} .xterm{padding:4px;box-sizing:border-box} </style></head><body><div id="terminal"></div><script src="xterm.js"></script><script src="addon-fit.js"></script><script>
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"><link rel="stylesheet" href="xterm.css"><style>html,body{height:100%;width:100%;margin:0;background:#10141d;overflow:hidden} #terminal{position:fixed;top:0;left:0;height:100vh;width:100%;background:#10141d;overflow:hidden} .xterm{padding:4px;box-sizing:border-box} </style></head><body><div id="terminal"></div><script src="xterm.js"></script><script src="addon-fit.js"></script><script src="touch-scroll.js"></script><script>
 'use strict';
 const term = new Terminal({cursorBlink:true,allowTransparency:false,scrollback:1000,convertEol:false,fontFamily:'monospace, "Noto Color Emoji"',fontSize:14,theme:{background:'#10141d',foreground:'#e6eaf1',cursor:'#f8f8f2'}});
 const fitAddon=new FitAddon.FitAddon();term.loadAddon(fitAddon);
 term.open(document.getElementById('terminal'));
+installTerminalTouchScrolling(term.element.querySelector('.xterm-screen'), term);
 // xterm normally prevents the textarea's native Backspace after sending DEL. Let the IME
 // delete its pending character too; 229/composition events remain owned by xterm's IME helper.
 term.attachCustomKeyEventHandler(event => {
