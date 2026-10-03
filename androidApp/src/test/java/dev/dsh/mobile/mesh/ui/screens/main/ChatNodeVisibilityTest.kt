@@ -67,6 +67,19 @@ class ChatNodeVisibilityTest {
     }
 
     @Test
+    fun `an assistant reasoning block without text draws no row`() {
+        val node = AssistantMessageNode(
+            seq = 12,
+            messageId = null,
+            turn = 1,
+            step = 1,
+            blocks = listOf(ChatBlock(kind = "reasoning", text = "  ")),
+        )
+        assertFalse(node.rendersContent())
+        assertTrue(node.copy(blocks = listOf(ChatBlock(kind = "reasoning", text = "thinking"))).rendersContent())
+    }
+
+    @Test
     fun `only replacement checkpoint compaction node is visible`() {
         val lifecycle = CompactionNode(1, "compaction/summary", kotlinx.serialization.json.JsonNull)
         val checkpoint = CompactionNode(2, "checkpoint", kotlinx.serialization.json.JsonNull)

@@ -439,17 +439,13 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
         node.blocks.forEachIndexed { index, block ->
             when (block.kind) {
                 "text" -> MarkdownText(block.text.orEmpty(), onOpenLink = onOpenLink)
-                "reasoning" -> {
+                "reasoning" -> if (hasThinkingContent(block.text)) {
                     val expanded = reasoningExpanded[index] ?: false
                     ThinkingRow(
                         summary = block.text?.lineSequence()?.firstOrNull()
                             ?: stringResource(R.string.chat_thinking),
                         expanded = expanded,
-                        onToggle = if (hasThinkingContent(block.text)) {
-                            { reasoningExpanded[index] = !expanded }
-                        } else {
-                            null
-                        },
+                        onToggle = { reasoningExpanded[index] = !expanded },
                         streaming = streaming,
                     )
                     AnimatedVisibility(visible = expanded) {

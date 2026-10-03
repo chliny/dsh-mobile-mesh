@@ -75,7 +75,8 @@ internal fun ChatNode.rendersContent(): Boolean = when (this) {
             // Tool calls arrive as their own nodes; the inline block is a duplicate reference.
             "tool-call", "tool-result" -> false
             "text" -> !block.text.isNullOrBlank()
-            "reasoning", "image" -> true
+            "reasoning" -> !block.text.isNullOrBlank()
+            "image" -> true
             else -> block.text != null
         }
     }
