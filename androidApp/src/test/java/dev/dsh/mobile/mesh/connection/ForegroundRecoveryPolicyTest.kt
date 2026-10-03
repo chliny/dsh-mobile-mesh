@@ -96,6 +96,22 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `known offline handover recovers before waiting on foreground probe`() {
+        assertTrue(shouldRecoverBeforeForegroundProbe(
+            handoverPending = true, activeNetworkInternetCapable = false, recoveryInFlight = false,
+        ))
+        assertTrue(shouldRecoverBeforeForegroundProbe(
+            handoverPending = false, activeNetworkInternetCapable = false, recoveryInFlight = false,
+        ))
+        assertFalse(shouldRecoverBeforeForegroundProbe(
+            handoverPending = false, activeNetworkInternetCapable = true, recoveryInFlight = false,
+        ))
+        assertFalse(shouldRecoverBeforeForegroundProbe(
+            handoverPending = true, activeNetworkInternetCapable = false, recoveryInFlight = true,
+        ))
+    }
+
+    @Test
     fun `retry tick retains retry intent while failed operation cleanup owns slot`() {
         assertTrue(shouldDeferRecoveryRetryUntilOperationReleased(operationInFlight = true))
         assertFalse(shouldDeferRecoveryRetryUntilOperationReleased(operationInFlight = false))

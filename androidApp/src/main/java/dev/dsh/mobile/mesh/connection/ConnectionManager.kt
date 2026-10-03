@@ -1100,7 +1100,25 @@ class ConnectionManager @Inject constructor(
         val currentBeforeResume = _state.value
         val currentPhaseBeforeResume = currentBeforeResume.phase
         val backgroundDurationBeforeResume = backgroundDurationSinceLastStopMs()
-        if (forceCheck && currentBeforeResume.hasConnected && currentPhaseBeforeResume == ConnectionPhase.CONNECTED) {
+        val resumeNetwork = connectivity.activeNetwork
+        val resumeCapabilities = resumeNetwork?.let { connectivity.getNetworkCapabilities(it) }
+        val resumeNetworkReady = shouldStartNetworkRecovery(
+            isActiveNetwork = resumeNetwork != null && connectivity.activeNetwork == resumeNetwork,
+            hasInternetCapability = resumeCapabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
+        )
+        val handoverPendingAtResume = networkLostWhileConnected || networkRecoveryGate.isPending() ||
+            networkRecoveryAttemptVersion != null
+        val recoveryInFlightAtResume = connectJob?.isActive == true ||
+            synchronized(recoveryLock) { transportRecoveryInFlight }
+        val networkRecoveryPreferredAtResume = currentPhaseBeforeResume == ConnectionPhase.CONNECTED &&
+            activeHost != null && shouldRecoverBeforeForegroundProbe(
+                handoverPending = handoverPendingAtResume,
+                activeNetworkInternetCapable = resumeNetworkReady,
+                recoveryInFlight = recoveryInFlightAtResume,
+            )
+        if (forceCheck && currentBeforeResume.hasConnected && currentPhaseBeforeResume == ConnectionPhase.CONNECTED &&
+            !networkRecoveryPreferredAtResume
+        ) {
             publishedGenerationNeedsProbe = true
             _state.value = currentBeforeResume.copy(
                 foregroundCheckPending = true,
@@ -1198,7 +1216,9 @@ class ConnectionManager @Inject constructor(
             lifecycleCanRun = lifecycle.mayRun(),
             phase = currentPhaseBeforeResume,
         )
-        val action = if (retryRecoveryOnResume) {
+        val action = if (networkRecoveryPreferredAtResume && !recoveryInFlight) {
+            ForegroundRecoveryAction.RECOVER
+        } else if (retryRecoveryOnResume) {
             ForegroundRecoveryAction.RECOVER
         } else if (shouldVerifyRearmedGeneration(publishedGenerationNeedsProbe, appInForeground, recoveryInFlight)) {
             ForegroundRecoveryAction.VERIFY

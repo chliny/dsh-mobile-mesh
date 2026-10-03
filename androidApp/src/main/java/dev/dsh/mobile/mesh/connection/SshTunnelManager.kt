@@ -247,7 +247,7 @@ class SshTunnelManager @Inject constructor(
 internal fun shouldUseSshKeyPassphrase(passphrase: String?): Boolean = !passphrase.isNullOrBlank()
 
 internal const val SSH_INITIAL_HANDSHAKE_TIMEOUT_MS = 25_000
-internal const val SSH_RECOVERY_HANDSHAKE_TIMEOUT_MS = 12_000
+internal const val SSH_RECOVERY_HANDSHAKE_TIMEOUT_MS = 8_000
 
 internal fun sshHandshakeTimeoutMs(recovery: Boolean): Int =
     if (recovery) SSH_RECOVERY_HANDSHAKE_TIMEOUT_MS else SSH_INITIAL_HANDSHAKE_TIMEOUT_MS

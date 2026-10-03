@@ -10,7 +10,9 @@ class SshRecoveryPolicyTest {
     @Test
     fun `recovery uses a shorter bounded handshake budget without changing initial connect`() {
         assertEquals(25_000, sshHandshakeTimeoutMs(recovery = false))
-        assertEquals(12_000, sshHandshakeTimeoutMs(recovery = true))
+        assertEquals(8_000, sshHandshakeTimeoutMs(recovery = true))
+        assertEquals(25_000, SSH_INITIAL_HANDSHAKE_TIMEOUT_MS)
+        assertEquals(8_000, SSH_RECOVERY_HANDSHAKE_TIMEOUT_MS)
         assertEquals(2, SSH_RECOVERY_CONNECT_ATTEMPTS)
         assertEquals(3, SSH_CONNECT_ATTEMPTS)
     }

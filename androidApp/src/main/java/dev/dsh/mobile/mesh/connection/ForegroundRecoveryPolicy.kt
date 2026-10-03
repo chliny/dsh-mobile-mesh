@@ -144,6 +144,13 @@ internal fun shouldDeferRecoveryRetryUntilOperationReleased(operationInFlight: B
 /** A cancelled predecessor must not acknowledge its successor's handover or retry flags. */
 internal fun mayCompleteRecoveryOperation(completedJob: Any, currentJob: Any?): Boolean = completedJob === currentJob
 
+/** Do not spend the bounded HTTP probe timeout on a known network handover or missing route. */
+internal fun shouldRecoverBeforeForegroundProbe(
+    handoverPending: Boolean,
+    activeNetworkInternetCapable: Boolean,
+    recoveryInFlight: Boolean,
+): Boolean = !recoveryInFlight && (handoverPending || !activeNetworkInternetCapable)
+
 /** A transient name lookup after Android resumes networking is not a terminal manual-connect error. */
 internal fun shouldRetryConnectionOperation(
     reconnect: Boolean,
