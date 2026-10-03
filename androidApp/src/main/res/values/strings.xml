@@ -27,6 +27,7 @@
     <string name="terminal_send">Send</string>
     <string name="terminal_offline">Connect to the host to use the terminal</string>
     <string name="terminal_input_full">Terminal input is busy; retry after it catches up</string>
+    <string name="terminal_input_unavailable">Terminal is not ready or is read-only</string>
     <string name="workspace_files_title">Workspace files</string>
     <string name="workspace_files_refresh">Refresh files</string>
     <string name="workspace_files_binary">This file cannot be previewed as text.</string>

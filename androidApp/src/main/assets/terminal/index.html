@@ -5,14 +5,8 @@ const term = new Terminal({cursorBlink:true,allowTransparency:false,scrollback:1
 const fitAddon=new FitAddon.FitAddon();term.loadAddon(fitAddon);
 term.open(document.getElementById('terminal'));
 installTerminalTouchScrolling(term.element.querySelector('.xterm-screen'), term);
-// xterm normally prevents the textarea's native Backspace after sending DEL. Let the IME
-// delete its pending character too; 229/composition events remain owned by xterm's IME helper.
-term.attachCustomKeyEventHandler(event => {
-  if (event.type !== 'keydown' || event.keyCode !== 8 || event.isComposing ||
-      event.ctrlKey || event.altKey || event.metaKey) return true;
-  term.input('\x7f');
-  return false;
-});
+// Let xterm own Backspace and composition reconciliation. Mixing a native textarea edit with
+// an extra DEL bypasses xterm's deferred 229 diff and can delete two terminal characters.
 term.onData(data => AndroidTerminal.input(data));
 term.onResize(({cols,rows}) => AndroidTerminal.resize(cols,rows));
 function fit() {const container=document.getElementById('terminal'); container.style.height=window.innerHeight+'px'; fitAddon.fit();}

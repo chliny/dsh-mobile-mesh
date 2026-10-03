@@ -222,7 +222,10 @@ class RemoteStreamMux(
                     // WebSocket carrier. Ordered stateful items are never silently dropped.
                     if (stream.signals.trySend(Signal.Item(message.value ?: JsonObject(emptyMap()))).isFailure) {
                         runCatching { onConsumerFellBehind(stream.endpoint, streamSignalBufferCapacity) }
+                        // The local stream is abandoned, but the shared carrier stays alive. Tell
+                        // the host to release any attachment/controller owned by this subscriber.
                         streams.remove(message.streamId)
+                        if (closedCause == null) send(RemoteStreamClientMessage.Cancel(streamId = message.streamId))
                         stream.terminate(
                             Signal.Failed(
                                 RpcError("consumer_fell_behind", "remote stream consumer fell behind"),
