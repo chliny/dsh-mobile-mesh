@@ -3,6 +3,7 @@ package dev.dsh.mobile.mesh.ui.screens.main
 import dev.dsh.mobile.mesh.core.session.ToolCallNode
 import dev.dsh.mobile.mesh.core.session.ToolResultNode
 import dev.dsh.mobile.mesh.core.wire.WireJson
+import dev.dsh.mobile.mesh.ui.components.ContentBlockView
 import dev.dsh.mobile.mesh.ui.components.DiffHunk
 import dev.dsh.mobile.mesh.ui.components.ReadLine
 import dev.dsh.mobile.mesh.ui.components.SearchFile
@@ -14,6 +15,7 @@ import dev.dsh.mobile.mesh.ui.components.WebSource
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -55,7 +57,36 @@ internal fun buildToolCardView(
         searchCard(call, args, result)?.let { return it }
         webCard(call, args, result)?.let { return it }
     }
-    return ToolCardView.GenericCard(title = call.name, rawInput = call.arguments)
+    return ToolCardView.GenericCard(
+        title = call.name,
+        rawInput = call.arguments,
+        content = result?.content?.let(::genericContentBlocks),
+    )
+}
+
+/** Preserve text and attachment output when a tool has no trustworthy specialized presenter. */
+private fun genericContentBlocks(content: JsonElement): List<ContentBlockView> {
+    val blocks = content as? JsonArray ?: return listOf(ContentBlockView.TextBlock(content.toString()))
+    return blocks.map { element ->
+        val block = element as? JsonObject
+        when ((block?.get("type") as? JsonPrimitive)?.contentOrNull) {
+            "text" -> (block?.get("text") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.let(ContentBlockView::TextBlock)
+            "reasoning" -> (block?.get("text") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.let(ContentBlockView::ReasoningBlock)
+            "image" -> block?.let(::genericImageBlock)
+            else -> null
+        } ?: ContentBlockView.TextBlock(element.toString())
+    }
+}
+
+private fun genericImageBlock(block: JsonObject): ContentBlockView.ImageBlock? {
+    val attachment = (block["attachment"] as? JsonObject) ?: block
+    val id = (attachment["attachmentId"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+        ?.takeIf { it.isNotBlank() } ?: return null
+    val mediaType = (attachment["mediaType"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+        ?.takeIf { it.isNotBlank() } ?: return null
+    val width = int(attachment, "width")?.takeIf { it > 0 } ?: return null
+    val height = int(attachment, "height")?.takeIf { it > 0 } ?: return null
+    return ContentBlockView.ImageBlock(id, mediaType, width, height, str(attachment, "name"))
 }
 
 /** The call's arguments as an object, or null when they are absent or not a JSON object. */
@@ -143,22 +174,38 @@ private fun terminalSendCall(name: String, args: JsonObject): TerminalSendCall? 
 /**
  * Split a trailing exit-code or signal marker off rendered shell output.
  *
- * The markers are the host shell renderer's own literals. Absent either, the command exited 0 —
- * the renderer only appends a marker for a non-zero exit or a signal.
+ * The markers are the host shell renderer's own literals. A missing marker is unknown rather
+ * than a proven success: newer renderers, partial results, and malformed spills can omit it.
  */
 private class ExitStatus(val output: String, val exitCode: Int?, val signal: String?)
 
 private val SIGNAL_MARKER = Regex("\\n\\[killed by signal: ([^\\]\\n]+)]$")
-private val EXIT_MARKER = Regex("\\n\\[exit code: (\\d+)]$")
+
+/** The host's persisted spill footer replaces a potentially hidden final shell exit marker. */
+private val SPILL_OMISSION = Regex("(?:Omitted (?:0|[1-9][0-9]*) bytes\\.|More bytes were omitted\\.)(?: Omitted [1-9][0-9]* images\\.)?")
+
+private fun hasSpillNotice(text: String): Boolean {
+    if (!text.endsWith(')')) return false
+    // The footer may be the entire result or follow a preview separated by a blank line.
+    val candidates = listOf(text) + text.split("\n\n(").drop(1).map { "($it" }
+    return candidates.any { candidate ->
+        val location = candidate.indexOf(" Full formatted result stored at: ")
+        location > 1 && candidate.startsWith('(') &&
+            SPILL_OMISSION.matches(candidate.substring(1, location)) &&
+            candidate.indexOf(". ", location + " Full formatted result stored at: ".length) >= 0
+    }
+}
+private val EXIT_MARKER = Regex("\\n\\[exit code: (-?\\d+)]$")
 
 private fun parseExitStatus(text: String): ExitStatus {
     SIGNAL_MARKER.find(text)?.let { match ->
         return ExitStatus(text.substring(0, match.range.first), null, match.groupValues[1])
     }
     EXIT_MARKER.find(text)?.let { match ->
-        return ExitStatus(text.substring(0, match.range.first), match.groupValues[1].toIntOrNull(), null)
+        val code = match.groupValues[1].toIntOrNull()
+        if (code != null) return ExitStatus(text.substring(0, match.range.first), code, null)
     }
-    return ExitStatus(text, 0, null)
+    return ExitStatus(text, null, null)
 }
 
 private fun terminalCard(
@@ -190,22 +237,18 @@ private fun terminalCard(
     // A persistent shell's result stays generic: it can report a reset or partial output, and
     // inventing one process exit status for it would be a claim this client cannot support.
     if (result.isError || shell?.persistent == true) return null
-    val blocks = textBlocks(result)
-    val output = blocks.joinToString("\n").ifEmpty { return null }
+    // The host terminal presenter accepts exactly one text block. Multi-block and attachment
+    // results must remain generic so their full content stays visible in its original order.
+    val output = singleResultText(result) ?: return null
+    if (shell != null && hasSpillNotice(output)) return null
     val status = if (send != null) ExitStatus(output, null, null) else parseExitStatus(output)
-    val displayBlocks = if (send != null) {
-        blocks
-    } else {
-        val last = parseExitStatus(blocks.last())
-        blocks.dropLast(1) + last.output
-    }
     return ToolCardView.TerminalCard(
         title = command,
         description = description,
         command = command,
         cwd = workdir,
         output = status.output,
-        outputBlocks = displayBlocks.filter { it.isNotBlank() },
+        outputBlocks = listOf(status.output).filter { it.isNotBlank() },
         exitCode = status.exitCode,
         signal = status.signal,
         running = false,

@@ -106,6 +106,7 @@ internal data class ChatNodeContext(
     val onBranchFrom: (Long) -> Unit,
     val onFeedback: (Long, Boolean) -> Unit,
     val onActionFeedback: (String) -> Unit = {},
+    val hasMore: Boolean = false,
 )
 
 /**
@@ -598,6 +599,11 @@ private fun ToolCallRow(node: ToolCallNode, context: ChatNodeContext) {
         .filterIsInstance<ToolResultNode>()
         .firstOrNull { it.callId == node.callId }
 
+    if (node.name == "todo_write" && todoCallSummary(node.arguments) != null) {
+        TodoWriteRow(node, result, context)
+        return
+    }
+
     val card = buildToolCardView(
         call = node,
         result = result,
@@ -617,11 +623,7 @@ private fun ToolCallRow(node: ToolCallNode, context: ChatNodeContext) {
     var expanded by remember(node.callId) { mutableStateOf(false) }
     val directFilePath = directFilePathForTool(row.variant, card)
     // The leading slot carries the outcome: a red dot for a failed call, the tool glyph otherwise.
-    val state = when {
-        result?.isError == true -> DisclosureState.Error
-        result == null && context.running -> DisclosureState.Running
-        else -> DisclosureState.Idle
-    }
+    val state = toolDisclosureState(card, result, context.running)
     ToolCard(
         view = card,
         expanded = expanded,
@@ -646,6 +648,105 @@ private fun ToolCallRow(node: ToolCallNode, context: ChatNodeContext) {
             color = colors.error,
             modifier = Modifier.padding(start = 26.dp),
         )
+    }
+}
+
+@Composable
+private fun TodoWriteRow(node: ToolCallNode, result: ToolResultNode?, context: ChatNodeContext) {
+    val summary = remember(node.arguments) { todoCallSummary(node.arguments) }
+    val diff = remember(node, context.nodes, context.hasMore, result?.isError) {
+        if (result?.isError == true) null else todoDiff(node, context.nodes, context.hasMore)
+    }
+    val header = summary?.let {
+        buildString {
+            append(stringResource(R.string.chat_todo_completed_total, it.completed, it.total))
+            it.activeContent?.let { content -> append(" · "); append(content) }
+            if (it.activeExtra > 0) { append(" · "); append(stringResource(R.string.chat_todo_more_active, it.activeExtra)) }
+        }
+    }
+    val changeSummary = diff?.takeUnless { it.unavailable }?.let { change ->
+        listOfNotNull(
+            change.added.takeIf { it > 0 }?.let { stringResource(R.string.chat_todo_diff_added, it) },
+            change.updated.takeIf { it > 0 }?.let { stringResource(R.string.chat_todo_diff_updated, it) },
+            change.removed.takeIf { it > 0 }?.let { stringResource(R.string.chat_todo_diff_removed, it) },
+        ).joinToString(" · ").ifEmpty { stringResource(R.string.chat_todo_diff_no_changes) }
+    }
+    var expanded by remember(node.callId) { mutableStateOf(false) }
+    DisclosureRow(
+        title = stringResource(R.string.chat_todo_title),
+        summary = listOfNotNull(header, changeSummary).joinToString(" · ").ifBlank { node.name },
+        icon = FeatherIcons.CheckSquare,
+        expanded = expanded,
+        onToggle = { expanded = !expanded },
+        state = when {
+            result?.isError == true -> DisclosureState.Error
+            result == null && context.running -> DisclosureState.Running
+            else -> DisclosureState.Idle
+        },
+    ) {
+        if (diff != null) {
+            Text(
+                stringResource(when {
+                    diff.unavailable -> R.string.chat_todo_diff_unavailable
+                    diff.initial -> R.string.chat_todo_diff_initial
+                    else -> R.string.chat_todo_diff_compare
+                }),
+                style = DsType.caption11,
+                color = DsTheme.colors.labelTertiary,
+                modifier = Modifier.padding(start = 28.dp, top = 4.dp),
+            )
+            diff.items.forEach { TodoDetailRow(it) }
+            if (diff.unchanged.isNotEmpty()) {
+                var showUnchanged by remember(node.callId) { mutableStateOf(false) }
+                Text(
+                    stringResource(R.string.chat_todo_diff_unchanged, diff.unchanged.size),
+                    modifier = Modifier.clickable { showUnchanged = !showUnchanged }.padding(start = 28.dp, top = 4.dp),
+                    style = DsType.caption11,
+                    color = DsTheme.colors.accent,
+                )
+                if (showUnchanged) diff.unchanged.forEach { TodoDetailRow(it) }
+            }
+        } else {
+            Text(node.arguments, style = DsType.caption11.copy(fontFamily = DsType.codeFont),
+                color = DsTheme.colors.labelCaption, modifier = Modifier.padding(start = 28.dp, top = 4.dp))
+        }
+        if (result?.isError == true) Text(
+            toolResultText(result) ?: stringResource(R.string.common_error),
+            style = DsType.caption11, color = DsTheme.colors.error, modifier = Modifier.padding(start = 28.dp),
+        )
+    }
+}
+
+@Composable
+private fun TodoDetailRow(item: TodoDetailItem) {
+    val colors = DsTheme.colors
+    val statusLabel = stringResource(when (item.status) {
+        "completed" -> R.string.chat_todo_status_completed
+        "in_progress" -> R.string.chat_todo_status_in_progress
+        else -> R.string.chat_todo_status_pending
+    })
+    val changeLabel = item.change?.let { stringResource(when (it) {
+        TodoChange.Added -> R.string.chat_todo_change_added
+        TodoChange.Updated -> R.string.chat_todo_change_updated
+        TodoChange.Moved -> R.string.chat_todo_change_moved
+        TodoChange.Removed -> R.string.chat_todo_change_removed
+    }) }
+    Row(Modifier.fillMaxWidth().padding(start = 28.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        StateDot(todoStatusDot(item.status), size = 8.dp)
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(item.content, style = DsType.small13, color = colors.labelSecondary)
+            Text(listOfNotNull(changeLabel, statusLabel,
+                item.previousStatus?.let { previous ->
+                    val label = stringResource(when (previous) {
+                        "completed" -> R.string.chat_todo_status_completed
+                        "in_progress" -> R.string.chat_todo_status_in_progress
+                        else -> R.string.chat_todo_status_pending
+                    })
+                    stringResource(R.string.chat_todo_previous_status, label)
+                }).joinToString(" · "),
+                style = DsType.caption11, color = colors.labelTertiary)
+        }
     }
 }
 

@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -79,6 +80,65 @@ internal fun transcriptItemsAnimatePlacement(): Boolean = false
 private const val MAX_AUTO_PAGES = 1
 
 private data class OlderPageAnchor(val seq: Long, val offset: Int)
+
+internal sealed interface TranscriptRow {
+    val key: String
+    val anchorSeq: Long
+
+    data class Node(val node: dev.dsh.mobile.mesh.core.session.ChatNode) : TranscriptRow {
+        override val key: String = "node-${node.seq}"
+        override val anchorSeq: Long = node.seq
+    }
+
+    data class Process(val part: TranscriptPart.Process) : TranscriptRow {
+        override val key: String = "process-${part.startSeq}"
+        override val anchorSeq: Long = part.startSeq
+    }
+
+    data class Command(val activity: ActivityRow.Command) : TranscriptRow {
+        override val key: String = "command-${activity.anchorSeq}"
+        override val anchorSeq: Long = activity.anchorSeq
+    }
+
+    data class Workflow(val activity: ActivityRow.Workflow) : TranscriptRow {
+        override val key: String = "workflow-${activity.anchorSeq}"
+        override val anchorSeq: Long = activity.anchorSeq
+    }
+}
+
+/** Group only adjacent visible node parts; never pull an event across a process disclosure. */
+internal fun buildTranscriptRows(
+    parts: List<TranscriptPart>,
+    expanded: Map<Long, Boolean>,
+): List<TranscriptRow> {
+    val result = mutableListOf<TranscriptRow>()
+    val pending = mutableListOf<dev.dsh.mobile.mesh.core.session.ChatNode>()
+    fun flush() {
+        groupTranscriptActivity(pending).forEach { row ->
+            result.add(when (row) {
+                is ActivityRow.Node -> TranscriptRow.Node(row.node)
+                is ActivityRow.Command -> TranscriptRow.Command(row)
+                is ActivityRow.Workflow -> TranscriptRow.Workflow(row)
+            })
+        }
+        pending.clear()
+    }
+    parts.forEach { part ->
+        when (part) {
+            is TranscriptPart.Node -> pending.add(part.node)
+            is TranscriptPart.Process -> {
+                flush()
+                result.add(TranscriptRow.Process(part))
+                if (expanded[part.startSeq] == true) {
+                    pending.addAll(part.nodes)
+                    flush()
+                }
+            }
+        }
+    }
+    flush()
+    return result
+}
 
 /**
  * Decide whether the top sentinel may request another page. A reconnect can replace the visible
@@ -156,9 +216,12 @@ internal fun ChatTranscript(
     val nodes = remember(conversation?.nodes) {
         conversation?.nodes.orEmpty().filter { it.rendersContent() }
     }
-    val hasMore = conversation?.hasMore == true
-    val itemCount = nodes.size + if (hasMore) 1 else 0
     val sessionId = conversation?.sessionId
+    val expanded = remember(sessionId) { mutableStateMapOf<Long, Boolean>() }
+    val parts = remember(conversation?.nodes) { partitionTranscript(conversation?.nodes.orEmpty()) }
+    val rows = buildTranscriptRows(parts, expanded)
+    val hasMore = conversation?.hasMore == true
+    val itemCount = rows.size + if (hasMore) 1 else 0
     val turnStartedAtMillis = conversation?.turnStartedAtMillis
     val deepDiving = deepDivingVisible(conversation?.running == true, turnStartedAtMillis)
     val waitingForFirstResponse = waitingForFirstResponse(
@@ -199,10 +262,9 @@ internal fun ChatTranscript(
     // appearing and disappearing changed the count too, which moved the view for no reason at all.
     val newestSeq = nodes.lastOrNull()?.seq
     var lastSession by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(nodes, hasMore, sessionId) {
+    LaunchedEffect(rows, hasMore, sessionId) {
         val anchor = olderPageAnchor ?: return@LaunchedEffect
-        if (nodes.none { it.seq == anchor.seq }) return@LaunchedEffect
-        val newIndex = nodes.indexOfFirst { it.seq == anchor.seq }
+        val newIndex = rows.indexOfFirst { it.anchorSeq == anchor.seq }
         if (newIndex >= 0) listState.scrollToItem(newIndex + if (hasMore) 1 else 0, anchor.offset)
         olderPageAnchor = null
     }
@@ -246,7 +308,7 @@ internal fun ChatTranscript(
             if (!shouldPageAtTop(firstVisible, fillsViewport, autoPages, MAX_AUTO_PAGES, userScrolling)) return@collect
             if (!fillsViewport) autoPages++
             val anchor = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index > 0 }
-            if (anchor != null) olderPageAnchor = OlderPageAnchor(nodes.getOrNull(anchor.index - 1)?.seq ?: return@collect, anchor.offset)
+            if (anchor != null) olderPageAnchor = OlderPageAnchor(rows.getOrNull(anchor.index - 1)?.anchorSeq ?: return@collect, anchor.offset)
             onLoadOlder()
         }
     }
@@ -293,11 +355,24 @@ internal fun ChatTranscript(
                 )
             }
         } else {
-            items(nodes, key = { it.seq }) { node ->
-                // Disclosure expansion changes only this item's height. Avoid animateItem here:
-                // animating every sibling during a height change causes the whole transcript to
-                // briefly disappear on Android, especially for the todo dock.
-                ChatNodeItem(node = node, context = context)
+            items(rows, key = { it.key }) { row ->
+                when (row) {
+                    is TranscriptRow.Node -> ChatNodeItem(node = row.node, context = context)
+                    is TranscriptRow.Command -> CommandActivityRow(row.activity)
+                    is TranscriptRow.Workflow -> WorkflowActivityRow(row.activity, context.onOpenSubagent)
+                    is TranscriptRow.Process -> {
+                        val open = expanded[row.part.startSeq] == true
+                        Text(
+                            text = if (open) stringResource(R.string.chat_process_hide, row.part.nodes.size)
+                                else stringResource(R.string.chat_process_summary, row.part.nodes.size),
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                expanded[row.part.startSeq] = !open
+                            }.padding(horizontal = 8.dp, vertical = 8.dp),
+                            style = DsType.small13,
+                            color = DsTheme.colors.labelSecondary,
+                        )
+                    }
+                }
             }
             if (deepDiving && turnStartedAtMillis != null) {
                 item(key = "waiting-for-model") {

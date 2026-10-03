@@ -449,6 +449,7 @@ fun ChatScreen(
 
             val nodeContext = ChatNodeContext(
                 nodes = conversation?.nodes ?: emptyList(),
+                hasMore = conversation?.hasMore == true,
                 sessionId = currentSessionId,
                 store = store,
                 onOpenFile = onOpenFile,
