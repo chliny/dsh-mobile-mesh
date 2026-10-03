@@ -76,15 +76,19 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
     var selected by remember(sessionId) { mutableStateOf<String?>(null) }
     var status by remember(sessionId) { mutableStateOf("") }
     var maxDimensions by remember(sessionId) { mutableStateOf(500 to 200) }
+    var maxInputBytes by remember(sessionId) { mutableStateOf(65_536) }
     var ctrl by remember { mutableStateOf(false) }
     var shift by remember { mutableStateOf(false) }
     var alt by remember { mutableStateOf(false) }
     var attachment by remember { mutableStateOf<String?>(null) }
     var inputQueue by remember { mutableStateOf<TerminalInputQueue?>(null) }
+    var resizeQueue by remember { mutableStateOf<TerminalResizeQueue?>(null) }
     val currentInputQueue by rememberUpdatedState(inputQueue)
+    val currentResizeQueue by rememberUpdatedState(resizeQueue)
     val currentAttachment by rememberUpdatedState(attachment)
     val currentSelected by rememberUpdatedState(selected)
     val currentMaxDimensions by rememberUpdatedState(maxDimensions)
+    val currentMaxInputBytes by rememberUpdatedState(maxInputBytes)
     val currentCtrl by rememberUpdatedState(ctrl)
     val currentShift by rememberUpdatedState(shift)
     val currentAlt by rememberUpdatedState(alt)
@@ -125,12 +129,17 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
         screen?.evaluateJavascript("$name($literal)", null)
     }
     fun write(data: String) {
-        if (inputQueue?.offer(data) == false) status = context.getString(R.string.terminal_input_full)
+        status = terminalInputFailure(inputQueue, data, maxInputBytes)?.let {
+            context.getString(if (it == TerminalInputFailure.UNAVAILABLE) R.string.terminal_input_unavailable else R.string.terminal_input_full)
+        } ?: ""
     }
     LaunchedEffect(sessionId) {
         suspend fun updateFromHost() {
             when (val env = manager.connectedApi?.terminalEnvironment(sessionId)) {
-                is RpcResult.Ok -> maxDimensions = env.value.maxCols to env.value.maxRows
+                is RpcResult.Ok -> {
+                    maxDimensions = env.value.maxCols to env.value.maxRows
+                    maxInputBytes = env.value.maxInputBytes
+                }
                 else -> Unit
             }
             refresh()
@@ -160,6 +169,7 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
             })
             var holdJob: Job? = null
             var writerJob: Job? = null
+            var resizeJob: Job? = null
             try {
                 // A hold survives transient output follower disconnections until leaving this view.
                 val retained = CompletableDeferred<Unit>()
@@ -175,6 +185,7 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                 }
                 kotlinx.coroutines.withTimeout(10_000) { retained.await() }
                 var sequence: Int? = null
+                var writableToken: String? = null
                 generation.mux.openStream("terminal/follow", args).collect { raw ->
                     val frame = raw.jsonObject
                     when (frame["type"]?.jsonPrimitive?.content) {
@@ -182,27 +193,55 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                             sequence = frame["sequence"]?.jsonPrimitive?.intOrNull
                             render("terminalReset", frame["screen"]?.jsonPrimitive?.content.orEmpty())
                             val info = frame["info"]?.jsonObject
-                            if (info?.get("controllerId")?.jsonPrimitive?.content == token) {
-                                val queue = TerminalInputQueue { data ->
+                            if (info?.get("controllerId")?.jsonPrimitive?.content != token && writableToken == token) {
+                                writableToken = null
+                                inputQueue?.close()
+                                inputQueue = null
+                                resizeQueue?.close()
+                                resizeQueue = null
+                                attachment = null
+                                writerJob?.cancel()
+                                writerJob = null
+                                resizeJob?.cancel()
+                                resizeJob = null
+                            }
+                            if (info?.get("controllerId")?.jsonPrimitive?.content == token && writableToken != token) {
+                                writableToken = token
+                                inputQueue?.close()
+                                resizeQueue?.close()
+                                writerJob?.cancel()
+                                resizeJob?.cancel()
+                                lateinit var queue: TerminalInputQueue
+                                queue = TerminalInputQueue { data ->
                                     when (val result = manager.connectedApi?.terminalWrite(sessionId, id, token, data)) {
-                                        is RpcResult.Err -> status = result.error.message
-                                        null -> status = context.getString(R.string.terminal_offline)
+                                        is RpcResult.Err -> {
+                                            status = result.error.message
+                                            throw IllegalStateException(result.error.message)
+                                        }
+                                        null -> {
+                                            status = context.getString(R.string.terminal_offline)
+                                            throw IllegalStateException(status)
+                                        }
                                         else -> Unit
                                     }
                                 }
                                 inputQueue = queue
                                 attachment = token
-                                scope.launch {
+                                val resize = TerminalResizeQueue { size ->
                                     when (val result = manager.connectedApi?.terminalResize(sessionId, id, token,
-                                        dimensions.first.coerceIn(2, currentMaxDimensions.first),
-                                        dimensions.second.coerceIn(1, currentMaxDimensions.second))) {
+                                        size.first.coerceIn(2, currentMaxDimensions.first),
+                                        size.second.coerceIn(1, currentMaxDimensions.second))) {
                                         is RpcResult.Err -> status = result.error.message
+                                        null -> status = context.getString(R.string.terminal_offline)
                                         else -> Unit
                                     }
                                 }
-                                writerJob = launch { queue.drain() }
+                                resizeQueue = resize
+                                resizeJob = launch { resize.drain() }
+                                resize.offer(dimensions.first to dimensions.second)
+                                writerJob = launch { queue.drain { status = it.message.orEmpty() } }
                             }
-                            status = ""
+                            if (writableToken == token) status = ""
                         }
                         "output" -> {
                             val next = frame["sequence"]?.jsonPrimitive?.intOrNull
@@ -220,8 +259,11 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
             finally {
                 inputQueue?.close()
                 inputQueue = null
+                resizeQueue?.close()
+                resizeQueue = null
                 attachment = null
                 writerJob?.cancel()
+                resizeJob?.cancel()
                 holdJob?.cancel()
             }
             delay(1000)
@@ -267,7 +309,9 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                     addJavascriptInterface(object {
                         @JavascriptInterface fun input(data: String) { post {
                             val modified = terminalTextInput(data, currentCtrl, currentShift, currentAlt)
-                            if (currentInputQueue?.offer(modified) == false) status = context.getString(R.string.terminal_input_full)
+                            status = terminalInputFailure(currentInputQueue, modified, currentMaxInputBytes)?.let {
+                                context.getString(if (it == TerminalInputFailure.UNAVAILABLE) R.string.terminal_input_unavailable else R.string.terminal_input_full)
+                            } ?: ""
                             ctrl = false; shift = false; alt = false
                         } }
                         @JavascriptInterface fun resize(cols: Int, rows: Int) {
@@ -275,12 +319,8 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                                 dimensions = cols to rows
                                 val id = currentSelected
                                 val token = currentAttachment
-                                if (id != null && token != null) scope.launch {
-                                    when (val result = manager.connectedApi?.terminalResize(sessionId, id, token,
-                                        cols.coerceIn(2, currentMaxDimensions.first), rows.coerceIn(1, currentMaxDimensions.second))) {
-                                        is RpcResult.Err -> status = result.error.message
-                                        else -> Unit
-                                    }
+                                if (id != null && token != null) {
+                                    currentResizeQueue?.offer(cols to rows)
                                 }
                             }
                         }
@@ -297,6 +337,13 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                     loadUrl("file:///android_asset/terminal/index.html")
                 }
             }, modifier = Modifier.weight(1f).fillMaxWidth(),
+            onRelease = { webView ->
+                webReady = false
+                screen = null
+                webView.stopLoading()
+                webView.removeJavascriptInterface("AndroidTerminal")
+                webView.destroy()
+            },
         )
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             TextButton(onClick = { screen?.evaluateJavascript("terminalFocus()", null) }) { Text("⌨") }

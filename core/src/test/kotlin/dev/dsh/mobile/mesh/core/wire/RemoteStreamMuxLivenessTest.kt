@@ -369,6 +369,25 @@ class RemoteStreamMuxLivenessTest {
         assertEquals(1, channel.closedCount)
     }
 
+    @Test
+    fun `overflow sends cancel to release the abandoned host subscription`() = runBlocking {
+        lateinit var channel: FakeChannel
+        val mux = RemoteStreamMux(streamSignalBufferCapacity = 1) { sink -> FakeChannel(sink).also { channel = it } }
+        mux.start()
+        mux.awaitOpen()
+        val stream = mux.open("terminal/follow")
+        channel.emitMessage("""{"type":"item","streamId":"1","value":{"sequence":1}}""")
+        channel.emitMessage("""{"type":"item","streamId":"1","value":{"sequence":2}}""")
+        assertEquals(0, mux.diagnostics.activeStreams)
+        val outbound = channel.sent.drop(1).map {
+            WireJson.parseToJsonElement(it).jsonObject["type"]!!.jsonPrimitive.content
+        }
+        assertEquals(listOf("cancel"), outbound)
+        assertTrue(stream.receive() != null) // the queued first item remains ordered before failure
+        assertTrue(runCatching { stream.receive() }.exceptionOrNull() is RemoteStreamException)
+        mux.close()
+    }
+
     private companion object {
         const val events = "events"
     }
