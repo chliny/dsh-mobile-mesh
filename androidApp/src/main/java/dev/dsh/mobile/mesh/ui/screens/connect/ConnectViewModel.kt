@@ -866,6 +866,7 @@ class ConnectViewModel @Inject constructor(
                 if (!shouldPairLaunchToken(
                         hasSession = harnessSessions.hasSession(host.id),
                         token = tokenCandidate,
+                        explicitlySubmitted = launchToken != null,
                     )) {
                     // A remembered host already has a valid browser session. Switching back to it
                     // must not exchange the stale launch token again or surface a false token prompt.
