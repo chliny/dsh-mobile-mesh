@@ -35,6 +35,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.ui.media.sampleSizeFor
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -67,8 +71,6 @@ import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import androidx.compose.ui.res.stringResource
 import dev.dsh.mobile.mesh.R
 import java.util.UUID
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -99,6 +101,7 @@ fun ChatScreen(
     val scope = rememberCoroutineScope()
     val colors = DsTheme.colors
     val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val toast = rememberDsToast()
     val promptSubmissionGate = remember { PromptSubmissionGate() }
     val queueInsertedLabel = stringResource(R.string.chat_queue_inserted)
@@ -171,14 +174,16 @@ fun ChatScreen(
         if (query.isBlank()) return
         workspaceFiles.searchReferences(key, sid, query)
     }
-    LaunchedEffect(workspaceKey, currentSessionId) {
+    LaunchedEffect(workspaceKey, currentSessionId, lifecycle) {
         val key = workspaceKey
         val sid = currentSessionId
         if (key == null || sid == null) return@LaunchedEffect
-        while (isActive) {
-            if (workspaceFiles.isStale(key)) workspaceFiles.list(key, sid, ".", reload = true)
-            delay(FILE_CACHE_CHECK_INTERVAL_MS)
-        }
+        refreshWorkspaceFilesWhileActive(
+            active = lifecycle.currentStateFlow.map { it.isAtLeast(Lifecycle.State.STARTED) }.distinctUntilChanged(),
+            intervalMs = FILE_CACHE_CHECK_INTERVAL_MS,
+            isStale = { workspaceFiles.isStale(key) },
+            refresh = { workspaceFiles.list(key, sid, ".", reload = true) },
+        )
     }
     val commandFailed = stringResource(R.string.err_command_failed)
     val unknownCommand = stringResource(R.string.err_command_unknown)
