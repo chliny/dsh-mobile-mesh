@@ -1,7 +1,8 @@
 package dev.dsh.mobile.mesh.connection
 
-/** A remembered launch token is only needed when this host has no persisted browser session. */
+/** Reuse a saved session for ordinary connects, but an explicitly submitted token replaces a stale session. */
 internal fun shouldPairLaunchToken(
     hasSession: Boolean,
     token: String?,
-): Boolean = !hasSession && !token.isNullOrBlank()
+    explicitlySubmitted: Boolean = false,
+): Boolean = !token.isNullOrBlank() && (!hasSession || explicitlySubmitted)

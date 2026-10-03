@@ -11,4 +11,10 @@ class LaunchTokenPairingPolicyTest {
         assertTrue(shouldPairLaunchToken(hasSession = false, token = "fresh-token"))
         assertFalse(shouldPairLaunchToken(hasSession = false, token = null))
     }
+
+    @Test
+    fun `explicit replacement token repairs a stale persisted session`() {
+        assertTrue(shouldPairLaunchToken(hasSession = true, token = "replacement-token", explicitlySubmitted = true))
+        assertFalse(shouldPairLaunchToken(hasSession = true, token = null, explicitlySubmitted = true))
+    }
 }
