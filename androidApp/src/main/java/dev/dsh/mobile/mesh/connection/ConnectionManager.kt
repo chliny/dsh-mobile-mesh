@@ -493,7 +493,12 @@ class ConnectionManager @Inject constructor(
                 meshTransport.cancelTailscaleStart()
             }
             cancelAuxiliaryOperations()
-            retirePublishedConnection()
+            retirePublishedConnection(
+                stopConnectionService = shouldStopConnectionServiceOnRetire(
+                    reconnecting = reconnect,
+                    keepConnectedInBackground = keepConnectedInBackground,
+                ),
+            )
             val previousTeardown = teardownJob
             job = scope.launch {
                 previousOperation?.join()
@@ -834,7 +839,7 @@ class ConnectionManager @Inject constructor(
         }
     }
 
-    private fun retirePublishedConnection() {
+    private fun retirePublishedConnection(stopConnectionService: Boolean = true) {
         publishedGenerationNeedsProbe = false
         lastMuxCarrierFailure = null
         synchronized(publicationLock) {
@@ -847,7 +852,7 @@ class ConnectionManager @Inject constructor(
             eventApis.clear()
             activeHost = null
         }
-        stopService()
+        if (stopConnectionService) stopService()
     }
 
     private fun stopConnection() {
