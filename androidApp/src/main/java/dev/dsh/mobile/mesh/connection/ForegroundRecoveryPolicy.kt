@@ -156,7 +156,8 @@ internal fun shouldRetryRecoveryAfterForegroundResume(
     recoveryFailed: Boolean,
     hasActiveHost: Boolean,
     lifecycleCanRun: Boolean,
-): Boolean = recoveryFailed && hasActiveHost && lifecycleCanRun
+    phase: ConnectionPhase? = null,
+): Boolean = recoveryFailed && hasActiveHost && lifecycleCanRun && phase != ConnectionPhase.CONNECTED
 
 internal fun shouldDeferCarrierRecovery(
     operationInFlight: Boolean,

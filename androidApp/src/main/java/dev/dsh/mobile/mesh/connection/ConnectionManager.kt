@@ -1196,6 +1196,7 @@ class ConnectionManager @Inject constructor(
             recoveryFailed = retryWasCancelledOnBackground,
             hasActiveHost = activeHost != null,
             lifecycleCanRun = lifecycle.mayRun(),
+            phase = currentPhaseBeforeResume,
         )
         val action = if (retryRecoveryOnResume) {
             ForegroundRecoveryAction.RECOVER
