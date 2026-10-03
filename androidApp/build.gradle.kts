@@ -117,6 +117,7 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.sshj)
     implementation(libs.highlights)
+    implementation(libs.textmate.core)
     implementation(libs.kodeview) {
         // KodeView is published as a Kotlin Multiplatform JVM artifact that depends on the
         // JetBrains Compose artifacts. Those use the same androidx.compose packages this app

@@ -20,6 +20,9 @@
 -dontwarn okhttp3.**
 -dontwarn okio.**
 
+# Keep Joni's TextMate regex quantifier initializer intact in release builds.
+-keep class org.joni.ast.QuantifierNode { *; }
+
 # sshj's optional EdDSA implementation references a JDK-only class that is not
 # present on Android. The implementation is not used by the Android runtime.
 -dontwarn sun.security.x509.X509Key
