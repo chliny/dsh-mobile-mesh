@@ -65,7 +65,7 @@ fun ToolCard(
         icon = iconOverride ?: view.icon(),
         state = state ?: if (view.isRunning()) DisclosureState.Running else DisclosureState.Idle,
         expanded = expanded,
-        onToggle = onToggle,
+        onToggle = if (view.hasExpandableContent()) onToggle else null,
     ) {
         ToolCardBody(view, onOpenFile)
     }

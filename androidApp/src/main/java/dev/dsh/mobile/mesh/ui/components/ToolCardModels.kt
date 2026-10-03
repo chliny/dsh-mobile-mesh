@@ -117,3 +117,29 @@ sealed interface ToolCardView {
     /** Web: search answer with sources, or a fetched URL with status. */
     data class WebCard(val title: String? = null, val kind: WebCardKind) : ToolCardView
 }
+
+/** True when expanding this card can reveal at least one visible detail. */
+fun ToolCardView.hasExpandableContent(): Boolean = when (this) {
+    is ToolCardView.GenericCard -> !rawInput.isNullOrBlank() ||
+        locations.orEmpty().any { it.isNotBlank() } ||
+        content.orEmpty().any { block ->
+            when (block) {
+                is ContentBlockView.TextBlock -> block.text.isNotBlank()
+                is ContentBlockView.ReasoningBlock -> block.text.isNotBlank()
+                is ContentBlockView.ImageBlock -> block.attachmentId.isNotBlank()
+            }
+        }
+    is ToolCardView.TerminalCard -> !description.isNullOrBlank() || !command.isNullOrBlank() ||
+        !cwd.isNullOrBlank() || !output.isNullOrBlank() || outputBlocks.isNotEmpty() ||
+        exitCode != null || !signal.isNullOrBlank()
+    is ToolCardView.DiffCard -> diffs.isNotEmpty()
+    is ToolCardView.SearchCard -> when (val value = matches) {
+        is SearchMatches.FileMatches -> value.files.isNotEmpty() || truncated
+        is SearchMatches.PathList -> value.paths.isNotEmpty() || truncated
+    }
+    is ToolCardView.ReadCard -> lines.isNotEmpty() || totalLines > 0
+    is ToolCardView.WebCard -> when (val value = kind) {
+        is WebCardKind.Search -> !value.answer.isNullOrBlank() || value.sources.isNotEmpty()
+        is WebCardKind.Fetch -> value.url.isNotBlank() || value.statusCode != null
+    }
+}
