@@ -25,6 +25,7 @@ import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.dto.ChangesDiff
 import dev.dsh.mobile.mesh.core.wire.dto.ChangesSummary
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
+import dev.dsh.mobile.mesh.ui.components.KodeViewCode
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 
@@ -76,8 +77,21 @@ private fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, session
             Text("+$added -$deleted", style = DsType.caption11, color = DsTheme.colors.labelTertiary)
         }
         when (val value = diff) {
-            is ChangesDiff.Text -> value.hunks.take(3).flatMap { it.lines }.take(12).forEach {
-                Text(it, style = DsType.caption11, color = DsTheme.colors.labelSecondary, modifier = Modifier.padding(start = 24.dp))
+            is ChangesDiff.Text -> value.hunks.take(3).flatMap { it.lines }.take(12).forEach { line ->
+                val marker = line.firstOrNull()?.takeIf { it == '+' || it == '-' || it == ' ' }
+                val source = if (marker == null) line else line.drop(1)
+                Row(Modifier.fillMaxWidth().padding(start = 24.dp)) {
+                    if (marker != null) Text(marker.toString(), style = DsType.caption11, color = when (marker) {
+                        '+' -> DsTheme.colors.labelPrimary
+                        '-' -> DsTheme.colors.labelPrimary
+                        else -> DsTheme.colors.labelTertiary
+                    })
+                    KodeViewCode(
+                        code = source,
+                        pathOrLanguage = value.path,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
             is ChangesDiff.Unavailable -> Text(value.kind, style = DsType.caption11, color = DsTheme.colors.labelTertiary, modifier = Modifier.padding(start = 24.dp))
             null -> if (loading) Text(stringResource(R.string.chat_changes_loading), style = DsType.caption11, modifier = Modifier.padding(start = 24.dp))
