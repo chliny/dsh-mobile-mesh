@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -299,9 +300,15 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
         )
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             TextButton(onClick = { screen?.evaluateJavascript("terminalFocus()", null) }) { Text("⌨") }
-            Row { Checkbox(checked = ctrl, onCheckedChange = { ctrl = it }); Text("Ctrl") }
-            Row { Checkbox(checked = shift, onCheckedChange = { shift = it }); Text("Shift") }
-            Row { Checkbox(checked = alt, onCheckedChange = { alt = it }); Text("Alt") }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = ctrl, onCheckedChange = { ctrl = it }); Text("Ctrl")
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = shift, onCheckedChange = { shift = it }); Text("Shift")
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = alt, onCheckedChange = { alt = it }); Text("Alt")
+            }
             listOf("Esc", "Tab", "Up", "Down", "Left", "Right", "Delete", "Insert", "Home", "End", "PageUp", "PageDown", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12").forEach { key ->
                 TextButton(onClick = {
                     write(terminalKey(key, ctrl, shift, alt))
