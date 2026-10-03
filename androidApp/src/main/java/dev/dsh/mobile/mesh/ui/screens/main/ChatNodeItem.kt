@@ -72,6 +72,7 @@ import dev.dsh.mobile.mesh.ui.components.DisclosureRow
 import dev.dsh.mobile.mesh.ui.components.DisclosureState
 import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
+import dev.dsh.mobile.mesh.ui.components.hasThinkingContent
 import dev.dsh.mobile.mesh.ui.components.MarkdownText
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
@@ -411,7 +412,7 @@ private fun WaitingForModel(context: ChatNodeContext) {
         summary = stringResource(R.string.chat_deep_diving),
         elapsedLabel = stringResource(R.string.chat_waiting_seconds, elapsedSeconds),
         expanded = false,
-        onToggle = {},
+        onToggle = null,
         streaming = true,
     )
 }
@@ -444,7 +445,11 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
                         summary = block.text?.lineSequence()?.firstOrNull()
                             ?: stringResource(R.string.chat_thinking),
                         expanded = expanded,
-                        onToggle = { reasoningExpanded[index] = !expanded },
+                        onToggle = if (hasThinkingContent(block.text)) {
+                            { reasoningExpanded[index] = !expanded }
+                        } else {
+                            null
+                        },
                         streaming = streaming,
                     )
                     AnimatedVisibility(visible = expanded) {

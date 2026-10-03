@@ -73,13 +73,16 @@ fun UserBubble(text: String, modifier: Modifier = Modifier) {
     }
 }
 
+/** A reasoning block is expandable only when it has actual visible text. */
+internal fun hasThinkingContent(text: String?): Boolean = !text.isNullOrBlank()
+
 /** 24dp disclosure row for collapsible thinking blocks; muted, never italic. */
 @Composable
 fun ThinkingRow(
     summary: String?,
     elapsedLabel: String? = null,
     expanded: Boolean,
-    onToggle: () -> Unit,
+    onToggle: (() -> Unit)?,
     streaming: Boolean = false,
 ) {
     val colors = DsTheme.colors
@@ -88,7 +91,7 @@ fun ThinkingRow(
             .fillMaxWidth()
             .heightIn(min = 24.dp)
             .clip(DsShapes.row)
-            .clickable(onClick = onToggle)
+            .clickable(enabled = onToggle != null) { onToggle?.invoke() }
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -108,19 +111,21 @@ fun ThinkingRow(
             Text(it, style = DsType.caption11, color = colors.labelCaption)
             Spacer(Modifier.width(6.dp))
         }
-        val rotation by animateFloatAsState(
-            targetValue = if (expanded) 180f else 0f,
-            animationSpec = DsAnimations.chevron,
-            label = "thinkingChevron",
-        )
-        Icon(
-            Icons.Filled.KeyboardArrowDown,
-            contentDescription = stringResource(R.string.chat_thinking),
-            tint = colors.labelTertiary,
-            modifier = Modifier
-                .size(18.dp)
-                .graphicsLayer { rotationZ = rotation },
-        )
+        if (onToggle != null) {
+            val rotation by animateFloatAsState(
+                targetValue = if (expanded) 180f else 0f,
+                animationSpec = DsAnimations.chevron,
+                label = "thinkingChevron",
+            )
+            Icon(
+                Icons.Filled.KeyboardArrowDown,
+                contentDescription = stringResource(R.string.chat_thinking),
+                tint = colors.labelTertiary,
+                modifier = Modifier
+                    .size(18.dp)
+                    .graphicsLayer { rotationZ = rotation },
+            )
+        }
     }
 }
 
