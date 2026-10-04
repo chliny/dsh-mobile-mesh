@@ -128,7 +128,8 @@ private fun MainPageRoute.toPage(): MainPage = when (restoredKind()) {
  * unconsumed. Horizontal edge drags are axis-orthogonal to the chat transcript's vertical scroll.
  */
 @Composable
-fun MainScreen(
+internal fun MainScreen(
+    readingPositions: TranscriptReadingPositions,
     connectionPhase: ConnectionPhase,
     onOpenSessionList: () -> Unit,
     reconnectAttempt: Int,
@@ -270,6 +271,7 @@ fun MainScreen(
                 },
             ) {
             ChatScreen(
+                readingPositions = readingPositions,
                 onOpenDetails = { detailsOpen = true },
                 onOpenDrawer = {
                     subagentParentSessionId = null

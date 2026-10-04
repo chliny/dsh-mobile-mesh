@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -141,6 +142,26 @@ internal fun buildTranscriptRows(
     return result
 }
 
+private suspend fun scrollTranscriptToEnd(listState: LazyListState, lastIndex: Int) {
+    // scrollToItem(index) aligns the *start* of a long final message with the viewport. Use its
+    // measured height as the offset instead, clamped by LazyColumn to the actual content bottom.
+    val previousSize = listState.layoutInfo.visibleItemsInfo
+        .firstOrNull { it.index == lastIndex }?.size ?: 0
+    listState.scrollToItem(lastIndex, previousSize)
+    val measuredSize = listState.layoutInfo.visibleItemsInfo
+        .firstOrNull { it.index == lastIndex }?.size ?: previousSize
+    if (measuredSize != previousSize) listState.scrollToItem(lastIndex, measuredSize)
+}
+
+internal fun transcriptNearBottom(
+    itemCount: Int,
+    lastVisibleIndex: Int,
+    lastVisibleEnd: Int,
+    viewportEnd: Int,
+    tolerancePx: Int,
+): Boolean = itemCount == 0 ||
+    (lastVisibleIndex == itemCount - 1 && lastVisibleEnd <= viewportEnd + tolerancePx)
+
 /**
  * Decide whether the top sentinel may request another page. A reconnect can replace the visible
  * window while the list is already at index zero; that is not a reader gesture and must not be
@@ -209,6 +230,7 @@ internal fun ChatTranscript(
     loadOlderFailed: Boolean,
     context: ChatNodeContext,
     listState: LazyListState,
+    readingPositions: TranscriptReadingPositions,
     onLoadOlder: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -234,24 +256,35 @@ internal fun ChatTranscript(
     // inheriting the previous transcript's position — and so the collector always writes to the
     // state the composition is currently reading.
     var wasNearBottom by remember(sessionId) { mutableStateOf(true) }
+    var restoredSession by remember { mutableStateOf<String?>(null) }
     var olderPageAnchor by remember(sessionId) { mutableStateOf<OlderPageAnchor?>(null) }
-    LaunchedEffect(listState, sessionId, itemCount) {
+    val bottomTolerancePx = with(LocalDensity.current) { 48.dp.roundToPx() }
+    LaunchedEffect(listState, sessionId, itemCount, restoredSession, bottomTolerancePx) {
+        // Do not let an empty/stale layout from before the initial anchor restore reset its
+        // tail-follow state. Only a visible row in the restored transcript is meaningful.
+        if (restoredSession != sessionId) return@LaunchedEffect
         var previousViewportHeight: Int? = null
         snapshotFlow {
             val info = listState.layoutInfo
-            val last = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-            val total = info.totalItemsCount
+            val last = info.visibleItemsInfo.lastOrNull()
             val viewportHeight = info.viewportEndOffset - info.viewportStartOffset
-            Triple(total, last, viewportHeight)
-        }.collect { (total, last, viewportHeight) ->
+            Triple(
+                info.totalItemsCount to last?.index,
+                (last?.offset ?: 0) + (last?.size ?: 0) to info.viewportEndOffset,
+                viewportHeight,
+            )
+        }.collect { (indices, ends, viewportHeight) ->
+            val (total, lastIndex) = indices
+            if (lastIndex == null) return@collect
             val viewportChanged = previousViewportHeight != null && previousViewportHeight != viewportHeight
             // The IME reduces the transcript viewport while the composer moves upward. Preserve the
             // old tail anchor and scroll to the new bottom in the same frame, instead of leaving the
             // user one viewport-height short of the latest message.
             if (viewportChanged && wasNearBottom && total > 0) {
-                listState.scrollToItem(total - 1)
+                scrollTranscriptToEnd(listState, total - 1)
             }
-            wasNearBottom = total == 0 || last >= total - 2 || (viewportChanged && wasNearBottom)
+            wasNearBottom = transcriptNearBottom(total, lastIndex, ends.first, ends.second, bottomTolerancePx) ||
+                (viewportChanged && wasNearBottom)
             previousViewportHeight = viewportHeight
         }
     }
@@ -263,6 +296,32 @@ internal fun ChatTranscript(
     // appearing and disappearing changed the count too, which moved the view for no reason at all.
     val newestSeq = nodes.lastOrNull()?.seq
     var lastSession by remember { mutableStateOf<String?>(null) }
+    // Observe only a laid-out row belonging to this session, and only after the initial restore.
+    // In particular, an empty/loading snapshot must not replace a saved reading anchor.
+    LaunchedEffect(listState, sessionId, rows, hasMore, restoredSession) {
+        if (sessionId == null || restoredSession != sessionId) return@LaunchedEffect
+        // A follow snapshot can replace the cached older window with only the newest page.
+        // Its automatic LazyColumn re-anchor is not a reader action: do not overwrite the
+        // last known coordinate with whatever unrelated row happens to occupy that viewport.
+        val saved = readingPositions.get(sessionId)
+        snapshotFlow {
+            val info = listState.layoutInfo
+            val first = info.visibleItemsInfo.firstOrNull { item ->
+                rows.getOrNull(item.index - if (hasMore) 1 else 0)?.key == item.key
+            }
+            first?.let { item ->
+                val row = rows.getOrNull(item.index - if (hasMore) 1 else 0) ?: return@let null
+                readingPositionOf(
+                    row,
+                    if (item.index == listState.firstVisibleItemIndex) listState.firstVisibleItemScrollOffset else 0,
+                )
+            }
+        }.collect { position ->
+            if (position != null && shouldRecordReadingPosition(rows, saved, listState.isScrollInProgress)) {
+                readingPositions.put(sessionId, position)
+            }
+        }
+    }
     LaunchedEffect(rows, hasMore, sessionId) {
         val anchor = olderPageAnchor ?: return@LaunchedEffect
         val newIndex = rows.indexOfFirst { it.anchorSeq == anchor.seq }
@@ -274,9 +333,17 @@ internal fun ChatTranscript(
         if (itemCount == 0) return@LaunchedEffect
         val switched = sessionId != lastSession
         lastSession = sessionId
-        // Opening a session should land on its tail, not animate the whole list to get there.
-        if (switched) listState.scrollToItem(itemCount - 1)
-        else if (wasNearBottom) listState.animateScrollToItem(itemCount - 1)
+        // An existing session returns to the message the reader was viewing, not the newest
+        // turn. New sessions (or anchors outside the available snapshot) still open at the tail.
+        if (switched) {
+            val saved = sessionId?.let(readingPositions::get)
+            val index = saved?.let { readingPositionIndex(rows, it) } ?: -1
+            if (index >= 0) {
+                listState.scrollToItem(index + if (hasMore) 1 else 0, saved!!.offset)
+                wasNearBottom = false
+            } else scrollTranscriptToEnd(listState, itemCount - 1)
+            restoredSession = sessionId
+        } else if (wasNearBottom) scrollTranscriptToEnd(listState, itemCount - 1)
     }
 
     // Reaching the top pulls the next page. The guard matters: this effect sits above the `loading`
