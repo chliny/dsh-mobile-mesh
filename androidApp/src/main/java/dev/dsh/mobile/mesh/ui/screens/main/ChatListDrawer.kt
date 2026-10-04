@@ -740,6 +740,7 @@ private fun SessionRowItem(
                             } else {
                                 store.openSession(session.sessionId)
                             }
+                            awaitSessionSelected(store.currentSessionId, session.sessionId)
                             onClose()
                         }
                     },
@@ -899,8 +900,11 @@ private fun SearchResultRow(
             .fillMaxWidth()
             .clip(DsShapes.row)
             .clickable {
-                onClose()
-                scope.launch { store.openSession(hit.session.sessionId) }
+                scope.launch {
+                    store.openSession(hit.session.sessionId)
+                    awaitSessionSelected(store.currentSessionId, hit.session.sessionId)
+                    onClose()
+                }
             }
             .padding(horizontal = DsSpacing.tiny, vertical = DsSpacing.xsmall),
     ) {
