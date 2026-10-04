@@ -41,6 +41,7 @@ import dev.dsh.mobile.mesh.ui.screens.connect.connectionAttemptAuthority
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectionsScreen
 import dev.dsh.mobile.mesh.ui.screens.main.ChatListDrawer
 import dev.dsh.mobile.mesh.ui.screens.main.MainScreen
+import dev.dsh.mobile.mesh.ui.screens.main.TranscriptListStates
 import dev.dsh.mobile.mesh.ui.screens.main.TranscriptReadingPositions
 import dev.dsh.mobile.mesh.ui.screens.main.transcriptReadingPositionsSaver
 import dev.dsh.mobile.mesh.ui.screens.settings.SettingsScreen
@@ -113,9 +114,13 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         // The session list and file pages remove MainScreen from composition. Owning this state
         // here keeps each session's reading coordinate across those navigation transitions.
         // Retain it during a reconnect, but never use another host's session identifiers.
-        val readingPositions = rememberSaveable(connection.host?.id ?: renderedConnectedHostId, saver = transcriptReadingPositionsSaver) {
+        val activeHostKey = connection.host?.id ?: renderedConnectedHostId
+        val readingPositions = rememberSaveable(activeHostKey, saver = transcriptReadingPositionsSaver) {
             TranscriptReadingPositions()
         }
+        // Unlike the saved semantic anchors, LazyListState is kept in memory while another
+        // session is selected. Its holder stays above the page switch that removes MainScreen.
+        val transcriptListStates = remember(activeHostKey) { TranscriptListStates() }
         if (connection.hasConnected) {
             hasRenderedConnectedPage = true
             renderedConnectedHostId = connection.host?.id ?: renderedConnectedHostId
@@ -273,6 +278,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
             )
             showMain -> MainScreen(
                 readingPositions = readingPositions,
+                transcriptListStates = transcriptListStates,
                 connectionPhase = connection.phase,
                 reconnectAttempt = connection.attempts,
                 onReconnect = viewModel::reconnect,
