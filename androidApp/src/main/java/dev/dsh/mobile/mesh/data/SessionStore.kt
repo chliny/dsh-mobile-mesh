@@ -2757,7 +2757,7 @@ class SessionStore @Inject constructor(
             ?: return QuestionOutcome.Unsent("event generation $clientId is no longer available")
         // A rejection, not an empty answer, and not `next`: `next` would delegate to the host's
         // own later listeners, which is a different thing from the user closing the prompt.
-        return answerOutcome(
+        val outcome = answerOutcome(
             api.answerEvent(
                 clientId = clientId,
                 eventId = eventId,
@@ -2772,6 +2772,8 @@ class SessionStore @Inject constructor(
             "question dismissal",
             sessionId,
         )
+        if (outcome is QuestionOutcome.Accepted) clearQuestions(sessionId, eventId)
+        return outcome
     }
 
     private fun pendingQuestionEvent(sessionId: String): String? {
