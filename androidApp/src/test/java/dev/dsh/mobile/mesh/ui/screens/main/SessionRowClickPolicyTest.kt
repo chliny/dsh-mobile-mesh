@@ -3,6 +3,10 @@ package dev.dsh.mobile.mesh.ui.screens.main
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.runBlocking
 
 class SessionRowClickPolicyTest {
     @Test
@@ -11,8 +15,17 @@ class SessionRowClickPolicyTest {
     }
 
     @Test
-    fun `child navigation must complete before the drawer is closed`() {
-        assertTrue(shouldCloseDrawerAfterSessionOpen())
+    fun `queued switch does not expose previous conversation while network is slow`() = runBlocking {
+        val selected = MutableStateFlow<String?>("previous")
+        val closeDrawer = async(start = CoroutineStart.UNDISPATCHED) {
+            awaitSessionSelected(selected, "requested")
+        }
+        assertFalse(closeDrawer.isCompleted) // The open request was only queued.
+        selected.value = "unrelated"
+        assertFalse(closeDrawer.isCompleted) // A different selection is not completion.
+        selected.value = "requested"
+        closeDrawer.await()
+        assertTrue(closeDrawer.isCompleted)
     }
 
     @Test
