@@ -35,10 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.ui.media.sampleSizeFor
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -179,7 +176,7 @@ fun ChatScreen(
         val sid = currentSessionId
         if (key == null || sid == null) return@LaunchedEffect
         refreshWorkspaceFilesWhileActive(
-            active = lifecycle.currentStateFlow.map { it.isAtLeast(Lifecycle.State.STARTED) }.distinctUntilChanged(),
+            active = lifecycle.startedStates(),
             intervalMs = FILE_CACHE_CHECK_INTERVAL_MS,
             isStale = { workspaceFiles.isStale(key) },
             refresh = { workspaceFiles.list(key, sid, ".", reload = true) },
