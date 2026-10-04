@@ -60,6 +60,9 @@ internal val transcriptReadingPositionsSaver = listSaver<TranscriptReadingPositi
     },
 )
 
+/** A paging sentinel or waiting indicator is not a readable anchor for session restoration. */
+internal fun canRestoreReadingPosition(rows: List<TranscriptRow>): Boolean = rows.isNotEmpty()
+
 /** A replaced window must not erase a historical anchor until the reader actually moves. */
 internal fun shouldRecordReadingPosition(
     rows: List<TranscriptRow>,

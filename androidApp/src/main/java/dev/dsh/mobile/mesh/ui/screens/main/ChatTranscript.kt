@@ -330,7 +330,10 @@ internal fun ChatTranscript(
     }
 
     LaunchedEffect(newestSeq, sessionId) {
-        if (itemCount == 0) return@LaunchedEffect
+        // A history snapshot can initially contain only structural events and the paging row.
+        // Treating that sentinel as the restored session consumes the one-time restore before
+        // the first readable message arrives on the next server page.
+        if (!canRestoreReadingPosition(rows)) return@LaunchedEffect
         val switched = sessionId != lastSession
         lastSession = sessionId
         // An existing session returns to the message the reader was viewing, not the newest
