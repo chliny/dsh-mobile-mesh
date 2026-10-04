@@ -31,9 +31,34 @@ class TranscriptReadingPositionsTest {
     fun `replaced short follow snapshot cannot overwrite an older reading anchor`() {
         val saved = TranscriptReadingPosition(42, 75)
         val newWindow = listOf(row(100), row(110))
-        assertFalse(shouldRecordReadingPosition(newWindow, saved, userScrolling = false))
-        assertTrue(shouldRecordReadingPosition(newWindow, saved, userScrolling = true))
-        assertTrue(shouldRecordReadingPosition(listOf(row(42), row(110)), saved, userScrolling = false))
+        assertFalse(shouldRecordReadingPosition(newWindow, saved, userScrolling = false, currentAtBottom = false))
+        assertTrue(shouldRecordReadingPosition(newWindow, saved, userScrolling = true, currentAtBottom = false))
+        assertTrue(shouldRecordReadingPosition(listOf(row(42), row(110)), saved, userScrolling = false, currentAtBottom = false))
+        val savedBottom = saved.copy(atBottom = true)
+        assertTrue(shouldRecordReadingPosition(newWindow, savedBottom, userScrolling = false, currentAtBottom = true))
+        assertFalse(shouldRecordReadingPosition(newWindow, savedBottom, userScrolling = false, currentAtBottom = false))
+    }
+
+    @Test
+    fun `missing anchor requests only one authoritative page and waits for other paging`() {
+        val saved = TranscriptReadingPosition(42, 75)
+        val tail = listOf(row(100), row(110))
+        assertTrue(shouldFetchReadingAnchorPage(tail, saved, hasMore = true, loadingOlder = false, attempted = false))
+        assertFalse(shouldFetchReadingAnchorPage(tail, saved, hasMore = true, loadingOlder = true, attempted = false))
+        assertFalse(shouldFetchReadingAnchorPage(tail, saved, hasMore = true, loadingOlder = false, attempted = true))
+        assertFalse(shouldFetchReadingAnchorPage(listOf(row(42), row(100)), saved, hasMore = true, loadingOlder = false, attempted = false))
+        assertFalse(shouldFetchReadingAnchorPage(tail, saved, hasMore = false, loadingOlder = false, attempted = false))
+        assertFalse(shouldFetchReadingAnchorPage(tail, saved.copy(atBottom = true), hasMore = true, loadingOlder = false, attempted = false))
+    }
+
+    @Test
+    fun `a session saved at bottom returns to tail not first visible node in current turn`() {
+        val rows = listOf(row(10), row(20), row(30))
+        // At the tail, the viewport can begin on an earlier node of this same long turn.
+        val saved = readingPositionOf(rows[1], offset = 125, atBottom = true)
+        assertEquals(1, readingPositionIndex(rows, saved))
+        assertTrue(shouldRestoreTranscriptToBottom(saved))
+        assertFalse(shouldRestoreTranscriptToBottom(saved.copy(atBottom = false)))
     }
 
     @Test
@@ -54,8 +79,10 @@ class TranscriptReadingPositionsTest {
     fun `previously saved coordinates still restore after saver upgrade`() {
         val old = transcriptReadingPositionsSaver.restore(listOf("session", 42L, 27))
         assertEquals(TranscriptReadingPosition(42, 27), old?.get("session"))
+        val v2 = transcriptReadingPositionsSaver.restore(listOf("v2", "session", 101L, 75, 4, 2))
+        assertEquals(TranscriptReadingPosition(101, 75, assistantTurn = 4, assistantStep = 2), v2?.get("session"))
         val current = TranscriptReadingPositions().apply {
-            put("session", TranscriptReadingPosition(101, 75, assistantTurn = 4, assistantStep = 2))
+            put("session", TranscriptReadingPosition(101, 75, assistantTurn = 4, assistantStep = 2, atBottom = true))
         }
         val saved = transcriptReadingPositionsSaver.run {
             // Only primitive values are stored in the Android saved-state bundle.
@@ -87,9 +114,32 @@ class TranscriptReadingPositionsTest {
     }
 
     @Test
+    fun `a cancelled initial scroll never marks the session restored`() {
+        val source = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/ChatTranscript.kt").readText()
+        val effect = source.substringAfter("LaunchedEffect(newestSeq, sessionId) {")
+            .substringBefore("// The opening follow snapshot")
+        val savedScroll = effect.indexOf("listState.scrollToItem(index")
+        val tailScroll = effect.indexOf("scrollTranscriptToEnd(listState")
+        val committed = effect.indexOf("lastSession = sessionId")
+        assertTrue(savedScroll >= 0 && tailScroll >= 0)
+        assertTrue(committed > savedScroll && committed > tailScroll)
+        assertTrue(effect.indexOf("restoredSession = sessionId") > committed)
+    }
+
+    @Test
     fun `a structural only first page waits for readable rows before restoring`() {
         assertFalse(canRestoreReadingPosition(emptyList()))
         assertTrue(canRestoreReadingPosition(listOf(row(42))))
+    }
+
+    @Test
+    fun `folded process restores after history window drops its turn start`() {
+        val folded = TranscriptRow.Process(TranscriptPart.Process(25, listOf(row(42).node, row(43).node)))
+        val saved = readingPositionOf(folded, offset = 9)
+        // With no turn/start the next server window renders the same events as ordinary rows.
+        assertEquals(42L, saved.seq)
+        assertEquals(1, readingPositionIndex(listOf(row(30), row(42), row(43)), saved))
+        assertEquals(0, readingPositionIndex(listOf(folded, row(60)), saved))
     }
 
     @Test

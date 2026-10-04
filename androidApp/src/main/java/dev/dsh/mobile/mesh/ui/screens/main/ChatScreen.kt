@@ -502,6 +502,7 @@ internal fun ChatScreen(
                         listState = chatListState,
                         readingPositions = readingPositions,
                         onLoadOlder = { scope.launch { store.loadOlder() } },
+                        onRestoreOlder = { sessionId -> store.loadOlderForReadingPosition(sessionId) },
                     )
                     ChatTab.Trajectory -> TrajectoryTab(
                         conversation = visibleConversation,
