@@ -2,6 +2,7 @@ package dev.dsh.mobile.mesh.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,12 +30,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -53,6 +56,8 @@ import dev.dsh.mobile.mesh.ui.theme.DsShapes
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 import dev.dsh.mobile.mesh.ui.theme.DshTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Block-level Markdown renderer: fenced code blocks, #-#### headings, bullet and
@@ -455,6 +460,16 @@ private fun MdBlockquote(block: MdBlock.Blockquote, onOpenLink: (String) -> Unit
 private fun CodeBlock(lang: String?, code: String, modifier: Modifier = Modifier) {
     val colors = DsTheme.colors
     val clipboard = LocalClipboardManager.current
+    val assets = LocalContext.current.applicationContext.assets
+    val grammarAsset = textMateGrammarAssetForLanguage(lang)
+    val darkMode = isSystemInDarkTheme()
+    val themeAsset = if (darkMode) "textmate-dark.json" else "textmate-light.json"
+    val colored by produceState(AnnotatedString(code), code, grammarAsset, themeAsset) {
+        // A fenced block is one bounded tokenization unit; huge output remains plain and responsive.
+        value = if (grammarAsset == null || code.length > 16_384) AnnotatedString(code) else withContext(Dispatchers.Default) {
+            highlightFencedCode(code, grammarAsset, themeAsset, assets::open)
+        }
+    }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -487,7 +502,7 @@ private fun CodeBlock(lang: String?, code: String, modifier: Modifier = Modifier
             )
         }
         Text(
-            code,
+            colored,
             style = DsType.mdCode,
             color = colors.labelPrimary,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),

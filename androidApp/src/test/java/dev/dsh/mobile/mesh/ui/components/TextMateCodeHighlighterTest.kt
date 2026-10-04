@@ -86,6 +86,61 @@ class TextMateCodeHighlighterTest {
         }
     }
 
+    @Test fun `maps previously misclassified files to their own grammars`() {
+        val expected = mapOf(
+            "Dockerfile" to "textmate-docker.tmLanguage.json",
+            "Makefile" to "textmate-make.tmLanguage.json",
+            "tasks.mk" to "textmate-make.tmLanguage.json",
+            "style.scss" to "textmate-scss.tmLanguage.json",
+            "style.less" to "textmate-less.tmLanguage.json",
+            "config.ini" to "textmate-ini.tmLanguage.json",
+            "config.jsonc" to "textmate-jsonc.tmLanguage.json",
+            "config.json5" to "textmate-json5.tmLanguage.json",
+            "config.yaml" to "textmate-yaml.tmLanguage.json",
+            "config.yml" to "textmate-yaml.tmLanguage.json",
+            "config.toml" to "textmate-toml.tmLanguage.json",
+        )
+        expected.forEach { (path, asset) ->
+            assertEquals(path, asset, textMateGrammarAsset(path))
+            assertTrue(highlighter(asset).highlight(listOf("a: 42 // comment"), 0).spanStyles.isNotEmpty())
+        }
+        assertEquals(null, textMateGrammarAsset("notes.rmd"))
+        assertEquals("textmate-shellscript.tmLanguage.json", textMateGrammarAssetForLanguage("bash title=demo"))
+        assertEquals("textmate-powershell.tmLanguage.json", textMateGrammarAssetForLanguage("powershell"))
+        assertEquals("textmate-scss.tmLanguage.json", textMateGrammarAssetForLanguage("scss"))
+    }
+
+    @Test fun `Markdown fenced Kotlin code gets syntax colors and oversized code stays plain`() {
+        val code = "val answer = 42 // comment"
+        val grammar = textMateGrammarAssetForLanguage("kotlin")
+        val rendered = highlightFencedCode(code, grammar, "textmate-light.json") { assets.resolve(it).inputStream() }
+        assertEquals(code, rendered.text)
+        assertTrue(rendered.spanStyles.isNotEmpty())
+        val large = code.repeat(1024)
+        val plain = highlightFencedCode(large, grammar, "textmate-light.json") { assets.resolve(it).inputStream() }
+        assertEquals(large, plain.text)
+        assertTrue(plain.spanStyles.isEmpty())
+    }
+
+    @Test fun `HTML embedded JavaScript and CSS resolve only required grammar assets`() {
+        val loaded = mutableSetOf<String>()
+        val tokenizer = TextMateCodeHighlighter(
+            assets.resolve("textmate-html.tmLanguage.json").inputStream(),
+            assets.resolve("textmate-light.json").inputStream(),
+        ) { scope ->
+            textMateGrammarAssetForScope(scope)?.let { asset ->
+                loaded += scope
+                assets.resolve(asset).inputStream()
+            }
+        }
+        val code = "<script>const answer = 42;</script><style>body { color: red; }</style>"
+        val rendered = tokenizer.highlight(listOf(code), 0)
+        assertEquals(code, rendered.text)
+        assertTrue("Embedded JavaScript grammar was not loaded", "source.js" in loaded)
+        assertTrue("Embedded CSS grammar was not loaded", "source.css" in loaded)
+        assertTrue("Unrelated grammar loaded", "source.ruby" !in loaded)
+    }
+
     @Test fun `colors Kotlin keywords while retaining multiline string state across chunks`() {
         val chunks = listOf("val a = \"\"\"sealed\n", "interface\"\"\"\nsealed interface Result\n")
         val rendered = highlighter().highlight(chunks, 1)
@@ -105,11 +160,26 @@ class TextMateCodeHighlighterTest {
         assertTrue(first.spanStyles.isNotEmpty())
     }
 
-    @Test fun `oversized fragments do not tokenize or reuse an invalid cross-chunk state`() {
-        val chunks = listOf("x".repeat(16_385), "sealed interface Result")
+    @Test fun `reset boundary prevents deleted multiline string from coloring added keyword`() {
+        val chunks = listOf("val old = \"\"\"", "val fresh = 42")
+        val tokenizer = highlighter()
+        val withoutReset = tokenizer.highlight(chunks, 1)
+        val resetTokenizer = highlighter()
+        val withReset = resetTokenizer.highlight(chunks, 1, setOf(1))
+        val keyword = 0
+        val stringColor = withoutReset.spanStyles.last { it.start <= keyword && it.end > keyword }.item.color
+        val keywordColor = withReset.spanStyles.last { it.start <= keyword && it.end > keyword }.item.color
+        assertNotEquals(stringColor, keywordColor)
+    }
+
+    @Test fun `oversized fragments reset state and later code resumes highlighting`() {
+        val chunks = listOf("\"\"\"" + "x".repeat(16_385), "sealed interface Result")
         val tokenizer = highlighter()
         assertTrue(tokenizer.highlight(chunks, 0).spanStyles.isEmpty())
-        assertTrue(tokenizer.highlight(chunks, 1).spanStyles.isEmpty())
+        val following = tokenizer.highlight(chunks, 1)
+        assertEquals(chunks[1], following.text)
+        assertTrue(following.spanStyles.isNotEmpty())
+        assertEquals(following, tokenizer.highlight(chunks, 1))
     }
 
     @Test fun `Kotlin changed-file diff routes visible lines through TextMate`() {
