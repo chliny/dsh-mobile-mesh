@@ -27,6 +27,14 @@ internal fun protocolForRecoveredConnection(
     selected: HarnessProtocol?,
 ): HarnessProtocol? = if (reconnect && previouslyConnected) selected ?: HarnessProtocol.UNDETERMINED else null
 
+/** A recovered transport must replay the intent's observed route, even without a session-list probe. */
+internal fun terminalCapabilityForConnection(
+    selection: HarnessProtocolSelection,
+    knownSessionId: String?,
+    probedSupported: Boolean?,
+): Boolean = selection.supports(HarnessCapability.TERMINAL)
+    ?: (knownSessionId != null && probedSupported == true)
+
 /** One connection intent's observed protocol; automatic retries reuse its settled result. */
 internal class HarnessProtocolSelection {
     private val lock = Mutex()
@@ -117,6 +125,13 @@ internal class HarnessProtocolSelection {
             }
         }
 }
+
+/** Only a server-returned session ID may be used for read-only optional route discovery. */
+internal fun sessionIdForCapabilityProbe(value: JsonElement): String? =
+    ((value as? JsonObject)?.get("items") as? JsonArray)?.firstNotNullOfOrNull { row ->
+        ((row as? JsonObject)?.get("sessionId") as? JsonPrimitive)
+            ?.takeIf { it.isString && it.content.isNotBlank() }?.content
+    }
 
 /** The mandatory `agentAvailable` summary field arrived in the same backend change as the catalog. */
 internal fun classifySessionList(value: JsonElement): HarnessProtocol? {

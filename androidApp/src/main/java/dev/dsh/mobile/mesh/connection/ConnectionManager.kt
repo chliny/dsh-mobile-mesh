@@ -37,9 +37,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
@@ -294,6 +291,11 @@ class ConnectionManager @Inject constructor(
     /** Emits every newly published transport generation, including same-phase CONNECTED replacements. */
     val connectedGenerations = kotlinx.coroutines.flow.MutableSharedFlow<HostGeneration>(extraBufferCapacity = 8)
 
+    private fun restoreTerminalCapability() {
+        val selection = lifecycle.current()?.value?.protocolSelection ?: return
+        _terminalAvailable.value = terminalCapabilityForConnection(selection, null, null)
+    }
+
     private fun sinksFor(token: RecoveryCallbackFence.Token): LoopSinks = object : LoopSinks {
         override fun onEventFrame(frame: RemoteEventFrame) {
             loopFence.runIfCurrent(token) { eventFrames.tryEmit(frame) }
@@ -341,6 +343,7 @@ class ConnectionManager @Inject constructor(
                 recoveryOverlayVisible = needsLivenessProbe,
                 foregroundCheckPending = needsLivenessProbe,
             )
+            restoreTerminalCapability()
             connectedGenerations.tryEmit(generation)
             lastMuxCarrierFailure = null
             maybeStartService()
@@ -697,6 +700,7 @@ class ConnectionManager @Inject constructor(
             // Protocol discovery is optional; do not make a slow metadata read prevent publishing
             // an already-ready transport. The ordinary session baseline fetches the authoritative
             // list once the generation is online.
+            var observedSessionId: String? = null
             val selectedProtocol = protocolForRecoveredConnection(
                 reconnect, previouslyConnected, target.value.protocolSelection.selected,
             ) ?: target.value.protocolSelection.detect(
@@ -704,6 +708,8 @@ class ConnectionManager @Inject constructor(
                     runCatching { nextApi.sessionListProbe() }.getOrElse { error ->
                         if (error is CancellationException) throw error
                         throw ProtocolProbeException("probe", error.message ?: "session/list probe failed")
+                    }.also { result ->
+                        if (result is RpcResult.Ok) observedSessionId = sessionIdForCapabilityProbe(result.value)
                     }
                 },
                 probeProjection = {
@@ -720,21 +726,16 @@ class ConnectionManager @Inject constructor(
             // Unknown/transient errors leave the entry hidden; a subsequent generation retries.
             // Optional capability discovery must not hold a recovered mux behind another slow
             // session/list call. Reconnect reuses the intent's previously observed capabilities.
-            val probeSessionId = if (reconnect && previouslyConnected) null else try {
-                kotlinx.coroutines.withTimeoutOrNull(2_000L) { nextApi.sessionListProbe() }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                null
-            }
-                ?.let { (it as? RpcResult.Ok)?.value }
-                ?.let { it as? JsonObject }
-                ?.get("items") as? JsonArray
-
-            val knownSessionId = probeSessionId?.firstNotNullOfOrNull { row ->
-                (row as? kotlinx.serialization.json.JsonObject)?.get("sessionId")
-                    ?.let { runCatching { it.jsonPrimitive.content }.getOrNull() }
-            }
+            val knownSessionId = if (reconnect && previouslyConnected) null else
+                observedSessionId ?: try {
+                    kotlinx.coroutines.withTimeoutOrNull(2_000L) { nextApi.sessionListProbe() }
+                        ?.let { (it as? RpcResult.Ok)?.value }
+                        ?.let(::sessionIdForCapabilityProbe)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
             // This read cannot create or activate a Session. A registered projection is definitive
             // evidence of the optional Remote, but a missing projection never means unsupported.
             if (knownSessionId != null && selection.supports(HarnessCapability.USER_QUESTIONS) != true) {
@@ -753,18 +754,19 @@ class ConnectionManager @Inject constructor(
                     // This optional read is inconclusive when a provider is absent or the host is busy.
                 }
             }
-            val terminalSupported = try {
-                if (knownSessionId == null) false else
-                kotlinx.coroutines.withTimeoutOrNull(HARNESS_PROTOCOL_PROBE_TIMEOUT_MS) {
-                    selection.probeBooleanCapability(HarnessCapability.TERMINAL) {
-                        nextApi.terminalList(knownSessionId)
+            val terminalProbeResult = try {
+                if (knownSessionId == null || selection.supports(HarnessCapability.TERMINAL) != null) null else
+                    kotlinx.coroutines.withTimeoutOrNull(HARNESS_PROTOCOL_PROBE_TIMEOUT_MS) {
+                        selection.probeBooleanCapability(HarnessCapability.TERMINAL) {
+                            nextApi.terminalList(knownSessionId)
+                        }
                     }
-                } == true
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                false
+                null
             }
+            val terminalSupported = terminalCapabilityForConnection(selection, knownSessionId, terminalProbeResult)
             Log.d("ConnectionManager", "Harness API generation detected: $selectedProtocol; capability results=${selection.capabilities}")
             Log.d("ConnectionManager", "Session API protocol selected: $selectedProtocol")
             synchronized(publicationLock) {
@@ -1377,6 +1379,7 @@ class ConnectionManager @Inject constructor(
                 )) return@launch
             if (reachedHost) {
                 publishedGenerationNeedsProbe = false
+                restoreTerminalCapability()
                 val current = _state.value
                 if (current.phase != ConnectionPhase.CONNECTED) {
                     _state.value = current.copy(

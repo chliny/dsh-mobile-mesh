@@ -34,6 +34,30 @@ class HarnessProtocolSelectionTest {
         assertEquals(HarnessProtocol.PARENT_CATALOG, intent.detect(probe))
         assertEquals(HarnessProtocol.PARENT_CATALOG, intent.detect(probe))
         assertEquals(1, calls)
+        assertEquals(HarnessProtocol.PARENT_CATALOG,
+            protocolForRecoveredConnection(true, true, intent.selected))
+        assertEquals(true, intent.supports(HarnessCapability.SUBAGENT_PROJECTION))
+    }
+
+    @Test fun `successful initial list supplies optional probes without another list request`() = runBlocking {
+        val selection = HarnessProtocolSelection()
+        val summary = list("""{"items":[{"sessionId":"known","agentAvailable":true}]}""")
+        var calls = 0
+        var currentAttemptSessionId: String? = null
+        selection.detect {
+            calls++
+            RpcResult.Ok(summary).also { currentAttemptSessionId = sessionIdForCapabilityProbe(it.value) }
+        }
+        // ConnectionManager captures this ID from the same protocol probe. No second list is
+        // necessary, and a later attempt cannot reuse a stale session ID.
+        assertEquals("known", currentAttemptSessionId)
+        assertEquals(1, calls)
+        currentAttemptSessionId = null
+        selection.detect { error("a cached protocol must not reuse the old session list") }
+        assertNull(currentAttemptSessionId)
+        assertEquals("known", sessionIdForCapabilityProbe(summary))
+        assertNull(sessionIdForCapabilityProbe(list("""{"items":[{"sessionId":23}]}""")))
+        assertNull(sessionIdForCapabilityProbe(list("""{"items":[]}""")))
     }
 
     @Test fun `old summary selects legacy only for this manual connection intent`() = runBlocking {
@@ -136,6 +160,28 @@ class HarnessProtocolSelectionTest {
         assertEquals(false, old.supports(HarnessCapability.TERMINAL))
     }
 
+    @Test fun `terminal entry survives foreground reconnect without a session id or second probe`() = runBlocking {
+        val selection = HarnessProtocolSelection()
+        assertEquals(true, selection.probeBooleanCapability(HarnessCapability.TERMINAL) {
+            RpcResult.Ok(emptyList<Any>())
+        })
+        // Reconnect deliberately skips session/list; replay the observed capability on publication
+        // and again after a replacement generation completes its foreground liveness check.
+        assertEquals(true, terminalCapabilityForConnection(selection, null, null))
+        assertEquals(true, terminalCapabilityForConnection(selection, null, false))
+        assertEquals(false, terminalCapabilityForConnection(HarnessProtocolSelection(), null, null))
+    }
+
+    @Test fun `unsupported terminal route remains hidden on reconnect and a new intent does not inherit it`() = runBlocking {
+        val selection = HarnessProtocolSelection()
+        selection.probeBooleanCapability(HarnessCapability.TERMINAL) {
+            RpcResult.Err(RpcError("internal", "HTTP 404", TransportFailures.details(TransportFailure.NOT_FOUND, 404)))
+        }
+        assertEquals(false, terminalCapabilityForConnection(selection, null, true))
+        assertEquals(false, terminalCapabilityForConnection(HarnessProtocolSelection(), null, null))
+        assertEquals(true, terminalCapabilityForConnection(HarnessProtocolSelection(), "session", true))
+    }
+
     @Test fun `terminal capability refuses to interpret auth errors as missing route`() {
         val selection = HarnessProtocolSelection()
         assertThrows(ProtocolProbeException::class.java) {
@@ -154,6 +200,8 @@ class HarnessProtocolSelectionTest {
         selection.observeProjectionKeys(mapOf("userQuestions" to list("""{"active":[],"settled":[]}""")))
         assertEquals(true, selection.supports(HarnessCapability.USER_QUESTIONS))
         selection.observeProjectionKeys(emptyMap())
+        // Background reconnect skips the session list and projection probe, but the same intent
+        // still publishes this positive observation; an explicit new intent starts unknown.
         assertEquals(true, selection.supports(HarnessCapability.USER_QUESTIONS))
         assertNull(HarnessProtocolSelection().supports(HarnessCapability.USER_QUESTIONS))
     }
