@@ -41,6 +41,8 @@ import dev.dsh.mobile.mesh.ui.screens.connect.connectionAttemptAuthority
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectionsScreen
 import dev.dsh.mobile.mesh.ui.screens.main.ChatListDrawer
 import dev.dsh.mobile.mesh.ui.screens.main.MainScreen
+import dev.dsh.mobile.mesh.ui.screens.main.TranscriptReadingPositions
+import dev.dsh.mobile.mesh.ui.screens.main.transcriptReadingPositionsSaver
 import dev.dsh.mobile.mesh.ui.screens.settings.SettingsScreen
 import dev.dsh.mobile.mesh.ui.rememberHostsStore
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
@@ -108,6 +110,12 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         var connectFormInstance by rememberSaveable { mutableIntStateOf(0) }
         var hasRenderedConnectedPage by rememberSaveable { mutableStateOf(false) }
         var renderedConnectedHostId by rememberSaveable { mutableStateOf<String?>(null) }
+        // The session list and file pages remove MainScreen from composition. Owning this state
+        // here keeps each session's reading coordinate across those navigation transitions.
+        // Retain it during a reconnect, but never use another host's session identifiers.
+        val readingPositions = rememberSaveable(connection.host?.id ?: renderedConnectedHostId, saver = transcriptReadingPositionsSaver) {
+            TranscriptReadingPositions()
+        }
         if (connection.hasConnected) {
             hasRenderedConnectedPage = true
             renderedConnectedHostId = connection.host?.id ?: renderedConnectedHostId
@@ -264,6 +272,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 },
             )
             showMain -> MainScreen(
+                readingPositions = readingPositions,
                 connectionPhase = connection.phase,
                 reconnectAttempt = connection.attempts,
                 onReconnect = viewModel::reconnect,

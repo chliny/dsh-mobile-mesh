@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -80,7 +81,8 @@ import kotlinx.coroutines.launch
 private const val FILE_CACHE_CHECK_INTERVAL_MS = 10_000L
 
 @Composable
-fun ChatScreen(
+internal fun ChatScreen(
+    readingPositions: TranscriptReadingPositions,
     onOpenDetails: () -> Unit,
     onOpenDrawer: () -> Unit,
     detailsOpen: Boolean,
@@ -125,6 +127,9 @@ fun ChatScreen(
     val contextBreakdown by store.contextBreakdown.collectAsStateWithLifecycle()
     val imageLimits by store.imageLimits.collectAsStateWithLifecycle()
 
+    // Flow emissions can arrive in different frames after a switch. Never pass the old
+    // conversation (including its nodes, gap and trajectory) to the newly selected session.
+    val visibleConversation = conversation?.takeIf { it.sessionId == currentSessionId }
     val currentSession = sessions.firstOrNull { it.sessionId == currentSessionId }
     val childAddress = sessionAddress as? dev.dsh.mobile.mesh.core.wire.dto.SessionAddress.Subagent
     val subagentReadOnly = childAddress?.mode == "one-shot"
@@ -152,8 +157,10 @@ fun ChatScreen(
     var sheet by remember { mutableStateOf<ChatSheet?>(null) }
     var permissionConfirmation by remember { mutableStateOf<String?>(null) }
 
-    // Hoisted above the tab swap so each view keeps its own scroll position across switches.
-    val chatListState = rememberLazyListState()
+    // A fresh list for each session prevents the previous session's layout from being mistaken for
+    // the new one's position while its snapshot is still loading. The anchor lives in AppRoot,
+    // because this page leaves composition while the session list or file browser is open.
+    val chatListState = remember(currentSessionId) { LazyListState() }
     val trajectoryListState = rememberLazyListState()
 
     val workspaceFiles = rememberWorkspaceFilesStore()
@@ -442,7 +449,7 @@ fun ChatScreen(
             )
 
             connectionError?.let { ConnectionBanner(it, onRetry = onReconnect) }
-            if (connectionPhase == ConnectionPhase.RECONNECTING || conversation?.gap == true) {
+            if (connectionPhase == ConnectionPhase.RECONNECTING || visibleConversation?.gap == true) {
                 ConnectionBanner(
                     stringResource(R.string.common_reconnecting_attempt, reconnectAttempt.coerceAtLeast(1)),
                     onRetry = onReconnect,
@@ -450,12 +457,12 @@ fun ChatScreen(
             }
 
             val nodeContext = ChatNodeContext(
-                nodes = conversation?.nodes ?: emptyList(),
-                hasMore = conversation?.hasMore == true,
+                nodes = visibleConversation?.nodes ?: emptyList(),
+                hasMore = visibleConversation?.hasMore == true,
                 sessionId = currentSessionId,
                 store = store,
                 onOpenFile = onOpenFile,
-                running = conversation?.running == true,
+                running = visibleConversation?.running == true,
                 cwd = currentSession?.cwd,
                 onOpenSubagent = onOpenSubagent,
                 onBranchFrom = { seq ->
@@ -487,16 +494,17 @@ fun ChatScreen(
             ) { current ->
                 when (current) {
                     ChatTab.Chat -> ChatTranscript(
-                        conversation = conversation,
-                        loading = conversation == null && currentSessionId != null,
+                        conversation = visibleConversation,
+                        loading = visibleConversation == null && currentSessionId != null,
                         loadingOlder = loadingOlder,
                         loadOlderFailed = loadOlderFailed,
                         context = nodeContext,
                         listState = chatListState,
+                        readingPositions = readingPositions,
                         onLoadOlder = { scope.launch { store.loadOlder() } },
                     )
                     ChatTab.Trajectory -> TrajectoryTab(
-                        conversation = conversation,
+                        conversation = visibleConversation,
                         stats = sessionStats,
                         usage = tokenUsage,
                         cwd = currentSession?.cwd,
@@ -627,7 +635,7 @@ fun ChatScreen(
                 contextPressure = null,
                 models = models,
                 onOpenModels = { sheet = ChatSheet.Models },
-                running = conversation?.running == true,
+                running = visibleConversation?.running == true,
                 enabled = currentSessionId != null && !subagentReadOnly,
                 onOpenSheet = { sheet = ChatSheet.Commands },
                 commands = commands,
@@ -667,7 +675,7 @@ fun ChatScreen(
             modelsAvailable = models != null,
             permissionsAvailable = permissions != null,
             mode = mode,
-            running = conversation?.running == true,
+            running = visibleConversation?.running == true,
             canAttach = currentSessionId != null,
             onModeChange = { mode = it },
             onAttach = { imagePicker.launch("image/*") },
