@@ -1,7 +1,9 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -96,7 +98,7 @@ internal fun ModelsSheet(
                         selectedEffort = current.reasoningEffort.takeIf { isCurrent },
                         onSelect = { scope.launch { store.selectModel(group.id, model.id) } },
                         onSelectEffort = { effort ->
-                            scope.launch { store.selectModel(group.id, model.id, effort) }
+                            scope.launch { store.selectModel(group.id, model.id, reasoningEffortSelection(effort)) }
                         },
                     )
                 }
@@ -121,6 +123,13 @@ internal fun ModelsSheet(
  * the answer to "which one am I on" read at a glance, which is the only question this sheet exists
  * to answer.
  */
+// The segmented control uses non-null keys; this reserved key maps back to the wire's null
+// selection, which asks the adapter/provider to use its default reasoning effort.
+internal const val DEFAULT_REASONING_EFFORT_KEY = "\u0000default"
+
+internal fun reasoningEffortSelection(key: String): String? =
+    key.takeUnless { it == DEFAULT_REASONING_EFFORT_KEY }
+
 @Composable
 private fun ModelRow(
     model: ModelCatalogModel,
@@ -196,11 +205,22 @@ private fun ModelRow(
                         style = DsType.caption11,
                         color = colors.labelTertiary,
                     )
-                    DsSegmented(
-                        segments = efforts.map { DsSegment(it.id, it.name) },
-                        selectedKey = selectedEffort,
-                        onSelect = onSelectEffort,
-                    )
+                    val segments = listOf(DsSegment(DEFAULT_REASONING_EFFORT_KEY, stringResource(R.string.presets_default))) +
+                        efforts.map { DsSegment(it.id, it.name) }
+                    // DsSegmented uses weighted children, which collapse when horizontalScroll
+                    // gives its Row an unbounded width. Bound the track inside the scroll area.
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val trackWidth = maxOf(maxWidth, 84.dp * segments.size)
+                        androidx.compose.foundation.layout.Box(Modifier.horizontalScroll(rememberScrollState())) {
+                            DsSegmented(
+                                segments = segments,
+                                selectedKey = selectedEffort ?: DEFAULT_REASONING_EFFORT_KEY,
+                                onSelect = onSelectEffort,
+                                modifier = Modifier.width(trackWidth),
+                                stretch = true,
+                            )
+                        }
+                    }
                 }
             }
         }

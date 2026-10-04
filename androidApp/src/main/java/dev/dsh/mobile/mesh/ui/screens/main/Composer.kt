@@ -60,7 +60,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.ContextBreakdownView
@@ -345,9 +348,11 @@ internal fun Composer(
                     onPick = onPermissionPick,
                 )
 
-                ModelChip(models = models, onClick = onOpenModels)
-
-                Spacer(Modifier.weight(1f))
+                // The model gets only the space left after permission and send/stop are measured.
+                // Row recalculates that space whenever the viewport changes (including rotation).
+                Box(Modifier.weight(1f)) {
+                    ModelChip(models = models, onClick = onOpenModels)
+                }
 
                 // Send and stop occupy the same slot: the affordance changes meaning during a turn
                 // rather than the row re-flowing around a second button appearing.
@@ -430,31 +435,29 @@ private fun ModelChip(
         ?: (stringResource(R.string.common_loading) to null)
     Row(
         modifier = Modifier
-            .widthIn(max = 112.dp)
             .clip(DsShapes.cube)
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        // One text layout ellipsizes from the end: effort disappears before the model name.
         Text(
-            label,
+            buildAnnotatedString {
+                append(label)
+                effortLabel?.let { effort ->
+                    withStyle(SpanStyle(color = colors.labelTertiary)) {
+                        append("  ")
+                        append(effort)
+                    }
+                }
+            },
             style = DsType.small13,
             color = colors.labelSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
-        effortLabel?.let { effort ->
-            Text(
-                effort,
-                style = DsType.small13,
-                color = colors.labelTertiary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-        }
         Icon(
             Icons.Filled.KeyboardArrowDown,
             contentDescription = null,

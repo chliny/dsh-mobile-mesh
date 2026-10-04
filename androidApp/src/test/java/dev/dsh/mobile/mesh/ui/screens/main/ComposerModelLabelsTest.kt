@@ -32,11 +32,19 @@ class ComposerModelLabelsTest {
         assertNull(composerModelLabels(models("high", null)).second)
     }
 
-    @Test fun `composer chip retains its width limit`() {
+    @Test fun `model uses viewport remainder while preserving permission and send slots`() {
         val composer = java.io.File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/Composer.kt").readText()
+        val row = composer.substringAfter("// The model gets only the space left").substringBefore("// Send and stop occupy")
+        assertTrue(row.contains("Box(Modifier.weight(1f))"))
+        assertTrue(row.contains("ModelChip(models = models, onClick = onOpenModels)"))
+        assertTrue(!row.contains("112.dp"))
         val chip = composer.substringAfter("private fun ModelChip(").substringBefore("private fun PermissionChip(")
-        assertTrue(chip.contains(".widthIn(max = 112.dp)"))
-        assertTrue(chip.contains("effortLabel?.let"))
+        assertTrue(!chip.contains(".widthIn(max = 112.dp)"))
         assertTrue(chip.contains("modifier = Modifier.weight(1f, fill = false)"))
+        // A single text layout puts effort after the model, so end-ellipsis consumes effort first.
+        assertTrue(chip.contains("buildAnnotatedString"))
+        assertTrue(chip.indexOf("append(label)") < chip.indexOf("append(effort)"))
+        assertTrue(chip.contains("overflow = TextOverflow.Ellipsis"))
+        assertEquals(1, Regex("\\bText\\(").findAll(chip).count())
     }
 }
