@@ -162,6 +162,11 @@ internal class TextMateCodeHighlighter(
         }
     }
     private val endStates = ArrayList<StateStack?>()
+    private val diffOldStates = ArrayList<StateStack?>()
+    private val diffNewStates = ArrayList<StateStack?>()
+    private val diffStyled = object : LinkedHashMap<Int, AnnotatedString>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, AnnotatedString>): Boolean = size > 24
+    }
     private val styled = object : LinkedHashMap<Int, AnnotatedString>(32, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, AnnotatedString>): Boolean = size > 24
     }
@@ -194,6 +199,48 @@ internal class TextMateCodeHighlighter(
         val rendered = tokenize(chunks[index], previous, true).first
         styled[index] = rendered
         return rendered
+    }
+
+    /** One unified display stream, with independent old/new syntax states as git diff requires. */
+    @Synchronized
+    fun highlightDiff(chunks: List<String>, markers: List<Char>, index: Int, resetAt: Set<Int> = emptySet()): AnnotatedString {
+        require(chunks.size == markers.size && index in chunks.indices)
+        if (chunks[index].length > 16_384) return AnnotatedString(chunks[index])
+        diffStyled[index]?.let { return it }
+        var next = diffOldStates.size
+        while (next <= index) {
+            val old = if (next in resetAt) null else diffOldStates.lastOrNull()
+            val new = if (next in resetAt) null else diffNewStates.lastOrNull()
+            val (rendered, oldEnd, newEnd) = tokenizeDiffLine(chunks[next], markers[next], old, new, next == index)
+            diffOldStates += oldEnd
+            diffNewStates += newEnd
+            if (next == index) {
+                if (chunks[next].length <= 16_384) diffStyled[index] = rendered
+                return rendered
+            }
+            next++
+        }
+        val old = if (index in resetAt) null else diffOldStates.getOrNull(index - 1)
+        val new = if (index in resetAt) null else diffNewStates.getOrNull(index - 1)
+        val rendered = tokenizeDiffLine(chunks[index], markers[index], old, new, true).first
+        diffStyled[index] = rendered
+        return rendered
+    }
+
+    private fun tokenizeDiffLine(
+        code: String, marker: Char, old: StateStack?, new: StateStack?, render: Boolean,
+    ): Triple<AnnotatedString, StateStack?, StateStack?> {
+        require(marker == '-' || marker == '+' || marker == ' ')
+        if (code.length > 16_384) return Triple(
+            AnnotatedString(code), if (marker == '+') old else null, if (marker == '-') new else null,
+        )
+        val oldResult = if (marker != '+') tokenize(code, old, render && marker == '-') else null
+        val newResult = if (marker != '-') tokenize(code, new, render && marker != '-') else null
+        return Triple(
+            (if (marker == '-') oldResult else newResult)?.first ?: AnnotatedString(code),
+            oldResult?.second ?: old,
+            newResult?.second ?: new,
+        )
     }
 
     private fun tokenize(code: String, initial: StateStack?, render: Boolean): Pair<AnnotatedString, StateStack> {

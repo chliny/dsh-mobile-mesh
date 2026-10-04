@@ -1,6 +1,7 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
 import android.util.Log
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -11,8 +12,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,39 +43,27 @@ import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 
 internal data class DiffHighlightLine(val marker: Char?, val source: String, val chunkIndex: Int)
-internal data class DiffHighlightPlan(val lines: List<DiffHighlightLine>, val chunks: List<String>, val resetAt: Set<Int>)
+internal data class DiffHighlightPlan(val lines: List<DiffHighlightLine>, val chunks: List<String>, val markers: List<Char>, val resetAt: Set<Int>)
 
-/** Deleted and added lines belong to distinct source versions; hunks are not adjacent code. */
+/** Build one unified diff stream; marker rows and tokenizer consume the same order. */
 internal fun buildDiffHighlightPlan(hunks: List<ChangesDiffHunk>): DiffHighlightPlan {
-    val visible = hunks.take(3).map { it.lines }.let { groups ->
-        var remaining = 12
-        groups.map { group -> group.take(remaining).also { remaining -= it.size } }
-    }
     val chunks = mutableListOf<String>()
     val resets = mutableSetOf<Int>()
-    val mapped = visible.map { hunk ->
-        val before = IntArray(hunk.size) { -1 }
-        val after = IntArray(hunk.size) { -1 }
-        for (old in listOf(true, false)) {
-            val selected = hunk.withIndex().filter { (_, line) ->
-                val marker = line.firstOrNull()?.takeIf { it == '+' || it == '-' || it == ' ' }
-                if (old) marker != '+' else marker != '-'
-            }
-            if (selected.isNotEmpty()) resets += chunks.size
-            for ((lineIndex, line) in selected) {
-                val marker = line.firstOrNull()?.takeIf { it == '+' || it == '-' || it == ' ' }
-                if (old) before[lineIndex] = chunks.size else after[lineIndex] = chunks.size
-                chunks += if (marker == null) line else line.drop(1)
-            }
-        }
-        hunk.indices.map { i ->
-            val line = hunk[i]
+    val mapped = mutableListOf<DiffHighlightLine>()
+    var remaining = 12
+    hunks.take(3).forEach { hunk ->
+        val lines = hunk.lines.take(remaining)
+        if (lines.isNotEmpty()) resets += chunks.size
+        for (line in lines) {
             val marker = line.firstOrNull()?.takeIf { it == '+' || it == '-' || it == ' ' }
-            DiffHighlightLine(marker, if (marker == null) line else line.drop(1),
-                if (marker == '-') before[i] else after[i])
+            val source = if (marker == null) line else line.drop(1)
+            val index = chunks.size
+            chunks += source
+            mapped += DiffHighlightLine(marker, source, index)
         }
-    }.flatten()
-    return DiffHighlightPlan(mapped, chunks, resets)
+        remaining -= lines.size
+    }
+    return DiffHighlightPlan(mapped, chunks, mapped.map { it.marker ?: ' ' }, resets)
 }
 
 @Composable
@@ -142,23 +133,32 @@ private fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, session
             is ChangesDiff.Text -> {
                 val plan = remember(value) { buildDiffHighlightPlan(value.hunks) }
                 plan.lines.forEach { line ->
-                    Row(Modifier.fillMaxWidth().padding(start = 24.dp)) {
-                        if (line.marker != null) Text(line.marker.toString(), style = DsType.caption11, color = when (line.marker) {
-                            '+' -> DsTheme.colors.labelPrimary
-                            '-' -> DsTheme.colors.labelPrimary
-                            else -> DsTheme.colors.labelTertiary
-                        })
-                        KodeViewCode(
-                            code = line.source,
-                            pathOrLanguage = value.path,
-                            textMate = textMate,
-                            chunks = plan.chunks,
-                            chunkIndex = line.chunkIndex,
-                            resetAt = plan.resetAt,
-                            sourceVersion = value,
-                            darkMode = darkMode,
-                            modifier = Modifier.weight(1f),
-                        )
+                    val markerColor = when (line.marker) {
+                        '+' -> DsTheme.colors.success
+                        '-' -> DsTheme.colors.error
+                        else -> DsTheme.colors.labelTertiary
+                    }
+                    val background = when (line.marker) {
+                        '+' -> DsTheme.colors.successTertiary
+                        '-' -> DsTheme.colors.errorTertiary
+                        else -> DsTheme.colors.codeBlockBg
+                    }
+                    Row(Modifier.fillMaxWidth().padding(start = 24.dp).background(background)) {
+                        Text("${line.marker ?: ' '} ", style = DsType.mdCode, color = markerColor)
+                        CompositionLocalProvider(LocalTextStyle provides DsType.mdCode.copy(color = DsTheme.colors.labelPrimary)) {
+                            KodeViewCode(
+                                code = line.source,
+                                pathOrLanguage = value.path,
+                                textMate = textMate,
+                                chunks = plan.chunks,
+                                chunkIndex = line.chunkIndex,
+                                resetAt = plan.resetAt,
+                                diffMarkers = plan.markers,
+                                sourceVersion = value,
+                                darkMode = darkMode,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                 }
             }
