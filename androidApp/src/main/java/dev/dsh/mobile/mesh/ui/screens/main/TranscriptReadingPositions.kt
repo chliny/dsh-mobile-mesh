@@ -9,15 +9,23 @@ internal data class TranscriptReadingPosition(
     val offset: Int,
     val assistantTurn: Int? = null,
     val assistantStep: Int? = null,
+    val atBottom: Boolean = false,
 )
 
-internal fun readingPositionOf(row: TranscriptRow, offset: Int): TranscriptReadingPosition {
+internal fun readingPositionOf(
+    row: TranscriptRow,
+    offset: Int,
+    atBottom: Boolean = false,
+): TranscriptReadingPosition {
     val assistant = (row as? TranscriptRow.Node)?.node as? AssistantMessageNode
     return TranscriptReadingPosition(
-        row.anchorSeq,
+        // The disclosure key uses turn/start, which can disappear when a fresh history window
+        // starts mid-turn. Its first rendered process node survives both folded and plain rows.
+        (row as? TranscriptRow.Process)?.part?.nodes?.firstOrNull()?.seq ?: row.anchorSeq,
         offset,
         assistantTurn = assistant?.takeIf { it.streaming }?.turn,
         assistantStep = assistant?.takeIf { it.streaming }?.step,
+        atBottom = atBottom,
     )
 }
 
@@ -35,40 +43,67 @@ internal class TranscriptReadingPositions {
 
 internal val transcriptReadingPositionsSaver = listSaver<TranscriptReadingPositions, Any>(
     save = { positions ->
-        listOf("v2") + positions.entries().flatMap { (sessionId, position) ->
+        listOf("v3") + positions.entries().flatMap { (sessionId, position) ->
             listOf(sessionId, position.seq, position.offset,
-                position.assistantTurn ?: Int.MIN_VALUE, position.assistantStep ?: Int.MIN_VALUE)
+                position.assistantTurn ?: Int.MIN_VALUE, position.assistantStep ?: Int.MIN_VALUE, position.atBottom)
         }
     },
     restore = { saved ->
         TranscriptReadingPositions().apply {
-            if (saved.firstOrNull() == "v2") {
-                saved.drop(1).chunked(5).filter { it.size == 5 }.forEach { (sessionId, seq, offset, turn, step) ->
-                    put(sessionId as String, TranscriptReadingPosition(
-                        seq as Long, offset as Int,
-                        (turn as Int).takeUnless { it == Int.MIN_VALUE },
-                        (step as Int).takeUnless { it == Int.MIN_VALUE },
-                    ))
-                }
-            } else {
-                // Existing saved-state bundles contain triples from the previous release.
-                saved.chunked(3).filter { it.size == 3 }.forEach { (sessionId, seq, offset) ->
-                    put(sessionId as String, TranscriptReadingPosition(seq as Long, offset as Int))
+            when (saved.firstOrNull()) {
+                "v3" -> saved.drop(1).chunked(6).filter { it.size == 6 }
+                    .forEach { values ->
+                        val (sessionId, seq, offset, turn, step) = values
+                        val atBottom = values[5]
+                        put(sessionId as String, TranscriptReadingPosition(
+                            seq as Long, offset as Int,
+                            (turn as Int).takeUnless { it == Int.MIN_VALUE },
+                            (step as Int).takeUnless { it == Int.MIN_VALUE },
+                            atBottom as Boolean,
+                        ))
+                    }
+                "v2" -> saved.drop(1).chunked(5).filter { it.size == 5 }
+                    .forEach { (sessionId, seq, offset, turn, step) ->
+                        put(sessionId as String, TranscriptReadingPosition(
+                            seq as Long, offset as Int,
+                            (turn as Int).takeUnless { it == Int.MIN_VALUE },
+                            (step as Int).takeUnless { it == Int.MIN_VALUE },
+                        ))
+                    }
+                else -> {
+                    // Existing saved-state bundles contain triples from the first release.
+                    saved.chunked(3).filter { it.size == 3 }.forEach { (sessionId, seq, offset) ->
+                        put(sessionId as String, TranscriptReadingPosition(seq as Long, offset as Int))
+                    }
                 }
             }
         }
     },
 )
 
+/** Whether a returning session should restore its semantic tail rather than its first visible row. */
+internal fun shouldRestoreTranscriptToBottom(position: TranscriptReadingPosition?): Boolean = position?.atBottom == true
+
 /** A paging sentinel or waiting indicator is not a readable anchor for session restoration. */
 internal fun canRestoreReadingPosition(rows: List<TranscriptRow>): Boolean = rows.isNotEmpty()
+
+/** One bounded server page on reentry; never start an unbounded history-fill loop. */
+internal fun shouldFetchReadingAnchorPage(
+    rows: List<TranscriptRow>,
+    saved: TranscriptReadingPosition?,
+    hasMore: Boolean,
+    loadingOlder: Boolean,
+    attempted: Boolean,
+): Boolean = saved != null && !saved.atBottom && hasMore && !loadingOlder && !attempted && readingPositionIndex(rows, saved) < 0
 
 /** A replaced window must not erase a historical anchor until the reader actually moves. */
 internal fun shouldRecordReadingPosition(
     rows: List<TranscriptRow>,
     saved: TranscriptReadingPosition?,
     userScrolling: Boolean,
-): Boolean = userScrolling || saved == null || readingPositionIndex(rows, saved) >= 0
+    currentAtBottom: Boolean,
+): Boolean = userScrolling || saved == null || readingPositionIndex(rows, saved) >= 0 ||
+    (saved?.atBottom == true && currentAtBottom)
 
 /** Return the visible row containing the saved message, not an unrelated turn start. */
 internal fun readingPositionIndex(rows: List<TranscriptRow>, position: TranscriptReadingPosition): Int {

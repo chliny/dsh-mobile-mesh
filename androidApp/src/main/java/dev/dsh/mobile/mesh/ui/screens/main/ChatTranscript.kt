@@ -3,6 +3,7 @@ package dev.dsh.mobile.mesh.ui.screens.main
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -49,6 +51,7 @@ import dev.dsh.mobile.mesh.ui.components.EmptyHero
 import dev.dsh.mobile.mesh.ui.components.skeleton
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
+import kotlinx.coroutines.launch
 
 /**
  * How close to the top a reader must get before the next page is fetched.
@@ -232,6 +235,7 @@ internal fun ChatTranscript(
     listState: LazyListState,
     readingPositions: TranscriptReadingPositions,
     onLoadOlder: () -> Unit,
+    onRestoreOlder: suspend (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Only the nodes that draw something: a zero-height item still costs its 4dp gap, and a turn's
@@ -296,9 +300,11 @@ internal fun ChatTranscript(
     // appearing and disappearing changed the count too, which moved the view for no reason at all.
     val newestSeq = nodes.lastOrNull()?.seq
     var lastSession by remember { mutableStateOf<String?>(null) }
+    var restoreTarget by remember(sessionId) { mutableStateOf<TranscriptReadingPosition?>(null) }
+    val userDragging by listState.interactionSource.collectIsDraggedAsState()
     // Observe only a laid-out row belonging to this session, and only after the initial restore.
     // In particular, an empty/loading snapshot must not replace a saved reading anchor.
-    LaunchedEffect(listState, sessionId, rows, hasMore, restoredSession) {
+    LaunchedEffect(listState, sessionId, rows, hasMore, restoredSession, restoreTarget, userDragging) {
         if (sessionId == null || restoredSession != sessionId) return@LaunchedEffect
         // A follow snapshot can replace the cached older window with only the newest page.
         // Its automatic LazyColumn re-anchor is not a reader action: do not overwrite the
@@ -311,13 +317,24 @@ internal fun ChatTranscript(
             }
             first?.let { item ->
                 val row = rows.getOrNull(item.index - if (hasMore) 1 else 0) ?: return@let null
+                val last = info.visibleItemsInfo.lastOrNull()
+                val atBottom = last != null && transcriptNearBottom(
+                    info.totalItemsCount,
+                    last.index,
+                    last.offset + last.size,
+                    info.viewportEndOffset,
+                    bottomTolerancePx,
+                )
                 readingPositionOf(
                     row,
                     if (item.index == listState.firstVisibleItemIndex) listState.firstVisibleItemScrollOffset else 0,
+                    atBottom,
                 )
             }
         }.collect { position ->
-            if (position != null && shouldRecordReadingPosition(rows, saved, listState.isScrollInProgress)) {
+            if (restoreTarget != null && userDragging) restoreTarget = null
+            if (position != null && restoreTarget == null &&
+                shouldRecordReadingPosition(rows, saved, userDragging, position.atBottom)) {
                 readingPositions.put(sessionId, position)
             }
         }
@@ -335,18 +352,55 @@ internal fun ChatTranscript(
         // the first readable message arrives on the next server page.
         if (!canRestoreReadingPosition(rows)) return@LaunchedEffect
         val switched = sessionId != lastSession
-        lastSession = sessionId
         // An existing session returns to the message the reader was viewing, not the newest
         // turn. New sessions (or anchors outside the available snapshot) still open at the tail.
         if (switched) {
             val saved = sessionId?.let(readingPositions::get)
             val index = saved?.let { readingPositionIndex(rows, it) } ?: -1
-            if (index >= 0) {
+            if (shouldRestoreTranscriptToBottom(saved)) {
+                // End position is a semantic anchor: the first visible row can be an earlier
+                // node in the current turn, so restoring that row would move a tail reader up.
+                scrollTranscriptToEnd(listState, itemCount - 1)
+                wasNearBottom = true
+            } else if (index >= 0) {
                 listState.scrollToItem(index + if (hasMore) 1 else 0, saved!!.offset)
                 wasNearBottom = false
-            } else scrollTranscriptToEnd(listState, itemCount - 1)
+            } else {
+                scrollTranscriptToEnd(listState, itemCount - 1)
+                wasNearBottom = true
+            }
+            // scrollToItem is suspending; a new follow snapshot can cancel this effect before
+            // it completes. Commit the switch only after positioning succeeds so it can retry.
+            lastSession = sessionId
             restoredSession = sessionId
         } else if (wasNearBottom) scrollTranscriptToEnd(listState, itemCount - 1)
+    }
+
+    // The opening follow snapshot can replace a cached, deeper window with only its newest page.
+    // Ask the authoritative session/page endpoint for one older page, then return to the original
+    // anchor if that page includes it. The bound prevents mostly-invisible logs from being folded
+    // without limit; a reader may still use the ordinary paging row to travel further back.
+    val restoreScope = rememberCoroutineScope()
+    var restorePageAttempted by remember(sessionId) { mutableStateOf(false) }
+    LaunchedEffect(sessionId, rows, hasMore, loadingOlder, restoredSession, restorePageAttempted, restoreTarget, userDragging) {
+        if (sessionId == null || restoredSession != sessionId) return@LaunchedEffect
+        val saved = readingPositions.get(sessionId) ?: return@LaunchedEffect
+        val target = restoreTarget
+        if (target != null) {
+            val index = readingPositionIndex(rows, target)
+            if (index >= 0) {
+                // A user scroll while the request was in flight supersedes the old anchor.
+                if (!userDragging && readingPositions.get(sessionId) == target) {
+                    listState.scrollToItem(index + if (hasMore) 1 else 0, target.offset)
+                    wasNearBottom = false
+                }
+                restoreTarget = null
+            } else if (saved != target) restoreTarget = null
+        } else if (shouldFetchReadingAnchorPage(rows, saved, hasMore, loadingOlder, restorePageAttempted)) {
+            restorePageAttempted = true
+            restoreTarget = saved
+            restoreScope.launch { onRestoreOlder(sessionId) }
+        }
     }
 
     // Reaching the top pulls the next page. The guard matters: this effect sits above the `loading`

@@ -2248,13 +2248,23 @@ class SessionStore @Inject constructor(
     private fun expandRecords(records: List<SessionHistoryRecord>): List<SessionEventEnvelope> =
         records.map { wireEventToEnvelope(it.event) }
 
+    /** Fetch a missing reading anchor from the authoritative session/page after follow opens. */
+    suspend fun loadOlderForReadingPosition(sessionId: String) {
+        val ready = withTimeoutOrNull(10_000L) {
+            while (true) {
+                val (selected, cursor) = synchronized(lock) { currentId to followCursor }
+                if (selected != sessionId) return@withTimeoutOrNull false
+                if (cursor != null) break
+                delay(50)
+            }
+            true
+        } == true
+        if (ready && currentSessionId.value == sessionId && synchronized(lock) { currentHasMore }) loadOlder()
+    }
+
     /**
-     * Page one screen further back.
-     *
-     * Called from the transcript's scroll position, so it has to be safe to call repeatedly: the
-     * in-flight flag collapses a burst of scroll emissions into one request, and a page that adds
-     * nothing new ends the paging rather than leaving `hasMore` set for the trigger to fire on
-     * again.
+     * Page one screen further back. The in-flight flag collapses duplicate requests, and a page
+     * with no new records ends paging instead of walking the whole history automatically.
      */
     suspend fun loadOlder() = withContext(Dispatchers.Default) {
         val sid = currentSessionId.value ?: return@withContext
