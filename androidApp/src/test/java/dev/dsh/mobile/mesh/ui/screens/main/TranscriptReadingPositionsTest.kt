@@ -37,6 +37,9 @@ class TranscriptReadingPositionsTest {
         val savedBottom = saved.copy(atBottom = true)
         assertTrue(shouldRecordReadingPosition(newWindow, savedBottom, userScrolling = false, currentAtBottom = true))
         assertFalse(shouldRecordReadingPosition(newWindow, savedBottom, userScrolling = false, currentAtBottom = false))
+        // The old first visible row still exists while a streamed last row expands.
+        assertFalse(shouldRecordReadingPosition(listOf(row(42), row(110)), savedBottom, userScrolling = false, currentAtBottom = false))
+        assertTrue(shouldRecordReadingPosition(listOf(row(42), row(110)), savedBottom, userScrolling = true, currentAtBottom = false))
     }
 
     @Test
@@ -94,13 +97,25 @@ class TranscriptReadingPositionsTest {
     }
 
     @Test
+    fun `switching A to B to A reuses A list state and never uses B state`() {
+        val states = TranscriptListStates()
+        val a = states.forSession("a")
+        val b = states.forSession("b")
+        assertTrue(a !== b)
+        assertTrue(a === states.forSession("a"))
+        assertTrue(b === states.forSession("b"))
+    }
+
+    @Test
     fun `reading positions remain owned while the session list replaces chat`() {
         val root = File("src/main/java/dev/dsh/mobile/mesh/ui/AppRoot.kt").readText()
         val main = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/MainScreen.kt").readText()
         val chat = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/ChatScreen.kt").readText()
-        assertTrue(root.contains("val readingPositions = rememberSaveable(connection.host?.id ?: renderedConnectedHostId"))
-        assertTrue(root.contains("showMain -> MainScreen(\n                readingPositions = readingPositions,"))
-        assertTrue(main.contains("ChatScreen(\n                readingPositions = readingPositions,"))
+        assertTrue(root.contains("val readingPositions = rememberSaveable(activeHostKey"))
+        assertTrue(root.contains("val transcriptListStates = remember(activeHostKey) { TranscriptListStates() }"))
+        assertTrue(root.contains("showMain -> MainScreen(\n                readingPositions = readingPositions,\n                transcriptListStates = transcriptListStates,"))
+        assertTrue(main.contains("ChatScreen(\n                readingPositions = readingPositions,\n                transcriptListStates = transcriptListStates,"))
+        assertTrue(chat.contains("transcriptListStates.forSession(currentSessionId)"))
         assertFalse(chat.contains("val readingPositions = rememberSaveable"))
     }
 

@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -83,6 +82,7 @@ private const val FILE_CACHE_CHECK_INTERVAL_MS = 10_000L
 @Composable
 internal fun ChatScreen(
     readingPositions: TranscriptReadingPositions,
+    transcriptListStates: TranscriptListStates,
     onOpenDetails: () -> Unit,
     onOpenDrawer: () -> Unit,
     detailsOpen: Boolean,
@@ -160,7 +160,7 @@ internal fun ChatScreen(
     // A fresh list for each session prevents the previous session's layout from being mistaken for
     // the new one's position while its snapshot is still loading. The anchor lives in AppRoot,
     // because this page leaves composition while the session list or file browser is open.
-    val chatListState = remember(currentSessionId) { LazyListState() }
+    val chatListState = transcriptListStates.forSession(currentSessionId)
     val trajectoryListState = rememberLazyListState()
 
     val workspaceFiles = rememberWorkspaceFilesStore()

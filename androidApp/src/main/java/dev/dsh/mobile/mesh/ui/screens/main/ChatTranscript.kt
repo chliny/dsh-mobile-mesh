@@ -262,8 +262,9 @@ internal fun ChatTranscript(
     var wasNearBottom by remember(sessionId) { mutableStateOf(true) }
     var restoredSession by remember { mutableStateOf<String?>(null) }
     var olderPageAnchor by remember(sessionId) { mutableStateOf<OlderPageAnchor?>(null) }
+    val userDragging by listState.interactionSource.collectIsDraggedAsState()
     val bottomTolerancePx = with(LocalDensity.current) { 48.dp.roundToPx() }
-    LaunchedEffect(listState, sessionId, itemCount, restoredSession, bottomTolerancePx) {
+    LaunchedEffect(listState, sessionId, itemCount, restoredSession, bottomTolerancePx, userDragging) {
         // Do not let an empty/stale layout from before the initial anchor restore reset its
         // tail-follow state. Only a visible row in the restored transcript is meaningful.
         if (restoredSession != sessionId) return@LaunchedEffect
@@ -287,7 +288,10 @@ internal fun ChatTranscript(
             if (viewportChanged && wasNearBottom && total > 0) {
                 scrollTranscriptToEnd(listState, total - 1)
             }
-            wasNearBottom = transcriptNearBottom(total, lastIndex, ends.first, ends.second, bottomTolerancePx) ||
+            val measuredNearBottom = transcriptNearBottom(total, lastIndex, ends.first, ends.second, bottomTolerancePx)
+            // A streamed row may grow between measurement and auto-follow. Preserve tail intent
+            // across that transient gap; only a user's drag can deliberately leave the tail.
+            wasNearBottom = measuredNearBottom || (wasNearBottom && !userDragging) ||
                 (viewportChanged && wasNearBottom)
             previousViewportHeight = viewportHeight
         }
@@ -301,7 +305,6 @@ internal fun ChatTranscript(
     val newestSeq = nodes.lastOrNull()?.seq
     var lastSession by remember { mutableStateOf<String?>(null) }
     var restoreTarget by remember(sessionId) { mutableStateOf<TranscriptReadingPosition?>(null) }
-    val userDragging by listState.interactionSource.collectIsDraggedAsState()
     // Observe only a laid-out row belonging to this session, and only after the initial restore.
     // In particular, an empty/loading snapshot must not replace a saved reading anchor.
     LaunchedEffect(listState, sessionId, rows, hasMore, restoredSession, restoreTarget, userDragging) {

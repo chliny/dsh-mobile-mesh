@@ -1,5 +1,6 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.saveable.listSaver
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 
@@ -27,6 +28,25 @@ internal fun readingPositionOf(
         assistantStep = assistant?.takeIf { it.streaming }?.step,
         atBottom = atBottom,
     )
+}
+
+/** Keeps active Compose list states separate per session during in-process session switches. */
+internal class TranscriptListStates {
+    private val states = LinkedHashMap<String, LazyListState>(16, 0.75f, true)
+    private val emptySessionState = LazyListState()
+
+    fun forSession(sessionId: String?): LazyListState {
+        if (sessionId == null) return emptySessionState
+        states[sessionId]?.let { return it }
+        val state = LazyListState()
+        states[sessionId] = state
+        if (states.size > MAX_RETAINED_SESSIONS) states.remove(states.keys.first())
+        return state
+    }
+
+    private companion object {
+        const val MAX_RETAINED_SESSIONS = 24
+    }
 }
 
 internal class TranscriptReadingPositions {
@@ -102,8 +122,12 @@ internal fun shouldRecordReadingPosition(
     saved: TranscriptReadingPosition?,
     userScrolling: Boolean,
     currentAtBottom: Boolean,
-): Boolean = userScrolling || saved == null || readingPositionIndex(rows, saved) >= 0 ||
-    (saved?.atBottom == true && currentAtBottom)
+): Boolean {
+    // Streaming can extend the last row before auto-follow measures its new bottom. That
+    // temporary gap is not a reader moving away; keep the semantic tail until a real drag.
+    if (saved?.atBottom == true && !userScrolling && !currentAtBottom) return false
+    return userScrolling || saved == null || currentAtBottom || readingPositionIndex(rows, saved) >= 0
+}
 
 /** Return the visible row containing the saved message, not an unrelated turn start. */
 internal fun readingPositionIndex(rows: List<TranscriptRow>, position: TranscriptReadingPosition): Int {

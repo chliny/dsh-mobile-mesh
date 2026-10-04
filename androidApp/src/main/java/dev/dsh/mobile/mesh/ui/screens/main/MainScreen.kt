@@ -130,6 +130,7 @@ private fun MainPageRoute.toPage(): MainPage = when (restoredKind()) {
 @Composable
 internal fun MainScreen(
     readingPositions: TranscriptReadingPositions,
+    transcriptListStates: TranscriptListStates,
     connectionPhase: ConnectionPhase,
     onOpenSessionList: () -> Unit,
     reconnectAttempt: Int,
@@ -272,6 +273,7 @@ internal fun MainScreen(
             ) {
             ChatScreen(
                 readingPositions = readingPositions,
+                transcriptListStates = transcriptListStates,
                 onOpenDetails = { detailsOpen = true },
                 onOpenDrawer = {
                     subagentParentSessionId = null
