@@ -13,6 +13,7 @@ class FilePreviewScreenTest {
         assertTrue(isMarkdownPath("README.md"))
         assertTrue(isMarkdownPath("docs/guide.markdown"))
         assertTrue(isMarkdownPath("notes.mdown"))
+        assertTrue(isMarkdownPath("analysis.rmd"))
     }
 
     @Test

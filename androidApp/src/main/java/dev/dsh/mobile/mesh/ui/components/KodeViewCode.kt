@@ -43,12 +43,14 @@ internal fun KodeViewCode(
     textMate: TextMateCodeHighlighter? = null,
     chunks: List<String>? = null,
     chunkIndex: Int = 0,
+    resetAt: Set<Int> = emptySet(),
+    sourceVersion: Any? = null,
 ) {
-    var annotatedCode by remember(code, pathOrLanguage, darkMode, textMate) { mutableStateOf(AnnotatedString(code)) }
-    LaunchedEffect(code, pathOrLanguage, darkMode, textMate, chunkIndex) {
+    var annotatedCode by remember(code, pathOrLanguage, darkMode, textMate, chunkIndex, sourceVersion) { mutableStateOf(AnnotatedString(code)) }
+    LaunchedEffect(code, pathOrLanguage, darkMode, textMate, chunkIndex, resetAt, sourceVersion) {
         try {
             annotatedCode = withContext(Dispatchers.Default) {
-                highlightPreviewCode(code, pathOrLanguage, darkMode, textMate, chunks, chunkIndex)
+                highlightPreviewCode(code, pathOrLanguage, darkMode, textMate, chunks, chunkIndex, resetAt)
             }
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
@@ -77,10 +79,11 @@ internal fun highlightPreviewCode(
     textMate: TextMateCodeHighlighter?,
     chunks: List<String>?,
     chunkIndex: Int,
+    resetAt: Set<Int> = emptySet(),
 ): AnnotatedString {
     if (textMate == null || chunks == null) return highlightCode(code, path, darkMode)
     return try {
-        textMate.highlight(chunks, chunkIndex)
+        textMate.highlight(chunks, chunkIndex, resetAt)
     } catch (error: Exception) {
         if (error is CancellationException) throw error
         Log.w("CodeHighlight", "TextMate tokenization failed for $path", error)

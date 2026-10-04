@@ -40,7 +40,7 @@ internal fun validWorkspaceFilePath(path: String): String? =
     path.trim().takeIf { it.isNotEmpty() }
 
 private fun isMarkdownPreviewPath(path: String): Boolean =
-    path.substringAfterLast('.', "").lowercase() in setOf("md", "markdown", "mdown", "mkd")
+    path.substringAfterLast('.', "").lowercase() in setOf("md", "markdown", "mdown", "mkd", "rmd")
 
 sealed interface DirectoryLevel {
     data object Loading : DirectoryLevel

@@ -40,6 +40,7 @@ import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.components.KodeViewCode
 import dev.dsh.mobile.mesh.ui.components.TextMateCodeHighlighter
 import dev.dsh.mobile.mesh.ui.components.textMateGrammarAsset
+import dev.dsh.mobile.mesh.ui.components.textMateGrammarAssetForScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import dev.dsh.mobile.mesh.ui.components.MarkdownText
@@ -59,7 +60,7 @@ private suspend fun resolveMarkdownImage(source: String, markdownPath: String, s
 }
 
 internal fun isMarkdownPath(path: String): Boolean = when (path.substringAfterLast('.', "").lowercase()) {
-    "md", "markdown", "mdown", "mkd" -> true
+    "md", "markdown", "mdown", "mkd", "rmd" -> true
     else -> false
 }
 
@@ -77,13 +78,17 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
     val preview = state.preview
     val firstChunk = (preview as? PreviewState.Text)?.chunks?.firstOrNull()
     val version = (preview as? PreviewState.Text)?.value?.version
-    val textMate by produceState<TextMateCodeHighlighter?>(null, workspaceKey, sessionId, path, themeAsset, version, firstChunk) {
-        value = if (firstChunk != null && grammarAsset != null) withContext(Dispatchers.Default) {
-            runCatching { TextMateCodeHighlighter(assets.open(grammarAsset), assets.open(themeAsset)) }
+    val highlightIdentity = listOf(workspaceKey, sessionId, path, themeAsset, version, firstChunk)
+    val loaded by produceState<Pair<List<String?>, TextMateCodeHighlighter?>?>(null, workspaceKey, sessionId, path, themeAsset, version, firstChunk) {
+        value = highlightIdentity to if (firstChunk != null && grammarAsset != null) withContext(Dispatchers.Default) {
+            runCatching { TextMateCodeHighlighter(assets.open(grammarAsset), assets.open(themeAsset)) { scope ->
+                textMateGrammarAssetForScope(scope)?.let(assets::open)
+            } }
                 .onFailure { Log.w("CodeHighlight", "Failed to load TextMate grammar for $path", it) }
                 .getOrNull()
         } else null
     }
+    val textMate = loaded?.takeIf { it.first == highlightIdentity }?.second
     var refreshing by remember { mutableStateOf(false) }
     BackHandler(onBack = onBack)
     LaunchedEffect(workspaceKey, sessionId, path) {
@@ -149,6 +154,7 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
                                     textMate = textMate,
                                     chunks = preview.chunks,
                                     chunkIndex = index,
+                                    sourceVersion = version,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                             }

@@ -29,13 +29,51 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.ChangesNode
 import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.dto.ChangesDiff
+import dev.dsh.mobile.mesh.core.wire.dto.ChangesDiffHunk
 import dev.dsh.mobile.mesh.core.wire.dto.ChangesSummary
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
 import dev.dsh.mobile.mesh.ui.components.KodeViewCode
 import dev.dsh.mobile.mesh.ui.components.TextMateCodeHighlighter
 import dev.dsh.mobile.mesh.ui.components.textMateGrammarAsset
+import dev.dsh.mobile.mesh.ui.components.textMateGrammarAssetForScope
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
+
+internal data class DiffHighlightLine(val marker: Char?, val source: String, val chunkIndex: Int)
+internal data class DiffHighlightPlan(val lines: List<DiffHighlightLine>, val chunks: List<String>, val resetAt: Set<Int>)
+
+/** Deleted and added lines belong to distinct source versions; hunks are not adjacent code. */
+internal fun buildDiffHighlightPlan(hunks: List<ChangesDiffHunk>): DiffHighlightPlan {
+    val visible = hunks.take(3).map { it.lines }.let { groups ->
+        var remaining = 12
+        groups.map { group -> group.take(remaining).also { remaining -= it.size } }
+    }
+    val chunks = mutableListOf<String>()
+    val resets = mutableSetOf<Int>()
+    val mapped = visible.map { hunk ->
+        val before = IntArray(hunk.size) { -1 }
+        val after = IntArray(hunk.size) { -1 }
+        for (old in listOf(true, false)) {
+            val selected = hunk.withIndex().filter { (_, line) ->
+                val marker = line.firstOrNull()?.takeIf { it == '+' || it == '-' || it == ' ' }
+                if (old) marker != '+' else marker != '-'
+            }
+            if (selected.isNotEmpty()) resets += chunks.size
+            for ((lineIndex, line) in selected) {
+                val marker = line.firstOrNull()?.takeIf { it == '+' || it == '-' || it == ' ' }
+                if (old) before[lineIndex] = chunks.size else after[lineIndex] = chunks.size
+                chunks += if (marker == null) line else line.drop(1)
+            }
+        }
+        hunk.indices.map { i ->
+            val line = hunk[i]
+            val marker = line.firstOrNull()?.takeIf { it == '+' || it == '-' || it == ' ' }
+            DiffHighlightLine(marker, if (marker == null) line else line.drop(1),
+                if (marker == '-') before[i] else after[i])
+        }
+    }.flatten()
+    return DiffHighlightPlan(mapped, chunks, resets)
+}
 
 @Composable
 internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
@@ -83,13 +121,17 @@ private fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, session
     val grammarAsset = textMateGrammarAsset(path)
     val darkMode = isSystemInDarkTheme()
     val themeAsset = if (darkMode) "textmate-dark.json" else "textmate-light.json"
-    val textMate by produceState<TextMateCodeHighlighter?>(null, path, themeAsset, diff) {
-        value = if (diff is ChangesDiff.Text && grammarAsset != null) withContext(Dispatchers.Default) {
-            runCatching { TextMateCodeHighlighter(assets.open(grammarAsset), assets.open(themeAsset)) }
+    val highlightIdentity = Triple(path, themeAsset, diff)
+    val loaded by produceState<Pair<Triple<String, String, ChangesDiff?>, TextMateCodeHighlighter?>?>(null, path, themeAsset, diff) {
+        value = highlightIdentity to if (diff is ChangesDiff.Text && grammarAsset != null) withContext(Dispatchers.Default) {
+            runCatching { TextMateCodeHighlighter(assets.open(grammarAsset), assets.open(themeAsset)) { scope ->
+                textMateGrammarAssetForScope(scope)?.let(assets::open)
+            } }
                 .onFailure { Log.w("CodeHighlight", "Failed to load TextMate grammar for changed file $path", it) }
                 .getOrNull()
         } else null
     }
+    val textMate = loaded?.takeIf { it.first == highlightIdentity }?.second
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(Modifier.fillMaxWidth().clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(path, display) }) {
             Icon(Icons.Outlined.Description, contentDescription = null, tint = DsTheme.colors.labelSecondary)
@@ -98,26 +140,22 @@ private fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, session
         }
         when (val value = diff) {
             is ChangesDiff.Text -> {
-                val lines = value.hunks.take(3).flatMap { it.lines }.take(12)
-                val codeChunks = lines.map { line ->
-                    val marker = line.firstOrNull()?.takeIf { it == '+' || it == '-' || it == ' ' }
-                    if (marker == null) line else line.drop(1)
-                }
-                lines.forEachIndexed { lineIndex, line ->
-                    val marker = line.firstOrNull()?.takeIf { it == '+' || it == '-' || it == ' ' }
-                    val source = codeChunks[lineIndex]
+                val plan = remember(value) { buildDiffHighlightPlan(value.hunks) }
+                plan.lines.forEach { line ->
                     Row(Modifier.fillMaxWidth().padding(start = 24.dp)) {
-                        if (marker != null) Text(marker.toString(), style = DsType.caption11, color = when (marker) {
+                        if (line.marker != null) Text(line.marker.toString(), style = DsType.caption11, color = when (line.marker) {
                             '+' -> DsTheme.colors.labelPrimary
                             '-' -> DsTheme.colors.labelPrimary
                             else -> DsTheme.colors.labelTertiary
                         })
                         KodeViewCode(
-                            code = source,
+                            code = line.source,
                             pathOrLanguage = value.path,
                             textMate = textMate,
-                            chunks = codeChunks,
-                            chunkIndex = lineIndex,
+                            chunks = plan.chunks,
+                            chunkIndex = line.chunkIndex,
+                            resetAt = plan.resetAt,
+                            sourceVersion = value,
                             darkMode = darkMode,
                             modifier = Modifier.weight(1f),
                         )

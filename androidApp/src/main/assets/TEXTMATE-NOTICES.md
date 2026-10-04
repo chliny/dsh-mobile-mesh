@@ -30,10 +30,11 @@ normalization. All are MIT-licensed.
 
 ## Additional language grammars bundled in this Android app
 
-The following MIT-licensed grammar JSON files are redistributed from `tm-grammars` 1.32.17.
-The package README records the upstream source and license for each grammar. The VS Code
-sources are copyright Microsoft Corporation; the Swift grammar is copyright John Bandelet.
-The R grammar comes from Positron and the Scala grammar from scala/vscode-scala-syntax.
+The following MIT-licensed grammar JSON files are redistributed from `tm-grammars` 1.32.17,
+except for YAML from Red Hat's `vscode-yaml` and TOML from `tamasfe/taplo`. The package README records
+upstream sources and licenses. The VS Code grammars are copyright Microsoft Corporation; the
+Swift grammar is copyright John Bandelet. The R grammar comes from Positron, the Scala grammar
+from scala/vscode-scala-syntax, and the JSON5 grammar from mrmlnc/vscode-json5.
 See `VSCODE-GRAMMARS-LICENSE.txt` in this app's assets for the MIT license notices and links.
 
 | Asset | Language | Upstream source |
@@ -63,6 +64,15 @@ See `VSCODE-GRAMMARS-LICENSE.txt` in this app's assets for the MIT license notic
 | `textmate-tsx.tmLanguage.json` | TSX | [Microsoft VS Code TypeScript React grammar](https://github.com/microsoft/vscode/blob/main/extensions/typescript-basics/syntaxes/TypeScriptReact.tmLanguage.json) |
 | `textmate-typescript.tmLanguage.json` | TypeScript | [Microsoft VS Code TypeScript grammar](https://github.com/microsoft/vscode/blob/main/extensions/typescript-basics/syntaxes/TypeScript.tmLanguage.json) |
 | `textmate-xml.tmLanguage.json` | XML | [Microsoft VS Code XML grammar](https://github.com/microsoft/vscode/blob/main/extensions/xml/syntaxes/xml.tmLanguage.json) |
+| `textmate-docker.tmLanguage.json` | Dockerfile | [Microsoft VS Code Docker grammar](https://github.com/microsoft/vscode/blob/main/extensions/docker/syntaxes/docker.tmLanguage.json) |
+| `textmate-make.tmLanguage.json` | Makefile | [Microsoft VS Code Make grammar](https://github.com/microsoft/vscode/blob/main/extensions/make/syntaxes/make.tmLanguage.json) |
+| `textmate-scss.tmLanguage.json` | SCSS | [Microsoft VS Code SCSS grammar](https://github.com/microsoft/vscode/blob/main/extensions/scss/syntaxes/scss.tmLanguage.json) |
+| `textmate-less.tmLanguage.json` | Less | [Microsoft VS Code Less grammar](https://github.com/microsoft/vscode/blob/main/extensions/less/syntaxes/less.tmLanguage.json) |
+| `textmate-ini.tmLanguage.json` | INI | [Microsoft VS Code INI grammar](https://github.com/microsoft/vscode/blob/main/extensions/ini/syntaxes/ini.tmLanguage.json) |
+| `textmate-jsonc.tmLanguage.json` | JSON with Comments | [Microsoft VS Code JSONC grammar](https://github.com/microsoft/vscode/blob/main/extensions/json/syntaxes/JSONC.tmLanguage.json) |
+| `textmate-json5.tmLanguage.json` | JSON5 | [mrmlnc/vscode-json5](https://github.com/mrmlnc/vscode-json5/blob/master/syntaxes/json5.json), MIT |
+| `textmate-yaml.tmLanguage.json` | YAML | [Red Hat vscode-yaml](https://github.com/redhat-developer/vscode-yaml/blob/main/syntaxes/yaml.tmLanguage.json), MIT, © Red Hat Inc. and others |
+| `textmate-toml.tmLanguage.json` | TOML | [Taplo VS Code grammar](https://github.com/tamasfe/taplo/blob/master/editors/vscode/toml.tmLanguage.json), MIT, © Taplo contributors |
 
 The grammar JSON files are adapted/redistributed by [tm-grammars 1.32.17](https://cdn.jsdelivr.net/npm/tm-grammars@1.32.17/README.md).
 
