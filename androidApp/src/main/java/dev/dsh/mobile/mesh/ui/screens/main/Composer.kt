@@ -412,17 +412,22 @@ internal fun Composer(
  * the preset table is deployment-configurable — mapping ids to local strings would mislabel any
  * deployment that renamed one.
  */
+internal fun composerModelLabels(models: SessionModelsValue): Pair<String, String?> {
+    val selection = models.current
+    val model = models.groups.firstOrNull { it.id == selection.provider }
+        ?.models?.firstOrNull { it.id == selection.model }
+    val effort = model?.reasoning?.efforts?.firstOrNull { it.id == selection.reasoningEffort }
+    return (model?.name ?: selection.model) to effort?.name
+}
+
 @Composable
 private fun ModelChip(
     models: SessionModelsValue?,
     onClick: () -> Unit,
 ) {
     val colors = DsTheme.colors
-    val label = models?.let { current ->
-        current.groups.firstOrNull { it.id == current.current.provider }
-            ?.models?.firstOrNull { it.id == current.current.model }?.name
-            ?: current.current.model
-    } ?: stringResource(R.string.common_loading)
+    val (label, effortLabel) = models?.let(::composerModelLabels)
+        ?: (stringResource(R.string.common_loading) to null)
     Row(
         modifier = Modifier
             .widthIn(max = 112.dp)
@@ -440,6 +445,16 @@ private fun ModelChip(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
+        effortLabel?.let { effort ->
+            Text(
+                effort,
+                style = DsType.small13,
+                color = colors.labelTertiary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+        }
         Icon(
             Icons.Filled.KeyboardArrowDown,
             contentDescription = null,
