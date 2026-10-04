@@ -36,7 +36,7 @@ internal fun terminalCapabilityForConnection(
     ?: (knownSessionId != null && probedSupported == true)
 
 /** One connection intent's observed protocol; automatic retries reuse its settled result. */
-internal class HarnessProtocolSelection {
+internal class HarnessProtocolSelection(private val previous: HarnessProtocol? = null) {
     private val lock = Mutex()
     @Volatile var selected: HarnessProtocol? = null
         private set
@@ -90,13 +90,16 @@ internal class HarnessProtocolSelection {
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (probeFailure: ProtocolProbeException) {
-            throw probeFailure
+            previous?.takeUnless { it == HarnessProtocol.UNDETERMINED } ?: throw probeFailure
         } catch (_: Throwable) {
             HarnessProtocol.UNDETERMINED
         }
-        selected = next
-        record(HarnessCapability.SUBAGENT_PROJECTION, next == HarnessProtocol.PARENT_CATALOG)
-        next
+        val resolved = if (next == HarnessProtocol.UNDETERMINED) {
+            previous?.takeUnless { it == HarnessProtocol.UNDETERMINED } ?: next
+        } else next
+        selected = resolved
+        record(HarnessCapability.SUBAGENT_PROJECTION, resolved == HarnessProtocol.PARENT_CATALOG)
+        resolved
     }
 
     private suspend fun classifyProbeResult(

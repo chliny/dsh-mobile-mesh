@@ -728,6 +728,7 @@ class ConnectViewModel @Inject constructor(
                 useTls = input.useTls ?: (portInt == 443),
                 lastConnectedAt = existing?.lastConnectedAt ?: 0L,
                 lastHome = existing?.lastHome,
+                lastProtocol = existing?.lastProtocol,
                 meshTransport = transport,
                 zeroTierNetworkId = networkId.trim().lowercase().takeIf { transport == MeshTransport.ZERO_TIER },
                 zeroTierPlanetId = importedPlanetId?.takeIf { transport == MeshTransport.ZERO_TIER },
