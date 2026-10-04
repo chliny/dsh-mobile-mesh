@@ -141,6 +141,33 @@ class HarnessProtocolSelectionTest {
         assertEquals(HarnessProtocol.UNDETERMINED, intent.selected)
     }
 
+    @Test fun `timed out probe reuses last confirmed version rather than defaulting`() = runBlocking {
+        val selection = HarnessProtocolSelection(HarnessProtocol.PARENT_CATALOG)
+        assertEquals(HarnessProtocol.PARENT_CATALOG, selection.detect(
+            probe = { delay(1_000); error("timed out") },
+            probeProjection = { error("must not run") },
+            probeTimeoutMs = 20,
+        ))
+        assertEquals(true, selection.supports(HarnessCapability.SUBAGENT_PROJECTION))
+        assertEquals(HarnessProtocol.PARENT_CATALOG, selection.detect { error("must not retry") })
+    }
+
+    @Test fun `failed projection probe reuses last confirmed legacy version`() = runBlocking {
+        val selection = HarnessProtocolSelection(HarnessProtocol.LEGACY_SUBAGENTS)
+        assertEquals(HarnessProtocol.LEGACY_SUBAGENTS, selection.detect(
+            probe = { RpcResult.Ok(list("""{"items":[]}""")) },
+            probeProjection = { RpcResult.Err(RpcError("offline", "network unreachable")) },
+        ))
+        assertEquals(false, selection.supports(HarnessCapability.SUBAGENT_PROJECTION))
+    }
+
+    @Test fun `successful probe replaces previously remembered version`() = runBlocking {
+        val selection = HarnessProtocolSelection(HarnessProtocol.LEGACY_SUBAGENTS)
+        assertEquals(HarnessProtocol.PARENT_CATALOG, selection.detect {
+            RpcResult.Ok(list("""{"items":[{"sessionId":"s1","agentAvailable":true}]}"""))
+        })
+    }
+
     @Test fun `terminal capability probe only accepts existing route and caches result`() = runBlocking {
         val modern = HarnessProtocolSelection()
         var calls = 0

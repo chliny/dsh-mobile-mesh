@@ -29,6 +29,17 @@ class HostConfigPersistencePolicyTest {
         assertEquals("first-token", first.launchToken)
     }
 
+    @Test
+    fun `weak network host refresh cannot erase last known API version`() {
+        val existing = host("first", token = "token").copy(lastProtocol = HarnessProtocol.PARENT_CATALOG)
+        assertEquals(HarnessProtocol.PARENT_CATALOG,
+            mergeRememberedHost(existing, existing.copy(lastProtocol = null)).lastProtocol)
+        assertEquals(HarnessProtocol.PARENT_CATALOG,
+            mergeRememberedHost(existing, existing.copy(lastProtocol = HarnessProtocol.UNDETERMINED)).lastProtocol)
+        assertEquals(HarnessProtocol.LEGACY_SUBAGENTS,
+            mergeRememberedHost(existing, existing.copy(lastProtocol = HarnessProtocol.LEGACY_SUBAGENTS)).lastProtocol)
+    }
+
     private fun host(id: String, token: String) = HostConfig(
         id = id,
         name = id,

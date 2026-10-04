@@ -190,7 +190,7 @@ class ConnectionManager @Inject constructor(
     private data class ConnectionIntent(
         val host: HostConfig,
         val afterTransportReady: suspend (String) -> Unit,
-        val protocolSelection: HarnessProtocolSelection = HarnessProtocolSelection(),
+        val protocolSelection: HarnessProtocolSelection = HarnessProtocolSelection(host.lastProtocol),
     )
     @Volatile private var activeProtocol: HarnessProtocol? = null
     /** Immutable API family detected by the current explicit connection intent. */
@@ -781,7 +781,9 @@ class ConnectionManager @Inject constructor(
                 loop = ConnectionLoop(muxFactory(config, baseUrl, transportLatencyMs), sinksFor(token), LoopConfig()).also { it.start() }
             }
             timing?.phase("publish", publishStartedAt ?: System.nanoTime(), "ok")
-            hostsStore.upsertHost(config)
+            hostsStore.upsertHost(config.copy(lastProtocol = selectedProtocol.takeUnless {
+                it == HarnessProtocol.UNDETERMINED
+            }))
             hostsStore.setActiveConnectionId(config.id)
         } catch (error: CancellationException) {
             cleanupResources()

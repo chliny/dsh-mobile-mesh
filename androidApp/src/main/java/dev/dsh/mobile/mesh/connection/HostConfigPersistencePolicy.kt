@@ -11,5 +11,7 @@ internal fun mergeRememberedHost(existing: HostConfig?, incoming: HostConfig): H
     if (existing == null) return incoming
     return incoming.copy(
         launchToken = incoming.launchToken.ifBlank { existing.launchToken },
+        lastProtocol = incoming.lastProtocol?.takeUnless { it == HarnessProtocol.UNDETERMINED }
+            ?: existing.lastProtocol,
     )
 }

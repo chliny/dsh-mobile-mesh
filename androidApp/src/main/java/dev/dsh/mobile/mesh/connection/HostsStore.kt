@@ -162,6 +162,7 @@ class HostsStore @Inject constructor(
             isLoopback = isLoopback,
             lastConnectedAt = System.currentTimeMillis(),
             lastHome = description?.home ?: existing?.lastHome,
+            lastProtocol = existing?.lastProtocol,
             useTls = useTls,
             meshTransport = meshTransport,
             zeroTierNetworkId = zeroTierNetworkId?.takeIf { meshTransport == MeshTransport.ZERO_TIER },
