@@ -1,6 +1,8 @@
 package dev.dsh.mobile.mesh.ui.components
 
+import android.util.Log
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,11 +20,15 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -33,6 +39,8 @@ import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 import dev.dsh.mobile.mesh.ui.theme.DshTheme
 import dev.dsh.mobile.mesh.ui.screens.main.basename
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Collapsible harness tool card: a 24dp [DisclosureRow] header plus a r12
@@ -270,10 +278,40 @@ private fun DiffBody(card: ToolCardView.DiffCard, onOpenFile: ((String, String) 
     }
 }
 
+internal data class ToolDiffLine(val marker: Char, val source: String, val chunkIndex: Int)
+internal data class ToolDiffHighlightPlan(val lines: List<ToolDiffLine>, val chunks: List<String>, val markers: List<Char>)
+
+/** Interleave unchanged context and edits in a git-style unified diff stream. */
+internal fun toolDiffHighlightPlan(hunk: DiffHunk): ToolDiffHighlightPlan {
+    val lines = unifiedDiffLines(hunk.oldText, hunk.newText)
+    return ToolDiffHighlightPlan(
+        lines = lines.mapIndexed { index, line -> ToolDiffLine(line.marker, line.source, index) },
+        chunks = lines.map(UnifiedDiffLine::source),
+        markers = lines.map(UnifiedDiffLine::marker),
+    )
+}
+
 /** One diff surface containing both removed and added lines, like a git diff hunk. */
 @Composable
 private fun CombinedDiffBlock(hunk: DiffHunk) {
     val colors = DsTheme.colors
+    val plan = remember(hunk) { toolDiffHighlightPlan(hunk) }
+    val assets = LocalContext.current.applicationContext.assets
+    val grammarAsset = textMateGrammarAsset(hunk.path)
+    val darkMode = isSystemInDarkTheme()
+    val themeAsset = if (darkMode) "textmate-dark.json" else "textmate-light.json"
+    val identity = Triple(hunk, grammarAsset, themeAsset)
+    val loaded by produceState<Pair<Triple<DiffHunk, String?, String>, TextMateCodeHighlighter?>?>(null, identity) {
+        value = identity to if (grammarAsset != null && plan.chunks.isNotEmpty()) withContext(Dispatchers.Default) {
+            runCatching {
+                TextMateCodeHighlighter(assets.open(grammarAsset), assets.open(themeAsset)) { scope ->
+                    textMateGrammarAssetForScope(scope)?.let(assets::open)
+                }
+            }.onFailure { Log.w("CodeHighlight", "Failed to load TextMate grammar for edit ${hunk.path}", it) }
+                .getOrNull()
+        } else null
+    }
+    val textMate = loaded?.takeIf { it.first == identity }?.second
     Column(
         Modifier
             .fillMaxWidth()
@@ -282,11 +320,52 @@ private fun CombinedDiffBlock(hunk: DiffHunk) {
             .background(colors.codeBlockBg)
             .padding(vertical = 6.dp),
     ) {
-        hunk.oldText?.takeIf { it.isNotEmpty() }?.lineSequence()?.forEach { line ->
-            Text("- $line", style = DsType.mdCode, color = colors.error, modifier = Modifier.fillMaxWidth().background(colors.errorTertiary).padding(horizontal = 8.dp))
+        plan.lines.forEach { line ->
+            val removed = line.marker == '-'
+            val added = line.marker == '+'
+            ToolDiffCodeLine(
+                marker = line.marker.toString(),
+                code = line.source,
+                path = hunk.path,
+                textMate = textMate,
+                plan = plan,
+                index = line.chunkIndex,
+                markerColor = when { removed -> colors.error; added -> colors.success; else -> colors.labelTertiary },
+                background = when { removed -> colors.errorTertiary; added -> colors.successTertiary; else -> colors.codeBlockBg },
+                darkMode = darkMode,
+                version = hunk,
+            )
         }
-        hunk.newText?.takeIf { it.isNotEmpty() }?.lineSequence()?.forEach { line ->
-            Text("+ $line", style = DsType.mdCode, color = colors.success, modifier = Modifier.fillMaxWidth().background(colors.successTertiary).padding(horizontal = 8.dp))
+    }
+}
+
+@Composable
+private fun ToolDiffCodeLine(
+    marker: String,
+    code: String,
+    path: String,
+    textMate: TextMateCodeHighlighter?,
+    plan: ToolDiffHighlightPlan,
+    index: Int,
+    markerColor: Color,
+    background: Color,
+    darkMode: Boolean,
+    version: DiffHunk,
+) {
+    Row(Modifier.fillMaxWidth().background(background).padding(horizontal = 8.dp)) {
+        Text("$marker ", style = DsType.mdCode, color = markerColor)
+        CompositionLocalProvider(LocalTextStyle provides DsType.mdCode.copy(color = DsTheme.colors.labelPrimary)) {
+            KodeViewCode(
+                code = code,
+                pathOrLanguage = path,
+                textMate = textMate,
+                chunks = plan.chunks,
+                chunkIndex = index,
+                diffMarkers = plan.markers,
+                sourceVersion = version,
+                darkMode = darkMode,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }

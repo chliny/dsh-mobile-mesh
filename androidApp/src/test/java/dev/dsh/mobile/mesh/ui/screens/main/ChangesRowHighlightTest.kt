@@ -21,9 +21,10 @@ class ChangesRowHighlightTest {
         assertTrue(source.contains("chunks = plan.chunks"))
         assertTrue(source.contains("chunkIndex = line.chunkIndex"))
         assertTrue(source.contains("resetAt = plan.resetAt"))
+        assertTrue(source.contains("diffMarkers = plan.markers"))
     }
 
-    @Test fun `deleted and added lines have separate parse streams and each hunk resets`() {
+    @Test fun `changed-file diff retains unified line order and only resets across hunks`() {
         val hunks = listOf(
             ChangesDiffHunk(1, 2, 1, 2, listOf("-val old = \"\"\"", "+val new = 42", " return new")),
             ChangesDiffHunk(20, 1, 20, 1, listOf(" val next = 7")),
@@ -32,8 +33,9 @@ class ChangesRowHighlightTest {
         assertEquals(listOf('-', '+', ' ', ' '), plan.lines.map { it.marker })
         assertEquals("val old = \"\"\"", plan.chunks[plan.lines[0].chunkIndex])
         assertEquals("val new = 42", plan.chunks[plan.lines[1].chunkIndex])
-        assertTrue(plan.lines[1].chunkIndex in plan.resetAt)
-        assertTrue(plan.lines[3].chunkIndex in plan.resetAt)
+        assertEquals(listOf(0, 1, 2, 3), plan.lines.map { it.chunkIndex })
+        assertEquals(listOf('-', '+', ' ', ' '), plan.markers)
+        assertEquals(setOf(0, 3), plan.resetAt)
         assertEquals("return new", plan.chunks[plan.lines[2].chunkIndex])
     }
 }

@@ -44,13 +44,14 @@ internal fun KodeViewCode(
     chunks: List<String>? = null,
     chunkIndex: Int = 0,
     resetAt: Set<Int> = emptySet(),
+    diffMarkers: List<Char>? = null,
     sourceVersion: Any? = null,
 ) {
     var annotatedCode by remember(code, pathOrLanguage, darkMode, textMate, chunkIndex, sourceVersion) { mutableStateOf(AnnotatedString(code)) }
-    LaunchedEffect(code, pathOrLanguage, darkMode, textMate, chunkIndex, resetAt, sourceVersion) {
+    LaunchedEffect(code, pathOrLanguage, darkMode, textMate, chunkIndex, resetAt, diffMarkers, sourceVersion) {
         try {
             annotatedCode = withContext(Dispatchers.Default) {
-                highlightPreviewCode(code, pathOrLanguage, darkMode, textMate, chunks, chunkIndex, resetAt)
+                highlightPreviewCode(code, pathOrLanguage, darkMode, textMate, chunks, chunkIndex, resetAt, diffMarkers)
             }
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
@@ -80,10 +81,12 @@ internal fun highlightPreviewCode(
     chunks: List<String>?,
     chunkIndex: Int,
     resetAt: Set<Int> = emptySet(),
+    diffMarkers: List<Char>? = null,
 ): AnnotatedString {
     if (textMate == null || chunks == null) return highlightCode(code, path, darkMode)
     return try {
-        textMate.highlight(chunks, chunkIndex, resetAt)
+        if (diffMarkers != null) textMate.highlightDiff(chunks, diffMarkers, chunkIndex, resetAt)
+        else textMate.highlight(chunks, chunkIndex, resetAt)
     } catch (error: Exception) {
         if (error is CancellationException) throw error
         Log.w("CodeHighlight", "TextMate tokenization failed for $path", error)
