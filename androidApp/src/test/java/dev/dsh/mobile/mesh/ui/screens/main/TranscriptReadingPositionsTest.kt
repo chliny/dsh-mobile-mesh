@@ -87,6 +87,12 @@ class TranscriptReadingPositionsTest {
     }
 
     @Test
+    fun `a structural only first page waits for readable rows before restoring`() {
+        assertFalse(canRestoreReadingPosition(emptyList()))
+        assertTrue(canRestoreReadingPosition(listOf(row(42))))
+    }
+
+    @Test
     fun `missing rows never restore to a different turn beginning`() {
         assertEquals(-1, readingPositionIndex(listOf(row(10), row(30), row(60)), TranscriptReadingPosition(42, 0)))
         assertEquals(-1, readingPositionIndex(listOf(row(60), row(90)), TranscriptReadingPosition(42, 0)))
