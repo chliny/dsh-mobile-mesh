@@ -37,6 +37,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
@@ -179,10 +180,10 @@ private fun WaitingForModelRow(turnStartedAtMillis: Long) {
     var elapsedSeconds by remember(turnStartedAtMillis) {
         mutableIntStateOf(elapsedTurnSeconds(turnStartedAtMillis, System.currentTimeMillis()))
     }
-    LaunchedEffect(turnStartedAtMillis) {
-        while (true) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(turnStartedAtMillis, lifecycle) {
+        tickWhileVisible(lifecycle.startedStates()) {
             elapsedSeconds = elapsedTurnSeconds(turnStartedAtMillis, System.currentTimeMillis())
-            kotlinx.coroutines.delay(1000L)
         }
     }
     Row(

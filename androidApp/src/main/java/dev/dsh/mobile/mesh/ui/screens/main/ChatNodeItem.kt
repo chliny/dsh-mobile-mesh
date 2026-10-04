@@ -37,11 +37,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import dev.dsh.mobile.mesh.R
@@ -400,12 +400,12 @@ internal fun FileChip(name: String, bytes: Long, modifier: Modifier = Modifier) 
 @Composable
 private fun WaitingForModel(context: ChatNodeContext) {
     var elapsedSeconds by remember { mutableStateOf(0L) }
-    LaunchedEffect(context.running) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(context.running, lifecycle) {
         if (!context.running) return@LaunchedEffect
         val started = System.currentTimeMillis()
-        while (true) {
+        tickWhileVisible(lifecycle.startedStates()) {
             elapsedSeconds = ((System.currentTimeMillis() - started) / 1000L).coerceAtLeast(0L)
-            delay(1000L)
         }
     }
     ThinkingRow(

@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,7 +83,6 @@ import dev.dsh.mobile.mesh.ui.rememberSessionStore
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -522,9 +522,9 @@ private fun JobsCard(
         // composable that never recomposes leaves the timer frozen at its first value.
         var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
         val hasRunning = jobs.any { it.finishedAt == null }
-        LaunchedEffect(hasRunning) {
-            while (hasRunning) {
-                delay(1_000)
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
+        LaunchedEffect(hasRunning, lifecycle) {
+            if (hasRunning) tickWhileVisible(lifecycle.startedStates()) {
                 now = System.currentTimeMillis()
             }
         }
