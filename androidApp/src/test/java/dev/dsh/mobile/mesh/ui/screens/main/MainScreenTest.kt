@@ -37,6 +37,7 @@ class MainScreenTest {
         assertEquals("terminal", MainPageRoute(kind = "terminal").restoredKind())
         assertEquals("files", MainPageRoute(kind = "files", path = "src").restoredKind())
         assertEquals("preview", MainPageRoute(kind = "preview", path = "README.md", returnKind = "files").restoredKind())
+        assertEquals("diff", MainPageRoute(kind = "diff", path = "src/Main.kt", seq = 14, index = 2, added = 8, deleted = 3).restoredKind())
         assertEquals("chat", MainPageRoute(kind = "unknown").restoredKind())
     }
 

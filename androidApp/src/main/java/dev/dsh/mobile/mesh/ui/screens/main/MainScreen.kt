@@ -79,6 +79,7 @@ private sealed interface MainPage {
         val rootPath: String = ".",
     ) : MainPage
     data class Preview(val path: String, val title: String, val returnPage: MainPage) : MainPage
+    data class Diff(val seq: Long, val index: Int, val path: String, val title: String, val added: Int, val deleted: Int) : MainPage
 }
 
 internal data class MainPageRoute(
@@ -89,6 +90,10 @@ internal data class MainPageRoute(
     val returnPath: String = ".",
     val rootTitle: String? = null,
     val rootPath: String = ".",
+    val seq: Long = 0,
+    val index: Int = 0,
+    val added: Int = 0,
+    val deleted: Int = 0,
 ) : java.io.Serializable
 
 private fun MainPage.toRoute(): MainPageRoute = when (this) {
@@ -99,10 +104,11 @@ private fun MainPage.toRoute(): MainPageRoute = when (this) {
         val files = returnPage as? MainPage.Files
         MainPageRoute("preview", path, title, if (files == null) "chat" else "files", files?.path ?: ".", files?.rootTitle, files?.rootPath ?: ".")
     }
+    is MainPage.Diff -> MainPageRoute("diff", path, title, seq = seq, index = index, added = added, deleted = deleted)
 }
 
 internal fun MainPageRoute.restoredKind(): String = when (kind) {
-    "files", "preview", "terminal" -> kind
+    "files", "preview", "terminal", "diff" -> kind
     else -> "chat"
 }
 
@@ -114,6 +120,7 @@ private fun MainPageRoute.toPage(): MainPage = when (restoredKind()) {
         title,
         if (returnKind == "files") MainPage.Files(returnPath, rootTitle, rootPath) else MainPage.Chat,
     )
+    "diff" -> MainPage.Diff(seq, index, path, title, added, deleted)
     else -> MainPage.Chat
 }
 
@@ -204,6 +211,17 @@ internal fun MainScreen(
                     path = current.path,
                     title = current.title,
                     onBack = { navigate(current.returnPage) },
+                )
+                is MainPage.Diff -> FullChangesDiffScreen(
+                    store = store,
+                    sessionId = sid,
+                    seq = current.seq,
+                    index = current.index,
+                    path = current.path,
+                    title = current.title,
+                    added = current.added,
+                    deleted = current.deleted,
+                    onBack = { navigate(MainPage.Chat) },
                 )
                 MainPage.Chat -> Unit
             }
@@ -300,6 +318,9 @@ internal fun MainScreen(
                     safePreviewPath(path, sessions.firstOrNull { it.sessionId == sessionId }?.cwd)?.let { safePath ->
                         navigate(MainPage.Preview(safePath, title, MainPage.Chat))
                     }
+                },
+                onOpenChangedDiff = { seq, index, path, title, added, deleted ->
+                    navigate(MainPage.Diff(seq, index, path, title, added, deleted))
                 },
             )
 
