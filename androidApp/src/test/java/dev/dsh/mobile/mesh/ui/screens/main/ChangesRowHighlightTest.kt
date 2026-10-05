@@ -24,6 +24,15 @@ class ChangesRowHighlightTest {
         assertTrue(source.contains("diffMarkers = plan.markers"))
     }
 
+    @Test fun `complete diff plan is not capped at compact preview line limit`() {
+        val lines = (1..25).map { "+line $it" }
+        val hunk = ChangesDiffHunk(1, 25, 1, 25, lines)
+        assertEquals(12, buildDiffHighlightPlan(listOf(hunk)).lines.size)
+        val complete = buildDiffHighlightPlan(listOf(hunk), Int.MAX_VALUE)
+        assertEquals(25, complete.lines.size)
+        assertEquals("line 25", complete.lines.last().source)
+    }
+
     @Test fun `changed-file diff retains unified line order and only resets across hunks`() {
         val hunks = listOf(
             ChangesDiffHunk(1, 2, 1, 2, listOf("-val old = \"\"\"", "+val new = 42", " return new")),

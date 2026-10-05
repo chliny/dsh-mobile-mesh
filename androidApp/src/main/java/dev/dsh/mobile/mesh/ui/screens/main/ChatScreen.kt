@@ -93,6 +93,7 @@ internal fun ChatScreen(
     onOpenTerminal: () -> Unit = {},
     terminalAvailable: Boolean = false,
     onOpenFile: (String, String) -> Unit = { _, _ -> },
+    onOpenChangedDiff: (Long, Int, String, String, Int, Int) -> Unit = { _, _, _, _, _, _ -> },
     onOpenSubagent: (String) -> Unit = {},
 ) {
     val store = rememberSessionStore()
@@ -466,6 +467,7 @@ internal fun ChatScreen(
                 sessionId = currentSessionId,
                 store = store,
                 onOpenFile = onOpenFile,
+                onOpenChangedDiff = onOpenChangedDiff,
                 running = visibleConversation?.running == true,
                 cwd = currentSession?.cwd,
                 onOpenSubagent = onOpenSubagent,

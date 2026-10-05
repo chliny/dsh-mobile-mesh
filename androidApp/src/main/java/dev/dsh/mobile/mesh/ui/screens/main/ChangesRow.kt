@@ -46,12 +46,12 @@ internal data class DiffHighlightLine(val marker: Char?, val source: String, val
 internal data class DiffHighlightPlan(val lines: List<DiffHighlightLine>, val chunks: List<String>, val markers: List<Char>, val resetAt: Set<Int>)
 
 /** Build one unified diff stream; marker rows and tokenizer consume the same order. */
-internal fun buildDiffHighlightPlan(hunks: List<ChangesDiffHunk>): DiffHighlightPlan {
+internal fun buildDiffHighlightPlan(hunks: List<ChangesDiffHunk>, maxLines: Int = 12): DiffHighlightPlan {
     val chunks = mutableListOf<String>()
     val resets = mutableSetOf<Int>()
     val mapped = mutableListOf<DiffHighlightLine>()
-    var remaining = 12
-    hunks.take(3).forEach { hunk ->
+    var remaining = maxLines
+    hunks.forEach { hunk ->
         val lines = hunk.lines.take(remaining)
         if (lines.isNotEmpty()) resets += chunks.size
         for (line in lines) {
@@ -89,14 +89,14 @@ internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
             onToggle = { expanded = !expanded },
         ) {
             summary?.files?.forEachIndexed { index, file ->
-                ChangedFileRow(store, sessionId, node.seq, index, file.path, file.display, file.added, file.deleted, context.onOpenFile)
+                ChangedFileRow(store, sessionId, node.seq, index, file.path, file.display, file.added, file.deleted, context.onOpenFile, onOpenDiff = { context.onOpenChangedDiff?.invoke(node.seq, index, file.path, file.display, file.added, file.deleted) })
             }
         }
     }
 }
 
 @Composable
-private fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessionId: String, seq: Long, index: Int, path: String, display: String, added: Int, deleted: Int, onOpenFile: ((String, String) -> Unit)?) {
+internal fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessionId: String, seq: Long, index: Int, path: String, display: String, added: Int, deleted: Int, onOpenFile: ((String, String) -> Unit)?, onOpenDiff: (() -> Unit)? = null, full: Boolean = false) {
     var diff by remember(sessionId, seq, index) { mutableStateOf<ChangesDiff?>(null) }
     var loading by remember(sessionId, seq, index) { mutableStateOf(false) }
     LaunchedEffect(sessionId, seq, index) {
@@ -124,14 +124,15 @@ private fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, session
     }
     val textMate = loaded?.takeIf { it.first == highlightIdentity }?.second
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Row(Modifier.fillMaxWidth().clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(path, display) }) {
+        if (!full) Row(Modifier.fillMaxWidth().clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(path, display) }) {
             Icon(Icons.Outlined.Description, contentDescription = null, tint = DsTheme.colors.labelSecondary)
             Text(display, modifier = Modifier.weight(1f).padding(start = 8.dp), style = DsType.small13, color = DsTheme.colors.labelPrimary)
             Text("+$added -$deleted", style = DsType.caption11, color = DsTheme.colors.labelTertiary)
+            if (onOpenDiff != null) Text("完整差异 ↗", modifier = Modifier.padding(start = 8.dp).clickable(onClick = onOpenDiff), style = DsType.caption11, color = DsTheme.colors.labelSecondary)
         }
         when (val value = diff) {
             is ChangesDiff.Text -> {
-                val plan = remember(value) { buildDiffHighlightPlan(value.hunks) }
+                val plan = remember(value, full) { buildDiffHighlightPlan(value.hunks, if (full) Int.MAX_VALUE else 12) }
                 plan.lines.forEach { line ->
                     val markerColor = when (line.marker) {
                         '+' -> DsTheme.colors.success

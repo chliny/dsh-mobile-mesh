@@ -131,6 +131,7 @@ internal data class ChatNodeContext(
     /** Host account home, used only to abbreviate a leftover home-rooted path as `~`. */
     val home: String? = null,
     val onOpenFile: ((String, String) -> Unit)? = null,
+    val onOpenChangedDiff: ((Long, Int, String, String, Int, Int) -> Unit)? = null,
     val onOpenSubagent: (String) -> Unit,
     val onBranchFrom: (Long) -> Unit,
     val onFeedback: (Long, Boolean) -> Unit,
