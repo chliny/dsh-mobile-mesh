@@ -75,12 +75,16 @@ class ZeroTierConnector @Inject constructor(
             "ZeroTier network ID must contain exactly 16 hexadecimal characters"
         }
         val networkId = java.lang.Long.parseUnsignedLong(networkIdText, 16)
+        val timing = ZeroTierTiming()
+        val selectStart = timing.start("node-select")
         // Only native initialization and relay ownership are serialized. No coroutine suspends
         // while holding this monitor, so stop and subsequent starts can invalidate a pending wait.
+        var reused = false
         val (current, state, token) = synchronized(lock) {
             coroutineContext.ensureActive()
             val existing = node
-            val selected = if (existing != null) {
+            reused = existing != null
+            val pair = if (existing != null) {
                 // libzt has a process-global service. Reinitializing it for different storage or
                 // roots while sockets/callbacks remain live is not a safe network switch.
                 require(nodeNetworkId == networkIdText) {
@@ -98,33 +102,71 @@ class ZeroTierConnector @Inject constructor(
                 if (planet == null) roots.delete() else planet.copyTo(roots, overwrite = true)
                 val nextNode = ZeroTierNode()
                 val nextReadiness = ZeroTierReadiness()
+                val initStart = timing.start("node-init-storage")
                 checkResult(nextNode.initFromStorage(storage.absolutePath), "initialize ZeroTier")
+                timing.phase("node-init-storage", initStart, "ok")
+                val rootsStart = timing.start("node-init-roots")
                 checkResult(nextNode.initAllowRootsCache(planet == null), "configure ZeroTier")
+                timing.phase("node-init-roots", rootsStart, "ok", detail = "rootsCache=${planet == null}")
+                val handlerStart = timing.start("node-init-handler")
                 checkResult(nextNode.initSetEventHandler(object : ZeroTierEventListener {
                     override fun onZeroTierEvent(id: Long, eventCode: Int) {
                         signal(nextReadiness, id, eventCode)
                     }
                 }), "register ZeroTier event handler")
+                timing.phase("node-init-handler", handlerStart, "ok")
+                val startStart = timing.start("node-start")
                 checkResult(nextNode.start(), "start ZeroTier")
+                timing.phase("node-start", startStart, "ok", detail = "nodeId=${java.lang.Long.toUnsignedString(nextNode.id, 16)}")
                 node = nextNode
                 readiness = nextReadiness
                 nodeNetworkId = networkIdText
                 nextNode to nextReadiness
             }
-            Triple(selected.first, selected.second, generation.next())
+            Triple(pair.first, pair.second, generation.next())
         }
-        awaitOnline(current, state)
+        timing.phase("node-select", selectStart, "ok", detail = "reused=$reused")
+        val readyStart = timing.start("await-transport-ready")
+        val readySignal = awaitTransportReady(
+            current,
+            state,
+            networkId,
+            runCatching { resolveTarget(config) }.getOrNull(),
+        )
+        timing.phase(
+            "await-transport-ready",
+            readyStart,
+            if (readySignal == ZERO_TIER_TIMEOUT_SIGNAL) "timeout" else "ok",
+            detail = "signal=$readySignal online=${isServiceOnline()}",
+        )
+        check(readySignal != ZERO_TIER_TIMEOUT_SIGNAL) {
+            "ZeroTier node did not come online; check internet access"
+        }
+        val joinStart = timing.start("join")
+        var joined = false
         synchronized(lock) {
             coroutineContext.ensureActive()
             generation.checkCurrent(token)
-            if (!hasAddress(networkId)) checkResult(current.join(networkId), "join ZeroTier network")
+            joined = !hasAddress(networkId)
+            if (joined) checkResult(current.join(networkId), "join ZeroTier network")
         }
+        timing.phase("join", joinStart, "ok", detail = "joined=$joined")
+        val addressStart = timing.start("await-address")
         awaitAddress(current, networkId, state)
-        synchronized(lock) {
+        timing.phase(
+            "await-address",
+            addressStart,
+            "ok",
+            detail = "transportReady=${transportReady(networkId)}",
+        )
+        val relayStart = timing.start("relay-open")
+        val opened = synchronized(lock) {
             coroutineContext.ensureActive()
             generation.checkCurrent(token)
-            relayFor(config)
+            relayFor(config, timing)
         }
+        timing.phase("relay-open", relayStart, "ok", detail = "port=${opened.port}")
+        opened
     }
 
     override suspend fun stop() = withContext(Dispatchers.IO) { synchronized(lock) { stopLocked() } }
@@ -146,6 +188,9 @@ class ZeroTierConnector @Inject constructor(
     /** Close only the Java loopback relay; keep the native node and its authorization alive. */
     suspend fun renewRelay(config: HostConfig): MeshRelay = withContext(Dispatchers.IO) {
         require(config.meshTransport == MeshTransport.ZERO_TIER) { "Not a ZeroTier host" }
+        val timing = ZeroTierTiming()
+        val networkId = java.lang.Long.parseUnsignedLong(checkNotNull(config.zeroTierNetworkId), 16)
+        val selectStart = timing.start("node-select")
         val (current, state, token) = synchronized(lock) {
             coroutineContext.ensureActive()
             val networkIdText = config.zeroTierNetworkId?.lowercase()
@@ -158,21 +203,119 @@ class ZeroTierConnector @Inject constructor(
                 generation.next(),
             )
         }
-        awaitOnline(current, state)
-        awaitAddress(current, java.lang.Long.parseUnsignedLong(checkNotNull(config.zeroTierNetworkId), 16), state)
-        synchronized(lock) {
+        timing.phase("node-select", selectStart, "ok", detail = "reused=true")
+        val readyStart = timing.start("await-transport-ready")
+        val readySignal = awaitTransportReady(
+            current,
+            state,
+            networkId,
+            runCatching { resolveTarget(config) }.getOrNull(),
+        )
+        timing.phase(
+            "await-transport-ready",
+            readyStart,
+            if (readySignal == ZERO_TIER_TIMEOUT_SIGNAL) "timeout" else "ok",
+            detail = "signal=$readySignal online=${isServiceOnline()}",
+        )
+        check(readySignal != ZERO_TIER_TIMEOUT_SIGNAL) {
+            "ZeroTier node did not come online; check internet access"
+        }
+        val addressStart = timing.start("await-address")
+        awaitAddress(current, networkId, state)
+        timing.phase(
+            "await-address",
+            addressStart,
+            "ok",
+            detail = "transportReady=${transportReady(networkId)}",
+        )
+        val relayStart = timing.start("relay-open")
+        val opened = synchronized(lock) {
             coroutineContext.ensureActive()
             generation.checkCurrent(token)
             relay?.close()
             relay = null
-            relayFor(config)
+            relayFor(config, timing)
         }
+        timing.phase("relay-open", relayStart, "ok", detail = "port=${opened.port}")
+        opened
     }
 
-    private suspend fun awaitOnline(current: ZeroTierNode, state: ZeroTierReadiness) {
-        check(state.awaitNodeOnline(30, TimeUnit.SECONDS) { current.isOnline() }) {
-            "ZeroTier node did not come online; check internet access"
+    /**
+     * Wait until the mesh can carry this connection, ending on a real dial to the target or on
+     * libzt's online report, whichever proves readiness first.
+     *
+     * Sampling keeps a device log able to attribute a slow recovery to one signal, because the node
+     * report and the reachable target used to be two undifferentiated parts of a single total.
+     */
+    private suspend fun awaitTransportReady(
+        current: ZeroTierNode,
+        state: ZeroTierReadiness,
+        networkId: Long,
+        target: Pair<List<String>, Int>?,
+    ): String {
+        val startedAt = System.nanoTime()
+        // A libzt connect blocks for up to 30 seconds, so a dial runs on the connector executor and
+        // reports back through the callback. The wait never depends on that thread finishing.
+        val dialInFlight = AtomicBoolean(false)
+        return awaitZeroTierTransportReady(
+            awaitNodeOnline = {
+                state.awaitNodeOnline(ONLINE_TIMEOUT_SECONDS, TimeUnit.SECONDS) { current.isOnline() }
+            },
+            scheduleDial = { onConnected ->
+                if (target != null && dialInFlight.compareAndSet(false, true)) {
+                    val (addresses, port) = target
+                    runCatching {
+                        executor.execute {
+                            try {
+                                if (dialTarget(addresses, port, startedAt)) onConnected()
+                            } finally {
+                                dialInFlight.set(false)
+                            }
+                        }
+                    }.onFailure { dialInFlight.set(false) }
+                }
+            },
+            dialAttempts = DIAL_ATTEMPTS,
+            timeoutMillis = READY_TIMEOUT_MILLIS,
+            retryIntervalMillis = DIAL_RETRY_INTERVAL_MILLIS,
+            onSample = { note ->
+                Log.d(
+                    TAG,
+                    "sample $note elapsedMs=${elapsedMsSince(startedAt)} online=${isServiceOnline()}" +
+                        " transportReady=${transportReady(networkId)} address=${hasAddress(networkId)}" +
+                        " dialInFlight=${dialInFlight.get()}",
+                )
+            },
+        )
+    }
+
+    /**
+     * Dial the target over ZeroTier and report whether the mesh carried the connection.
+     *
+     * The socket is closed again: the relay opens its own stream for the SSH tunnel, and keeping
+     * this one would hold an idle connection to the host's SSH port for no reader.
+     */
+    private fun dialTarget(addresses: List<String>, remotePort: Int, startedAt: Long): Boolean {
+        for (address in addresses) {
+            val family = if (':' in address) ZeroTierNative.ZTS_AF_INET6 else ZeroTierNative.ZTS_AF_INET
+            val socket = runCatching { ZeroTierSocket(family, ZeroTierNative.ZTS_SOCK_STREAM, 0) }.getOrNull()
+                ?: continue
+            val connected = runCatching { socket.connect(address, remotePort) }.isSuccess
+            runCatching { socket.close() }
+            Log.d(
+                TAG,
+                "remote-dial result=${if (connected) "connected" else "failed"} target=$address:$remotePort" +
+                    " elapsedMs=${elapsedMsSince(startedAt)} online=${isServiceOnline()}",
+            )
+            if (connected) return true
         }
+        return false
+    }
+
+    private fun resolveTarget(config: HostConfig): Pair<List<String>, Int> {
+        val addresses = InetAddress.getAllByName(config.host).mapNotNull { it.hostAddress }.distinct()
+        require(addresses.isNotEmpty()) { "ZeroTier server name did not resolve" }
+        return addresses to (if (config.sshEnabled) config.sshPort else config.port)
     }
 
     private fun isServiceOnline(): Boolean = runCatching {
@@ -185,6 +328,14 @@ class ZeroTierConnector @Inject constructor(
                 ZeroTierNative.zts_addr_is_assigned(networkId, ZeroTierNative.ZTS_AF_INET6) == 1
         }.getOrDefault(false)
 
+    /** libzt reports network transport readiness from its assigned-address count, not from a probe. */
+    private fun transportReady(networkId: Long): Boolean = runCatching {
+        ZeroTierNative.zts_net_transport_is_ready(networkId) == 1
+    }.getOrDefault(false)
+
+    private fun elapsedMsSince(startedAt: Long): Long =
+        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
     private suspend fun awaitAddress(current: ZeroTierNode, networkId: Long, state: ZeroTierReadiness) {
         if (state.awaitNetworkAddress(networkId, 15, TimeUnit.SECONDS) { hasAddress(networkId) }) return
         val nodeId = java.lang.Long.toUnsignedString(current.id, 16).padStart(10, '0')
@@ -193,18 +344,20 @@ class ZeroTierConnector @Inject constructor(
         )
     }
 
-    private fun relayFor(config: HostConfig): MeshRelay {
-        val addresses = InetAddress.getAllByName(config.host).mapNotNull { it.hostAddress }.distinct()
+    private fun relayFor(config: HostConfig, timing: ZeroTierTiming): MeshRelay {
+        val resolveStart = timing.start("relay-resolve")
+        val (addresses, remotePort) = resolveTarget(config)
         Log.d(TAG, "Resolved ZeroTier relay target ${config.host} -> ${addresses.joinToString()}")
-        require(addresses.isNotEmpty()) { "ZeroTier server name did not resolve" }
-        val remotePort = if (config.sshEnabled) config.sshPort else config.port
+        timing.phase("relay-resolve", resolveStart, "ok", detail = "target=${addresses.joinToString()}:$remotePort")
         relay?.takeIf { it.canReuse(addresses, remotePort) }?.let {
             Log.d(TAG, "Reusing ZeroTier relay at ${it.localPort} to ${addresses.joinToString()}:$remotePort")
             return it.relay
         }
         relay?.close()
         Log.d(TAG, "Opening ZeroTier relay to ${addresses.joinToString()}:$remotePort")
+        val bindStart = timing.start("relay-bind")
         val nextRelay = ZeroTierRelay(addresses, remotePort, executor).also { it.start() }
+        timing.phase("relay-bind", bindStart, "ok", detail = "port=${nextRelay.localPort}")
         relay = nextRelay
         return nextRelay.relay
     }
@@ -215,6 +368,37 @@ class ZeroTierConnector @Inject constructor(
 
     private companion object {
         const val TAG = "ZeroTierConnector"
+        const val ONLINE_TIMEOUT_SECONDS = 30L
+        const val READY_TIMEOUT_MILLIS = 30_000L
+        const val DIAL_ATTEMPTS = 6
+        const val DIAL_RETRY_INTERVAL_MILLIS = 300L
+    }
+}
+
+/** Per-attempt ZeroTier phase timings, so a device log line attributes the wait to one phase. */
+internal class ZeroTierTiming(
+    private val id: String = java.util.UUID.randomUUID().toString().take(8),
+) {
+    private val startedAt = System.nanoTime()
+
+    fun start(name: String): Long {
+        val now = System.nanoTime()
+        Log.d(
+            TAG,
+            "ztAttempt=$id phase=$name start totalMs=${TimeUnit.NANOSECONDS.toMillis(now - startedAt)}",
+        )
+        return now
+    }
+
+    fun phase(name: String, phaseStartedAt: Long, result: String, detail: String = "") {
+        val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - phaseStartedAt)
+        val total = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+        val suffix = if (detail.isBlank()) "" else " detail=$detail"
+        Log.d(TAG, "ztAttempt=$id phase=$name elapsedMs=$elapsed totalMs=$total result=$result$suffix")
+    }
+
+    private companion object {
+        const val TAG = "ZeroTierTiming"
     }
 }
 
