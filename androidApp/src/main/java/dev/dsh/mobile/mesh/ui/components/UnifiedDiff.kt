@@ -8,9 +8,18 @@ internal data class UnifiedDiffLine(val marker: Char, val source: String)
  * The quadratic LCS is used only for small edits; large inputs use shared prefix/suffix and
  * a single replacement group so opening a transcript never allocates a huge comparison matrix.
  */
+internal fun diffTextLines(text: String?): List<String> {
+    if (text.isNullOrEmpty()) return emptyList()
+    val normalized = text.replace("\r\n", "\n")
+    val lines = normalized.split('\n').toMutableList()
+    // A terminal newline ends the last line; it does not create a phantom extra diff line.
+    if (normalized.endsWith('\n')) lines.removeAt(lines.lastIndex)
+    return lines
+}
+
 internal fun unifiedDiffLines(oldText: String?, newText: String?): List<UnifiedDiffLine> {
-    val old = oldText?.takeIf(String::isNotEmpty)?.lineSequence()?.toList().orEmpty()
-    val new = newText?.takeIf(String::isNotEmpty)?.lineSequence()?.toList().orEmpty()
+    val old = diffTextLines(oldText)
+    val new = diffTextLines(newText)
     val result = ArrayList<UnifiedDiffLine>(old.size + new.size)
     var prefix = 0
     while (prefix < minOf(old.size, new.size) && old[prefix] == new[prefix]) {

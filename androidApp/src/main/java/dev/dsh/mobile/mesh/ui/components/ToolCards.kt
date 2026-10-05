@@ -131,13 +131,14 @@ private fun ToolCardView.SearchCard.resultCount(): Int = when (val matches = mat
     is SearchMatches.PathList -> matches.paths.size
 }
 
-/** Counts added lines, removed lines and distinct file paths across hunks. */
-private fun diffStats(diffs: List<DiffHunk>): Triple<Int, Int, Int> {
+/** Counts added/removed lines from the same unified diff rows shown below. */
+internal fun diffStats(diffs: List<DiffHunk>): Triple<Int, Int, Int> {
     var added = 0
     var removed = 0
     diffs.forEach { hunk ->
-        hunk.newText?.takeIf { it.isNotEmpty() }?.let { added += it.lines().size }
-        hunk.oldText?.takeIf { it.isNotEmpty() }?.let { removed += it.lines().size }
+        val lines = unifiedDiffLines(hunk.oldText, hunk.newText)
+        added += lines.count { it.marker == '+' }
+        removed += lines.count { it.marker == '-' }
     }
     return Triple(added, removed, diffs.map { it.path }.distinct().size)
 }
@@ -172,6 +173,7 @@ private fun ToolCardBody(view: ToolCardView, onOpenFile: ((String, String) -> Un
 @Composable
 private fun TerminalBody(card: ToolCardView.TerminalCard) {
     val colors = DsTheme.colors
+    val textMate = rememberTextMateHighlighterForLanguage("bash")
     val state = when {
         card.running == true -> StateDotState.Running
         card.signal != null || (card.exitCode != null && card.exitCode != 0) -> StateDotState.Error
@@ -193,10 +195,9 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
                         color = colors.labelPrimary,
                     ),
                 ) {
-                    Text(
-                        command,
-                        style = DsType.mdCode,
-                        color = colors.labelPrimary,
+                    TerminalCode(
+                        code = command,
+                        textMate = textMate,
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(DsShapes.block)
@@ -226,7 +227,7 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
                     CompositionLocalProvider(
                         LocalTextStyle provides DsType.mdCode.copy(color = colors.labelPrimary),
                     ) {
-                        Text(block, style = DsType.mdCode, color = colors.labelPrimary, modifier = Modifier.fillMaxWidth())
+                        TerminalCode(code = block, textMate = textMate, modifier = Modifier.fillMaxWidth())
                     }
                 }
             }
@@ -564,13 +565,23 @@ private fun GenericBody(card: ToolCardView.GenericCard) {
         }
         card.content?.takeIf { it.isNotEmpty() }?.let { blocks ->
             SectionLabel(stringResource(dev.dsh.mobile.mesh.R.string.tool_section_output))
+            val language = card.language
+            val textMate = rememberTextMateHighlighterForLanguage(language)
             blocks.forEach { block ->
                 when (block) {
-                    is ContentBlockView.TextBlock -> Text(
-                        block.text,
-                        style = DsType.mdCode,
-                        color = colors.labelPrimary,
-                    )
+                    is ContentBlockView.TextBlock -> if (language != null) {
+                        HighlightedCodeLines(
+                            code = block.text,
+                            language = language,
+                            textMate = textMate,
+                        )
+                    } else {
+                        Text(
+                            block.text,
+                            style = DsType.mdCode,
+                            color = colors.labelPrimary,
+                        )
+                    }
                     is ContentBlockView.ReasoningBlock -> Text(
                         block.text,
                         style = DsType.mdSmall.copy(color = colors.labelTertiary),

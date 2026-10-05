@@ -79,6 +79,12 @@ sealed interface ToolCardView {
         val rawInput: String? = null,
         val locations: List<String>? = null,
         val content: List<ContentBlockView>? = null,
+        /**
+         * Grammar hint for [content] text. A shell tool that fell back to the generic card — a
+         * persistent shell, an error, or a multi-block result — still shows shell output, so the
+         * language travels with the card instead of being re-derived while rendering.
+         */
+        val language: String? = null,
     ) : ToolCardView
 
     /** Terminal run: output stream plus exit status. */
