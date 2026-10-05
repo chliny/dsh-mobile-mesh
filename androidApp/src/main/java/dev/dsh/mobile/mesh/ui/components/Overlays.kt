@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.size
@@ -37,7 +40,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -60,6 +66,7 @@ fun DsDialog(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = DsTheme.colors
+    val maxHeight = dialogMaxHeight()
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -72,7 +79,7 @@ fun DsDialog(
                     .wrapContentWidth()
                     .wrapContentHeight()
                     .widthIn(min = 280.dp, max = 420.dp)
-                    .heightIn(max = 680.dp)
+                    .heightIn(max = maxHeight)
             },
             shape = DsShapes.dialog,
             color = colors.bgLayer2,
@@ -93,6 +100,58 @@ fun DsDialog(
         }
     }
 }
+
+/**
+ * How tall a dialog plate may grow: the display minus whatever the system is covering.
+ *
+ * The plate used to be capped at a flat 680.dp, which is taller than the usable height of the
+ * phones this app runs on, so the cap never actually bounded anything. A body that grew with its
+ * content — editing a long queued turn is the real case — ran past the bottom of the screen and
+ * carried its own OK/Cancel row off with it, leaving the reader with no way to commit the edit.
+ *
+ * The keyboard is the other half of the same bug. An editor is opened to type into, so it is
+ * opened with the IME up, and the IME covers roughly the lower half of the screen; a plate sized
+ * against the bare display height still puts its actions behind it. Target 35 draws edge to edge
+ * and no longer resizes the window for `adjustResize`, so the configuration keeps reporting the
+ * full height while the keyboard is open and subtracting the IME inset does not double-count.
+ *
+ * Reads as pure measurement, so it stays out of [DsDialog]'s own layout logic.
+ */
+@Composable
+private fun dialogMaxHeight(): Dp {
+    val density = LocalDensity.current
+    val screen = LocalConfiguration.current.screenHeightDp.dp
+    val covered = with(density) { WindowInsets.ime.getBottom(density).toDp() }
+    val systemBars = with(density) { WindowInsets.systemBars.getTop(density).toDp() }
+    // Never smaller than the plate's own chrome, whatever the insets claim: a dialog too short to
+    // hold its own actions is worse than one that overflows slightly.
+    return (screen - covered - systemBars - 16.dp).coerceIn(240.dp, 680.dp)
+}
+
+/**
+ * What is left of [dialogMaxHeight] for a dialog body once the plate has spent its chrome on
+ * padding, the title line and a trailing action row.
+ *
+ * A body that grows with its content — an editor over a long queued turn, a rename over a long
+ * name — has to take this budget, not the full plate height, or the row that commits the edit is
+ * the first thing pushed off the bottom of the screen. Bodies that own the scrolling themselves
+ * (a capped `TextField`, a scrollable `Column`) stay fully readable however long the text is.
+ */
+@Composable
+fun DsDialogBodyMaxHeight(): Dp = dialogBodyMaxHeight(dialogMaxHeight())
+
+/**
+ * The arithmetic behind [DsDialogBodyMaxHeight], kept free of the composition so it can be
+ * asserted directly: whatever height a plate was given, the body it pays for plus the chrome must
+ * still fit inside it, and the body must never be squeezed out of existence either.
+ */
+internal fun dialogBodyMaxHeight(plateHeight: Dp): Dp =
+    (plateHeight - DIALOG_CHROME_HEIGHT).coerceIn(MIN_DIALOG_BODY_HEIGHT, MAX_DIALOG_BODY_HEIGHT)
+
+/** Padding, title line and gaps, plus a default action row — what a dialog spends before its body. */
+private val DIALOG_CHROME_HEIGHT = 136.dp
+private val MIN_DIALOG_BODY_HEIGHT = 96.dp
+private val MAX_DIALOG_BODY_HEIGHT = 320.dp
 
 /**
  * Toast state pair: the current message ([State]) and a [show] lambda. The

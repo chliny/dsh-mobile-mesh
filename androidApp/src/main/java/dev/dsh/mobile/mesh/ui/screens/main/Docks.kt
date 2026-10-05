@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,6 +36,8 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.QueueItem
 import dev.dsh.mobile.mesh.data.canMutateQueueItem
 import dev.dsh.mobile.mesh.data.canSteerQueueItem
+import dev.dsh.mobile.mesh.data.queueEditSeedText
+import dev.dsh.mobile.mesh.data.queueEditLosesNonText
 import dev.dsh.mobile.mesh.core.wire.dto.GoalPhase
 import dev.dsh.mobile.mesh.core.wire.dto.GoalSnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.SessionStatsView
@@ -44,6 +47,7 @@ import dev.dsh.mobile.mesh.ui.components.DisclosureRow
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
 import dev.dsh.mobile.mesh.ui.components.DsDialog
+import dev.dsh.mobile.mesh.ui.components.DsDialogBodyMaxHeight
 import dev.dsh.mobile.mesh.ui.components.DsMenu
 import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
@@ -214,7 +218,13 @@ internal fun GoalBar(goal: GoalSnapshot, store: SessionStore, modifier: Modifier
             TextField(
                 value = editText,
                 onValueChange = { editText = it },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = DsDialogBodyMaxHeight()),
+                // Same defect as the queued-turn editor: an unbounded field pushes the OK row off
+                // the screen once the objective is long enough.
+                minLines = 1,
+                maxLines = 12,
                 placeholder = { Text(stringResource(R.string.goal_title), style = DsType.std14) },
                 colors = dialogTextFieldColors(),
             )
@@ -259,6 +269,7 @@ internal fun QueueDock(
     val expanded = rememberDisclosure(disclosureScope, DisclosureKeys.dock("queue"))
     var editingId by remember { mutableStateOf<String?>(null) }
     var editText by remember { mutableStateOf("") }
+    var editWarningItem by remember { mutableStateOf<QueueItem?>(null) }
 
     DisclosureRow(
         title = if (queueSubmissionPending && pendingQueue.isEmpty()) {
@@ -303,8 +314,16 @@ internal fun QueueDock(
                     items = buildList {
                         if (canMutateQueueItem(item)) {
                             add(MenuItem(stringResource(R.string.chat_queue_edit)) {
-                                editingId = item.id
-                                editText = item.previewText
+                                // updateQueue's text-only edit replaces *all* blocks. Warn before
+                                // opening the editor if this message contains an image, file or
+                                // another non-text block; continuing will discard those blocks.
+                                if (queueEditLosesNonText(item)) {
+                                    editWarningItem = item
+                                } else {
+                                    editingId = item.id
+                                    // The full message, not the dock row's 200-character preview.
+                                    editText = queueEditSeedText(item)
+                                }
                             })
                             add(MenuItem(stringResource(R.string.chat_queue_remove), danger = true) {
                                 scope.launch { store.updateQueue(item.id, "remove") }
@@ -326,12 +345,50 @@ internal fun QueueDock(
         Spacer(Modifier.height(2.dp))
     }
 
+    editWarningItem?.let { item ->
+        DsDialog(
+            title = stringResource(R.string.chat_queue_edit_warning_title),
+            onDismiss = { editWarningItem = null },
+        ) {
+            Text(
+                stringResource(R.string.chat_queue_edit_warning_body),
+                style = DsType.std14,
+                color = colors.warnLabel,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DsButton(
+                    text = stringResource(R.string.common_cancel),
+                    onClick = { editWarningItem = null },
+                    variant = DsButtonVariant.Ghost,
+                )
+                DsButton(
+                    text = stringResource(R.string.chat_queue_edit_continue),
+                    onClick = {
+                        editText = queueEditSeedText(item)
+                        editingId = item.id
+                        editWarningItem = null
+                    },
+                    variant = DsButtonVariant.Info,
+                )
+            }
+        }
+    }
+
     editingId?.let { id ->
         DsDialog(title = stringResource(R.string.chat_queue_edit), onDismiss = { editingId = null }) {
             TextField(
                 value = editText,
                 onValueChange = { editText = it },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = DsDialogBodyMaxHeight()),
+                // A queued turn can be as long as the composer accepts, and this field used to
+                // grow to all of it: the plate ran off the bottom of the screen and took the OK row
+                // with it, so a long message was both unreadable and impossible to save. Capping
+                // the lines keeps the actions on screen, and the field scrolls its own text, so
+                // nothing of the message is actually hidden.
+                minLines = 3,
+                maxLines = 12,
                 placeholder = { Text(stringResource(R.string.chat_composer_hint), style = DsType.std14) },
                 colors = dialogTextFieldColors(),
             )
