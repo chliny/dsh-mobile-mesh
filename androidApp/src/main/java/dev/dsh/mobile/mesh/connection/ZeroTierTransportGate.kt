@@ -34,6 +34,7 @@ internal suspend fun awaitZeroTierTransportReady(
     dialAttempts: Int,
     timeoutMillis: Long,
     retryIntervalMillis: Long,
+    sampleIntervalMillis: Long = 1_000L,
     onSample: (String) -> Unit = {},
 ): String = coroutineScope {
     val ready = CompletableDeferred<Unit>()
@@ -46,16 +47,24 @@ internal suspend fun awaitZeroTierTransportReady(
         if (awaitNodeOnline()) publish(ZERO_TIER_ONLINE_SIGNAL)
     }
     val dialWatcher = launch(Dispatchers.IO) {
-        repeat(dialAttempts) { attempt ->
-            if (ready.isCompleted) return@launch
-            onSample("dial-attempt=${attempt + 1}")
-            try {
-                scheduleDial { publish(ZERO_TIER_REMOTE_SIGNAL) }
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                onSample("dial-schedule-failed=${error.javaClass.simpleName}")
+        var attempt = 0
+        while (!ready.isCompleted) {
+            attempt++
+            if (attempt <= dialAttempts) {
+                onSample("dial-attempt=$attempt")
+                try {
+                    scheduleDial { publish(ZERO_TIER_REMOTE_SIGNAL) }
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    onSample("dial-schedule-failed=${error.javaClass.simpleName}")
+                }
+                delay(retryIntervalMillis)
+            } else {
+                // A blocking libzt connect can outlast the dial burst. Keep reporting so a stall of
+                // several seconds still names the signal that was missing while it ran.
+                onSample("wait-pending")
+                delay(sampleIntervalMillis)
             }
-            delay(retryIntervalMillis)
         }
     }
     try {
