@@ -9,7 +9,7 @@ class PendingDecisionLayoutTest {
     @Test
     fun `pending decision replaces composer and docks instead of competing for screen height`() {
         val source = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/ChatScreen.kt").readText()
-        assertTrue(source.contains("if (!decisionPending) conversation?.let"))
+        assertTrue(source.contains("if (!decisionPending) visibleConversation?.let"))
         assertTrue(source.contains("if (!decisionPending) Composer("))
         assertTrue(source.contains("if (!decisionPending) StatsFooter("))
         assertTrue(source.indexOf("if (questions != null)") < source.indexOf("if (!decisionPending) Composer("))

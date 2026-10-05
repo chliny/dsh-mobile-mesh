@@ -12,10 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -56,6 +53,7 @@ internal fun TrajectoryTab(
     usage: TokenUsageView?,
     cwd: String?,
     listState: LazyListState,
+    disclosureScope: DisclosureScope,
     modifier: Modifier = Modifier,
 ) {
     val colors = DsTheme.colors
@@ -88,7 +86,7 @@ internal fun TrajectoryTab(
                 count = turnNodes.size,
                 key = { index -> "n-${turnNodes[index].seq}" },
             ) { index ->
-                TrajectoryRow(turnNodes[index], turnNodes, cwd)
+                TrajectoryRow(turnNodes[index], turnNodes, cwd, disclosureScope)
             }
         }
         if (stats != null || usage != null) {
@@ -101,7 +99,7 @@ internal fun TrajectoryTab(
 }
 
 @Composable
-private fun TrajectoryRow(node: ChatNode, siblings: List<ChatNode>, cwd: String?) {
+private fun TrajectoryRow(node: ChatNode, siblings: List<ChatNode>, cwd: String?, disclosureScope: DisclosureScope) {
     val colors = DsTheme.colors
     when (node) {
         is UserMessageNode -> {
@@ -129,17 +127,17 @@ private fun TrajectoryRow(node: ChatNode, siblings: List<ChatNode>, cwd: String?
             val result = siblings
                 .filterIsInstance<ToolResultNode>()
                 .firstOrNull { it.callId == node.callId }
-            ToolLedgerRow(node, result, cwd)
+            ToolLedgerRow(node, result, cwd, disclosureScope)
         }
         else -> Unit
     }
 }
 
 @Composable
-private fun ToolLedgerRow(call: ToolCallNode, result: ToolResultNode?, cwd: String?) {
+private fun ToolLedgerRow(call: ToolCallNode, result: ToolResultNode?, cwd: String?, disclosureScope: DisclosureScope) {
     val colors = DsTheme.colors
     val row = remember(call.callId, cwd) { toolRowModel(call.name, call.arguments, cwd) }
-    var expanded by remember(call.callId) { mutableStateOf(false) }
+    val expanded = rememberDisclosure(disclosureScope, DisclosureKeys.trajectoryCall(call.callId))
     Row(verticalAlignment = Alignment.CenterVertically) {
         StateDot(
             when {
@@ -155,8 +153,8 @@ private fun ToolLedgerRow(call: ToolCallNode, result: ToolResultNode?, cwd: Stri
             summary = row.summary,
             // The ledger already leads with its own state dot, so the slot keeps the glyph.
             icon = row.variant.featherIcon(),
-            expanded = expanded,
-            onToggle = { expanded = !expanded },
+            expanded = expanded.expanded,
+            onToggle = expanded.onToggle,
             modifier = Modifier.weight(1f),
         ) {
             Column(Modifier.padding(start = 28.dp, top = 2.dp)) {

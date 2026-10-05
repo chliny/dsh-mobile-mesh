@@ -70,10 +70,15 @@ internal fun buildDiffHighlightPlan(hunks: List<ChangesDiffHunk>, maxLines: Int 
 internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
     val store = context.store ?: return
     val sessionId = context.sessionId ?: return
-    var summary by remember(node.seq) { mutableStateOf<ChangesSummary?>(null) }
-    var error by remember(node.seq) { mutableStateOf<String?>(null) }
-    var expanded by remember(node.seq) { mutableStateOf(false) }
+    // Seeded from what the harness already answered for this event, so a row rebuilt by coming back
+    // from the diff page has its content on the first frame instead of a loading line and a refetch.
+    var summary by remember(sessionId, node.seq) { mutableStateOf(store.changesSummaryNow(sessionId, node.seq)) }
+    var error by remember(sessionId, node.seq) { mutableStateOf<String?>(null) }
+    // "Full diff" leaves this screen entirely, so the row has to read its flag from the session
+    // rather than from this composition — otherwise it is collapsed again on the way back.
+    val expanded = context.disclosure(DisclosureKeys.changes(node.seq))
     LaunchedEffect(sessionId, node.seq) {
+        if (summary != null) return@LaunchedEffect
         when (val result = store.loadChangesSummary(sessionId, node.seq)) {
             is RpcResult.Ok -> summary = result.value
             is RpcResult.Err -> error = result.error.message
@@ -85,8 +90,8 @@ internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
             title = title,
             summary = summary?.let { stringResource(R.string.chat_changes_count, it.total, it.added, it.deleted) }
                 ?: error ?: stringResource(R.string.chat_changes_loading),
-            expanded = expanded,
-            onToggle = { expanded = !expanded },
+            expanded = expanded.expanded,
+            onToggle = expanded.onToggle,
         ) {
             summary?.files?.forEachIndexed { index, file ->
                 ChangedFileRow(store, sessionId, node.seq, index, file.path, file.display, file.added, file.deleted, context.onOpenFile, onOpenDiff = { context.onOpenChangedDiff?.invoke(node.seq, index, file.path, file.display, file.added, file.deleted) })
@@ -97,9 +102,12 @@ internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
 
 @Composable
 internal fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessionId: String, seq: Long, index: Int, path: String, display: String, added: Int, deleted: Int, onOpenFile: ((String, String) -> Unit)?, onOpenDiff: (() -> Unit)? = null, full: Boolean = false) {
-    var diff by remember(sessionId, seq, index) { mutableStateOf<ChangesDiff?>(null) }
-    var loading by remember(sessionId, seq, index) { mutableStateOf(false) }
+    // Same reasoning as the summary above, and the full-diff page reads this same entry: the reader
+    // opens a diff here and comes back to it here, so one answer serves both.
+    var diff by remember(sessionId, seq, index) { mutableStateOf(store.changesDiffNow(sessionId, seq, index)) }
+    var loading by remember(sessionId, seq, index) { mutableStateOf(diff == null) }
     LaunchedEffect(sessionId, seq, index) {
+        if (diff != null) return@LaunchedEffect
         loading = true
         when (val result = store.loadChangesDiff(sessionId, seq, index)) {
             is RpcResult.Ok -> diff = result.value

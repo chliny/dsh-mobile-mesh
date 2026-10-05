@@ -22,6 +22,7 @@ class FileNavigationSafetyTest {
         var opened: Pair<String, String>? = null
         val context = ChatNodeContext(
             nodes = emptyList(),
+            disclosures = DisclosureScope(TranscriptDisclosures(), "session-1"),
             running = false,
             cwd = "/home/me/project",
             onOpenFile = { path, title -> opened = path to title },

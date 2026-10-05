@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.ui.media.sampleSizeFor
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionAnswer
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionAnswerItem
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionOption
@@ -79,10 +80,17 @@ import kotlinx.coroutines.launch
  */
 private const val FILE_CACHE_CHECK_INTERVAL_MS = 10_000L
 
+/** Every session-owned surface, including the docks, must use the same selected snapshot. */
+internal fun conversationForSelectedSession(
+    conversation: ConversationSnapshot?,
+    sessionId: String?,
+): ConversationSnapshot? = conversation?.takeIf { it.sessionId == sessionId }
+
 @Composable
 internal fun ChatScreen(
     readingPositions: TranscriptReadingPositions,
     transcriptListStates: TranscriptListStates,
+    disclosures: TranscriptDisclosures,
     onOpenDetails: () -> Unit,
     onOpenDrawer: () -> Unit,
     detailsOpen: Boolean,
@@ -132,7 +140,7 @@ internal fun ChatScreen(
 
     // Flow emissions can arrive in different frames after a switch. Never pass the old
     // conversation (including its nodes, gap and trajectory) to the newly selected session.
-    val visibleConversation = conversation?.takeIf { it.sessionId == currentSessionId }
+    val visibleConversation = conversationForSelectedSession(conversation, currentSessionId)
     val currentSession = sessions.firstOrNull { it.sessionId == currentSessionId }
     val childAddress = sessionAddress as? dev.dsh.mobile.mesh.core.wire.dto.SessionAddress.Subagent
     val subagentReadOnly = childAddress?.mode == "one-shot"
@@ -165,6 +173,9 @@ internal fun ChatScreen(
     // because this page leaves composition while the session list or file browser is open.
     val chatListState = transcriptListStates.forSession(currentSessionId)
     val trajectoryListState = rememberLazyListState()
+    // Every expanded row on this surface reads and writes through here, so opening the full diff of
+    // a changed file — which unmounts this whole screen — cannot leave the transcript collapsed.
+    val disclosureScope = DisclosureScope(disclosures, currentSessionId)
 
     val workspaceFiles = rememberWorkspaceFilesStore()
     val fileState by workspaceFiles.state.collectAsStateWithLifecycle()
@@ -465,6 +476,7 @@ internal fun ChatScreen(
                 nodes = visibleConversation?.nodes ?: emptyList(),
                 hasMore = visibleConversation?.hasMore == true,
                 sessionId = currentSessionId,
+                disclosures = disclosureScope,
                 store = store,
                 onOpenFile = onOpenFile,
                 onOpenChangedDiff = onOpenChangedDiff,
@@ -516,6 +528,7 @@ internal fun ChatScreen(
                         usage = tokenUsage,
                         cwd = currentSession?.cwd,
                         listState = trajectoryListState,
+                        disclosureScope = disclosureScope,
                     )
                 }
             }
@@ -525,20 +538,21 @@ internal fun ChatScreen(
             val approval = pendingApproval?.takeIf { it.sessionId == currentSessionId }
             val questions = pendingQuestions?.takeIf { it.sessionId == currentSessionId }
             val decisionPending = approval != null || questions != null
-            if (!decisionPending) conversation?.let { conv ->
+            if (!decisionPending) visibleConversation?.let { conv ->
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    parseTodos(conv.projections["todos"])?.let { TodoDock(it) }
+                    parseTodos(conv.projections["todos"])?.let { TodoDock(it, DisclosureKeys.dock("todo"), disclosureScope) }
                     parseGoal(conv.projections["goal"])?.let { GoalBar(it, store) }
                     QueueDock(
                         queue = conv.queue,
                         store = store,
                         running = conv.running,
                         queueSubmissionPending = conv.queueSubmissionPending,
+                        disclosureScope = disclosureScope,
                         onInsertQueued = { item ->
                             draft = item.messageText
                             currentSessionId?.let { sessionId -> draftStore.set(sessionId, item.messageText) }
@@ -684,7 +698,7 @@ internal fun ChatScreen(
                     color = colors.labelTertiary,
                 )
             }
-            if (!decisionPending) StatsFooter(stats = sessionStats, usage = tokenUsage)
+            if (!decisionPending) StatsFooter(stats = sessionStats, usage = tokenUsage, disclosureScope = disclosureScope)
         }
         DsToastHost(toast, modifier = Modifier.fillMaxWidth())
     }

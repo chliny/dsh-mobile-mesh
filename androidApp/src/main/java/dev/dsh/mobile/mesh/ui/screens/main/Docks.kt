@@ -63,13 +63,22 @@ import kotlinx.coroutines.launch
  * These render as collapsed one-line summaries and expand on tap, rather than appearing and
  * vanishing as their data arrives. A dock that pops into existence mid-turn shoves the transcript
  * and the composer around while you are reading or typing, which is most of what made the old
- * layout feel unsettled.
+ * layout feel unsettled. Which ones are expanded is reader intent, so it is held per session rather
+ * than by this composition.
+ *
+ * [disclosureKey] is the caller's to choose on the to-do list: the dock above the composer and the
+ * to-do event inside the transcript show the same list, but they are two rows on screen, and one
+ * tapping the other open would be a surprise.
  */
-
 @Composable
-internal fun TodoDock(todos: List<TodoEntry>, modifier: Modifier = Modifier) {
+internal fun TodoDock(
+    todos: List<TodoEntry>,
+    disclosureKey: String,
+    disclosureScope: DisclosureScope,
+    modifier: Modifier = Modifier,
+) {
     if (todos.isEmpty()) return
-    var expanded by remember { mutableStateOf(false) }
+    val expanded = rememberDisclosure(disclosureScope, disclosureKey)
     val completed = todos.count { it.status == "completed" }
     val inProgress = todos.count { it.status == "in_progress" }
     val pending = todos.size - completed - inProgress
@@ -85,8 +94,8 @@ internal fun TodoDock(todos: List<TodoEntry>, modifier: Modifier = Modifier) {
         title = stringResource(R.string.chat_todo_title),
         summary = progress,
         icon = FeatherIcons.CheckSquare,
-        expanded = expanded,
-        onToggle = { expanded = !expanded },
+        expanded = expanded.expanded,
+        onToggle = expanded.onToggle,
         modifier = modifier,
     ) {
         todos.forEach { todo ->
@@ -235,6 +244,7 @@ internal fun QueueDock(
     store: SessionStore,
     onInsertQueued: (QueueItem) -> Unit,
     running: Boolean,
+    disclosureScope: DisclosureScope,
     queueSubmissionPending: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -244,7 +254,9 @@ internal fun QueueDock(
     val context = LocalContext.current
     val queueInsertedLabel = stringResource(R.string.chat_queue_inserted)
     val colors = DsTheme.colors
-    var expanded by remember(pendingQueue.size) { mutableStateOf(false) }
+    // Keyed on the row, not on the queue length: the queue grows precisely when the reader is using
+    // it, and collapsing on every new entry made it impossible to read a list you had just opened.
+    val expanded = rememberDisclosure(disclosureScope, DisclosureKeys.dock("queue"))
     var editingId by remember { mutableStateOf<String?>(null) }
     var editText by remember { mutableStateOf("") }
 
@@ -255,8 +267,8 @@ internal fun QueueDock(
             stringResource(R.string.chat_queue_count, pendingQueue.size)
         },
         summary = null,
-        expanded = expanded,
-        onToggle = { expanded = !expanded },
+        expanded = expanded.expanded,
+        onToggle = expanded.onToggle,
         modifier = modifier,
     ) {
         pendingQueue.forEach { item ->
@@ -353,11 +365,12 @@ internal fun QueueDock(
 internal fun StatsFooter(
     stats: SessionStatsView?,
     usage: TokenUsageView?,
+    disclosureScope: DisclosureScope,
     modifier: Modifier = Modifier,
 ) {
     if (stats == null && usage == null) return
     val colors = DsTheme.colors
-    var expanded by remember { mutableStateOf(false) }
+    val expanded = rememberDisclosure(disclosureScope, DisclosureKeys.dock("stats"))
     val parts = buildList {
         stats?.let {
             add(stringResource(R.string.chat_stats_turns, it.turns, it.steps))
@@ -385,10 +398,10 @@ internal fun StatsFooter(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { expanded = !expanded }
+                .clickable { expanded.toggle() }
                 .padding(vertical = 2.dp),
         )
-        if (expanded) {
+        if (expanded.expanded) {
             stats?.let {
                 DetailLine(
                     stringResource(

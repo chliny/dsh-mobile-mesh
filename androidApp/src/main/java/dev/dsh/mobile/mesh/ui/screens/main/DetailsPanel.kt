@@ -97,8 +97,9 @@ import kotlinx.serialization.json.contentOrNull
  * that used to be squeezed in here now has its own tab — one home per fact.
  */
 @Composable
-fun DetailsPanel(
+internal fun DetailsPanel(
     onClose: () -> Unit,
+    disclosures: DisclosureScope,
     onOpenSubagent: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -169,6 +170,7 @@ fun DetailsPanel(
                     session = current,
                     models = models,
                     presets = agentPresets,
+                    disclosureScope = disclosures,
                     onRename = { title ->
                         scope.launch { currentSessionId?.let { store.renameSession(it, title) } }
                     },
@@ -224,18 +226,18 @@ fun DetailsPanel(
                         color = colors.labelTertiary,
                     )
                 } else {
-                    ContextCard(breakdown, pressure, usage, stats)
-                    GoalCard(conv, store)
-                    PlanCard(conv) { next ->
+                    ContextCard(breakdown, pressure, usage, stats, disclosures)
+                    GoalCard(conv, store, disclosures)
+                    PlanCard(conv, disclosures) { next ->
                         scope.launch { store.runCommand(if (next) "/plan" else "/plan off") }
                     }
-                    JobsCard(jobs, store, scope, jobKillRequestedLabel, jobKillFailedLabel, toast.second)
-                    QueueCard(conv.queue, store)
-                    SubagentsCard(subagents, onOpen = onOpenSubagent)
-                    WorkflowCard(conv.nodes)
+                    JobsCard(jobs, store, scope, disclosures, jobKillRequestedLabel, jobKillFailedLabel, toast.second)
+                    QueueCard(conv.queue, store, disclosures)
+                    SubagentsCard(subagents, disclosures, onOpen = onOpenSubagent)
+                    WorkflowCard(conv.nodes, disclosures)
                 }
 
-                HostCard(hostInfo)
+                HostCard(hostInfo, disclosures)
             }
             DsToastHost(toast, modifier = Modifier.fillMaxWidth())
         }
@@ -278,21 +280,33 @@ private fun HeaderRow(onClose: () -> Unit) {
 // Cards
 // ---------------------------------------------------------------------------
 
-/** A titled card that expands on tap and remembers its state for the panel's lifetime. */
+/**
+ * A titled card that expands on tap.
+ *
+ * The flag lives in the session's disclosure holder rather than in this composition: the panel is
+ * unmounted along with the chat page whenever a full diff, a file preview or the terminal opens, and
+ * a card that reopened collapsed each time would be the same bug one level up from the transcript.
+ * [id] names the card independently of its localized [title], so switching language does not reset it.
+ */
 @Composable
 private fun Card(
+    id: String,
+    disclosureScope: DisclosureScope,
     title: String,
     summary: String? = null,
     initiallyExpanded: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    var expanded by remember(title) { mutableStateOf(initiallyExpanded) }
+    val key = DisclosureKeys.detailsCard(id)
+    // `initiallyExpanded` only applies until the reader touches the card; after that their choice
+    // stands, including when they closed a card that opens by default.
+    val open = if (disclosureScope.isSet(key)) disclosureScope.isOpen(key) else initiallyExpanded
     Column(Modifier.fillMaxWidth().animateContentSize()) {
         DisclosureRow(
             title = title,
             summary = summary,
-            expanded = expanded,
-            onToggle = { expanded = !expanded },
+            expanded = open,
+            onToggle = { disclosureScope.setOpen(key, !open) },
         ) {
             Column(
                 Modifier.padding(start = 24.dp, top = 4.dp, bottom = 4.dp),
@@ -309,6 +323,7 @@ private fun SessionCard(
     session: SessionRow?,
     models: SessionModelsValue?,
     presets: AgentPresetListValue?,
+    disclosureScope: DisclosureScope,
     onRename: (String) -> Unit,
     onFork: () -> Unit,
     onArchive: () -> Unit,
@@ -319,6 +334,8 @@ private fun SessionCard(
     if (session == null) return
     var renaming by remember(session.sessionId) { mutableStateOf(false) }
     Card(
+        id = "session",
+        disclosureScope = disclosureScope,
         title = session.title ?: session.cwd?.let { basename(it) } ?: session.sessionId,
         summary = session.cwd?.let { basename(it) },
         initiallyExpanded = true,
@@ -388,10 +405,13 @@ private fun ContextCard(
     pressure: ContextPressureView?,
     usage: TokenUsageView?,
     stats: SessionStatsView?,
+    disclosureScope: DisclosureScope,
 ) {
     val colors = DsTheme.colors
     if (breakdown == null && pressure == null && usage == null && stats == null) return
     Card(
+        id = "context",
+        disclosureScope = disclosureScope,
         title = stringResource(R.string.chat_context_title),
         summary = pressure?.usedRatio?.let { "${(it * 100).toInt()}%" },
         initiallyExpanded = true,
@@ -430,10 +450,12 @@ private fun ContextCard(
 }
 
 @Composable
-private fun GoalCard(conversation: ConversationSnapshot, store: dev.dsh.mobile.mesh.data.SessionStore) {
+private fun GoalCard(conversation: ConversationSnapshot, store: dev.dsh.mobile.mesh.data.SessionStore, disclosureScope: DisclosureScope) {
     val colors = DsTheme.colors
     val goal = parseGoal(conversation.projections["goal"])
     Card(
+        id = "goal",
+        disclosureScope = disclosureScope,
         title = stringResource(R.string.goal_title),
         summary = goal?.objective?.take(40),
     ) {
@@ -481,9 +503,11 @@ private fun GoalCard(conversation: ConversationSnapshot, store: dev.dsh.mobile.m
  * as this did, meant the control could turn plan mode on and never off again.
  */
 @Composable
-private fun PlanCard(conversation: ConversationSnapshot, onTogglePlan: (active: Boolean) -> Unit) {
+private fun PlanCard(conversation: ConversationSnapshot, disclosureScope: DisclosureScope, onTogglePlan: (active: Boolean) -> Unit) {
     val active = parsePlanActive(conversation) ?: return
     Card(
+        id = "plan",
+        disclosureScope = disclosureScope,
         title = stringResource(R.string.plan_mode_title),
         summary = stringResource(if (active) R.string.plan_mode_state_on else R.string.plan_mode_state_off),
         // Open by default: unlike the other cards this one is a control, and a control you have to
@@ -503,14 +527,16 @@ private fun JobsCard(
     jobs: List<JobView>,
     store: dev.dsh.mobile.mesh.data.SessionStore,
     scope: kotlinx.coroutines.CoroutineScope,
+    disclosureScope: DisclosureScope,
     killRequestedLabel: String,
     killFailedLabel: String,
     showToast: (String) -> Unit,
 ) {
     val colors = DsTheme.colors
     val jobOutputs by store.jobOutputById.collectAsState()
-    var expandedJobIds by remember { mutableStateOf(emptySet<String>()) }
     Card(
+        id = "jobs",
+        disclosureScope = disclosureScope,
         title = stringResource(R.string.jobs_title),
         summary = jobs.size.takeIf { it > 0 }?.toString(),
     ) {
@@ -529,14 +555,15 @@ private fun JobsCard(
             }
         }
         jobs.forEach { job ->
-            val expanded = job.id in expandedJobIds
+            val jobKey = DisclosureKeys.detailsJob(job.id)
+            val expanded = disclosureScope.isOpen(jobKey)
             val output = jobOutputs[job.id]
             Column(Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
-                        expandedJobIds = if (expanded) expandedJobIds - job.id else expandedJobIds + job.id
+                        disclosureScope.toggle(jobKey)
                         store.setJobOutputFollowed(job.id, !expanded)
                     },
                 verticalAlignment = Alignment.CenterVertically,
@@ -604,10 +631,12 @@ private fun JobsCard(
 }
 
 @Composable
-private fun QueueCard(queue: List<QueueItem>, store: dev.dsh.mobile.mesh.data.SessionStore) {
+private fun QueueCard(queue: List<QueueItem>, store: dev.dsh.mobile.mesh.data.SessionStore, disclosureScope: DisclosureScope) {
     val colors = DsTheme.colors
     val scope = rememberCoroutineScope()
     Card(
+        id = "queue",
+        disclosureScope = disclosureScope,
         title = stringResource(R.string.chat_queue_count, queue.size),
         summary = null,
     ) {
@@ -643,9 +672,11 @@ private fun QueueCard(queue: List<QueueItem>, store: dev.dsh.mobile.mesh.data.Se
 }
 
 @Composable
-private fun SubagentsCard(subagents: List<SubagentListEntry>, onOpen: (String) -> Unit) {
+private fun SubagentsCard(subagents: List<SubagentListEntry>, disclosureScope: DisclosureScope, onOpen: (String) -> Unit) {
     val colors = DsTheme.colors
     Card(
+        id = "subagents",
+        disclosureScope = disclosureScope,
         title = stringResource(R.string.subagents_title),
         summary = subagents.size.takeIf { it > 0 }?.toString(),
     ) {
@@ -690,11 +721,16 @@ private fun SubagentsCard(subagents: List<SubagentListEntry>, onOpen: (String) -
 }
 
 @Composable
-private fun WorkflowCard(nodes: List<ChatNode>) {
+private fun WorkflowCard(nodes: List<ChatNode>, disclosureScope: DisclosureScope) {
     val colors = DsTheme.colors
     val workflows = remember(nodes) { parseWorkflows(nodes) }
     if (workflows.isEmpty()) return
-    Card(title = stringResource(R.string.workflow_title), summary = workflows.size.toString()) {
+    Card(
+        id = "workflow",
+        disclosureScope = disclosureScope,
+        title = stringResource(R.string.workflow_title),
+        summary = workflows.size.toString(),
+    ) {
         workflows.forEach { workflow ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -728,13 +764,15 @@ private fun WorkflowCard(nodes: List<ChatNode>) {
 }
 
 @Composable
-private fun HostCard(hostInfo: HostDescription?) {
+private fun HostCard(hostInfo: HostDescription?, disclosureScope: DisclosureScope) {
     val colors = DsTheme.colors
     if (hostInfo == null) return
     // The harness's own version used to head this card. No 0.1.2 wire field carries it, so the
     // card names the protocol this build was written against instead — which is this client's
     // fact, not the host's, and is labelled as such rather than dressed up as a host version.
     Card(
+        id = "host",
+        disclosureScope = disclosureScope,
         title = stringResource(R.string.settings_host_info),
         summary = stringResource(R.string.connect_protocol_baseline, DshCore.PROTOCOL_BASELINE),
     ) {

@@ -41,6 +41,7 @@ import dev.dsh.mobile.mesh.ui.screens.connect.connectionAttemptAuthority
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectionsScreen
 import dev.dsh.mobile.mesh.ui.screens.main.ChatListDrawer
 import dev.dsh.mobile.mesh.ui.screens.main.MainScreen
+import dev.dsh.mobile.mesh.ui.screens.main.TranscriptDisclosures
 import dev.dsh.mobile.mesh.ui.screens.main.TranscriptListStates
 import dev.dsh.mobile.mesh.ui.screens.main.TranscriptReadingPositions
 import dev.dsh.mobile.mesh.ui.screens.main.transcriptReadingPositionsSaver
@@ -121,6 +122,10 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         // Unlike the saved semantic anchors, LazyListState is kept in memory while another
         // session is selected. Its holder stays above the page switch that removes MainScreen.
         val transcriptListStates = remember(activeHostKey) { TranscriptListStates() }
+        // Which transcript rows the reader has expanded is intent, not render state: opening a full
+        // diff, a file preview or the terminal removes MainScreen entirely, and a row that reopened
+        // collapsed would drop that intent on every visit.
+        val transcriptDisclosures = remember(activeHostKey) { TranscriptDisclosures() }
         if (connection.hasConnected) {
             hasRenderedConnectedPage = true
             renderedConnectedHostId = connection.host?.id ?: renderedConnectedHostId
@@ -279,6 +284,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
             showMain -> MainScreen(
                 readingPositions = readingPositions,
                 transcriptListStates = transcriptListStates,
+                disclosures = transcriptDisclosures,
                 connectionPhase = connection.phase,
                 reconnectAttempt = connection.attempts,
                 onReconnect = viewModel::reconnect,
