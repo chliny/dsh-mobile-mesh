@@ -30,7 +30,7 @@ internal class ChangesPayloadCache {
     private val summaries = LruCache<SummaryKey, ChangesSummary>(MAX_CACHED_CHANGES_SUMMARIES)
     private val diffs = LruCache<DiffKey, ChangesDiff>(MAX_CACHED_CHANGES_DIFFS)
 
-    private fun summary(sessionId: String, seq: Long): ChangesSummary? = synchronized(lock) { summaries.get(SummaryKey(sessionId, seq)) }
+    fun summary(sessionId: String, seq: Long): ChangesSummary? = synchronized(lock) { summaries.get(SummaryKey(sessionId, seq)) }
 
     fun diff(sessionId: String, seq: Long, index: Int): ChangesDiff? = synchronized(lock) { diffs.get(DiffKey(sessionId, seq, index)) }
 

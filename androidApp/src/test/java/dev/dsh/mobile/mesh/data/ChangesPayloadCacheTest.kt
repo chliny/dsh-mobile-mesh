@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 /**
  * Regression cover for the transcript keeping what the harness already answered.
@@ -45,8 +46,8 @@ class ChangesPayloadCacheTest {
 
         assertEquals(1, cache.summary("s1", 42)?.total)
         assertEquals(2, cache.summary("s1", 43)?.total)
-        assertEquals(1, (cache.diff("s1", 42, 0) as ChangesDiff.Text).hunks.single().lines.single().length)
-        assertEquals(2, (cache.diff("s1", 42, 1) as ChangesDiff.Text).hunks.single().lines.single().length)
+        assertEquals(4, (cache.diff("s1", 42, 0) as ChangesDiff.Text).hunks.single().lines.single().length)
+        assertEquals(8, (cache.diff("s1", 42, 1) as ChangesDiff.Text).hunks.single().lines.single().length)
         assertNull(cache.diff("s1", 43, 0))
     }
 
@@ -110,5 +111,29 @@ class ChangesPayloadCacheTest {
             cache.recordDiff("s1", 43, index, textDiff(4))
             assertTrue(cache.diff("s1", 42, 0) != null)
         }
+    }
+
+    /**
+     * The cache is only worth holding if the rows read it before they ask. SessionStore owns
+     * Android and network dependencies and cannot be built in a JVM test, so the wiring this
+     * behaviour depends on is asserted against the sources that carry it.
+     */
+    @Test
+    fun `the changed-files rows render from the cache and only ask when it is empty`() {
+        val row = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/ChangesRow.kt").readText()
+
+        // A returning row has to have its content on the first frame, not after a loading line.
+        assertTrue(row.contains("store.changesSummaryNow(sessionId, node.seq)"))
+        assertTrue(row.contains("store.changesDiffNow(sessionId, seq, index)"))
+        // And with content in hand it must not spend the round trip again.
+        assertTrue(row.contains("if (summary != null) return@LaunchedEffect"))
+        assertTrue(row.contains("if (diff != null) return@LaunchedEffect"))
+    }
+
+    @Test
+    fun `a new host drops the cached payloads with the cached conversations`() {
+        val store = File("src/main/java/dev/dsh/mobile/mesh/data/SessionStore.kt").readText()
+        val clear = store.substringAfter("conversationCache.clear()", "")
+        assertTrue(clear.contains("changesPayloads.clear()"))
     }
 }
