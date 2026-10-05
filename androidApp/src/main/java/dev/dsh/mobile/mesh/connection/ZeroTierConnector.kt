@@ -127,7 +127,7 @@ class ZeroTierConnector @Inject constructor(
         }
         timing.phase("node-select", selectStart, "ok", detail = "reused=$reused")
         val readyStart = timing.start("await-transport-ready")
-        val readySignal = awaitTransportReady(
+        val (readySignal, dialedTarget) = awaitTransportReady(
             current,
             state,
             networkId,
@@ -163,7 +163,7 @@ class ZeroTierConnector @Inject constructor(
         val opened = synchronized(lock) {
             coroutineContext.ensureActive()
             generation.checkCurrent(token)
-            relayFor(config, timing)
+            relayFor(config, timing, dialedTarget)
         }
         timing.phase("relay-open", relayStart, "ok", detail = "port=${opened.port}")
         opened
@@ -205,7 +205,7 @@ class ZeroTierConnector @Inject constructor(
         }
         timing.phase("node-select", selectStart, "ok", detail = "reused=true")
         val readyStart = timing.start("await-transport-ready")
-        val readySignal = awaitTransportReady(
+        val (readySignal, dialedTarget) = awaitTransportReady(
             current,
             state,
             networkId,
@@ -234,7 +234,7 @@ class ZeroTierConnector @Inject constructor(
             generation.checkCurrent(token)
             relay?.close()
             relay = null
-            relayFor(config, timing)
+            relayFor(config, timing, dialedTarget)
         }
         timing.phase("relay-open", relayStart, "ok", detail = "port=${opened.port}")
         opened
@@ -244,20 +244,24 @@ class ZeroTierConnector @Inject constructor(
      * Wait until the mesh can carry this connection, ending on a real dial to the target or on
      * libzt's online report, whichever proves readiness first.
      *
-     * Sampling keeps a device log able to attribute a slow recovery to one signal, because the node
-     * report and the reachable target used to be two undifferentiated parts of a single total.
+     * The successful dial is returned instead of being dropped: the relay still has to open its own
+     * stream for the SSH tunnel, and handing it the connection this wait already proved removes a
+     * second trip to the host. Sampling keeps a device log able to attribute a slow recovery to one
+     * signal, because the node report and the reachable target used to be two undifferentiated parts
+     * of a single total.
      */
     private suspend fun awaitTransportReady(
         current: ZeroTierNode,
         state: ZeroTierReadiness,
         networkId: Long,
         target: Pair<List<String>, Int>?,
-    ): String {
+    ): Pair<String, DialedTarget?> {
         val startedAt = System.nanoTime()
         // A libzt connect blocks for up to 30 seconds, so a dial runs on the connector executor and
         // reports back through the callback. The wait never depends on that thread finishing.
         val dialInFlight = AtomicBoolean(false)
-        return awaitZeroTierTransportReady(
+        val dialed = SingleClaim<DialedTarget> { (socket, _) -> runCatching { socket.close() } }
+        val signal = awaitZeroTierTransportReady(
             awaitNodeOnline = {
                 state.awaitNodeOnline(ONLINE_TIMEOUT_SECONDS, TimeUnit.SECONDS) { current.isOnline() }
             },
@@ -267,7 +271,11 @@ class ZeroTierConnector @Inject constructor(
                     runCatching {
                         executor.execute {
                             try {
-                                if (dialTarget(addresses, port, startedAt)) onConnected()
+                                val connection = dialTarget(addresses, port, startedAt)
+                                if (connection != null) {
+                                    dialed.publish(connection)
+                                    onConnected()
+                                }
                             } finally {
                                 dialInFlight.set(false)
                             }
@@ -287,29 +295,37 @@ class ZeroTierConnector @Inject constructor(
                 )
             },
         )
+        return signal to dialed.claim()
     }
 
-    /**
-     * Dial the target over ZeroTier and report whether the mesh carried the connection.
-     *
-     * The socket is closed again: the relay opens its own stream for the SSH tunnel, and keeping
-     * this one would hold an idle connection to the host's SSH port for no reader.
-     */
-    private fun dialTarget(addresses: List<String>, remotePort: Int, startedAt: Long): Boolean {
+    /** Dial the target over ZeroTier and keep the socket that proves the mesh carried the connection. */
+    private fun dialTarget(
+        addresses: List<String>,
+        remotePort: Int,
+        startedAt: Long,
+    ): DialedTarget? {
         for (address in addresses) {
             val family = if (':' in address) ZeroTierNative.ZTS_AF_INET6 else ZeroTierNative.ZTS_AF_INET
             val socket = runCatching { ZeroTierSocket(family, ZeroTierNative.ZTS_SOCK_STREAM, 0) }.getOrNull()
                 ?: continue
             val connected = runCatching { socket.connect(address, remotePort) }.isSuccess
-            runCatching { socket.close() }
+            if (!connected) {
+                runCatching { socket.close() }
+                Log.d(
+                    TAG,
+                    "remote-dial result=failed target=$address:$remotePort" +
+                        " elapsedMs=${elapsedMsSince(startedAt)} online=${isServiceOnline()}",
+                )
+                continue
+            }
             Log.d(
                 TAG,
-                "remote-dial result=${if (connected) "connected" else "failed"} target=$address:$remotePort" +
+                "remote-dial result=connected target=$address:$remotePort" +
                     " elapsedMs=${elapsedMsSince(startedAt)} online=${isServiceOnline()}",
             )
-            if (connected) return true
+            return DialedTarget(socket, address)
         }
-        return false
+        return null
     }
 
     private fun resolveTarget(config: HostConfig): Pair<List<String>, Int> {
@@ -344,19 +360,21 @@ class ZeroTierConnector @Inject constructor(
         )
     }
 
-    private fun relayFor(config: HostConfig, timing: ZeroTierTiming): MeshRelay {
+    private fun relayFor(config: HostConfig, timing: ZeroTierTiming, dialed: DialedTarget?): MeshRelay {
         val resolveStart = timing.start("relay-resolve")
         val (addresses, remotePort) = resolveTarget(config)
         Log.d(TAG, "Resolved ZeroTier relay target ${config.host} -> ${addresses.joinToString()}")
         timing.phase("relay-resolve", resolveStart, "ok", detail = "target=${addresses.joinToString()}:$remotePort")
+        // The relay only forwards to this target, so a reused relay can take the connection too.
         relay?.takeIf { it.canReuse(addresses, remotePort) }?.let {
+            it.adopt(dialed)
             Log.d(TAG, "Reusing ZeroTier relay at ${it.localPort} to ${addresses.joinToString()}:$remotePort")
             return it.relay
         }
         relay?.close()
         Log.d(TAG, "Opening ZeroTier relay to ${addresses.joinToString()}:$remotePort")
         val bindStart = timing.start("relay-bind")
-        val nextRelay = ZeroTierRelay(addresses, remotePort, executor).also { it.start() }
+        val nextRelay = ZeroTierRelay(addresses, remotePort, executor, dialed).also { it.start() }
         timing.phase("relay-bind", bindStart, "ok", detail = "port=${nextRelay.localPort}")
         relay = nextRelay
         return nextRelay.relay
@@ -492,13 +510,19 @@ internal class ZeroTierReadiness {
     }
 }
 
+/** A ZeroTier TCP connection that already reached the relay's target, with the address it used. */
+private typealias DialedTarget = Pair<ZeroTierSocket, String>
+
 private class ZeroTierRelay(
     private val addresses: List<String>,
     private val remotePort: Int,
     private val executor: ExecutorService,
+    dialed: DialedTarget? = null,
 ) : Closeable {
     private val server = ServerSocket(0, 32, InetAddress.getByName("127.0.0.1"))
     private val workers = ConcurrentHashMap.newKeySet<ZeroTierForwardWorker>()
+    private val pending = SingleClaim<DialedTarget> { (socket, _) -> runCatching { socket.close() } }
+        .apply { dialed?.let(::publish) }
     private val nextWorkerId = AtomicLong()
     @Volatile private var running = false
     val localPort: Int get() = server.localPort
@@ -506,6 +530,11 @@ private class ZeroTierRelay(
 
     fun canReuse(expectedAddresses: List<String>, expectedPort: Int): Boolean =
         running && addresses == expectedAddresses && remotePort == expectedPort
+
+    /** Offer a connection that already reached this relay's target to the next forwarded stream. */
+    fun adopt(dialed: DialedTarget?) {
+        dialed?.let(pending::publish)
+    }
 
     fun start() {
         running = true
@@ -597,6 +626,12 @@ private class ZeroTierRelay(
     }
 
     private fun connect(): Pair<ZeroTierSocket, String>? {
+        // A readiness dial already proved this path, so reuse it instead of paying for a second
+        // connect to the host. Any later stream, and any adoption that is never used, falls back.
+        pending.claim()?.let { (socket, address) ->
+            Log.d(TAG, "ZeroTier relay adopted a proven connection to $address:$remotePort")
+            return socket to address
+        }
         addresses.forEach { address ->
             val family = if (':' in address) ZeroTierNative.ZTS_AF_INET6 else ZeroTierNative.ZTS_AF_INET
             val socket = runCatching { ZeroTierSocket(family, ZeroTierNative.ZTS_SOCK_STREAM, 0) }.getOrNull() ?: return@forEach
@@ -615,6 +650,8 @@ private class ZeroTierRelay(
     override fun close() {
         running = false
         runCatching { server.close() }
+        // An unclaimed connection to the host would otherwise stay open with no reader on either side.
+        pending.claim()?.let { (socket, _) -> runCatching { socket.close() } }
         // Do not close libzt here: a worker may still be inside a native read/write, and doing so
         // concurrently produced a Pixel 3 SIGSEGV. Closing each loopback endpoint makes its peer
         // copy return. The worker then waits for both directions and is the sole owner that closes
