@@ -1,10 +1,26 @@
-// Map one-finger vertical gestures to xterm's scrollback, which WebView does not
-// scroll by itself (the terminal fills a fixed, overflow-hidden viewport).
+// Terminal gestures for a canvas-painted xterm: one-finger vertical swipes scroll the
+// scrollback (WebView does not scroll the fixed, overflow-hidden viewport by itself) and a
+// long press starts a row selection, because xterm paints with `user-select: none` and the
+// WebView callout can never select terminal glyphs on its own.
 function installTerminalTouchScrolling(container, term) {
   let lastY = null;
   let originX = 0;
   let originY = 0;
   let vertical = false;
+  let selectionTimer = null;
+  let selectionStart = null;
+  let selecting = false;
+  const rowAt = y => {
+    const rect = container.getBoundingClientRect();
+    const rowHeight = rect.height / Math.max(1, term.rows);
+    const buffer = term.buffer.active;
+    if (!(rowHeight > 0)) return buffer.viewportY;
+    // xterm selects by absolute buffer line, so a viewport row shifts by the scroll offset.
+    const row = Math.floor((y - rect.top) / rowHeight);
+    const line = buffer.viewportY + Math.max(0, Math.min(term.rows - 1, row));
+    return Math.max(0, Math.min(buffer.length - 1, line));
+  };
+  const cancelSelectionTimer = () => { clearTimeout(selectionTimer); selectionTimer = null; };
   container.addEventListener('touchstart', event => {
     const target = event.target;
     lastY = event.touches.length === 1 ? event.touches[0].clientY : null;
@@ -16,11 +32,24 @@ function installTerminalTouchScrolling(container, term) {
     originY = lastY;
     originX = event.touches[0].clientX;
     vertical = false;
+    selecting = false;
+    cancelSelectionTimer();
+    selectionTimer = setTimeout(() => {
+      selectionStart = rowAt(originY);
+      selecting = true;
+      term.selectLines(selectionStart, selectionStart);
+    }, 500);
   }, {passive: true});
   container.addEventListener('touchmove', event => {
     if (lastY === null || event.touches.length !== 1) { lastY = null; return; }
     const x = event.touches[0].clientX;
     const y = event.touches[0].clientY;
+    if (selecting) {
+      if (event.cancelable) event.preventDefault();
+      term.selectLines(Math.min(selectionStart, rowAt(y)), Math.max(selectionStart, rowAt(y)));
+      return;
+    }
+    if (Math.abs(y - originY) >= 8 || Math.abs(x - originX) >= 8) cancelSelectionTimer();
     if (!vertical) {
       if (Math.abs(y - originY) < 8 || Math.abs(y - originY) <= Math.abs(x - originX)) return;
       vertical = true;
@@ -38,7 +67,14 @@ function installTerminalTouchScrolling(container, term) {
       lastY -= lines * rowHeight; // preserve partial rows across small movements
     }
   }, {passive: false});
-  const end = () => { lastY = null; vertical = false; };
+  const end = () => {
+    cancelSelectionTimer();
+    // A tap that never became a selection drops a stale one, so Copy acts on what is on screen.
+    if (!selecting && term.hasSelection()) term.clearSelection();
+    lastY = null;
+    vertical = false;
+    selecting = false;
+  };
   container.addEventListener('touchend', end, {passive: true});
   container.addEventListener('touchcancel', end, {passive: true});
 }
