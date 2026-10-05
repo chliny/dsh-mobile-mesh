@@ -2,6 +2,11 @@ package dev.dsh.mobile.mesh.data
 
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
 import dev.dsh.mobile.mesh.core.session.QueueItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -89,6 +94,48 @@ class SessionStoreSwitchCacheTest {
         assertNull(conversationForSelectedSession("session-b", first))
         assertEquals(second, conversationForSelectedSession("session-b", second))
         assertNull(conversationForSelectedSession(null, second))
+    }
+
+    @Test
+    fun `selected id is published after its own cache and never exposes another session`() = runBlocking {
+        val selected = MutableStateFlow<String?>("a")
+        val conversation = MutableStateFlow<ConversationSnapshot?>(snapshot("a", lastSeq = 1))
+        val cachedB = snapshot("b", blank = false, lastSeq = 8)
+        val observed = mutableListOf<Pair<String?, String?>>()
+        // An unconfined collector observes selection immediately, before another emission can hide
+        // a transient old/empty conversation; normal UI collectors may run later and conflate it.
+        val observer = launch(Dispatchers.Unconfined) {
+            selected.collect { observed += it to conversation.value?.sessionId }
+        }
+        publishSelectedConversation(selected, conversation, "b", cachedB)
+        assertSame(cachedB, conversation.value)
+        publishSelectedConversation(selected, conversation, "c", cachedB)
+        assertNull(conversation.value) // Incorrect cache keys cannot bleed into a new chat.
+        observer.cancel()
+        assertEquals(listOf("a" to "a", "b" to "b", "c" to null), observed)
+    }
+
+    @Test
+    fun `queued rebuild cannot erase cached transcript before new follow baseline`() {
+        val model = SessionSwitchCacheModel()
+        val a = snapshot("a", blank = false, lastSeq = 4)
+        val b = snapshot("b", blank = false, lastSeq = 8)
+        model.seed(a)
+        model.seed(b)
+        assertEquals(a, model.requestOpen("a"))
+        assertEquals(b, model.requestOpen("b"))
+
+        // A rebuild tick left by a, or a control projection for b, can run before b's journal
+        // arrives. The cache and visible conversation must remain b, not an empty fold.
+        assertFalse(canRebuildFromFollow(null))
+        assertEquals(b, model.currentConversation)
+        assertEquals(a, model.requestOpen("a")) // Opening b never evicted a.
+        assertTrue(canRebuildFromFollow(0)) // An empty authoritative snapshot is still ready.
+        assertEquals(b, model.requestOpen("b"))
+        val fresh = snapshot("b", blank = false, lastSeq = 9)
+        assertTrue(model.acceptFollowSnapshot("b", fresh))
+        assertEquals(fresh, model.currentConversation)
+        assertEquals(a, model.requestOpen("a"))
     }
 
     @Test

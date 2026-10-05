@@ -412,13 +412,34 @@ class SessionStore @Inject constructor(
     ) { selectedId, conversation -> conversationForSelectedSession(selectedId, conversation) }
         .stateIn(scope, SharingStarted.Eagerly, null)
 
-    /** Load a changed-files summary associated with one durable workspace/changes event. */
-    suspend fun loadChangesSummary(sessionId: String, seq: Long): RpcResult<ChangesSummary> =
-        (apiOrNull()?.changesSummary(sessionId, seq) ?: RpcResult.Err(dev.dsh.mobile.mesh.core.wire.RpcError("not-connected", "Not connected")))
+    /**
+     * Load a changed-files summary associated with one durable workspace/changes event.
+     *
+     * The event is addressed by its own seq, so the answer is a fact about it rather than live
+     * state. It is kept per session: the transcript is rebuilt from scratch every time the reader
+     * leaves it, and a row that had to ask again showed its loading line over content it already
+     * had. [changesSummaryNow] is the synchronous read that lets a returning row render it at once.
+     */
+    suspend fun loadChangesSummary(sessionId: String, seq: Long): RpcResult<ChangesSummary> {
+        val result = apiOrNull()?.changesSummary(sessionId, seq)
+            ?: RpcResult.Err(dev.dsh.mobile.mesh.core.wire.RpcError("not-connected", "Not connected"))
+        if (result is RpcResult.Ok) changesPayloads.recordSummary(sessionId, seq, result.value)
+        return result
+    }
 
-    /** Load one host-computed changed-file diff. */
-    suspend fun loadChangesDiff(sessionId: String, seq: Long, index: Int): RpcResult<ChangesDiff> =
-        (apiOrNull()?.changesDiff(sessionId, seq, index) ?: RpcResult.Err(dev.dsh.mobile.mesh.core.wire.RpcError("not-connected", "Not connected")))
+    /** Load one host-computed changed-file diff; kept under the same reasoning as [loadChangesSummary]. */
+    suspend fun loadChangesDiff(sessionId: String, seq: Long, index: Int): RpcResult<ChangesDiff> {
+        val result = apiOrNull()?.changesDiff(sessionId, seq, index)
+            ?: RpcResult.Err(dev.dsh.mobile.mesh.core.wire.RpcError("not-connected", "Not connected"))
+        if (result is RpcResult.Ok) changesPayloads.recordDiff(sessionId, seq, index, result.value)
+        return result
+    }
+
+    /** The summary already in hand for this event, or null if it still has to be asked for. */
+    fun changesSummaryNow(sessionId: String, seq: Long): ChangesSummary? = changesPayloads.summary(sessionId, seq)
+
+    /** The diff already in hand for this file of this event, or null if it still has to be asked for. */
+    fun changesDiffNow(sessionId: String, seq: Long, index: Int): ChangesDiff? = changesPayloads.diff(sessionId, seq, index)
 
     private val _jobs = MutableStateFlow<List<JobView>>(emptyList())
     val jobs: StateFlow<List<JobView>> = _jobs.asStateFlow()
@@ -619,6 +640,14 @@ class SessionStore @Inject constructor(
     }
 
     /**
+     * Changed-files summaries and diffs the harness has already answered for, per session.
+     *
+     * Kept beside [conversationCache] for the same reason and cleared with it: both are render caches
+     * for content the server owns, and both belong to a host rather than to the process.
+     */
+    private val changesPayloads = ChangesPayloadCache()
+
+    /**
      * The open session's follow cursor: the log cut its current stream generation opened at.
      *
      * `session/page` will not answer without it. Paging is pinned to the same cut the live tail
@@ -775,6 +804,7 @@ class SessionStore @Inject constructor(
             workspaceRows.clear()
             workspaceOrder.clear()
             conversationCache.clear()
+            changesPayloads.clear()
             currentId = null
             currentEvents.clear()
             currentHasMore = false
@@ -1831,6 +1861,10 @@ class SessionStore @Inject constructor(
 
     private fun rebuildCurrentLocked() {
         val sid = currentId ?: return
+        // Switching publishes this session's cached transcript before follow has installed its
+        // journal. A queued tick or control projection must not fold that still-empty journal and
+        // replace the cached content with an empty conversation in the meantime.
+        if (!canRebuildFromFollow(followCursor)) return
         val events = currentEvents.toList()
         val snapshot = EventFold(sid).fold(events, liveAssistant.transientEnvelopes())
         val optimistic = optimisticPromptBySession[sid].orEmpty()
@@ -2099,22 +2133,26 @@ class SessionStore @Inject constructor(
             val api = apiOrNull()
         if (api == null) {
             synchronized(lock) {
+                followCursor = null
                 currentId = sessionId
                 currentAddress = address
                 _currentSessionAddress.value = address
-                _currentSessionId.value = sessionId
                 currentQueue = queueBySession[sessionId] ?: cached?.queue ?: emptyList()
-                _currentConversation.value = cached?.copy(queue = currentQueue)
+                publishSelectedConversation(
+                    _currentSessionId, _currentConversation, sessionId,
+                    cached?.copy(queue = currentQueue),
+                )
             }
             return@withContext
         }
         _loadOlderFailed.value = false
         synchronized(lock) {
             val same = currentId == sessionId
+            // Fence any rebuild already queued by the previous session before changing identity.
+            followCursor = null
             currentId = sessionId
             currentAddress = address
             _currentSessionAddress.value = address
-            _currentSessionId.value = sessionId
             if (!same) {
                 // Keep the old fold only until the replacement snapshot is available. Most importantly,
                 // publish the per-session cache before clearing live state: a slow follow open must not
@@ -2129,7 +2167,6 @@ class SessionStore @Inject constructor(
                 }
                 currentQueue = queueBySession[sessionId] ?: cachedSnapshot?.queue ?: emptyList()
                 liveAssistant.clear()
-                _currentConversation.value = cachedSnapshot?.copy(queue = currentQueue)
                 _jobs.value = emptyList()
                 _skills.value = emptyList()
                 // Keep the host-scoped model catalog while switching sessions. Clearing it makes the
@@ -2140,6 +2177,14 @@ class SessionStore @Inject constructor(
                 _subagentMode.value = null
                 _commands.value = emptyList()
                 _pendingPermission.value = null
+                // The drawer closes on selection. Publish this session's cache first, never the
+                // previous session's fold or a transient null while the follow stream opens.
+                publishSelectedConversation(
+                    _currentSessionId, _currentConversation, sessionId,
+                    cachedSnapshot?.copy(queue = currentQueue),
+                )
+            } else {
+                _currentSessionId.value = sessionId
             }
         }
         startFollow(sessionId, address)
