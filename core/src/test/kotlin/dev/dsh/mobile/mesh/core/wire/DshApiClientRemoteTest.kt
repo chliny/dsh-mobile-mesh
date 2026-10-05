@@ -84,6 +84,22 @@ class DshApiClientRemoteTest {
     )
 
     @Test
+    fun `mods band press sends the observed generation and agent id`() = runTest {
+        val transport = RecordingTransport { _, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """{"generation":8,"tree":null}""")
+        }
+        val result = client(transport).modsPressBand("session-1", 7, "button-2")
+        assertEquals("/api/claudeCodeMods/pressBand", transport.lastPath)
+        val args = Json.parseToJsonElement(transport.lastBody!!).jsonObject["payload"]!!
+            .jsonObject["args"]!!.jsonObject
+        assertEquals("session-1", args["agentId"]!!.jsonPrimitive.content)
+        assertEquals(7L, args["generation"]!!.jsonPrimitive.content.toLong())
+        assertEquals("button-2", args["actionId"]!!.jsonPrimitive.content)
+        assertEquals(8L, (result as RpcResult.Ok).value.generation)
+    }
+
+    @Test
     fun `job kill calls fenced job remote`() = runTest {
         val transport = RecordingTransport { path, body ->
             val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
@@ -224,6 +240,60 @@ class DshApiClientRemoteTest {
     }
 
     @Test
+    fun `native path request uses the current path action contract without a session id`() = runTest {
+        val transport = RecordingTransport { _, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """{"opened":true}""")
+        }
+        client(transport).sessionOpenWorkspacePath("/home/work/report.txt", action = "reveal")
+        val request = Json.parseToJsonElement(transport.lastBody!!).jsonObject["payload"]!!
+            .jsonObject["args"]!!.jsonObject["request"]!!.jsonObject
+        assertEquals(setOf("path", "action"), request.keys)
+        assertEquals("reveal", request["action"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `pin sends a session request and preserves server pin order`() = runTest {
+        val transport = RecordingTransport { _, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """{"pinnedSessionIds":["s2","s1"]}""")
+        }
+        val result = client(transport).workspacePinSession("s2")
+        assertEquals("/api/workspace/pinSession", transport.lastPath)
+        val args = Json.parseToJsonElement(transport.lastBody!!).jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject
+        assertEquals("s2", args["request"]!!.jsonObject["sessionId"]!!.jsonPrimitive.content)
+        assertEquals(listOf("s2", "s1"), (result as RpcResult.Ok).value.pinnedSessionIds)
+    }
+
+    @Test
+    fun `session reference candidates use the server supplied canonical mention`() = runTest {
+        val mention = "@[Study](dsh-session:source-2)"
+        val transport = RecordingTransport { _, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """[{"sessionId":"source-2","label":"Study","sameWorkspace":true,"createdAt":100,"mention":"$mention"}]""")
+        }
+        val result = client(transport).sessionReferenceCandidates("target-1", "")
+        assertEquals("/api/sessionReferenceResolver/candidates", transport.lastPath)
+        val args = Json.parseToJsonElement(transport.lastBody!!).jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject
+        assertEquals("target-1", args["agentId"]!!.jsonPrimitive.content)
+        assertEquals("", args["query"]!!.jsonPrimitive.content)
+        assertEquals(mention, (result as RpcResult.Ok).value.single().mention)
+    }
+
+    @Test
+    fun `malformed command catalog is an error rather than a fabricated empty catalog`() = runTest {
+        for (value in listOf("{}", """[{"name":"valid"},{}]""")) {
+            val transport = RecordingTransport { _, body ->
+                val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+                ok(rpcId, value)
+            }
+            val result = client(transport).commandsList("session-1")
+            assertEquals("internal", (result as RpcResult.Err).error.code)
+            assertTrue(result.error.message.contains("commands/list"))
+        }
+    }
+
+    @Test
     fun `a 0-1-2 catalog's images flag is not read as attachments`() = runTest {
         // The key was renamed upstream; a host still sending the old one declares nothing this
         // client understands, and the composer must refuse rather than send attachments a
@@ -330,15 +400,14 @@ class DshApiClientRemoteTest {
     }
 
     @Test
-    fun `malformed command rows drop out instead of emptying the catalog`() = runTest {
+    fun `invalid command rows report protocol drift while future fields remain readable`() = runTest {
         val transport = RecordingTransport { _, body ->
             val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
             ok(rpcId, """[{"name":"plan"},{"unexpected":true},{"name":"compact","future":42}]""")
         }
         val result = client(transport).commandsList("session-5")
-
-        val commands = (result as RpcResult.Ok).value
-        assertEquals(listOf("plan", "compact"), commands.map { it.name })
+        assertEquals("internal", (result as RpcResult.Err).error.code)
+        assertTrue(result.error.message.contains("row 1"))
     }
 
     @Test

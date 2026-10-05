@@ -633,6 +633,13 @@ sealed class WorkspaceFollowFrame {
         @SerialName("archivedSessionIds") val archivedSessionIds: List<String> = emptyList(),
     ) : WorkspaceFollowFrame()
 
+    /** Complete registry-global pin order, most recently pinned first. */
+    @Serializable
+    data class Pinned(
+        @SerialName("type") override val type: String = "pinned",
+        @SerialName("pinnedSessionIds") val pinnedSessionIds: List<String> = emptyList(),
+    ) : WorkspaceFollowFrame()
+
     /** A frame of an unknown `type`, preserved verbatim. */
     data class Unknown(
         override val type: String,
@@ -658,6 +665,8 @@ object WorkspaceFollowFrameSerializer : KSerializer<WorkspaceFollowFrame> {
                 encodeToJsonElement(WorkspaceFollowFrame.Order.serializer(), value)
             is WorkspaceFollowFrame.Archived ->
                 encodeToJsonElement(WorkspaceFollowFrame.Archived.serializer(), value)
+            is WorkspaceFollowFrame.Pinned ->
+                encodeToJsonElement(WorkspaceFollowFrame.Pinned.serializer(), value)
             is WorkspaceFollowFrame.Unknown -> value.raw
         }
         (encoder as JsonEncoder).encodeJsonElement(json)
@@ -671,6 +680,7 @@ object WorkspaceFollowFrameSerializer : KSerializer<WorkspaceFollowFrame> {
             "remove" -> decodeFromJsonElement(WorkspaceFollowFrame.Remove.serializer(), json)
             "order" -> decodeFromJsonElement(WorkspaceFollowFrame.Order.serializer(), json)
             "archived" -> decodeFromJsonElement(WorkspaceFollowFrame.Archived.serializer(), json)
+            "pinned" -> decodeFromJsonElement(WorkspaceFollowFrame.Pinned.serializer(), json)
             else -> WorkspaceFollowFrame.Unknown(type, json)
         }
     }

@@ -19,6 +19,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.LlmDiscoveredModel
 import dev.dsh.mobile.mesh.core.wire.dto.LlmModelDiscoveryRequest
 import dev.dsh.mobile.mesh.core.wire.dto.LlmProviderInfo
 import dev.dsh.mobile.mesh.core.wire.dto.ModelCatalog
+import dev.dsh.mobile.mesh.core.wire.dto.ModsBandSnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.PluginInventoryEntry
 import dev.dsh.mobile.mesh.core.wire.dto.PluginInventorySnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.REMOTE_EVENT_RESULT_ENDPOINT
@@ -47,6 +48,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.SessionRenameRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionRenameValue
 import dev.dsh.mobile.mesh.core.wire.dto.SessionSearchRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionSearchValue
+import dev.dsh.mobile.mesh.core.wire.dto.SessionReferenceCandidate
 import dev.dsh.mobile.mesh.core.wire.dto.SessionSelectModelRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionSelectModelValue
 import dev.dsh.mobile.mesh.core.wire.dto.SessionUpdateQueueRequest
@@ -80,6 +82,9 @@ import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDeleteValue
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceInsertBeforeRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceInsertSessionBeforeRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceOrderValue
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspacePinSessionRequest
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceUnpinSessionRequest
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspacePinValue
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceRenameRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceValue
 import java.io.IOException
@@ -273,21 +278,15 @@ class DshApiClient(
             is RpcResult.Err -> result
         }
 
-    /**
-     * `session/openWorkspacePath` — open a path with the OS default application.
-     *
-     * This replaces `host.openPath`, and the session is not decoration: the host resolves a
-     * relative path against that session's workspace and refuses a browser-chosen absolute
-     * target, so there is no longer a way to ask the host to open an arbitrary file.
-     */
+    /** `session/openWorkspacePath` — native open/reveal after Host filesystem verification. */
     suspend fun sessionOpenWorkspacePath(
-        sessionId: String,
         path: String,
+        action: String? = null,
         application: String? = null,
     ): RpcResult<HostOpenPathValue> =
         callRequest(
             "session/openWorkspacePath",
-            dev.dsh.mobile.mesh.core.wire.dto.SessionOpenWorkspacePathRequest(sessionId, path, application),
+            dev.dsh.mobile.mesh.core.wire.dto.SessionOpenWorkspacePathRequest(path, action, application),
         )
 
     /** `session/canOpenWorkspacePath` — whether this deployment can reach a native desktop. */
@@ -461,6 +460,16 @@ class DshApiClient(
             put("answer", encodeToJsonElement(AskUserQuestionAnswer.serializer(), answer))
         })
 
+    // ------------------------------------------------------------------ optional session surfaces
+
+    /** Press an action from an observed optional Claude Code mods band generation. */
+    suspend fun modsPressBand(sessionId: String, generation: Long, actionId: String): RpcResult<ModsBandSnapshot> =
+        call("claudeCodeMods/pressBand", args {
+            put("agentId", JsonPrimitive(sessionId))
+            put("generation", JsonPrimitive(generation))
+            put("actionId", JsonPrimitive(actionId))
+        })
+
     // ------------------------------------------------------------------ session terminals
 
     /** List host-retained terminals without activating a session Agent. */
@@ -565,6 +574,14 @@ class DshApiClient(
     suspend fun workspaceArchiveSession(
         request: WorkspaceArchiveSessionRequest,
     ): RpcResult<WorkspaceArchiveValue> = callRequest("workspace/archiveSession", request)
+
+    /** Pin one known session; the response is the authoritative ordered pin set. */
+    suspend fun workspacePinSession(sessionId: String): RpcResult<WorkspacePinValue> =
+        callRequest("workspace/pinSession", WorkspacePinSessionRequest(sessionId))
+
+    /** Remove a session pin; the response is the authoritative ordered pin set. */
+    suspend fun workspaceUnpinSession(sessionId: String): RpcResult<WorkspacePinValue> =
+        callRequest("workspace/unpinSession", WorkspaceUnpinSessionRequest(sessionId))
 
     /** Fetch one changed-files summary from the authenticated deliverables route. */
     suspend fun changesSummary(sessionId: String, seq: Long): RpcResult<ChangesSummary> =
@@ -827,19 +844,28 @@ class DshApiClient(
 
     /**
      * `commands/list` — the session's slash-command catalog.
-     *
-     * Rows are decoded individually so one unfamiliar entry drops out instead of emptying the menu.
+     * An invalid successful response is a protocol failure, not an empty catalog.
      * A harness without a command registry answers 404, which surfaces as `capability-unavailable`.
      */
-    suspend fun commandsList(sessionId: String): RpcResult<List<CommandDescriptor>> =
-        when (val result = call<JsonElement>("commands/list", args { put("agentId", JsonPrimitive(sessionId)) })) {
-            is RpcResult.Ok -> RpcResult.Ok(
-                (result.value as? JsonArray).orEmpty().mapNotNull { row ->
-                    runCatching { decodeFromJsonElement(CommandDescriptor.serializer(), row) }.getOrNull()
-                },
-            )
+    suspend fun commandsList(sessionId: String): RpcResult<List<CommandDescriptor>> {
+        return when (val result = call<JsonElement>("commands/list", args { put("agentId", JsonPrimitive(sessionId)) })) {
+            is RpcResult.Ok -> {
+                val rows = result.value as? JsonArray
+                    ?: return RpcResult.Err(notAHarness("commands/list response must be an array"))
+                val commands = ArrayList<CommandDescriptor>(rows.size)
+                for ((index, row) in rows.withIndex()) {
+                    val command = try {
+                        decodeFromJsonElement(CommandDescriptor.serializer(), row)
+                    } catch (e: Exception) {
+                        return RpcResult.Err(notAHarness("commands/list row $index is invalid: ${e.message}"))
+                    }
+                    commands.add(command)
+                }
+                RpcResult.Ok(commands)
+            }
             is RpcResult.Err -> result
         }
+    }
 
     /**
      * `commands/execute` — runs one complete slash-command line against the session's agent.
@@ -1007,6 +1033,14 @@ class DshApiClient(
                 put("agentId", JsonPrimitive(sessionId))
                 put("query", JsonPrimitive(query))
             },
+        )
+
+    /** Server-ranked session-reference candidates, each carrying its exact prompt mention. */
+    suspend fun sessionReferenceCandidates(sessionId: String, query: String): RpcResult<List<SessionReferenceCandidate>> =
+        call(
+            "sessionReferenceResolver/candidates",
+            args { put("agentId", JsonPrimitive(sessionId)); put("query", JsonPrimitive(query)) },
+            ListSerializer(SessionReferenceCandidate.serializer()),
         )
 
     // ------------------------------------------------------------------ remote events

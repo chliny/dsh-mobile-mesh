@@ -142,6 +142,8 @@ fun ChatListDrawer(
     val workspaces by store.workspaces.collectAsStateWithLifecycle()
     val workspacesLoaded by store.workspacesLoaded.collectAsStateWithLifecycle()
     val archivedIds by store.archivedSessionIds.collectAsStateWithLifecycle()
+    val pinnedIds by store.pinnedSessionIds.collectAsStateWithLifecycle()
+    val pinAvailable by store.pinAvailable.collectAsStateWithLifecycle()
     val searchResults by store.searchResults.collectAsStateWithLifecycle()
     val contentSearchAvailable by store.contentSearchAvailable.collectAsStateWithLifecycle()
     val currentSessionId by store.currentSessionId.collectAsStateWithLifecycle()
@@ -195,6 +197,9 @@ fun ChatListDrawer(
     val nestedIds = remember(childrenByParent) {
         childrenByParent.values.flatten().mapTo(HashSet()) { it.sessionId }
     }
+    val pinnedSet = pinnedIds.toSet()
+    val pinnedRoots = pinnedRootIds(pinnedIds, listable.mapTo(HashSet()) { it.sessionId }, nestedIds)
+        .mapNotNull(sessionsById::get)
     // Every session between the open one and the root, so a subtree holding it opens by default.
     val openPath = remember(currentSessionId, sessionsById) {
         buildSet {
@@ -322,10 +327,25 @@ fun ChatListDrawer(
             }
 
             var anyShown = false
+            if (pinnedRoots.isNotEmpty()) {
+                anyShown = true
+                item(key = "pinned-header") { SectionHeader(stringResource(R.string.chatlist_pinned)) }
+                val pinnedRows = pinnedRoots.flatMap { subtree(it) }
+                items(pinnedRows, key = { it.first.sessionId }) { (session, depth) ->
+                    SessionRowItem(
+                        session = session, isCurrent = session.sessionId == currentSessionId,
+                        store = store, scope = scope, onClose = onClose, depth = depth,
+                        isPinned = session.sessionId in pinnedSet, pinAvailable = pinAvailable,
+                        childCount = childrenByParent[session.sessionId].orEmpty().size,
+                        childrenExpanded = isChildExpanded(session.sessionId),
+                        onToggleChildren = { toggleChildren(session.sessionId) },
+                    )
+                }
+            }
             for (workspace in workspaces) {
                 val roots = workspace.sessionIds
                     .mapNotNull { id -> listable.firstOrNull { it.sessionId == id } }
-                    .filterNot { it.sessionId in nestedIds }
+                    .filterNot { it.sessionId in nestedIds || it.sessionId in pinnedSet }
                     .let { if (sortByRecency) it.sortedByDescending(SessionRow::updatedAt) else it }
                 if (roots.isEmpty()) continue
                 anyShown = true
@@ -374,6 +394,8 @@ fun ChatListDrawer(
                                 depth = depth,
                                 childCount = childrenByParent[session.sessionId].orEmpty().size,
                                 childrenExpanded = isChildExpanded(session.sessionId),
+                                isPinned = session.sessionId in pinnedSet,
+                                pinAvailable = pinAvailable,
                                 onToggleChildren = { toggleChildren(session.sessionId) },
                             )
                         }
@@ -395,7 +417,7 @@ fun ChatListDrawer(
             // Sessions the harness never registered in a workspace, plus any subagent whose whole
             // ancestry is archived or blank — those have no row left to nest under.
             val ungrouped = listable.filter {
-                it.sessionId !in workspaceSessionIds && it.sessionId !in nestedIds
+                it.sessionId !in workspaceSessionIds && it.sessionId !in nestedIds && it.sessionId !in pinnedSet
             }
             if (ungrouped.isNotEmpty()) {
                 anyShown = true
@@ -414,6 +436,8 @@ fun ChatListDrawer(
                             depth = depth,
                             childCount = childrenByParent[session.sessionId].orEmpty().size,
                             childrenExpanded = isChildExpanded(session.sessionId),
+                            isPinned = session.sessionId in pinnedSet,
+                            pinAvailable = pinAvailable,
                             onToggleChildren = { toggleChildren(session.sessionId) },
                         )
                     }
@@ -711,6 +735,8 @@ private fun SessionRowItem(
     childrenExpanded: Boolean = false,
     onToggleChildren: () -> Unit = {},
     isArchived: Boolean = false,
+    isPinned: Boolean = false,
+    pinAvailable: Boolean = false,
 ) {
     val colors = DsTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
@@ -815,6 +841,7 @@ private fun SessionRowItem(
                 Spacer(Modifier.width(DsSpacing.xsmall))
                 DsPill(text = stringResource(R.string.chatlist_needs_action), warn = true)
             }
+            if (isPinned) DsPill(text = "★")
             // The count replaces the old "Subagents" pill on parents: with the children indented
             // underneath, what is worth saying is how many are down there when the row is closed.
             if (childCount > 0) {
@@ -837,6 +864,12 @@ private fun SessionRowItem(
                 SheetRow(title = stringResource(R.string.chatlist_session_fork)) {
                     menuOpen = false
                     scope.launch { store.forkSession(session.sessionId) }
+                }
+                if (pinAvailable && !isArchived) {
+                    SheetRow(title = stringResource(if (isPinned) R.string.chatlist_session_unpin else R.string.chatlist_session_pin)) {
+                        menuOpen = false
+                        scope.launch { store.setSessionPinned(session.sessionId, !isPinned) }
+                    }
                 }
                 if (isArchived) {
                     SheetRow(title = stringResource(R.string.chatlist_session_unarchive)) {
@@ -1076,10 +1109,10 @@ private fun NewWorkspaceDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Walk a (possibly nested) subagent session's parent chain up to the session directly registered in
- * a workspace, returning that workspace id — or null for an orphan.
- */
+/** Preserve the server pin order, excluding only rows not rendered as top-level sessions. */
+internal fun pinnedRootIds(pins: List<String>, visibleIds: Set<String>, nestedIds: Set<String>): List<String> =
+    pins.filter { it in visibleIds && it !in nestedIds }
+
 /**
  * Group subagent sessions under the visible session that spawned them.
  *

@@ -383,6 +383,10 @@ class SessionStore @Inject constructor(
 
     private val _archivedSessionIds = MutableStateFlow<Set<String>>(emptySet())
     val archivedSessionIds: StateFlow<Set<String>> = _archivedSessionIds.asStateFlow()
+    private val _pinnedSessionIds = MutableStateFlow<List<String>>(emptyList())
+    val pinnedSessionIds: StateFlow<List<String>> = _pinnedSessionIds.asStateFlow()
+    private val _pinAvailable = MutableStateFlow(false)
+    val pinAvailable: StateFlow<Boolean> = _pinAvailable.asStateFlow()
 
     private val _currentSessionId = MutableStateFlow<String?>(null)
     val currentSessionId: StateFlow<String?> = _currentSessionId.asStateFlow()
@@ -648,6 +652,10 @@ class SessionStore @Inject constructor(
     /** The open session's live journal. Cancelled and replaced whenever the open session changes. */
     private var followJob: Job? = null
 
+    private val _modsBand = MutableStateFlow<dev.dsh.mobile.mesh.core.wire.dto.ModsBandSnapshot?>(null)
+    val modsBand: StateFlow<dev.dsh.mobile.mesh.core.wire.dto.ModsBandSnapshot?> = _modsBand.asStateFlow()
+    private var modsBandJob: Job? = null
+
     /** Host-wide live control stream (queues and projections), one per generation. */
     private var controlJob: Job? = null
 
@@ -741,6 +749,8 @@ class SessionStore @Inject constructor(
     /** Clear the visible session mirror before a user-selected host starts connecting. */
     fun prepareForConnection(hostId: String) {
         followJob?.cancel()
+        modsBandJob?.cancel()
+        _modsBand.value = null
         questionWaitJobs.values.forEach(Job::cancel)
         questionWaitJobs.clear()
         _pendingQuestions.value = null
@@ -785,6 +795,8 @@ class SessionStore @Inject constructor(
             sessionListBaselineState = "loading"
             _workspaces.value = emptyList()
             _workspacesLoaded.value = false
+            _pinnedSessionIds.value = emptyList()
+            _pinAvailable.value = false
             _currentSessionId.value = null
             _jobs.value = emptyList()
             _currentConversation.value = null
@@ -840,10 +852,13 @@ class SessionStore @Inject constructor(
                 }
                 if (state.phase == ConnectionPhase.RECONNECTING || state.phase == ConnectionPhase.DISCONNECTED) {
                     _workspacesLoaded.value = false
+                    _pinAvailable.value = false
                     // Cancel generation-bound stream collectors immediately. A dead mux may not
                     // deliver another frame until OkHttp's carrier timeout, leaving stale collectors
                     // and loading state looking like a frozen page.
                     followJob?.cancel()
+                    modsBandJob?.cancel()
+                    _modsBand.value = null
                     questionWaitJobs.values.forEach(Job::cancel)
                     questionWaitJobs.clear()
                     _pendingQuestions.value = null
@@ -888,19 +903,29 @@ class SessionStore @Inject constructor(
         val mux = generation.mux
         controlJob?.cancel()
         controlJob = scope.launch {
-            runCatching {
-                mux.openStream("session/control").collect { item ->
-                    decodeOrNull(SessionControlFrameSerializer, item)?.let { handleControlFrame(it) }
-                }
-            }.onFailure { log("session/control ended", it) }
+            followAuthoritativeStream(
+                current = { connectionManager.generation?.mux === mux },
+                open = { mux.openStream("session/control") },
+                onItem = { item -> decodeOrNull(SessionControlFrameSerializer, item)?.let { handleControlFrame(it) } },
+                onFailure = { log("session/control ended", it) },
+            )
         }
         workspaceJob?.cancel()
         workspaceJob = scope.launch {
-            runCatching {
-                mux.openStream("workspace/follow").collect { item ->
-                    decodeOrNull(WorkspaceFollowFrameSerializer, item)?.let { handleWorkspaceFrame(it) }
-                }
-            }.onFailure { log("workspace/follow ended", it) }
+            followAuthoritativeStream(
+                current = { connectionManager.generation?.mux === mux },
+                open = { mux.openStream("workspace/follow") },
+                onItem = { item ->
+                    val frame = decodeOrNull(WorkspaceFollowFrameSerializer, item)
+                    if (frame is WorkspaceFollowFrame.Baseline) {
+                        _pinAvailable.value = ((item as? JsonObject)?.get("value") as? JsonObject)
+                            ?.containsKey("pinnedSessionIds") == true
+                    }
+                    if (frame is WorkspaceFollowFrame.Pinned) _pinAvailable.value = true
+                    frame?.let { handleWorkspaceFrame(it) }
+                },
+                onFailure = { log("workspace/follow ended", it) },
+            )
         }
     }
 
@@ -1373,6 +1398,7 @@ class SessionStore @Inject constructor(
                 _workspacesLoaded.value = true
                 archived = frame.value.archivedSessionIds.toSet()
                 _archivedSessionIds.value = archived
+                _pinnedSessionIds.value = frame.value.pinnedSessionIds
                 emitWorkspacesLocked()
                 logSessionListPresentationSnapshotLocked("workspace-baseline")
             }
@@ -1380,6 +1406,7 @@ class SessionStore @Inject constructor(
             is WorkspaceFollowFrame.Remove -> removeWorkspace(frame.workspaceId)
             is WorkspaceFollowFrame.Order -> setWorkspaceOrder(frame.workspaceIds)
             is WorkspaceFollowFrame.Archived -> setArchived(frame.archivedSessionIds)
+            is WorkspaceFollowFrame.Pinned -> _pinnedSessionIds.value = frame.pinnedSessionIds
             is WorkspaceFollowFrame.Unknown -> log("unknown workspace frame ${frame.type}")
         }
     }
@@ -2152,11 +2179,32 @@ class SessionStore @Inject constructor(
     private fun startFollow(sessionId: String, address: SessionAddress) {
         log("opening session/follow for $sessionId")
         followJob?.cancel()
-        followCursor = null
+        modsBandJob?.cancel()
+        _modsBand.value = null
+        synchronized(lock) { followCursor = null }
         val mux = connectionManager.generation?.mux
         if (mux == null) {
             log("cannot follow $sessionId: no connection generation")
             return
+        }
+        modsBandJob = scope.launch {
+            val bandArgs = buildJsonObject { put("agentId", JsonPrimitive(sessionId)) }
+            try {
+                mux.openStream("claudeCodeMods/watchBand", bandArgs).collect { item ->
+                    val snapshot = decodeOrNull(dev.dsh.mobile.mesh.core.wire.dto.ModsBandSnapshot.serializer(), item)
+                    if (snapshot != null && currentSessionId.value == sessionId && connectionManager.generation?.mux === mux) {
+                        _modsBand.value = snapshot
+                    }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: dev.dsh.mobile.mesh.core.wire.RemoteStreamException) {
+                if (!isUnsupportedModsBandFailure(failure.error, failure.carrier)) {
+                    log("claudeCodeMods/watchBand ended for $sessionId", failure)
+                }
+            } catch (failure: Throwable) {
+                log("claudeCodeMods/watchBand ended for $sessionId", failure)
+            }
         }
         val args = buildJsonObject {
             put(
@@ -2186,6 +2234,22 @@ class SessionStore @Inject constructor(
                 log("session/follow ended for $sessionId", failure)
                 setConnectionError(failure.message)
             }
+        }
+    }
+
+    /** Act only on the selected session's current server drawing, never a stale button. */
+    suspend fun pressModsBand(generation: Long, actionId: String): String? {
+        val sessionId = currentSessionId.value ?: return "no session selected"
+        if (modsBand.value?.generation != generation) return "drawing changed"
+        val api = apiOrNull() ?: return "not connected"
+        return when (val result = api.modsPressBand(sessionId, generation, actionId)) {
+            is RpcResult.Ok -> {
+                if (currentSessionId.value == sessionId && modsBand.value?.generation == generation) {
+                    _modsBand.value = result.value
+                }
+                null
+            }
+            is RpcResult.Err -> result.error.message
         }
     }
 
@@ -2395,6 +2459,17 @@ class SessionStore @Inject constructor(
                 refreshSessions()
             }
             is RpcResult.Err -> setConnectionError(r.error.message)
+        }
+    }
+
+    /** Pin mutations replace the complete ordered server set; older Hosts never expose the action. */
+    suspend fun setSessionPinned(sessionId: String, pinned: Boolean) {
+        if (!pinAvailable.value) return
+        val api = apiOrNull() ?: return
+        val result = if (pinned) api.workspacePinSession(sessionId) else api.workspaceUnpinSession(sessionId)
+        when (result) {
+            is RpcResult.Ok -> _pinnedSessionIds.value = result.value.pinnedSessionIds
+            is RpcResult.Err -> setConnectionError(result.error.message)
         }
     }
 

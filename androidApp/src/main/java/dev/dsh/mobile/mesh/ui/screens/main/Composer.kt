@@ -164,6 +164,10 @@ internal fun matchingMentionFiles(
     fileCandidates: List<WorkspaceDirectoryEntry>,
 ): List<WorkspaceDirectoryEntry> = fileCandidates.take(8)
 
+/** Insert exactly the canonical mention returned by the server, never reconstruct its URI. */
+internal fun insertSessionMention(draft: String, candidate: dev.dsh.mobile.mesh.core.wire.dto.SessionReferenceCandidate): String =
+    draft.substringBeforeLast('@') + candidate.mention + " "
+
 @Composable
 internal fun Composer(
     draft: String,
@@ -188,6 +192,8 @@ internal fun Composer(
     onNativeCommand: (String) -> Unit = {},
     onAddFiles: () -> Unit = {},
     fileCandidates: List<WorkspaceDirectoryEntry> = emptyList(),
+    sessionCandidates: List<dev.dsh.mobile.mesh.core.wire.dto.SessionReferenceCandidate> = emptyList(),
+    referenceSessionId: String? = null,
     onFileQueryChange: (String) -> Unit = {},
     onSend: (String, List<PendingAttachment>) -> Unit,
     onStop: () -> Unit,
@@ -208,11 +214,12 @@ internal fun Composer(
     var filePickerOpen by remember { mutableStateOf(false) }
     val mentionQuery = mentionQueryForDraft(draft).orEmpty()
     val mentionActive = mentionQueryForDraft(draft) != null
-    LaunchedEffect(mentionActive, mentionQuery) {
+    LaunchedEffect(mentionActive, mentionQuery, referenceSessionId) {
         filePickerOpen = mentionActive
         if (mentionActive) onFileQueryChange(mentionQuery)
     }
     val matchingFiles = remember(fileCandidates) { matchingMentionFiles(fileCandidates) }
+    val matchingSessions = sessionCandidates.take((8 - matchingFiles.size).coerceAtLeast(0))
     val commandQuery = draft.removePrefix("/").takeIf { draft.startsWith("/") && !draft.contains(' ') }.orEmpty()
     val matchingCommands = remember(commands, skills, permissionsCatalogPresent, modelsCatalogPresent, commandQuery) {
         val nativeNames = buildSet {
@@ -243,7 +250,6 @@ internal fun Composer(
                     onDraftChange(it)
                     val token = it.substringAfterLast(" ").substringAfterLast("\n")
                     filePickerOpen = token.startsWith("@")
-                    if (token.startsWith("@")) onFileQueryChange(token.removePrefix("@"))
                 },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,
@@ -270,7 +276,7 @@ internal fun Composer(
                 ),
             )
 
-            AnimatedVisibility(visible = mentionActive && filePickerOpen && matchingFiles.isNotEmpty()) {
+            AnimatedVisibility(visible = mentionActive && filePickerOpen && (matchingFiles.isNotEmpty() || matchingSessions.isNotEmpty())) {
                 Column(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(DsShapes.block)
                         .background(colors.bgModulePlatform).border(1.dp, colors.borderL2, DsShapes.block),
@@ -280,6 +286,16 @@ internal fun Composer(
                             text = "@${file.name}", style = DsType.std14, color = colors.labelPrimary,
                             modifier = Modifier.fillMaxWidth().clickable {
                                 onDraftChange(draft.substringBeforeLast('@') + "@${file.name} ")
+                                filePickerOpen = false
+                            }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                    matchingSessions.forEach { candidate ->
+                        Text(
+                            text = "@${candidate.displayTitle ?: candidate.label}",
+                            style = DsType.std14, color = colors.labelPrimary,
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                onDraftChange(insertSessionMention(draft, candidate))
                                 filePickerOpen = false
                             }.padding(horizontal = 12.dp, vertical = 8.dp),
                         )
