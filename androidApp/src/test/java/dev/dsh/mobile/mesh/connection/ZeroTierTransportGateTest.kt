@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ZeroTierTransportGateTest {
@@ -83,7 +84,27 @@ class ZeroTierTransportGateTest {
             )
         }
         assertEquals(ZERO_TIER_TIMEOUT_SIGNAL, signal)
-        assertEquals(listOf("dial-attempt=1", "dial-attempt=2"), samples)
+        assertEquals(listOf("dial-attempt=1", "dial-attempt=2"), samples.filter { it.startsWith("dial-") })
+    }
+
+    @Test
+    fun `sampling continues after the dial burst so a long stall stays visible`() = runBlocking {
+        // Pixel 3 evidence: a 90 minute background resume spent 7126ms inside one blocking libzt
+        // connect, well past the 1.8s the dial burst covers, so no sample reported the missing signal.
+        val samples = mutableListOf<String>()
+        val signal = withTimeout(5_000) {
+            awaitZeroTierTransportReady(
+                awaitNodeOnline = { false },
+                scheduleDial = { },
+                dialAttempts = 1,
+                timeoutMillis = 260,
+                retryIntervalMillis = 10,
+                sampleIntervalMillis = 50,
+                onSample = { samples.add(it) },
+            )
+        }
+        assertEquals(ZERO_TIER_TIMEOUT_SIGNAL, signal)
+        assertTrue("expected wait-pending samples during the stall: $samples", samples.contains("wait-pending"))
     }
 
     @Test
