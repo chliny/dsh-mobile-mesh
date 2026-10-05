@@ -33,7 +33,6 @@ import dev.dsh.mobile.mesh.core.session.ChangesNode
 import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.dto.ChangesDiff
 import dev.dsh.mobile.mesh.core.wire.dto.ChangesDiffHunk
-import dev.dsh.mobile.mesh.core.wire.dto.ChangesSummary
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
 import dev.dsh.mobile.mesh.ui.components.KodeViewCode
 import dev.dsh.mobile.mesh.ui.components.TextMateCodeHighlighter
@@ -104,8 +103,9 @@ internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
 internal fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessionId: String, seq: Long, index: Int, path: String, display: String, added: Int, deleted: Int, onOpenFile: ((String, String) -> Unit)?, onOpenDiff: (() -> Unit)? = null, full: Boolean = false) {
     // Same reasoning as the summary above, and the full-diff page reads this same entry: the reader
     // opens a diff here and comes back to it here, so one answer serves both.
-    var diff by remember(sessionId, seq, index) { mutableStateOf(store.changesDiffNow(sessionId, seq, index)) }
-    var loading by remember(sessionId, seq, index) { mutableStateOf(diff == null) }
+    val cached = store.changesDiffNow(sessionId, seq, index)
+    var diff by remember(sessionId, seq, index) { mutableStateOf(cached) }
+    var loading by remember(sessionId, seq, index) { mutableStateOf(cached == null) }
     LaunchedEffect(sessionId, seq, index) {
         if (diff != null) return@LaunchedEffect
         loading = true
