@@ -2735,6 +2735,10 @@ class SessionStore @Inject constructor(
         val queueAction: QueueAction = when (action) {
             "remove" -> QueueAction.Remove()
             "steer" -> QueueAction.Steer()
+            // Edit is a whole-content replacement, not an in-place text-only patch. Images and
+            // files are durable structured blocks; converting the queue item to messageText here
+            // turns them into literal placeholders and drops the references. QueueDock therefore
+            // warns before opening its text-only editor when any non-text block is present.
             else -> QueueAction.Edit(listOf(ContentBlock.Text(contentText.orEmpty())))
         }
         return when (val r = api.sessionUpdateQueue(SessionUpdateQueueRequest(sid, itemId, queueAction))) {
