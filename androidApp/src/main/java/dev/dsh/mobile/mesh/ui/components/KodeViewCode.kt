@@ -109,28 +109,36 @@ internal fun highlightCode(code: String, path: String?, darkMode: Boolean): Anno
     return highlightConfigCode(code, path, darkMode)
 }
 
-/** Maps a file path (or raw extension) to the closest [SyntaxLanguage] supported by Highlights. */
-internal fun kodeviewLanguage(pathOrLanguage: String?): SyntaxLanguage = when (
-    pathOrLanguage?.substringAfterLast('.', "")?.lowercase()
-) {
-    "c", "h" -> SyntaxLanguage.C
-    "cc", "cpp", "cxx", "hpp", "hh", "hxx" -> SyntaxLanguage.CPP
-    "cs" -> SyntaxLanguage.CSHARP
-    "coffee" -> SyntaxLanguage.COFFEESCRIPT
-    "dart" -> SyntaxLanguage.DART
-    "go" -> SyntaxLanguage.GO
-    "java" -> SyntaxLanguage.JAVA
-    "js", "jsx", "mjs", "cjs" -> SyntaxLanguage.JAVASCRIPT
-    "kt", "kts" -> SyntaxLanguage.KOTLIN
-    "pl", "pm" -> SyntaxLanguage.PERL
-    "php" -> SyntaxLanguage.PHP
-    "py", "pyw", "pyi" -> SyntaxLanguage.PYTHON
-    "rb" -> SyntaxLanguage.RUBY
-    "rs" -> SyntaxLanguage.RUST
-    "sh", "bash", "zsh", "fish" -> SyntaxLanguage.SHELL
-    "swift" -> SyntaxLanguage.SWIFT
-    "ts", "tsx", "mts", "cts" -> SyntaxLanguage.TYPESCRIPT
-    else -> SyntaxLanguage.DEFAULT
+/**
+ * Maps a file path (or raw extension, or bare language name) to the closest [SyntaxLanguage]
+ * supported by Highlights.
+ *
+ * A caller that knows only the language passes `"bash"`, which carries no dot; treating the whole
+ * token as the extension is what makes that name resolve instead of silently falling to DEFAULT.
+ */
+internal fun kodeviewLanguage(pathOrLanguage: String?): SyntaxLanguage {
+    val raw = pathOrLanguage?.trim()?.lowercase()?.removePrefix("language-")
+    val token = raw?.substringAfterLast('.', raw).orEmpty()
+    return when (token) {
+        "c", "h" -> SyntaxLanguage.C
+        "cc", "cpp", "cxx", "hpp", "hh", "hxx" -> SyntaxLanguage.CPP
+        "cs" -> SyntaxLanguage.CSHARP
+        "coffee" -> SyntaxLanguage.COFFEESCRIPT
+        "dart" -> SyntaxLanguage.DART
+        "go" -> SyntaxLanguage.GO
+        "java" -> SyntaxLanguage.JAVA
+        "js", "jsx", "mjs", "cjs" -> SyntaxLanguage.JAVASCRIPT
+        "kt", "kts" -> SyntaxLanguage.KOTLIN
+        "pl", "pm" -> SyntaxLanguage.PERL
+        "php" -> SyntaxLanguage.PHP
+        "py", "pyw", "pyi" -> SyntaxLanguage.PYTHON
+        "rb" -> SyntaxLanguage.RUBY
+        "rs" -> SyntaxLanguage.RUST
+        "sh", "bash", "zsh", "fish" -> SyntaxLanguage.SHELL
+        "swift" -> SyntaxLanguage.SWIFT
+        "ts", "tsx", "mts", "cts" -> SyntaxLanguage.TYPESCRIPT
+        else -> SyntaxLanguage.DEFAULT
+    }
 }
 
 /** Colors configuration keys, strings, values, and comments without loading a WebView or parsing whole files. */

@@ -61,7 +61,21 @@ internal fun buildToolCardView(
         title = call.name,
         rawInput = call.arguments,
         content = result?.content?.let(::genericContentBlocks),
+        language = shellOutputLanguage(call.name),
     )
+}
+
+/**
+ * The grammar a tool's text output is written in, when the tool name alone says so.
+ *
+ * A shell call that fell through to the generic card still returned shell output; without this the
+ * card would render that output as plain text while the same command in the terminal card is
+ * highlighted. Anything the name does not identify stays null, which renders unchanged.
+ */
+private fun shellOutputLanguage(toolName: String): String? = when (toolName) {
+    "bash" -> "bash"
+    "pwsh" -> "powershell"
+    else -> null
 }
 
 /** Preserve text and attachment output when a tool has no trustworthy specialized presenter. */

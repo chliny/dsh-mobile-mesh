@@ -51,11 +51,23 @@ class ToolDiffHighlightTest {
         assertEquals(List(150) { '-' } + List(150) { '+' }, lines.map { it.marker })
     }
 
-    @Test fun `empty sides and trailing newline remain represented`() {
+    @Test fun `diff summary equals unified added and removed rows without counting terminal newline`() {
+        val diffs = listOf(
+            DiffHunk("file.ts", "const old = 1\nkeep\n", "const fresh = 2\nkeep\n"),
+            DiffHunk("other.ts", null, "one\ntwo\n"),
+        )
+        assertEquals(Triple(3, 1, 2), diffStats(diffs))
+        val displayed = diffs.flatMap { toolDiffHighlightPlan(it).lines }
+        assertEquals(displayed.count { it.marker == '+' }, diffStats(diffs).first)
+        assertEquals(displayed.count { it.marker == '-' }, diffStats(diffs).second)
+        assertEquals(listOf('-', '+', ' '), toolDiffHighlightPlan(diffs.first()).lines.map { it.marker })
+    }
+
+    @Test fun `empty sides and trailing newline do not create phantom diff rows`() {
         val removedOnly = toolDiffHighlightPlan(DiffHunk("file.ts", "const x = 1\n", null))
-        assertEquals(listOf('-', '-'), removedOnly.lines.map { it.marker })
-        assertEquals(listOf("const x = 1", ""), removedOnly.chunks)
-        val addedOnly = toolDiffHighlightPlan(DiffHunk("file.ts", null, "const z = 3"))
+        assertEquals(listOf('-'), removedOnly.lines.map { it.marker })
+        assertEquals(listOf("const x = 1"), removedOnly.chunks)
+        val addedOnly = toolDiffHighlightPlan(DiffHunk("file.ts", null, "const z = 3\n"))
         assertEquals(listOf('+'), addedOnly.lines.map { it.marker })
         assertEquals(listOf("const z = 3"), addedOnly.chunks)
     }
