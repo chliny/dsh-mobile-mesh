@@ -164,6 +164,9 @@
     <string name="chatlist_sessions">Sessions</string>
     <string name="chatlist_subagents">Subagents</string>
     <string name="chatlist_archived">Archived</string>
+    <string name="chatlist_pinned">Pinned</string>
+    <string name="chatlist_session_pin">Pin session</string>
+    <string name="chatlist_session_unpin">Unpin session</string>
     <string name="chatlist_new_workspace">New workspace</string>
     <string name="chatlist_workspace_name">Workspace name</string>
     <string name="chatlist_workspace_path">Folder path</string>

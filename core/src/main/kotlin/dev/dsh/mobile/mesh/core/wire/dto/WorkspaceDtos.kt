@@ -72,6 +72,17 @@ data class WorkspaceUnarchiveSessionRequest(
     @SerialName("sessionId") val sessionId: String,
 )
 
+/** Request payloads of optional `workspace/pinSession` and `workspace/unpinSession`. */
+@Serializable
+data class WorkspacePinSessionRequest(@SerialName("sessionId") val sessionId: String)
+
+@Serializable
+data class WorkspaceUnpinSessionRequest(@SerialName("sessionId") val sessionId: String)
+
+/** Server-owned pin order, most recently pinned first. */
+@Serializable
+data class WorkspacePinValue(@SerialName("pinnedSessionIds") val pinnedSessionIds: List<String>)
+
 // ---- workspace.* response values ----
 
 /** Complete reconnect baseline carried by `workspace/follow`. */
@@ -79,6 +90,8 @@ data class WorkspaceUnarchiveSessionRequest(
 data class WorkspaceBaseline(
     @SerialName("items") val items: List<WorkspaceView> = emptyList(),
     @SerialName("archivedSessionIds") val archivedSessionIds: List<String> = emptyList(),
+    /** Absent on older Hosts that have no pin methods. */
+    @SerialName("pinnedSessionIds") val pinnedSessionIds: List<String> = emptyList(),
 )
 
 /** Value of `workspace.list`. */

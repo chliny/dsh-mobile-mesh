@@ -126,6 +126,8 @@ internal fun ChatScreen(
     val tokenUsage by store.tokenUsage.collectAsStateWithLifecycle()
     val contextBreakdown by store.contextBreakdown.collectAsStateWithLifecycle()
     val imageLimits by store.imageLimits.collectAsStateWithLifecycle()
+    val modsBand by store.modsBand.collectAsStateWithLifecycle()
+    var modsBandBusy by remember(currentSessionId) { mutableStateOf(false) }
 
     // Flow emissions can arrive in different frames after a switch. Never pass the old
     // conversation (including its nodes, gap and trajectory) to the newly selected session.
@@ -169,13 +171,15 @@ internal fun ChatScreen(
     val workspaceKey = currentSessionId?.let { sid ->
         workspaces.firstOrNull { sid in it.sessionIds }?.workspaceId
     } ?: currentSessionId?.let { "session:$it" }
-    val fileCandidates = workspaceKey?.let { key ->
-        (fileState.levels["@"] as? DirectoryLevel.Ready)?.listing?.entries.orEmpty()
-    }.orEmpty()
+    val mentionQuery = mentionQueryForDraft(draft)
+    val currentReferences = fileState.takeIf {
+        it.workspaceKey == workspaceKey && it.referenceSessionId == currentSessionId && it.referenceQuery == mentionQuery
+    }
+    val fileCandidates = currentReferences?.fileReferences.orEmpty()
+    val sessionCandidates = currentReferences?.sessionReferences.orEmpty()
     fun queryFileReferences(query: String) {
         val key = workspaceKey ?: return
         val sid = currentSessionId ?: return
-        if (query.isBlank()) return
         workspaceFiles.searchReferences(key, sid, query)
     }
     LaunchedEffect(workspaceKey, currentSessionId, lifecycle) {
@@ -618,6 +622,19 @@ internal fun ChatScreen(
                 }
             }
 
+            if (!decisionPending && connectionPhase == ConnectionPhase.CONNECTED && !subagentReadOnly) {
+                ModsBand(modsBand, modsBandBusy) { generation, actionId ->
+                    modsBandBusy = true
+                    scope.launch {
+                        try {
+                            store.pressModsBand(generation, actionId)?.let(toast.second)
+                        } finally {
+                            modsBandBusy = false
+                        }
+                    }
+                }
+            }
+
             if (!decisionPending) Composer(
                 draft = draft,
                 onDraftChange = {
@@ -651,6 +668,8 @@ internal fun ChatScreen(
                 },
                 onAddFiles = { filePicker.launch(arrayOf("*/*")) },
                 fileCandidates = fileCandidates,
+                sessionCandidates = sessionCandidates,
+                referenceSessionId = currentSessionId,
                 onFileQueryChange = ::queryFileReferences,
                 onSend = { text, submittedAttachments -> send(text, submittedAttachments) },
                 onStop = { scope.launch { store.cancelTurn() } },

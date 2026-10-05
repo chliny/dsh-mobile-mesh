@@ -91,14 +91,13 @@ data class HostCreateDirectoryValue(
 /**
  * Named arguments of `session/openWorkspacePath`.
  *
- * This replaces `host.openPath`, and the move is not only a rename: the path is now resolved
- * against the addressed session's workspace before the host opens it, so a caller must name a
- * session rather than handing the host an absolute filesystem target of its choosing.
+ * The current Host verifies a path through its filesystem mapping before native opening;
+ * it no longer accepts a sessionId in this request. The action selects open or reveal.
  */
 @Serializable
 data class SessionOpenWorkspacePathRequest(
-    @SerialName("sessionId") val sessionId: String,
     @SerialName("path") val path: String,
+    @SerialName("action") val action: String? = null,
     /** Registered native application identifier; omitted to use the operating-system default. */
     @SerialName("application") val application: String? = null,
 )

@@ -126,6 +126,9 @@
     <string name="chatlist_sessions">会话</string>
     <string name="chatlist_subagents">子代理</string>
     <string name="chatlist_archived">已归档</string>
+    <string name="chatlist_pinned">已置顶</string>
+    <string name="chatlist_session_pin">置顶会话</string>
+    <string name="chatlist_session_unpin">取消置顶</string>
     <string name="chatlist_new_workspace">新建工作区</string>
     <string name="chatlist_workspace_name">工作区名称</string>
     <string name="chatlist_workspace_path">文件夹路径</string>

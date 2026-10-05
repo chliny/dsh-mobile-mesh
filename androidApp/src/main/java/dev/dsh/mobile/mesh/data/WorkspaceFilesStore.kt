@@ -8,6 +8,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryEntry
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryListing
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceFileBytes
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceFileText
+import dev.dsh.mobile.mesh.core.wire.dto.SessionReferenceCandidate
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -53,6 +55,10 @@ data class WorkspaceFilesState(
     val levels: Map<String, DirectoryLevel> = emptyMap(),
     val preview: PreviewState? = null,
     val previewLoadingMore: Boolean = false,
+    val referenceSessionId: String? = null,
+    val referenceQuery: String? = null,
+    val fileReferences: List<WorkspaceDirectoryEntry> = emptyList(),
+    val sessionReferences: List<SessionReferenceCandidate> = emptyList(),
 )
 
 /** Bound each rendered code item so append-only server pages never retokenize already visible items. */
@@ -72,6 +78,17 @@ internal fun previewCodeChunks(text: String, maxChars: Int = 8_192): List<String
     }
     return chunks
 }
+
+/** Publish one server result without losing the other concurrent reference response. */
+internal fun WorkspaceFilesState.withReferenceResult(
+    workspaceKey: String,
+    sessionId: String,
+    query: String,
+    files: List<WorkspaceDirectoryEntry>? = null,
+    sessions: List<SessionReferenceCandidate>? = null,
+): WorkspaceFilesState = if (this.workspaceKey == workspaceKey && referenceSessionId == sessionId && referenceQuery == query) {
+    copy(fileReferences = files ?: fileReferences, sessionReferences = sessions ?: sessionReferences)
+} else this
 
 sealed interface PreviewState {
     data object Loading : PreviewState
@@ -102,6 +119,7 @@ class WorkspaceFilesStore @Inject constructor(
         treeJob = null
         treeRequest = null
         previewJob?.cancel()
+        referenceSearchJob?.cancel()
         requestSerial++
         val cached = workspaceKey?.let { key -> synchronized(cacheLock) { listingCache[key].orEmpty().toMap() } }.orEmpty()
         _state.value = WorkspaceFilesState(workspaceKey = workspaceKey, levels = cached)
@@ -112,31 +130,38 @@ class WorkspaceFilesStore @Inject constructor(
     }
 
     fun searchReferences(workspaceKey: String, sessionId: String, query: String) {
-        // An empty query is meaningful: the composer invokes this immediately after `@` so the
-        // host can return its initial reference candidates before the user types a path prefix.
-        val api = connectionManager.connectedApi ?: return
+        if (_state.value.workspaceKey != workspaceKey) reset(workspaceKey)
         referenceSearchJob?.cancel()
+        _state.value = _state.value.copy(
+            referenceSessionId = sessionId, referenceQuery = query,
+            fileReferences = emptyList(), sessionReferences = emptyList(),
+        )
+        val api = connectionManager.connectedApi ?: return
         referenceSearchJob = scope.launch {
-            // Ask the host for path-aware references. Unlike the root directory cache this can
-            // resolve `tmp/deepseek-harness` directly without requiring every subdirectory to be
-            // opened in the file browser first.
-            when (val result = api.fileReferencesList(sessionId, query)) {
-                is RpcResult.Ok -> {
+            // Both lists come from their owning server Remotes. A missing optional session
+            // resolver does not prevent file references from being offered on older Hosts.
+            val files = launch {
+                val result = api.fileReferencesList(sessionId, query)
+                if (result is RpcResult.Ok) {
                     val entries = ((result.value as? JsonArray) ?: (result.value as? JsonObject)?.get("items") as? JsonArray)
                         .orEmpty().mapNotNull { item ->
                             val row = item as? JsonObject ?: return@mapNotNull null
                             val path = row["path"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
                             WorkspaceDirectoryEntry(name = path, type = row["kind"]?.jsonPrimitive?.contentOrNull ?: "file")
                         }
-                    val ready = DirectoryLevel.Ready(WorkspaceDirectoryListing(path = "@", entries = entries))
-                    synchronized(cacheLock) {
-                        listingCache.getOrPut(workspaceKey) { mutableMapOf() }["@"] = ready
-                        refreshedAt[workspaceKey] = System.currentTimeMillis()
+                    _state.update { current ->
+                        current.withReferenceResult(workspaceKey, sessionId, query, files = entries)
                     }
-                    if (_state.value.workspaceKey == workspaceKey) _state.value = _state.value.copy(levels = _state.value.levels + ("@" to ready))
                 }
-                is RpcResult.Err -> Unit
             }
+            val sessions = launch {
+                val result = api.sessionReferenceCandidates(sessionId, query)
+                if (result is RpcResult.Ok) _state.update { current ->
+                    current.withReferenceResult(workspaceKey, sessionId, query, sessions = result.value)
+                }
+            }
+            files.join()
+            sessions.join()
         }
     }
 
@@ -172,11 +197,14 @@ class WorkspaceFilesStore @Inject constructor(
         }
     }
 
-    suspend fun readTextContent(sessionId: String, path: String): String? {
+    /** SVG images need exact bytes, not an over-limit workspace text page. */
+    suspend fun readSvgBytes(sessionId: String, path: String): ByteArray? {
         val safePath = validWorkspaceFilePath(path) ?: return null
         val api = connectionManager.connectedApi ?: return null
-        return when (val result = api.workspaceFilesRead(sessionId, safePath, offset = 1, limit = 20_000)) {
-            is RpcResult.Ok -> result.value.text
+        return when (val result = api.workspaceFilesReadAll(
+            sessionId, safePath, legacyReadAll = connectionManager.harnessProtocol == HarnessProtocol.LEGACY_SUBAGENTS,
+        )) {
+            is RpcResult.Ok -> result.value.bytesData()
             is RpcResult.Err -> null
         }
     }
