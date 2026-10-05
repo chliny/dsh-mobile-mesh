@@ -15,6 +15,7 @@ window.addEventListener('resize',fit);
 window.terminalReset=(text)=>{term.reset();term.write(text);};
 window.terminalWrite=(text)=>term.write(text);
 window.terminalFocus=()=>term.focus();
+window.terminalCopy=()=>{const text=term.getSelection();if(text) AndroidTerminal.copy(text);};
 window.terminalInput=(text)=>AndroidTerminal.input(text);
 window.terminalDimensions=()=>[term.cols,term.rows];
 requestAnimationFrame(fit);
