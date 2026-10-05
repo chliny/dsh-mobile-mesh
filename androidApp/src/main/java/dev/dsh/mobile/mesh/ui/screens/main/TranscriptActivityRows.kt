@@ -11,10 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -32,20 +29,20 @@ import kotlinx.serialization.json.JsonObject
 import androidx.compose.ui.res.stringResource
 
 @Composable
-internal fun CommandActivityRow(row: ActivityRow.Command) {
+internal fun CommandActivityRow(row: ActivityRow.Command, context: ChatNodeContext) {
     val source = row.run ?: row.done ?: return
     val run = row.run?.data as? JsonObject
     val done = row.done?.data as? JsonObject
     val name = run?.get("name").asString() ?: done?.get("name").asString() ?: source.kind
     val summary = run?.get("text").asString() ?: done?.get("text").asString()
     val status = commandDoneStatus(row.done)
-    var expanded by remember(source.seq) { mutableStateOf(false) }
+    val expanded = context.disclosure(DisclosureKeys.commandActivity(source.seq))
     DisclosureRow(
         title = "/$name",
         summary = listOfNotNull(summary, status).joinToString(" · ").ifBlank { null },
         icon = FeatherIcons.Terminal,
-        expanded = expanded,
-        onToggle = { expanded = !expanded },
+        expanded = expanded.expanded,
+        onToggle = expanded.onToggle,
         state = if (status == "error" || status == "failed") DisclosureState.Error else DisclosureState.Idle,
     ) {
         Column(Modifier.padding(start = 28.dp, top = 2.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -65,16 +62,16 @@ private fun CommandPayload(label: String, node: CommandNode) {
 }
 
 @Composable
-internal fun WorkflowActivityRow(row: ActivityRow.Workflow, onOpenMember: (String) -> Unit) {
+internal fun WorkflowActivityRow(row: ActivityRow.Workflow, context: ChatNodeContext) {
     val activity = remember(row.events) { workflowActivity(row.events) }
     val colors = DsTheme.colors
-    var expanded by remember(row.anchorSeq) { mutableStateOf(false) }
+    val expanded = context.disclosure(DisclosureKeys.workflowActivity(row.anchorSeq))
     DisclosureRow(
         title = stringResource(R.string.workflow_title),
         summary = listOfNotNull(activity.name, workflowStatusLabel(activity.status)).joinToString(" · ").ifBlank { null },
         icon = FeatherIcons.GitBranch,
-        expanded = expanded,
-        onToggle = { expanded = !expanded },
+        expanded = expanded.expanded,
+        onToggle = expanded.onToggle,
         state = when (activity.status) {
             "running" -> DisclosureState.Running
             "error", "failed" -> DisclosureState.Error
@@ -84,7 +81,7 @@ internal fun WorkflowActivityRow(row: ActivityRow.Workflow, onOpenMember: (Strin
         activity.members.forEach { member ->
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 28.dp, top = 2.dp)
-                    .clickable(enabled = member.childId != null) { member.childId?.let(onOpenMember) },
+                    .clickable(enabled = member.childId != null) { member.childId?.let(context.onOpenSubagent) },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 StateDot(workflowMemberDot(member.status), size = 8.dp)

@@ -28,7 +28,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -125,6 +124,7 @@ internal fun openWorkspacePath(context: ChatNodeContext, path: String, title: St
 internal data class ChatNodeContext(
     val nodes: List<ChatNode>,
     val sessionId: String? = null,
+    val disclosures: DisclosureScope,
     val store: dev.dsh.mobile.mesh.data.SessionStore? = null,
     val running: Boolean,
     val cwd: String?,
@@ -137,7 +137,16 @@ internal data class ChatNodeContext(
     val onFeedback: (Long, Boolean) -> Unit,
     val onActionFeedback: (String) -> Unit = {},
     val hasMore: Boolean = false,
-)
+) {
+    /**
+     * One disclosure row's open/closed flag.
+     *
+     * Held by the session rather than by this composition, because the composition does not
+     * survive a trip to the full diff, a file preview, the terminal or the workspace browser.
+     */
+    @Composable
+    fun disclosure(key: String): DisclosureBinding = rememberDisclosure(disclosures, key)
+}
 
 /**
  * One node of the conversation. The `when` is exhaustive over [ChatNode] on purpose: a harness that
@@ -184,7 +193,7 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
             if (text.isNotBlank()) MarkdownUserBubble(text, onOpenLink)
         }
 
-        is ContextMessageNode -> ContextInjectionRow(node, onOpenLink)
+        is ContextMessageNode -> ContextInjectionRow(node, context, onOpenLink)
 
         is AssistantMessageNode -> AssistantMessage(node, context)
 
@@ -209,13 +218,13 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
             else -> Unit
         }
 
-        is TodoNode -> parseTodos(node.todos)?.let { TodoDock(it) }
+        is TodoNode -> parseTodos(node.todos)?.let { TodoDock(it, DisclosureKeys.transcriptTodo(node.seq), context.disclosures) }
 
         is GoalNode -> parseGoal(node.data)?.let { GoalSummary(it) }
 
         is ProducedFilesNode -> ProducedFilesRow(node.paths, context)
 
-        is PresentedFilesNode -> PresentedFilesRow(node.files, context)
+        is PresentedFilesNode -> PresentedFilesRow(node, context)
 
         is ChangesNode -> ChangesRow(node, context)
 
@@ -224,9 +233,9 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
             warn = true,
         )
 
-        is CompactionNode -> CompactionRow(node, onOpenLink)
+        is CompactionNode -> CompactionRow(node, context, onOpenLink)
 
-        is RetryNode -> RetryRow(node)
+        is RetryNode -> RetryRow(node, context)
 
         is TurnErrorNode -> Row(verticalAlignment = Alignment.CenterVertically) {
             StateDot(StateDotState.Error, size = 8.dp)
@@ -239,9 +248,9 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
             node.code?.let { Text(" · $it", style = DsType.caption11, color = colors.labelTertiary) }
         }
 
-        is CommandNode -> CommandRow(node)
+        is CommandNode -> CommandRow(node, context)
 
-        is WorkflowNode -> WorkflowRow(node.data, context.onOpenSubagent)
+        is WorkflowNode -> WorkflowRow(node, context)
 
         is TitleNode -> Text(node.title, style = DsType.caption11, color = colors.labelTertiary)
         is SubagentNode -> Text(
@@ -267,8 +276,8 @@ private fun retryDelayMs(node: RetryNode): Long? =
 internal fun retryDelaySeconds(delayMs: Long): Long = (delayMs + 999L).coerceAtLeast(0L) / 1_000L
 
 @Composable
-private fun RetryRow(node: RetryNode) {
-    var expanded by remember(node.seq) { mutableStateOf(false) }
+private fun RetryRow(node: RetryNode, context: ChatNodeContext) {
+    val expanded = context.disclosure(DisclosureKeys.retry(node.seq))
     val delayMs = retryDelayMs(node)
     val title = if (delayMs != null) {
         stringResource(R.string.chat_model_request_retried_with_delay, node.attempts, node.maxAttempts, retryDelaySeconds(delayMs))
@@ -278,8 +287,8 @@ private fun RetryRow(node: RetryNode) {
     DisclosureRow(
         title = title,
         icon = FeatherIcons.AlertTriangle,
-        expanded = expanded,
-        onToggle = { expanded = !expanded },
+        expanded = expanded.expanded,
+        onToggle = expanded.onToggle,
         state = DisclosureState.Idle,
     ) {
         val details = node.failures.ifEmpty { listOf(node.data.toString()) }
@@ -319,15 +328,15 @@ private fun MarkdownUserBubble(text: String, onOpenLink: (String) -> Unit) {
 }
 
 @Composable
-private fun ContextInjectionRow(node: ContextMessageNode, onOpenLink: (String) -> Unit) {
+private fun ContextInjectionRow(node: ContextMessageNode, context: ChatNodeContext, onOpenLink: (String) -> Unit) {
     val text = node.displayText()
-    var expanded by remember(node.seq) { mutableStateOf(false) }
+    val expanded = context.disclosure(DisclosureKeys.contextInjection(node.seq))
     DisclosureRow(
         title = stringResource(R.string.chat_context_injection),
         summary = node.sourceKind,
         icon = FeatherIcons.Info,
-        expanded = expanded,
-        onToggle = { expanded = !expanded },
+        expanded = expanded.expanded,
+        onToggle = expanded.onToggle,
     ) {
         Column(
             modifier = Modifier
@@ -428,7 +437,6 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
     // so `running` is still true for a frame. Without this the last thing the user sees after
     // tapping stop is the answer apparently still being written.
     val streaming = context.running && isLast && !node.interrupted
-    val reasoningExpanded = remember(node.seq) { mutableStateMapOf<Int, Boolean>() }
     var actionsVisible by remember(node.seq) { mutableStateOf(false) }
 
     Column(
@@ -440,16 +448,19 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
         node.blocks.forEachIndexed { index, block ->
             when (block.kind) {
                 "text" -> MarkdownText(block.text.orEmpty(), onOpenLink = onOpenLink)
+                // A streaming assistant message keeps re-rendering its blocks, so a reasoning block that has been
+                // opened has to be able to stay open across those renders as well as across a trip
+                // away from the transcript.
                 "reasoning" -> if (hasThinkingContent(block.text)) {
-                    val expanded = reasoningExpanded[index] ?: false
+                    val reasoning = context.disclosure(DisclosureKeys.reasoning(node.seq, index))
                     ThinkingRow(
                         summary = block.text?.lineSequence()?.firstOrNull()
                             ?: stringResource(R.string.chat_thinking),
-                        expanded = expanded,
-                        onToggle = { reasoningExpanded[index] = !expanded },
+                        expanded = reasoning.expanded,
+                        onToggle = reasoning.onToggle,
                         streaming = streaming,
                     )
-                    AnimatedVisibility(visible = expanded) {
+                    AnimatedVisibility(visible = reasoning.expanded) {
                         MarkdownText(block.text.orEmpty(), onOpenLink = onOpenLink)
                     }
                 }
@@ -580,11 +591,11 @@ private fun ProducedFilesRow(paths: List<String>, context: ChatNodeContext) {
 }
 
 @Composable
-private fun PresentedFilesRow(files: List<dev.dsh.mobile.mesh.core.session.PresentedFile>, context: ChatNodeContext) {
-    val rows = files.filter { it.path.isNotBlank() }
+private fun PresentedFilesRow(node: PresentedFilesNode, context: ChatNodeContext) {
+    val rows = node.files.filter { it.path.isNotBlank() }
     if (rows.isEmpty()) return
-    var expanded by remember(rows) { mutableStateOf(false) }
-    val visible = if (expanded) rows else rows.take(4)
+    val expanded = context.disclosure(DisclosureKeys.presentedFiles(node.seq))
+    val visible = if (expanded.expanded) rows else rows.take(4)
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -613,8 +624,8 @@ private fun PresentedFilesRow(files: List<dev.dsh.mobile.mesh.core.session.Prese
         }
         if (rows.size > 4) {
             Text(
-                stringResource(if (expanded) R.string.chat_delivered_files_collapse else R.string.chat_delivered_files_expand, rows.size),
-                modifier = Modifier.clickable { expanded = !expanded }.padding(start = 10.dp, top = 2.dp),
+                stringResource(if (expanded.expanded) R.string.chat_delivered_files_collapse else R.string.chat_delivered_files_expand, rows.size),
+                modifier = Modifier.clickable { expanded.toggle() }.padding(start = 10.dp, top = 2.dp),
                 style = DsType.caption11,
                 color = DsTheme.colors.accent,
             )
@@ -654,18 +665,18 @@ private fun ToolCallRow(node: ToolCallNode, context: ChatNodeContext) {
         viewTitle = null,
     )
     val localizedToolTitle = stringResource(row.variant.titleResource())
-    var expanded by remember(node.callId) { mutableStateOf(false) }
+    val expanded = context.disclosure(DisclosureKeys.toolCall(node.callId))
     val directFilePath = directFilePathForTool(row.variant, card)
     // The leading slot carries the outcome: a red dot for a failed call, the tool glyph otherwise.
     val state = toolDisclosureState(card, result, context.running)
     ToolCard(
         view = card,
-        expanded = expanded,
+        expanded = expanded.expanded,
         onToggle = {
             if (directFilePath != null && context.onOpenFile != null) {
                 openWorkspacePath(context, directFilePath, basename(directFilePath), context.onOpenFile)
             } else {
-                expanded = !expanded
+                expanded.toggle()
             }
         },
         titleOverride = row.title ?: localizedToolTitle,
@@ -705,13 +716,13 @@ private fun TodoWriteRow(node: ToolCallNode, result: ToolResultNode?, context: C
             change.removed.takeIf { it > 0 }?.let { stringResource(R.string.chat_todo_diff_removed, it) },
         ).joinToString(" · ").ifEmpty { stringResource(R.string.chat_todo_diff_no_changes) }
     }
-    var expanded by remember(node.callId) { mutableStateOf(false) }
+    val expanded = context.disclosure(DisclosureKeys.todo(node.callId))
     DisclosureRow(
         title = stringResource(R.string.chat_todo_title),
         summary = listOfNotNull(header, changeSummary).joinToString(" · ").ifBlank { node.name },
         icon = FeatherIcons.CheckSquare,
-        expanded = expanded,
-        onToggle = { expanded = !expanded },
+        expanded = expanded.expanded,
+        onToggle = expanded.onToggle,
         state = when {
             result?.isError == true -> DisclosureState.Error
             result == null && context.running -> DisclosureState.Running
@@ -731,14 +742,14 @@ private fun TodoWriteRow(node: ToolCallNode, result: ToolResultNode?, context: C
             )
             diff.items.forEach { TodoDetailRow(it) }
             if (diff.unchanged.isNotEmpty()) {
-                var showUnchanged by remember(node.callId) { mutableStateOf(false) }
+                val unchanged = context.disclosure(DisclosureKeys.todoUnchanged(node.callId))
                 Text(
                     stringResource(R.string.chat_todo_diff_unchanged, diff.unchanged.size),
-                    modifier = Modifier.clickable { showUnchanged = !showUnchanged }.padding(start = 28.dp, top = 4.dp),
+                    modifier = Modifier.clickable(onClick = unchanged.onToggle).padding(start = 28.dp, top = 4.dp),
                     style = DsType.caption11,
                     color = DsTheme.colors.accent,
                 )
-                if (showUnchanged) diff.unchanged.forEach { TodoDetailRow(it) }
+                if (unchanged.expanded) diff.unchanged.forEach { TodoDetailRow(it) }
             }
         } else {
             Text(node.arguments, style = DsType.caption11.copy(fontFamily = DsType.codeFont),
@@ -798,7 +809,7 @@ internal fun directFilePathForTool(variant: ToolRowVariant, card: dev.dsh.mobile
 }
 
 @Composable
-private fun CompactionRow(node: CompactionNode, onOpenLink: (String) -> Unit) {
+private fun CompactionRow(node: CompactionNode, context: ChatNodeContext, onOpenLink: (String) -> Unit) {
     val summaryText = remember(node.data) {
         runCatching {
             val data = node.data as? JsonObject
@@ -813,31 +824,31 @@ private fun CompactionRow(node: CompactionNode, onOpenLink: (String) -> Unit) {
         }.getOrNull()
     }
     val summaryPreview = summaryText?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() }
-    var expanded by remember(node.data) { mutableStateOf(false) }
+    val expanded = context.disclosure(DisclosureKeys.compaction(node.seq))
     DisclosureRow(
         title = stringResource(R.string.chat_compaction),
         summary = summaryPreview ?: stringResource(R.string.chat_compaction_summary),
         icon = FeatherIcons.Archive,
-        expanded = expanded,
-        onToggle = if (!summaryText.isNullOrBlank()) ({ expanded = !expanded }) else null,
+        expanded = expanded.expanded,
+        onToggle = if (!summaryText.isNullOrBlank()) expanded.onToggle else null,
     ) {
         if (!summaryText.isNullOrBlank()) MarkdownText(summaryText, onOpenLink = onOpenLink)
     }
 }
 
 @Composable
-private fun CommandRow(node: CommandNode) {
+private fun CommandRow(node: CommandNode, context: ChatNodeContext) {
     val colors = DsTheme.colors
     val data = node.data as? JsonObject
     val name = data?.get("name").asString() ?: node.kind
     val text = data?.get("text").asString()
-    var expanded by remember(node.seq) { mutableStateOf(false) }
+    val expanded = context.disclosure(DisclosureKeys.command(node.seq))
     DisclosureRow(
         title = "/$name",
         summary = text,
         icon = FeatherIcons.Terminal,
-        expanded = expanded,
-        onToggle = { expanded = !expanded },
+        expanded = expanded.expanded,
+        onToggle = expanded.onToggle,
     ) {
         Text(
             node.data.toString(),
@@ -850,21 +861,22 @@ private fun CommandRow(node: CommandNode) {
 
 @Composable
 private fun WorkflowRow(
-    data: kotlinx.serialization.json.JsonElement,
-    onOpenMember: (String) -> Unit,
+    node: WorkflowNode,
+    context: ChatNodeContext,
 ) {
     val colors = DsTheme.colors
+    val data = node.data
     val obj = data as? JsonObject ?: return
     val name = obj["name"].asString()
     val status = obj["status"].asString() ?: obj["stopReason"].asString() ?: obj["outcome"].asString()
     val members = remember(data) { parseWorkflowMembers(data) }
-    var expanded by remember(data) { mutableStateOf(false) }
+    val expanded = context.disclosure(DisclosureKeys.workflow(node.seq))
     DisclosureRow(
         title = stringResource(R.string.workflow_title),
         summary = listOfNotNull(name, workflowStatusLabel(status)).joinToString(" · ").ifEmpty { null },
         icon = FeatherIcons.GitBranch,
-        expanded = expanded,
-        onToggle = { expanded = !expanded },
+        expanded = expanded.expanded,
+        onToggle = expanded.onToggle,
     ) {
         members.forEach { member ->
             val memberChildId = member.childId
@@ -874,7 +886,7 @@ private fun WorkflowRow(
                     .padding(start = 28.dp, top = 2.dp)
                     .then(
                         if (memberChildId != null) {
-                            Modifier.clickable { onOpenMember(memberChildId) }
+                            Modifier.clickable { context.onOpenSubagent(memberChildId) }
                         } else {
                             Modifier
                         },

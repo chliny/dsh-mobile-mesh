@@ -138,6 +138,7 @@ private fun MainPageRoute.toPage(): MainPage = when (restoredKind()) {
 internal fun MainScreen(
     readingPositions: TranscriptReadingPositions,
     transcriptListStates: TranscriptListStates,
+    disclosures: TranscriptDisclosures,
     connectionPhase: ConnectionPhase,
     onOpenSessionList: () -> Unit,
     reconnectAttempt: Int,
@@ -292,6 +293,7 @@ internal fun MainScreen(
             ChatScreen(
                 readingPositions = readingPositions,
                 transcriptListStates = transcriptListStates,
+                disclosures = disclosures,
                 onOpenDetails = { detailsOpen = true },
                 onOpenDrawer = {
                     subagentParentSessionId = null
@@ -335,6 +337,7 @@ internal fun MainScreen(
                 DetailsPanel(
                     onClose = { detailsOpen = false },
                     modifier = Modifier.width(detailsWidth),
+                    disclosures = DisclosureScope(disclosures, sessionId),
                     onOpenSubagent = { childId ->
                         val parentId = sessionId
                         if (parentId != null) {

@@ -7,6 +7,7 @@ import org.junit.Test
 class MarkdownWorkspaceLinkTest {
     private fun context(onOpenFile: (String, String) -> Unit) = ChatNodeContext(
         nodes = emptyList(),
+        disclosures = DisclosureScope(TranscriptDisclosures(), "session-1"),
         cwd = "/home/me/project",
         running = false,
         onOpenFile = onOpenFile,

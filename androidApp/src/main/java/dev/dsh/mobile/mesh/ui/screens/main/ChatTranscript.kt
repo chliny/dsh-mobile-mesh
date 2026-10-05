@@ -26,7 +26,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -115,6 +114,17 @@ internal sealed interface TranscriptRow {
 internal fun buildTranscriptRows(
     parts: List<TranscriptPart>,
     expanded: Map<Long, Boolean>,
+): List<TranscriptRow> = buildTranscriptRows(parts) { startSeq -> expanded[startSeq] == true }
+
+/**
+ * As above, with the folded process rows read through a lookup.
+ *
+ * The holder-backed lookup is the one the transcript uses: it reads snapshot state, so flipping a
+ * process row recomposes the whole builder rather than needing the caller to hand back a map.
+ */
+internal fun buildTranscriptRows(
+    parts: List<TranscriptPart>,
+    isProcessExpanded: (Long) -> Boolean,
 ): List<TranscriptRow> {
     val result = mutableListOf<TranscriptRow>()
     val pending = mutableListOf<dev.dsh.mobile.mesh.core.session.ChatNode>()
@@ -134,7 +144,7 @@ internal fun buildTranscriptRows(
             is TranscriptPart.Process -> {
                 flush()
                 result.add(TranscriptRow.Process(part))
-                if (expanded[part.startSeq] == true) {
+                if (isProcessExpanded(part.startSeq)) {
                     pending.addAll(part.nodes)
                     flush()
                 }
@@ -244,9 +254,10 @@ internal fun ChatTranscript(
         conversation?.nodes.orEmpty().filter { it.rendersContent() }
     }
     val sessionId = conversation?.sessionId
-    val expanded = remember(sessionId) { mutableStateMapOf<Long, Boolean>() }
+    val disclosureScope = context.disclosures
+    val isProcessExpanded: (Long) -> Boolean = { startSeq -> disclosureScope.isOpen(DisclosureKeys.process(startSeq)) }
     val parts = remember(conversation?.nodes) { partitionTranscript(conversation?.nodes.orEmpty()) }
-    val rows = buildTranscriptRows(parts, expanded)
+    val rows = buildTranscriptRows(parts, isProcessExpanded)
     val hasMore = conversation?.hasMore == true
     val itemCount = rows.size + if (hasMore) 1 else 0
     val turnStartedAtMillis = conversation?.turnStartedAtMillis
@@ -486,15 +497,16 @@ internal fun ChatTranscript(
             items(rows, key = { it.key }) { row ->
                 when (row) {
                     is TranscriptRow.Node -> ChatNodeItem(node = row.node, context = context)
-                    is TranscriptRow.Command -> CommandActivityRow(row.activity)
-                    is TranscriptRow.Workflow -> WorkflowActivityRow(row.activity, context.onOpenSubagent)
+                    is TranscriptRow.Command -> CommandActivityRow(row.activity, context)
+                    is TranscriptRow.Workflow -> WorkflowActivityRow(row.activity, context)
                     is TranscriptRow.Process -> {
-                        val open = expanded[row.part.startSeq] == true
+                        val processKey = DisclosureKeys.process(row.part.startSeq)
+                        val open = disclosureScope.isOpen(processKey)
                         Text(
                             text = if (open) stringResource(R.string.chat_process_hide, row.part.nodes.size)
                                 else stringResource(R.string.chat_process_summary, row.part.nodes.size),
                             modifier = Modifier.fillMaxWidth().clickable {
-                                expanded[row.part.startSeq] = !open
+                                disclosureScope.toggle(processKey)
                             }.padding(horizontal = 8.dp, vertical = 8.dp),
                             style = DsType.small13,
                             color = DsTheme.colors.labelSecondary,
