@@ -583,6 +583,30 @@ class DshApiClient(
     suspend fun workspaceUnpinSession(sessionId: String): RpcResult<WorkspacePinValue> =
         callRequest("workspace/unpinSession", WorkspaceUnpinSessionRequest(sessionId))
 
+    /**
+     * Probe a read-only GET route without a resource ID. A registered parameterized route rejects
+     * missing coordinates with 400; an unregistered route returns 404. Unlike probing a fabricated
+     * session/seq, this cannot mistake an expired resource for an absent API. Other failures are
+     * inconclusive and must not be interpreted as missing capability.
+     */
+    suspend fun probeGetRoute(route: String): RpcResult<Boolean> {
+        require(route.matches(Regex("[A-Za-z][A-Za-z0-9._/-]*")) && !route.contains(".."))
+        return try {
+            transport.download("/api/$route") { _, _, _ -> Unit }
+            RpcResult.Ok(true)
+        } catch (e: RpcTransportException) {
+            when (e.status) {
+                400 -> RpcResult.Ok(true)
+                404 -> RpcResult.Ok(false)
+                else -> RpcResult.Err(transportError(e))
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            RpcResult.Err(notAHarness("route probe failed: ${e.message}"))
+        }
+    }
+
     /** Fetch one changed-files summary from the authenticated deliverables route. */
     suspend fun changesSummary(sessionId: String, seq: Long): RpcResult<ChangesSummary> =
         nonEnvelopeGet("/api/changes.summary?sessionId=${encodeQueryComponent(sessionId)}&seq=$seq", ChangesSummary.serializer())

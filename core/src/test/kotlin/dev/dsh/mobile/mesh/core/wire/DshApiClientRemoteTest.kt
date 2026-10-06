@@ -41,6 +41,7 @@ class DshApiClientRemoteTest {
         var lastUploadBytes: ByteArray = ByteArray(0)
         var uploadResponder: (() -> RpcHttpResponse)? = null
         var rawBody: String? = null
+        var downloadFailure: RpcTransportException? = null
 
         override suspend fun post(path: String, body: String): RpcHttpResponse {
             lastPath = path
@@ -53,6 +54,7 @@ class DshApiClientRemoteTest {
             consume: (String?, String?, InputStream) -> T,
         ): T {
             lastDownloadPath = path
+            downloadFailure?.let { throw it }
             return if (rawBody != null) {
                 consume("application/json", null, ByteArrayInputStream(rawBody!!.toByteArray()))
             } else {
@@ -161,6 +163,22 @@ class DshApiClientRemoteTest {
 
         assertEquals("/api/permissionPresets/catalog", transport.lastPath)
         assertTrue((result as RpcResult.Ok).value.jsonObject["options"]!!.jsonArray.isNotEmpty())
+    }
+
+    @Test
+    fun `parameterless GET probe distinguishes a registered route from missing API without fake coordinates`() = runTest {
+        val transport = RecordingTransport { _, _ -> error("not used") }
+        val api = client(transport)
+        transport.downloadFailure = RpcTransportException(400, "Invalid change summary coordinates")
+        assertEquals(true, (api.probeGetRoute("changes.summary") as RpcResult.Ok).value)
+        assertEquals("/api/changes.summary", transport.lastDownloadPath)
+        transport.downloadFailure = RpcTransportException(404, "Not found")
+        assertEquals(false, (api.probeGetRoute("changes.diff") as RpcResult.Ok).value)
+        assertEquals("/api/changes.diff", transport.lastDownloadPath)
+        transport.downloadFailure = RpcTransportException(401, "Unauthenticated")
+        assertEquals("unauthenticated", (api.probeGetRoute("changes.summary") as RpcResult.Err).error.code)
+        transport.downloadFailure = null
+        assertEquals(true, (api.probeGetRoute("changes.summary") as RpcResult.Ok).value)
     }
 
     @Test

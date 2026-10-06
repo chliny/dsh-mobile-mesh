@@ -263,6 +263,8 @@
     <string name="chat_changes">Changed files</string>
     <string name="chat_changes_count">%1$d files · +%2$d -%3$d lines</string>
     <string name="chat_changes_loading">Loading changes…</string>
+    <string name="chat_changes_expired">Change data is no longer available on the host</string>
+    <string name="chat_changes_unsupported">This host does not provide the changed-files API</string>
     <string name="chat_delivered_files_expand">Show all %1$d files</string>
     <string name="chat_delivered_files_collapse">Collapse %1$d files</string>
     <string name="chat_more_files">+%1$d files</string>

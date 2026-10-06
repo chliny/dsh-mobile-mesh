@@ -421,18 +421,41 @@ class SessionStore @Inject constructor(
      * had. [changesSummaryNow] is the synchronous read that lets a returning row render it at once.
      */
     suspend fun loadChangesSummary(sessionId: String, seq: Long): RpcResult<ChangesSummary> {
-        val result = apiOrNull()?.changesSummary(sessionId, seq)
+        val client = apiOrNull()
+        val result = client?.changesSummary(sessionId, seq)
             ?: RpcResult.Err(dev.dsh.mobile.mesh.core.wire.RpcError("not-connected", "Not connected"))
         if (result is RpcResult.Ok) changesPayloads.recordSummary(sessionId, seq, result.value)
+        if (result is RpcResult.Err) {
+            logChangesRequestFailure("changes.summary", seq, null, result.error)
+            return RpcResult.Err(diagnoseChangesError(client, "changes.summary", result.error))
+        }
         return result
     }
 
     /** Load one host-computed changed-file diff; kept under the same reasoning as [loadChangesSummary]. */
     suspend fun loadChangesDiff(sessionId: String, seq: Long, index: Int): RpcResult<ChangesDiff> {
-        val result = apiOrNull()?.changesDiff(sessionId, seq, index)
+        val client = apiOrNull()
+        val result = client?.changesDiff(sessionId, seq, index)
             ?: RpcResult.Err(dev.dsh.mobile.mesh.core.wire.RpcError("not-connected", "Not connected"))
         if (result is RpcResult.Ok) changesPayloads.recordDiff(sessionId, seq, index, result.value)
+        if (result is RpcResult.Err) {
+            logChangesRequestFailure("changes.diff", seq, index, result.error)
+            return RpcResult.Err(diagnoseChangesError(client, "changes.diff", result.error))
+        }
         return result
+    }
+
+    private suspend fun diagnoseChangesError(
+        client: DshApiClient?, route: String, error: dev.dsh.mobile.mesh.core.wire.RpcError,
+    ): dev.dsh.mobile.mesh.core.wire.RpcError {
+        if (client == null || dev.dsh.mobile.mesh.core.wire.TransportFailures.statusOf(error) != 404) return error
+        val probe = kotlinx.coroutines.withTimeoutOrNull(2_000L) { client.probeGetRoute(route) }
+        Log.i("ChangesRequest", "GET /api/$route probe=" + when (probe) {
+            is RpcResult.Ok -> if (probe.value) "present" else "absent"
+            is RpcResult.Err -> "inconclusive"
+            null -> "timeout"
+        })
+        return classifyChangesNotFound(error, probe)
     }
 
     /** The summary already in hand for this event, or null if it still has to be asked for. */

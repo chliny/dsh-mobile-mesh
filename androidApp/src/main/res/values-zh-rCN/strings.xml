@@ -171,6 +171,8 @@
     <string name="chat_changes">已更改的文件</string>
     <string name="chat_changes_count">%1$d 个文件 · +%2$d -%3$d 行</string>
     <string name="chat_changes_loading">正在加载更改…</string>
+    <string name="chat_changes_expired">主机已不再提供这条更改记录</string>
+    <string name="chat_changes_unsupported">此主机未提供已更改文件接口</string>
     <string name="chat_delivered_files_expand">展开全部 %1$d 个文件</string>
     <string name="chat_delivered_files_collapse">收起 %1$d 个文件</string>
     <string name="chat_more_files">+%1$d 个文件</string>
