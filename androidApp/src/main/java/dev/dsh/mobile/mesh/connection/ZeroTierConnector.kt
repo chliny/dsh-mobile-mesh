@@ -259,43 +259,55 @@ class ZeroTierConnector @Inject constructor(
         val startedAt = System.nanoTime()
         // A libzt connect blocks for up to 30 seconds, so a dial runs on the connector executor and
         // reports back through the callback. The wait never depends on that thread finishing.
-        val dialInFlight = AtomicBoolean(false)
+        val permits = StaggeredDialPermits(SECOND_DIAL_AFTER_MILLIS)
         val dialed = SingleClaim<DialedTarget> { (socket, _) -> runCatching { socket.close() } }
-        val signal = awaitZeroTierTransportReady(
-            awaitNodeOnline = {
-                state.awaitNodeOnline(ONLINE_TIMEOUT_SECONDS, TimeUnit.SECONDS) { current.isOnline() }
-            },
-            scheduleDial = { onConnected ->
-                if (target != null && dialInFlight.compareAndSet(false, true)) {
-                    val (addresses, port) = target
-                    runCatching {
-                        executor.execute {
-                            try {
-                                val connection = dialTarget(addresses, port, startedAt)
-                                if (connection != null) {
-                                    dialed.publish(connection)
-                                    onConnected()
+        var completedWait = false
+        try {
+            val signal = awaitZeroTierTransportReady(
+                awaitNodeOnline = {
+                    state.awaitNodeOnline(ONLINE_TIMEOUT_SECONDS, TimeUnit.SECONDS) { current.isOnline() }
+                },
+                scheduleDial = { onConnected ->
+                    val slot = if (target != null) permits.tryAcquire() else null
+                    if (slot != null && target != null) {
+                        val (addresses, port) = target
+                        Log.d(TAG, "remote-dial started slot=$slot elapsedMs=${elapsedMsSince(startedAt)}")
+                        runCatching {
+                            executor.execute {
+                                try {
+                                    val connection = dialTarget(addresses, port, startedAt)
+                                    if (connection != null) {
+                                        Log.d(TAG, "remote-dial winner slot=$slot elapsedMs=${elapsedMsSince(startedAt)}")
+                                        dialed.publish(connection)
+                                        onConnected()
+                                    }
+                                } finally {
+                                    permits.release()
                                 }
-                            } finally {
-                                dialInFlight.set(false)
                             }
-                        }
-                    }.onFailure { dialInFlight.set(false) }
-                }
-            },
-            dialAttempts = DIAL_ATTEMPTS,
-            timeoutMillis = READY_TIMEOUT_MILLIS,
-            retryIntervalMillis = DIAL_RETRY_INTERVAL_MILLIS,
-            onSample = { note ->
-                Log.d(
-                    TAG,
-                    "sample $note elapsedMs=${elapsedMsSince(startedAt)} online=${isServiceOnline()}" +
-                        " transportReady=${transportReady(networkId)} address=${hasAddress(networkId)}" +
-                        " dialInFlight=${dialInFlight.get()}",
-                )
-            },
-        )
-        return signal to dialed.claim()
+                        }.onFailure { permits.release() }
+                    }
+                },
+                dialAttempts = DIAL_ATTEMPTS,
+                timeoutMillis = READY_TIMEOUT_MILLIS,
+                retryIntervalMillis = DIAL_RETRY_INTERVAL_MILLIS,
+                onSample = { note ->
+                    val inFlight = permits.inFlight
+                    Log.d(
+                        TAG,
+                        "sample $note elapsedMs=${elapsedMsSince(startedAt)} online=${isServiceOnline()}" +
+                            " transportReady=${transportReady(networkId)} address=${hasAddress(networkId)}" +
+                            " dialInFlight=${inFlight > 0} concurrent=$inFlight",
+                    )
+                },
+            )
+            completedWait = true
+            return signal to dialed.claim()
+        } finally {
+            // A background transition cancels the wait but cannot interrupt libzt's blocking
+            // connect. Claim now so any socket that arrives late is closed instead of leaked.
+            if (!completedWait) dialed.claim()?.first?.let { runCatching { it.close() } }
+        }
     }
 
     /** Dial the target over ZeroTier and keep the socket that proves the mesh carried the connection. */
@@ -390,6 +402,7 @@ class ZeroTierConnector @Inject constructor(
         const val READY_TIMEOUT_MILLIS = 30_000L
         const val DIAL_ATTEMPTS = 6
         const val DIAL_RETRY_INTERVAL_MILLIS = 300L
+        const val SECOND_DIAL_AFTER_MILLIS = 1_200L
     }
 }
 

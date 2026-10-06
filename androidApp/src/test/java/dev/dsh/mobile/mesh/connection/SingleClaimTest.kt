@@ -30,6 +30,16 @@ class SingleClaimTest {
     }
 
     @Test
+    fun `the slower backup is released after the winning socket is adopted`() {
+        val released = mutableListOf<String>()
+        val claim = SingleClaim<String> { released.add(it) }
+        claim.publish("winner")
+        assertEquals("winner", claim.claim())
+        claim.publish("late-backup")
+        assertEquals(listOf("late-backup"), released)
+    }
+
+    @Test
     fun `a superseded value is released and never claimed`() {
         val released = mutableListOf<String>()
         val claim = SingleClaim<String> { released.add(it) }
