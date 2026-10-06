@@ -72,7 +72,7 @@ internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
     // Seeded from what the harness already answered for this event, so a row rebuilt by coming back
     // from the diff page has its content on the first frame instead of a loading line and a refetch.
     var summary by remember(sessionId, node.seq) { mutableStateOf(store.changesSummaryNow(sessionId, node.seq)) }
-    var error by remember(sessionId, node.seq) { mutableStateOf<String?>(null) }
+    var error by remember(sessionId, node.seq) { mutableStateOf<dev.dsh.mobile.mesh.core.wire.RpcError?>(null) }
     // "Full diff" leaves this screen entirely, so the row has to read its flag from the session
     // rather than from this composition — otherwise it is collapsed again on the way back.
     val expanded = context.disclosure(DisclosureKeys.changes(node.seq))
@@ -80,7 +80,7 @@ internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
         if (summary != null) return@LaunchedEffect
         when (val result = store.loadChangesSummary(sessionId, node.seq)) {
             is RpcResult.Ok -> summary = result.value
-            is RpcResult.Err -> error = result.error.message
+            is RpcResult.Err -> error = result.error
         }
     }
     val title = stringResource(R.string.chat_changes)
@@ -88,7 +88,7 @@ internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
         DisclosureRow(
             title = title,
             summary = summary?.let { stringResource(R.string.chat_changes_count, it.total, it.added, it.deleted) }
-                ?: error ?: stringResource(R.string.chat_changes_loading),
+                ?: error?.let { changesErrorText(it.code, it.message) } ?: stringResource(R.string.chat_changes_loading),
             expanded = expanded.expanded,
             onToggle = expanded.onToggle,
         ) {
@@ -105,13 +105,14 @@ internal fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessio
     // opens a diff here and comes back to it here, so one answer serves both.
     val cached = store.changesDiffNow(sessionId, seq, index)
     var diff by remember(sessionId, seq, index) { mutableStateOf(cached) }
+    var error by remember(sessionId, seq, index) { mutableStateOf<dev.dsh.mobile.mesh.core.wire.RpcError?>(null) }
     var loading by remember(sessionId, seq, index) { mutableStateOf(cached == null) }
     LaunchedEffect(sessionId, seq, index) {
         if (diff != null) return@LaunchedEffect
         loading = true
         when (val result = store.loadChangesDiff(sessionId, seq, index)) {
             is RpcResult.Ok -> diff = result.value
-            is RpcResult.Err -> Unit
+            is RpcResult.Err -> error = result.error
         }
         loading = false
     }
@@ -172,7 +173,18 @@ internal fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessio
                 }
             }
             is ChangesDiff.Unavailable -> Text(value.kind, style = DsType.caption11, color = DsTheme.colors.labelTertiary, modifier = Modifier.padding(start = 24.dp))
-            null -> if (loading) Text(stringResource(R.string.chat_changes_loading), style = DsType.caption11, modifier = Modifier.padding(start = 24.dp))
+            null -> if (loading || error != null) Text(
+                error?.let { changesErrorText(it.code, it.message) } ?: stringResource(R.string.chat_changes_loading),
+                style = DsType.caption11,
+                modifier = Modifier.padding(start = 24.dp),
+            )
         }
     }
+}
+
+@Composable
+private fun changesErrorText(code: String, fallback: String): String = when (code) {
+    "changes/resource-unavailable" -> stringResource(R.string.chat_changes_expired)
+    "changes/route-unavailable" -> stringResource(R.string.chat_changes_unsupported)
+    else -> fallback
 }
