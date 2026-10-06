@@ -1,9 +1,6 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
 import android.annotation.SuppressLint
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -310,10 +307,6 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                     settings.allowFileAccessFromFileURLs = false
                     settings.allowUniversalAccessFromFileURLs = false
                     addJavascriptInterface(object {
-                        @JavascriptInterface fun copy(text: String) { post {
-                            (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                                .setPrimaryClip(ClipData.newPlainText("Terminal", text))
-                        } }
                         @JavascriptInterface fun input(data: String) { post {
                             val modified = terminalTextInput(data, currentCtrl, currentShift, currentAlt)
                             status = terminalInputFailure(currentInputQueue, modified, currentMaxInputBytes)?.let {
@@ -354,9 +347,6 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
         )
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             TextButton(onClick = { screen?.evaluateJavascript("terminalFocus()", null) }) { Text("⌨") }
-            TextButton(onClick = { screen?.evaluateJavascript("terminalCopy()", null) }) {
-                Text(stringResource(R.string.common_copy))
-            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = ctrl, onCheckedChange = { ctrl = it }); Text("Ctrl")
             }
