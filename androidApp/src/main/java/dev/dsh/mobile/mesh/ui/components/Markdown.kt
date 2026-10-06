@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,9 +61,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Block-level Markdown renderer: fenced code blocks, #-#### headings, bullet and
- * ordered lists, blockquotes, and paragraphs with inline **bold**, *italic*,
- * `code` chips and [links](https://example.com). Tables render as plain text.
+ * Block-level Markdown renderer: fenced code blocks, #-###### headings, bullet and
+ * ordered/task lists, blockquotes, tables, and paragraphs with inline **bold**,
+ * *italic*, ~~strikethrough~~, `code` and [links](https://example.com).
  */
 @Composable
 fun MarkdownText(
@@ -100,9 +101,7 @@ fun MarkdownText(
                 is MdBlock.MdList -> MdListBlock(block, openLink)
                 is MdBlock.Blockquote -> MdBlockquote(block, openLink)
                 is MdBlock.Code -> CodeBlock(block.lang, block.code)
-                is MdBlock.Table -> block.rows.forEach { row ->
-                    InlineMarkdown(row, DsType.mdSmall.copy(color = colors.labelTertiary), Modifier.fillMaxWidth(), openLink)
-                }
+                is MdBlock.Table -> MarkdownTable(block.rows, openLink)
             }
             }
         }
@@ -111,16 +110,17 @@ fun MarkdownText(
 
 // ---- Parser (deterministic, line-based) ------------------------------------
 
-private val HEADING_REGEX = Regex("^(#{1,4})\\s+(.*)$")
+private val HEADING_REGEX = Regex("^(#{1,6})\\s+(.*)$")
 internal val IMAGE_REGEX = Regex("^!\\[([^]]*)]\\(([^)]+)\\)$")
 internal val HTML_IMAGE_REGEX = Regex("<img\\s+[^>]*src=[\\\"']([^\\\"']+)[\\\"'][^>]*>", RegexOption.IGNORE_CASE)
 private val ORDERED_REGEX = Regex("^\\d+\\.\\s+")
 
-private sealed interface MdBlock {
+internal sealed interface MdBlock {
     data class Paragraph(val lines: List<String>) : MdBlock
     data class Image(val alt: String, val source: String) : MdBlock
     data class Heading(val level: Int, val text: String) : MdBlock
-    data class MdList(val items: List<String>, val ordered: Boolean) : MdBlock
+    data class MdList(val items: List<MdListItem>, val ordered: Boolean) : MdBlock
+    data class MdListItem(val text: String, val checked: Boolean? = null)
     data class Blockquote(val lines: List<String>) : MdBlock
     data class Code(val lang: String?, val code: String) : MdBlock
     data class Table(val rows: List<String>) : MdBlock
@@ -151,7 +151,7 @@ private object MarkdownParseCache {
     }
 }
 
-private fun parseMarkdown(markdown: String): List<MdBlock> {
+internal fun parseMarkdown(markdown: String): List<MdBlock> {
     val blocks = mutableListOf<MdBlock>()
     val lines = markdown.replace("\r\n", "\n").split("\n")
     var i = 0
@@ -189,19 +189,19 @@ private fun parseMarkdown(markdown: String): List<MdBlock> {
                 i++
             }
             trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
-                val items = mutableListOf<String>()
+                val items = mutableListOf<MdBlock.MdListItem>()
                 while (i < lines.size) {
                     val t = lines[i].trimStart()
                     if (!t.startsWith("- ") && !t.startsWith("* ")) break
-                    items += t.removePrefix("- ").removePrefix("* ").trim()
+                    items += parseTaskListItem(t.removeRange(0, 2).trim())
                     i++
                 }
                 blocks += MdBlock.MdList(items, ordered = false)
             }
             ORDERED_REGEX.containsMatchIn(trimmed) -> {
-                val items = mutableListOf<String>()
+                val items = mutableListOf<MdBlock.MdListItem>()
                 while (i < lines.size && ORDERED_REGEX.containsMatchIn(lines[i].trimStart())) {
-                    items += ORDERED_REGEX.replace(lines[i].trim(), "").trim()
+                    items += parseTaskListItem(ORDERED_REGEX.replace(lines[i].trim(), "").trim())
                     i++
                 }
                 blocks += MdBlock.MdList(items, ordered = true)
@@ -237,6 +237,11 @@ private fun parseMarkdown(markdown: String): List<MdBlock> {
     return blocks
 }
 
+private fun parseTaskListItem(text: String): MdBlock.MdListItem {
+    val task = Regex("^\\[([ xX])]\\s+(.*)$").matchEntire(text) ?: return MdBlock.MdListItem(text)
+    return MdBlock.MdListItem(task.groupValues[2], checked = task.groupValues[1].equals("x", ignoreCase = true))
+}
+
 private fun isSpecialLine(line: String): Boolean {
     val trimmed = line.trimStart()
     return trimmed.startsWith("```") ||
@@ -255,6 +260,9 @@ private fun isTableSeparator(line: String): Boolean =
     line.replace(Regex("[|:\\-\\s]"), "").isEmpty()
 
 // ---- Inline rendering ------------------------------------------------------
+
+internal fun markdownTableCells(row: String): List<String> =
+    row.trim().removePrefix("|").removeSuffix("|").split('|').map(String::trim)
 
 internal fun markdownImagePath(source: String): String? = source.trim().trim('<', '>').substringBefore('#').substringBefore('?').takeIf { it.isNotBlank() }
 
@@ -285,6 +293,7 @@ private sealed interface InlineSegment {
     data class Plain(val text: String) : InlineSegment
     data class Bold(val text: String) : InlineSegment
     data class Italic(val text: String) : InlineSegment
+    data class Strike(val text: String) : InlineSegment
     data class Code(val text: String) : InlineSegment
     data class Link(val text: String, val url: String) : InlineSegment
 }
@@ -301,6 +310,14 @@ private fun parseInlineSegments(text: String): List<InlineSegment> {
     }
     while (i < text.length) {
         when {
+            text.startsWith("~~", i) -> {
+                val end = text.indexOf("~~", i + 2)
+                if (end > i + 2) {
+                    flush()
+                    segments += InlineSegment.Strike(text.substring(i + 2, end))
+                    i = end + 2
+                } else { sb.append(text[i]); i++ }
+            }
             text.startsWith("`", i) -> {
                 val end = text.indexOf('`', i + 1)
                 if (end != -1) {
@@ -396,6 +413,7 @@ internal fun buildInlineContent(
             is InlineSegment.Plain -> builder.append(segment.text)
             is InlineSegment.Bold -> builder.withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(segment.text) }
             is InlineSegment.Italic -> builder.withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(segment.text) }
+            is InlineSegment.Strike -> builder.withStyle(SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough)) { append(segment.text) }
             is InlineSegment.Code -> builder.withStyle(
                 SpanStyle(fontFamily = codeStyle.fontFamily, color = codeStyle.color),
             ) { append(segment.text) }
@@ -416,19 +434,49 @@ internal fun buildInlineContent(
 // ---- Block renderers --------------------------------------------------------
 
 @Composable
+private fun MarkdownTable(rows: List<String>, onOpenLink: (String) -> Unit) {
+    val colors = DsTheme.colors
+    Column(Modifier.fillMaxWidth().border(1.dp, colors.borderL1, RoundedCornerShape(6.dp))) {
+        rows.forEachIndexed { rowIndex, row ->
+            Row(Modifier.fillMaxWidth()) {
+                markdownTableCells(row).forEach { cell ->
+                    Box(
+                        Modifier.weight(1f).border(0.5.dp, colors.borderL1).padding(horizontal = 8.dp, vertical = 6.dp),
+                    ) {
+                        InlineMarkdown(
+                            cell,
+                            DsType.mdSmall.copy(
+                                color = if (rowIndex == 0) colors.labelPrimary else colors.labelSecondary,
+                                fontWeight = if (rowIndex == 0) FontWeight.SemiBold else FontWeight.Normal,
+                            ),
+                            Modifier.fillMaxWidth(),
+                            onOpenLink,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun MdListBlock(block: MdBlock.MdList, onOpenLink: (String) -> Unit) {
     val colors = DsTheme.colors
     Column(Modifier.fillMaxWidth().padding(start = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         block.items.forEachIndexed { index, item ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                Text(
-                    if (block.ordered) "${index + 1}." else "•",
-                    style = DsType.mdBody.copy(color = colors.labelSecondary),
-                    textAlign = if (block.ordered) TextAlign.End else TextAlign.Start,
-                    modifier = Modifier.width(if (block.ordered) 28.dp else 18.dp),
-                )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (item.checked != null) {
+                    Checkbox(checked = item.checked, onCheckedChange = null, modifier = Modifier.size(28.dp))
+                } else {
+                    Text(
+                        if (block.ordered) "${index + 1}." else "•",
+                        style = DsType.mdBody.copy(color = colors.labelSecondary),
+                        textAlign = if (block.ordered) TextAlign.End else TextAlign.Start,
+                        modifier = Modifier.width(if (block.ordered) 28.dp else 18.dp),
+                    )
+                }
                 Spacer(Modifier.width(6.dp))
-                InlineMarkdown(item, DsType.mdBody.copy(color = colors.labelPrimary), Modifier.weight(1f), onOpenLink)
+                InlineMarkdown(item.text, DsType.mdBody.copy(color = colors.labelPrimary), Modifier.weight(1f), onOpenLink)
             }
         }
     }
