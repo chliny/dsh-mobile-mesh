@@ -4,29 +4,23 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 
-/**
- * Regression guard: xterm paints its glyphs onto a canvas inside a `user-select: none` host, so
- * the WebView callout has no text to select and terminal output could never be selected or copied.
- * A long press now starts a row selection in [touch-scroll.js], and the toolbar Copy button hands
- * that selection to the Android clipboard.
- */
+/** Regression guards for Android's native selection menu over xterm's accessibility text tree. */
 class TerminalSelectionTest {
-    private val gestures = File("src/main/assets/terminal/touch-scroll.js")
+    private val assets = File("src/main/assets/terminal")
 
-    /** Drives the real gesture handler with a fake DOM, so the selection invariant is exercised. */
-    private fun gesturesOnDevice(): kotlinx.serialization.json.JsonObject {
-        val script = File.createTempFile("terminal-selection", ".js")
+    private fun runGestureHarness(): kotlinx.serialization.json.JsonObject {
+        val script = File.createTempFile("terminal-native-selection", ".js")
         script.writeText(HARNESS)
         try {
-            val process = ProcessBuilder("node", script.absolutePath, gestures.absolutePath)
+            val process = ProcessBuilder("node", script.absolutePath, assets.resolve("touch-scroll.js").absolutePath)
                 .redirectErrorStream(true)
                 .start()
             val output = process.inputStream.bufferedReader().readText()
@@ -38,74 +32,54 @@ class TerminalSelectionTest {
         }
     }
 
-    @Test fun `long press selects the touched row and dragging extends it`() {
-        assumeTrue("node is required to drive the terminal gesture script", nodeAvailable())
-        val result = gesturesOnDevice()
-        val selection = result.getValue("longPress").jsonObject.getValue("selected").jsonArray
-        // Scrolled back five rows: xterm selects absolute buffer lines, so viewport row 2 is line 7.
-        assertEquals(listOf(7, 7), selection.first().jsonArray.map { it.jsonPrimitive.int })
-        assertEquals(listOf(7, 9), selection.last().jsonArray.map { it.jsonPrimitive.int })
-        // The drag owns the gesture, so WebView must not scroll the page under the selection.
-        assertEquals(1, result.getValue("longPress").jsonObject.getValue("prevented").jsonPrimitive.int)
-    }
-
-    @Test fun `a swipe still scrolls scrollback instead of selecting`() {
-        assumeTrue("node is required to drive the terminal gesture script", nodeAvailable())
-        val result = gesturesOnDevice()
-        val swipe = result.getValue("swipe").jsonObject
-        // The gesture that scrolled is a regression guard of its own: no line may be selected.
-        assertEquals(2, swipe.getValue("scrolled").jsonPrimitive.int)
-        assertEquals(0, swipe.getValue("selected").jsonArray.size)
-    }
-
-    @Test fun `a tap without a long press drops a stale selection`() {
-        assumeTrue("node is required to drive the terminal gesture script", nodeAvailable())
-        val result = gesturesOnDevice()
-        // Copy reads the live selection, so an old highlight must not survive a plain tap.
-        assertEquals(1, result.getValue("staleAfterSelect").jsonPrimitive.int)
-        assertEquals(0, result.getValue("staleAfterTap").jsonPrimitive.int)
-    }
-
-    @Test fun `the selection bridge reaches the Android clipboard`() {
-        val page = File("src/main/assets/terminal/index.html").readText()
-        assertTrue("terminalCopy() must read the live xterm selection", page.contains("term.getSelection()"))
-        assertTrue("the page must hand the selection to the native bridge", page.contains("AndroidTerminal.copy(text)"))
+    @Test fun `native long press uses selectable xterm DOM and no legacy copy controls remain`() {
+        val page = assets.resolve("index.html").readText()
+        val gestures = assets.resolve("touch-scroll.js").readText()
         val screen = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/TerminalScreen.kt").readText()
-        assertTrue("the bridge must copy to the system clipboard", screen.contains("@JavascriptInterface fun copy(text: String)"))
-        assertTrue(screen.contains("ClipboardManager"))
-        assertTrue("a visible Copy control must invoke it", screen.contains("evaluateJavascript(\"terminalCopy()\", null)"))
+        assertTrue(page.contains("screenReaderMode:true"))
+        assertTrue(page.contains(".xterm-accessibility:not(.debug){pointer-events:auto}"))
+        assertTrue(page.contains("-webkit-user-select:text;user-select:text"))
+        assertTrue(page.contains("addEventListener('contextmenu', event => event.stopPropagation())"))
+        assertFalse("do not expose the old JS copy endpoint", page.contains("terminalCopy"))
+        assertFalse(page.contains("AndroidTerminal.copy"))
+        assertFalse("the old synthetic line selection must be gone", gestures.contains("term.selectLines("))
+        assertFalse(gestures.contains("term.clearSelection()"))
+        assertFalse("remove the old native clipboard bridge", screen.contains("@JavascriptInterface fun copy("))
+        assertFalse("the toolbar must not show a Copy button", screen.contains("evaluateJavascript(\"terminalCopy()\""))
     }
 
-    private fun nodeAvailable(): Boolean =
-        try {
-            ProcessBuilder("node", "--version").redirectErrorStream(true).start()
-                .also { it.inputStream.readBytes(); it.waitFor(20, TimeUnit.SECONDS) }
-                .exitValue() == 0
-        } catch (_: Exception) {
-            false
-        }
+    @Test fun `a native text range drag is left to WebView`() {
+        assumeTrue("node is required to drive the terminal gesture script", nodeAvailable())
+        val result = runGestureHarness()
+        val selection = result.getValue("nativeSelection")
+        assertEquals(0, selection.jsonObject.getValue("scrolled").jsonPrimitive.int)
+        assertEquals(0, selection.jsonObject.getValue("prevented").jsonPrimitive.int)
+    }
+
+    @Test fun `one finger swipe still scrolls terminal scrollback`() {
+        assumeTrue("node is required to drive the terminal gesture script", nodeAvailable())
+        val result = runGestureHarness()
+        val swipe = result.getValue("swipe")
+        assertEquals(2, swipe.jsonObject.getValue("scrolled").jsonPrimitive.int)
+        assertEquals(1, swipe.jsonObject.getValue("prevented").jsonPrimitive.int)
+    }
+
+    private fun nodeAvailable(): Boolean = try {
+        ProcessBuilder("node", "--version").redirectErrorStream(true).start()
+            .also { it.inputStream.readBytes(); it.waitFor(20, TimeUnit.SECONDS) }
+            .exitValue() == 0
+    } catch (_: Exception) {
+        false
+    }
 
     private companion object {
-        /**
-         * A minimal stand-in for `.xterm-screen`: the handler only needs `closest`,
-         * `getBoundingClientRect` and the touch listeners, so the real script runs unmodified.
-         */
         val HARNESS = """
             const fs = require('fs');
             const install = new Function(fs.readFileSync(process.argv[2], 'utf8') + '\nreturn installTerminalTouchScrolling;')();
-
-            // A manual clock, so the long press threshold is driven deterministically.
-            let now = 0, nextId = 0;
-            const timers = new Map();
-            global.setTimeout = (fn, delay) => { const id = ++nextId; timers.set(id, {fn, at: now + delay}); return id; };
-            global.clearTimeout = id => timers.delete(id);
-            const advance = ms => {
-              now += ms;
-              for (const [id, timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.fn(); }
-            };
-
-            const screen = {closest: selector => (selector === '.xterm-screen' ? {} : null)};
-            function harness(viewportY) {
+            let selected = false;
+            global.window = {getSelection: () => ({isCollapsed: !selected})};
+            const makeTarget = cls => ({closest: selector => selector.split(', ').includes(cls) ? {} : null});
+            function harness(target) {
               const listeners = {};
               const container = {
                 getBoundingClientRect: () => ({top: 0, height: 200}),
@@ -113,54 +87,26 @@ class TerminalSelectionTest {
               };
               const term = {
                 rows: 10,
-                buffer: {active: {type: 'normal', baseY: viewportY, viewportY: viewportY, length: 500}},
-                selected: [],
+                buffer: {active: {type: 'normal', baseY: 10, viewportY: 10, length: 100}},
                 scrolled: 0,
                 prevented: 0,
-                hasSelection() { return this.selected.length > 0; },
-                clearSelection() { this.selected.length = 0; },
-                selectLines(start, end) { this.selected.push([start, end]); },
                 scrollLines(lines) { this.scrolled += lines; },
               };
               install(container, term);
-              const fire = type => (x, y) => listeners[type].forEach(fn =>
-                fn({
-                  target: screen,
-                  cancelable: true,
-                  preventDefault() { term.prevented++; },
-                  touches: [{clientX: x, clientY: y}],
-                }));
-              return {term, advance, start: fire('touchstart'), move: fire('touchmove'), end: fire('touchend')};
+              const fire = type => (x, y) => listeners[type].forEach(fn => fn({
+                target, cancelable: true, preventDefault() { term.prevented++; },
+                touches: [{clientX: x, clientY: y}],
+              }));
+              return {term, start: fire('touchstart'), move: fire('touchmove'), end: fire('touchend')};
             }
-
-            // Long press, then drag down two rows.
-            const longPress = harness(5);
-            longPress.start(40, 45);
-            longPress.advance(600);
-            longPress.move(40, 95);
-            longPress.end();
-
-            // A one-finger swipe must keep scrolling rather than selecting.
-            const swipe = harness(10);
-            swipe.start(40, 100);
-            swipe.move(40, 60);
-            swipe.advance(600);
-            swipe.end();
-
-            // A selection must survive its own touchend, then a plain tap must drop it.
-            const stale = harness(0);
-            stale.start(40, 25);
-            stale.advance(600);
-            stale.end();
-            const staleAfterSelect = stale.term.selected.length;
-            stale.start(40, 150);
-            stale.end();
-
+            const swipe = harness(makeTarget('.xterm-screen'));
+            swipe.start(40, 100); swipe.move(40, 60); swipe.end();
+            selected = true;
+            const nativeSelection = harness(makeTarget('.xterm-accessibility-tree'));
+            nativeSelection.start(40, 100); nativeSelection.move(40, 60); nativeSelection.end();
             console.log(JSON.stringify({
-              longPress: {selected: longPress.term.selected, prevented: longPress.term.prevented},
-              swipe: {scrolled: swipe.term.scrolled, selected: swipe.term.selected},
-              staleAfterSelect: staleAfterSelect,
-              staleAfterTap: stale.term.selected.length,
+              swipe: {scrolled: swipe.term.scrolled, prevented: swipe.term.prevented},
+              nativeSelection: {scrolled: nativeSelection.term.scrolled, prevented: nativeSelection.term.prevented},
             }));
         """.trimIndent()
     }

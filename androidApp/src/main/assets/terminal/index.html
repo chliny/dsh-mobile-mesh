@@ -1,10 +1,21 @@
 <!doctype html>
-<html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"><link rel="stylesheet" href="xterm.css"><style>html,body{height:100%;width:100%;margin:0;background:#10141d;overflow:hidden} #terminal{position:fixed;top:0;left:0;height:100vh;width:100%;background:#10141d;overflow:hidden} .xterm{padding:4px;box-sizing:border-box} </style></head><body><div id="terminal"></div><script src="xterm.js"></script><script src="addon-fit.js"></script><script src="touch-scroll.js"></script><script>
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"><link rel="stylesheet" href="xterm.css"><style>
+html,body{height:100%;width:100%;margin:0;background:#10141d;overflow:hidden}
+#terminal{position:fixed;top:0;left:0;height:100vh;width:100%;background:#10141d;overflow:hidden}
+.xterm{padding:4px;box-sizing:border-box}
+/* Let Android WebView hit-test xterm's DOM mirror as real text for native long-press selection. */
+.xterm .xterm-accessibility:not(.debug){pointer-events:auto}
+.xterm .xterm-accessibility-tree:not(.debug),.xterm .xterm-accessibility-tree:not(.debug) *{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+.xterm .xterm-accessibility-tree:not(.debug) *::selection{color:#fff;background:#3569a8}
+</style></head><body><div id="terminal"></div><script src="xterm.js"></script><script src="addon-fit.js"></script><script src="touch-scroll.js"></script><script>
 'use strict';
-const term = new Terminal({cursorBlink:true,allowTransparency:false,scrollback:1000,convertEol:false,fontFamily:'monospace, "Noto Color Emoji"',fontSize:14,theme:{background:'#10141d',foreground:'#e6eaf1',cursor:'#f8f8f2'}});
+const term = new Terminal({cursorBlink:true,screenReaderMode:true,allowTransparency:false,scrollback:1000,convertEol:false,fontFamily:'monospace, "Noto Color Emoji"',fontSize:14,theme:{background:'#10141d',foreground:'#e6eaf1',cursor:'#f8f8f2'}});
 const fitAddon=new FitAddon.FitAddon();term.loadAddon(fitAddon);
 term.open(document.getElementById('terminal'));
-installTerminalTouchScrolling(term.element.querySelector('.xterm-screen'), term);
+// xterm handles contextmenu by focusing its hidden input, which clears WebView's DOM range.
+// Let the Android WebView perform the default action, but keep the event away from xterm.
+term.element.querySelector('.xterm-accessibility-tree')?.addEventListener('contextmenu', event => event.stopPropagation());
+installTerminalTouchScrolling(term.element, term);
 // Let xterm own Backspace and composition reconciliation. Mixing a native textarea edit with
 // an extra DEL bypasses xterm's deferred 229 diff and can delete two terminal characters.
 term.onData(data => AndroidTerminal.input(data));
@@ -15,7 +26,6 @@ window.addEventListener('resize',fit);
 window.terminalReset=(text)=>{term.reset();term.write(text);};
 window.terminalWrite=(text)=>term.write(text);
 window.terminalFocus=()=>term.focus();
-window.terminalCopy=()=>{const text=term.getSelection();if(text) AndroidTerminal.copy(text);};
 window.terminalInput=(text)=>AndroidTerminal.input(text);
 window.terminalDimensions=()=>[term.cols,term.rows];
 requestAnimationFrame(fit);
