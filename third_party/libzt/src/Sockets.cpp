@@ -428,6 +428,11 @@ int zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms)
         if (zts_get_blocking(fd)) {
             do {
                 err = zts_bsd_connect(fd, sa, addrlen);
+                // A successful TCP handshake is already usable. Sleeping before returning adds
+                // 250ms to every connection, including foreground recovery's readiness dial.
+                if (err >= 0) {
+                    return err;
+                }
                 zts_util_delay(connect_delay);
                 n_tries--;
             } while ((err < 0) && (zts_errno != 0) && (n_tries > 0));
