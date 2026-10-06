@@ -439,6 +439,8 @@ internal fun buildInlineContent(
 
 // ---- Block renderers --------------------------------------------------------
 
+internal val markdownListMarkerAlignment = Alignment.Top
+
 @Composable
 private fun MarkdownTable(rows: List<String>, onOpenLink: (String) -> Unit) {
     val colors = DsTheme.colors
@@ -471,7 +473,8 @@ private fun MdListBlock(block: MdBlock.MdList, onOpenLink: (String) -> Unit) {
     val colors = DsTheme.colors
     Column(Modifier.fillMaxWidth().padding(start = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         block.items.forEachIndexed { index, item ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // Align markers to the first text line instead of centering them beside wrapped paragraphs.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = markdownListMarkerAlignment) {
                 if (item.checked != null) {
                     Checkbox(checked = item.checked, onCheckedChange = null, modifier = Modifier.size(28.dp))
                 } else {

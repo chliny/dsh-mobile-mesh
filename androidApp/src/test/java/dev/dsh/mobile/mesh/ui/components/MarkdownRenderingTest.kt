@@ -1,6 +1,6 @@
 package dev.dsh.mobile.mesh.ui.components
 
-import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextDecoration
@@ -9,6 +9,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownRenderingTest {
+    @Test
+    fun `list markers align to the top of wrapped text`() {
+        assertEquals(Alignment.Top, markdownListMarkerAlignment)
+    }
+
     @Test
     fun `task list markers render as checked and unchecked items`() {
         val block = parseMarkdown("- [ ] pending\n- [x] complete\n- regular").single() as MdBlock.MdList
