@@ -264,6 +264,12 @@ private fun isTableSeparator(line: String): Boolean =
 internal fun markdownTableCells(row: String): List<String> =
     row.trim().removePrefix("|").removeSuffix("|").split('|').map(String::trim)
 
+internal fun markdownTableRows(rows: List<String>): List<List<String>> {
+    val cells = rows.map(::markdownTableCells)
+    val columnCount = cells.maxOfOrNull { it.size } ?: return emptyList()
+    return cells.map { row -> row + List(columnCount - row.size) { "" } }
+}
+
 internal fun markdownImagePath(source: String): String? = source.trim().trim('<', '>').substringBefore('#').substringBefore('?').takeIf { it.isNotBlank() }
 
 @Composable
@@ -437,11 +443,12 @@ internal fun buildInlineContent(
 private fun MarkdownTable(rows: List<String>, onOpenLink: (String) -> Unit) {
     val colors = DsTheme.colors
     Column(Modifier.fillMaxWidth().border(1.dp, colors.borderL1, RoundedCornerShape(6.dp))) {
-        rows.forEachIndexed { rowIndex, row ->
-            Row(Modifier.fillMaxWidth()) {
-                markdownTableCells(row).forEach { cell ->
+        val normalizedRows = markdownTableRows(rows)
+        normalizedRows.forEachIndexed { rowIndex, row ->
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Max)) {
+                row.forEach { cell ->
                     Box(
-                        Modifier.weight(1f).border(0.5.dp, colors.borderL1).padding(horizontal = 8.dp, vertical = 6.dp),
+                        Modifier.weight(1f).fillMaxHeight().border(0.5.dp, colors.borderL1).padding(horizontal = 8.dp, vertical = 6.dp),
                     ) {
                         InlineMarkdown(
                             cell,

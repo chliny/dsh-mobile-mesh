@@ -41,6 +41,18 @@ class MarkdownRenderingTest {
     }
 
     @Test
+    fun `markdown table rows share columns so vertical boundaries stay aligned`() {
+        assertEquals(
+            listOf(
+                listOf("field", "type", "notes"),
+                listOf("name", "string", "detail"),
+                listOf("count", "integer", ""),
+            ),
+            markdownTableRows(listOf("| field | type | notes |", "| name | string | detail |", "| count | integer |")),
+        )
+    }
+
+    @Test
     fun `sixth level headings parse as headings`() {
         assertEquals(MdBlock.Heading(6, "detail"), parseMarkdown("###### detail").single())
     }

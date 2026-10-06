@@ -212,6 +212,10 @@ internal fun MainScreen(
                     path = current.path,
                     title = current.title,
                     onBack = { navigate(current.returnPage) },
+                    onOpenFile = { linkedPath, linkedTitle ->
+                        val safePath = safePreviewPath(linkedPath, sessions.firstOrNull { it.sessionId == sid }?.cwd)
+                        if (safePath != null) navigate(MainPage.Preview(safePath, linkedTitle, current))
+                    },
                 )
                 is MainPage.Diff -> FullChangesDiffScreen(
                     store = store,
