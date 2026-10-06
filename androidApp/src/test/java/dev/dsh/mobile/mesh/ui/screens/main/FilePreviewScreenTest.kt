@@ -24,6 +24,14 @@ class FilePreviewScreenTest {
     }
 
     @Test
+    fun `markdown relative links resolve from the current file directory`() {
+        assertEquals("docs/setup.md", resolveMarkdownFileTarget("README.md", "docs/setup.md#install"))
+        assertEquals("guide/next.md", resolveMarkdownFileTarget("guide/README.md", "next.md"))
+        assertEquals("/workspace/shared.md", resolveMarkdownFileTarget("README.md", "/workspace/shared.md"))
+        assertEquals(null, resolveMarkdownFileTarget("README.md", "https://example.com"))
+    }
+
+    @Test
     fun `non markdown files use syntax highlighting`() {
         assertFalse(isMarkdownPath("src/Main.kt"))
         assertFalse(isMarkdownPath("config.json"))

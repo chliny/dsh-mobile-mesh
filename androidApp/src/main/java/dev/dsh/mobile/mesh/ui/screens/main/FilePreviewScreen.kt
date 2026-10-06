@@ -62,6 +62,13 @@ private suspend fun resolveMarkdownImage(source: String, markdownPath: String, s
     return svgDataUrl(bytes)
 }
 
+internal fun resolveMarkdownFileTarget(markdownPath: String, target: String): String? {
+    val link = markdownWorkspaceLinkPath(target) ?: return null
+    if (link.startsWith("/") || link.matches(Regex("^[A-Za-z]:[/\\\\].*"))) return link
+    val parent = markdownPath.substringBeforeLast('/', "")
+    return listOf(parent, link).filter { it.isNotBlank() }.joinToString("/")
+}
+
 internal fun isMarkdownPath(path: String): Boolean = when (path.substringAfterLast('.', "").lowercase()) {
     "md", "markdown", "mdown", "mkd", "rmd" -> true
     else -> false
@@ -69,11 +76,12 @@ internal fun isMarkdownPath(path: String): Boolean = when (path.substringAfterLa
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, title: String, onBack: () -> Unit) {
+fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, title: String, onBack: () -> Unit, onOpenFile: (String, String) -> Unit) {
     val store = rememberWorkspaceFilesStore()
     val state by store.state.collectAsStateWithLifecycle()
     val previewListState = rememberLazyListState()
     val context = LocalContext.current
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     val assets = context.applicationContext.assets
     val grammarAsset = textMateGrammarAsset(path)
     val themeAsset = if (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
@@ -145,6 +153,11 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
                                 modifier = Modifier.fillMaxWidth(),
                                 imageResolver = { source ->
                                     resolveMarkdownImage(source, path, store, sessionId)
+                                },
+                                onOpenLink = { target ->
+                                    resolveMarkdownFileTarget(path, target)?.let { linkedPath ->
+                                        onOpenFile(linkedPath, linkedPath.substringAfterLast('/'))
+                                    } ?: runCatching { uriHandler.openUri(target) }
                                 },
                             )
                         }
