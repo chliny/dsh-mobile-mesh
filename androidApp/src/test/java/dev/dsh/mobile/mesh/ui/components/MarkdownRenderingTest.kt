@@ -38,11 +38,43 @@ class MarkdownRenderingTest {
     }
 
     @Test
+    fun `single backtick code spans render in monospace with inline code background`() {
+        val colors = dev.dsh.mobile.mesh.ui.theme.DsThemeTokens.light
+        val annotated = buildInlineContent(
+            text = "Use `config.yaml` here",
+            codeStyle = TextStyle(fontFamily = FontFamily.Monospace),
+            colors = colors,
+            onOpenUri = {},
+        )
+
+        assertEquals("Use config.yaml here", annotated.text)
+        val codeSpan = annotated.spanStyles.single { it.item.fontFamily == FontFamily.Monospace }
+        assertEquals("config.yaml", annotated.text.substring(codeSpan.start, codeSpan.end))
+        assertEquals(colors.inlineCode, codeSpan.item.background)
+    }
+
+    @Test
     fun `markdown tables expose trimmed cell content without separator row`() {
         val table = parseMarkdown("| name | value |\n| --- | :---: |\n| answer | 42 |").single() as MdBlock.Table
 
         assertEquals(listOf("name", "value"), markdownTableCells(table.rows[0]))
         assertEquals(listOf("answer", "42"), markdownTableCells(table.rows[1]))
+    }
+
+    @Test
+    fun `markdown tables without outer pipes render as tables`() {
+        val table = parseMarkdown("field | type\n--- | ---\nvalue | string").single() as MdBlock.Table
+
+        assertEquals(listOf("field", "type"), markdownTableCells(table.rows[0]))
+        assertEquals(listOf("value", "string"), markdownTableCells(table.rows[1]))
+    }
+
+    @Test
+    fun `horizontal rules parse as standalone blocks`() {
+        assertEquals(
+            listOf(MdBlock.Paragraph(listOf("before")), MdBlock.HorizontalRule, MdBlock.Paragraph(listOf("after"))),
+            parseMarkdown("before\n\n---\n\nafter"),
+        )
     }
 
     @Test

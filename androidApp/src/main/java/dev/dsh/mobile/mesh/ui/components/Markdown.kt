@@ -102,6 +102,9 @@ fun MarkdownText(
                 is MdBlock.Blockquote -> MdBlockquote(block, openLink)
                 is MdBlock.Code -> CodeBlock(block.lang, block.code)
                 is MdBlock.Table -> MarkdownTable(block.rows, openLink)
+                MdBlock.HorizontalRule -> Box(
+                    Modifier.fillMaxWidth().padding(vertical = 8.dp).height(1.dp).background(colors.borderL1),
+                )
             }
             }
         }
@@ -114,6 +117,7 @@ private val HEADING_REGEX = Regex("^(#{1,6})\\s+(.*)$")
 internal val IMAGE_REGEX = Regex("^!\\[([^]]*)]\\(([^)]+)\\)$")
 internal val HTML_IMAGE_REGEX = Regex("<img\\s+[^>]*src=[\\\"']([^\\\"']+)[\\\"'][^>]*>", RegexOption.IGNORE_CASE)
 private val ORDERED_REGEX = Regex("^\\d+\\.\\s+")
+private val HORIZONTAL_RULE_REGEX = Regex("^(?:(?:\\*\\s*){3,}|(?:-\\s*){3,}|(?:_\\s*){3,})$")
 
 internal sealed interface MdBlock {
     data class Paragraph(val lines: List<String>) : MdBlock
@@ -124,6 +128,7 @@ internal sealed interface MdBlock {
     data class Blockquote(val lines: List<String>) : MdBlock
     data class Code(val lang: String?, val code: String) : MdBlock
     data class Table(val rows: List<String>) : MdBlock
+    data object HorizontalRule : MdBlock
 }
 
 /**
@@ -181,6 +186,10 @@ internal fun parseMarkdown(markdown: String): List<MdBlock> {
                 }
                 i++
             }
+            HORIZONTAL_RULE_REGEX.matches(trimmed) -> {
+                blocks += MdBlock.HorizontalRule
+                i++
+            }
             HEADING_REGEX.matches(trimmed) -> {
                 val match = HEADING_REGEX.matchEntire(trimmed)!!
                 val level = match.groupValues[1].length
@@ -214,9 +223,9 @@ internal fun parseMarkdown(markdown: String): List<MdBlock> {
                 }
                 blocks += MdBlock.Blockquote(quote)
             }
-            trimmed.startsWith("|") -> {
+            isTableStart(lines, i) -> {
                 val rows = mutableListOf<String>()
-                while (i < lines.size && lines[i].trimStart().startsWith("|")) {
+                while (i < lines.size && lines[i].contains('|')) {
                     if (!isTableSeparator(lines[i])) rows += lines[i]
                     i++
                 }
@@ -226,7 +235,7 @@ internal fun parseMarkdown(markdown: String): List<MdBlock> {
             else -> {
                 val para = mutableListOf(line)
                 i++
-                while (i < lines.size && lines[i].isNotBlank() && !isSpecialLine(lines[i])) {
+                while (i < lines.size && lines[i].isNotBlank() && !isSpecialLine(lines[i]) && !isTableStart(lines, i)) {
                     para += lines[i]
                     i++
                 }
@@ -244,7 +253,8 @@ private fun parseTaskListItem(text: String): MdBlock.MdListItem {
 
 private fun isSpecialLine(line: String): Boolean {
     val trimmed = line.trimStart()
-    return trimmed.startsWith("```") ||
+    return HORIZONTAL_RULE_REGEX.matches(trimmed) ||
+        trimmed.startsWith("```") ||
         IMAGE_REGEX.matches(trimmed) ||
         HTML_IMAGE_REGEX.containsMatchIn(trimmed) ||
         HEADING_REGEX.matches(trimmed) ||
@@ -253,6 +263,13 @@ private fun isSpecialLine(line: String): Boolean {
         ORDERED_REGEX.containsMatchIn(trimmed) ||
         trimmed.startsWith(">") ||
         trimmed.startsWith("|")
+}
+
+private fun isTableStart(lines: List<String>, index: Int): Boolean {
+    val header = lines.getOrNull(index)?.trimStart() ?: return false
+    if (header.startsWith("|")) return true
+    val separator = lines.getOrNull(index + 1) ?: return false
+    return header.contains('|') && separator.contains('|') && isTableSeparator(separator)
 }
 
 /** Table separator rows (only pipes, dashes, colons and spaces) are dropped. */
@@ -421,7 +438,11 @@ internal fun buildInlineContent(
             is InlineSegment.Italic -> builder.withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(segment.text) }
             is InlineSegment.Strike -> builder.withStyle(SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough)) { append(segment.text) }
             is InlineSegment.Code -> builder.withStyle(
-                SpanStyle(fontFamily = codeStyle.fontFamily, color = codeStyle.color),
+                SpanStyle(
+                    fontFamily = codeStyle.fontFamily,
+                    color = codeStyle.color,
+                    background = colors.inlineCode,
+                ),
             ) { append(segment.text) }
             is InlineSegment.Link -> {
                 builder.withLink(
