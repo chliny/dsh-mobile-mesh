@@ -1159,11 +1159,17 @@ class ConnectionManager @Inject constructor(
         }
         val resumedTarget = lifecycle.foreground()
         if (resumedTarget != null && currentPhaseBeforeResume != ConnectionPhase.CONNECTED) {
-            // A retained service may still be completing the same recovery while the Activity is
-            // recreated. Do not cancel its operation and wait behind its teardown; only re-arm when
-            // there is no live operation to own the carrier.
+            // Keep a fresh retained recovery in flight, but don't trust one that may have been
+            // suspended by Doze for >=5s: replaceOperation cancels it and joins its teardown before
+            // dialing the successor. onStart and onResume may both request recovery; replacement is
+            // serialized, but slow/non-cancellable native teardown can still delay resume. See the
+            // policy KDoc for Pixel 3 validation scope and crash-diagnostic hints.
             suspendedForBackground = false
-            if (synchronized(operationLock) { connectJob?.isActive == true }) {
+            val operationInFlight = synchronized(operationLock) { connectJob?.isActive == true }
+            if (operationInFlight && !shouldRestartStaleForegroundOperation(
+                    backgroundDurationBeforeResume,
+                    operationInFlight = operationInFlight,
+                )) {
                 // onAppBackgrounded() clears this presentation latch while retaining the transport.
                 // Re-arm it before returning so the existing session is visibly blocked for the
                 // remainder of the in-flight foreground recovery.

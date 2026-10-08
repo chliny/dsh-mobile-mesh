@@ -87,6 +87,22 @@ internal fun shouldPublishConnectedGeneration(
 
 /** Verify a connected carrier before renewal regardless of background duration; network changes still recover immediately. */
 internal const val FOREGROUND_VERIFY_AFTER_MS = 5_000L
+
+/**
+ * Replace a possibly Doze-stalled connection operation on a long (>=5s) background resume.
+ *
+ * Risk/diagnostics: replacement cancels the old job and relies on [ConnectionManager.replaceOperation]
+ * to join its teardown before the successor dials. Duplicate onStart/onResume recovery requests can
+ * still cause a second serialized replacement; if cancellation or native transport teardown stalls,
+ * recovery can remain delayed. Watch ConnectionManager's foreground-resume and operation logs.
+ *
+ * Validation (2026-10-08): policy unit test and release build passed; on Pixel 3, a ~8s background
+ * hop reconnected in <1s with no crash observed. This was one manual run, not a stress/network-loss test.
+ */
+internal fun shouldRestartStaleForegroundOperation(
+    backgroundDurationMs: Long,
+    operationInFlight: Boolean,
+): Boolean = operationInFlight && backgroundDurationMs >= FOREGROUND_VERIFY_AFTER_MS
 internal const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 500L
 internal const val FOREGROUND_RECOVERY_STEADY_RETRY_DELAY_MS = 5_000L
 internal const val FOREGROUND_RECOVERY_FAST_ATTEMPTS = 3
