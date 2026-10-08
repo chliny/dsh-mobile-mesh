@@ -47,6 +47,13 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
+    fun `long background resumes restart stalled connection operations`() {
+        assertFalse(shouldRestartStaleForegroundOperation(4_999, operationInFlight = true))
+        assertTrue(shouldRestartStaleForegroundOperation(5_000, operationInFlight = true))
+        assertFalse(shouldRestartStaleForegroundOperation(60_000, operationInFlight = false))
+    }
+
+    @Test
     fun `longer healthy background stay verifies without teardown`() {
         assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 5_000))
         assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 15_000))
