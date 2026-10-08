@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.CallSplit
 import androidx.compose.material.icons.filled.ContentCopy
@@ -74,7 +73,6 @@ import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import dev.dsh.mobile.mesh.ui.components.hasThinkingContent
 import dev.dsh.mobile.mesh.ui.components.MarkdownText
-import dev.dsh.mobile.mesh.ui.components.rememberCommonMarkDecision
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.components.ThinkingRow
@@ -313,7 +311,6 @@ private fun RetryRow(node: RetryNode, context: ChatNodeContext) {
 @Composable
 private fun MarkdownUserBubble(text: String, onOpenLink: (String) -> Unit) {
     val colors = DsTheme.colors
-    val renderAsMarkdown by rememberCommonMarkDecision(text)
     BoxWithConstraints(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = Alignment.CenterEnd,
@@ -325,13 +322,7 @@ private fun MarkdownUserBubble(text: String, onOpenLink: (String) -> Unit) {
                 .border(1.dp, colors.borderL3, DsShapes.bubble)
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         ) {
-            if (renderAsMarkdown) {
-                MarkdownText(text, onOpenLink = onOpenLink)
-            } else {
-                SelectionContainer {
-                    Text(text, style = DsType.mdBody.copy(color = colors.labelPrimary))
-                }
-            }
+            MarkdownText(text, onOpenLink = onOpenLink)
         }
     }
 }
