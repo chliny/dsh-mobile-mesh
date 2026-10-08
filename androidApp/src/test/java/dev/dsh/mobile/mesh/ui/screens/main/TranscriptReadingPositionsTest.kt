@@ -65,6 +65,68 @@ class TranscriptReadingPositionsTest {
     }
 
     @Test
+    fun `leaving and immediately reopening unchanged tail restores semantic end`() {
+        // At the tail, the first visible row can still be earlier than the final row. A return
+        // must use the saved tail intent rather than replaying that row's coordinate.
+        val rows = listOf(row(10), row(20), row(30))
+        val positions = TranscriptReadingPositions().apply {
+            put("session", readingPositionOf(rows[1], offset = 125, atBottom = true))
+        }
+
+        // The list page replaces MainScreen, but the position owner is retained above that page.
+        val reopened = positions.get("session")!!
+        assertEquals(3, rows.size) // No conversation content was added while away.
+        assertEquals(1, readingPositionIndex(rows, reopened))
+        assertTrue(shouldRestoreTranscriptToBottom(reopened))
+    }
+
+    @Test
+    fun `tail intent survives end-row remeasurement but clears on deliberate upward drag`() {
+        val reachedTail = nextTranscriptTailIntent(
+            currentIntent = false, measuredAtBottom = true, userDragging = true,
+            previousIndex = 35, previousOffset = 300, currentIndex = 35, currentOffset = 407,
+        )
+        assertTrue(reachedTail)
+
+        // The last item can disappear from the measured viewport without a reader gesture.
+        val afterRemeasure = nextTranscriptTailIntent(
+            currentIntent = reachedTail, measuredAtBottom = false, userDragging = false,
+            previousIndex = 35, previousOffset = 407, currentIndex = 35, currentOffset = 407,
+        )
+        assertTrue(afterRemeasure)
+        val positions = TranscriptReadingPositions().apply {
+            put("session", TranscriptReadingPosition(seq = 252, offset = 437, atBottom = afterRemeasure))
+        }
+        assertTrue(shouldRestoreTranscriptToBottom(positions.get("session")))
+        assertTrue(shouldFollowTranscriptLayoutShift(
+            wasNearBottom = afterRemeasure, userDragging = false, scrollInProgress = false,
+            previouslyCanScrollForward = false, canScrollForward = true, measurementChanged = true,
+            sameScrollCoordinate = true,
+        ))
+        assertFalse(shouldFollowTranscriptLayoutShift(
+            wasNearBottom = afterRemeasure, userDragging = false, scrollInProgress = false,
+            previouslyCanScrollForward = false, canScrollForward = true, measurementChanged = true,
+            sameScrollCoordinate = false,
+        ))
+        // Further rows can remeasure after forward scrolling has already become available.
+        assertTrue(shouldFollowTranscriptLayoutShift(
+            wasNearBottom = afterRemeasure, userDragging = false, scrollInProgress = false,
+            previouslyCanScrollForward = true, canScrollForward = true, measurementChanged = true,
+            sameScrollCoordinate = true,
+        ))
+        assertFalse(shouldFollowTranscriptLayoutShift(
+            wasNearBottom = afterRemeasure, userDragging = false, scrollInProgress = false,
+            previouslyCanScrollForward = true, canScrollForward = true, measurementChanged = false,
+            sameScrollCoordinate = true,
+        ))
+
+        assertFalse(nextTranscriptTailIntent(
+            currentIntent = afterRemeasure, measuredAtBottom = false, userDragging = true,
+            previousIndex = 35, previousOffset = 437, currentIndex = 34, currentOffset = 20,
+        ))
+    }
+
+    @Test
     fun `provisional assistant survives shifting seq and durable settlement`() {
         fun assistant(seq: Long, turn: Int, step: Int, streaming: Boolean) = TranscriptRow.Node(
             AssistantMessageNode(seq, null, turn, step, emptyList(), streaming = streaming),
