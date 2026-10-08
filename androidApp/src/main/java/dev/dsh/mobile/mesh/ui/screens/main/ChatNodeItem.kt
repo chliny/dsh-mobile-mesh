@@ -74,7 +74,7 @@ import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import dev.dsh.mobile.mesh.ui.components.hasThinkingContent
 import dev.dsh.mobile.mesh.ui.components.MarkdownText
-import dev.dsh.mobile.mesh.ui.components.containsCommonMarkElements
+import dev.dsh.mobile.mesh.ui.components.rememberCommonMarkDecision
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.components.ThinkingRow
@@ -313,7 +313,7 @@ private fun RetryRow(node: RetryNode, context: ChatNodeContext) {
 @Composable
 private fun MarkdownUserBubble(text: String, onOpenLink: (String) -> Unit) {
     val colors = DsTheme.colors
-    val renderAsMarkdown = remember(text) { containsCommonMarkElements(text) }
+    val renderAsMarkdown by rememberCommonMarkDecision(text)
     BoxWithConstraints(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = Alignment.CenterEnd,

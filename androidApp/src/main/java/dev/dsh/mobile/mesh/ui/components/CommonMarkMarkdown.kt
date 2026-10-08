@@ -7,6 +7,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -39,6 +40,7 @@ import org.commonmark.parser.Parser
 import org.commonmark.renderer.html.HtmlRenderer
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import java.util.LinkedHashMap
 
 private const val MARKDOWN_BASE_URL = "https://markdown.invalid/"
 private const val MARKDOWN_LINK_SCHEME = "dsh-markdown"
@@ -53,6 +55,102 @@ private val commonMarkExtensions = listOf(
 private val commonMarkParser = Parser.builder().extensions(commonMarkExtensions).build()
 private val commonMarkHtmlRenderer = HtmlRenderer.builder().extensions(commonMarkExtensions).build()
 
+private const val MAX_CACHEABLE_MARKDOWN_CHARS = 64 * 1024
+
+internal data class MarkdownRenderCacheKey(
+    val markdown: String,
+    val colors: DsColors,
+    val darkMode: Boolean,
+    val copyLabel: String,
+    val resolvedImageDestinations: List<String>,
+)
+
+private object CommonMarkRenderCache {
+    private const val MAX_ENTRIES = 48
+    private const val MAX_CACHEABLE_HTML_CHARS = 128 * 1024
+    private const val MAX_TOTAL_CHARS = 1_500_000
+    private val entries = LinkedHashMap<MarkdownRenderCacheKey, RenderedMarkdown>(MAX_ENTRIES, 0.75f, true)
+    private var retainedChars = 0
+
+    fun get(key: MarkdownRenderCacheKey): RenderedMarkdown? = synchronized(entries) { entries[key] }
+
+    fun put(key: MarkdownRenderCacheKey, rendered: RenderedMarkdown) {
+        if (key.markdown.length > MAX_CACHEABLE_MARKDOWN_CHARS || rendered.html.length > MAX_CACHEABLE_HTML_CHARS) return
+        synchronized(entries) {
+            entries.remove(key)?.let { retainedChars -= footprint(key, it) }
+            entries[key] = rendered
+            retainedChars += footprint(key, rendered)
+            val iterator = entries.entries.iterator()
+            while ((entries.size > MAX_ENTRIES || retainedChars > MAX_TOTAL_CHARS) && iterator.hasNext()) {
+                val eldest = iterator.next()
+                retainedChars -= footprint(eldest.key, eldest.value)
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun footprint(key: MarkdownRenderCacheKey, value: RenderedMarkdown): Int =
+        key.markdown.length + key.resolvedImageDestinations.sumOf { it.length } + value.html.length + value.codeBlocks.sumOf { it.length }
+}
+
+private object CommonMarkElementDecisionCache {
+    private const val MAX_ENTRIES = 384
+    private const val MAX_TOTAL_CHARS = 512 * 1024
+    private val entries = LinkedHashMap<String, Boolean>(MAX_ENTRIES, 0.75f, true)
+    private var retainedChars = 0
+
+    fun get(markdown: String): Boolean? = synchronized(entries) {
+        if (entries.containsKey(markdown)) entries[markdown] else null
+    }
+
+    fun put(markdown: String, containsElements: Boolean) {
+        if (markdown.length > MAX_CACHEABLE_MARKDOWN_CHARS) return
+        synchronized(entries) {
+            if (entries.containsKey(markdown)) {
+                entries[markdown] = containsElements
+                return
+            }
+            entries[markdown] = containsElements
+            retainedChars += markdown.length
+            val iterator = entries.keys.iterator()
+            while ((entries.size > MAX_ENTRIES || retainedChars > MAX_TOTAL_CHARS) && iterator.hasNext()) {
+                retainedChars -= iterator.next().length
+                iterator.remove()
+            }
+        }
+    }
+}
+
+/**
+ * Avoid scheduling a parser for ordinary prose. Ambiguous text still gets classified by the real
+ * CommonMark AST on a worker thread; this only short-circuits strings with no syntax characters.
+ */
+private fun mightContainCommonMark(markdown: String): Boolean =
+    markdown.any { it in "`*_~[]!<>\\&#|=" } || markdown.lineSequence().any { rawLine ->
+        val line = rawLine.trimStart()
+        val dotSpace = line.indexOf(". ")
+        val orderedList = dotSpace > 0 && line.substring(0, dotSpace).all(Char::isDigit)
+        line.startsWith("- ") || line.startsWith("+ ") || line.startsWith("* ") || line.startsWith(">") ||
+            orderedList || line.trim().let { candidate ->
+                candidate.length >= 3 && candidate.all { it == '-' || it == '=' || it.isWhitespace() }
+            }
+    }
+
+internal fun cachedCommonMarkDecision(markdown: String): Boolean? = CommonMarkElementDecisionCache.get(markdown)
+
+internal fun mightContainCommonMarkElements(markdown: String): Boolean = mightContainCommonMark(markdown)
+
+@Composable
+internal fun rememberCommonMarkDecision(markdown: String): State<Boolean> {
+    val cached = remember(markdown) {
+        CommonMarkElementDecisionCache.get(markdown) ?: if (!mightContainCommonMark(markdown)) {
+            false.also { CommonMarkElementDecisionCache.put(markdown, it) }
+        } else null
+    }
+    return produceState(initialValue = cached ?: false, markdown, cached) {
+        if (cached == null) value = withContext(Dispatchers.Default) { containsCommonMarkElements(markdown) }
+    }
+}
 
 /**
  * Standards-based Markdown rendering shared by file previews and transcript content. The CommonMark
@@ -74,17 +172,38 @@ internal fun CommonMarkMarkdown(
     val copyLabel = stringResource(R.string.common_copy)
     val webState = remember { CommonMarkWebState() }
     webState.onOpenLink = onOpenLink
+    // A no-resolver document has image destinations determined by its source text; other renderings
+    // include the resolver's actual output in the key after those images have been resolved.
+    val sourceOnlyCacheKey = if (imageResolver == null && text.length <= MAX_CACHEABLE_MARKDOWN_CHARS) {
+        MarkdownRenderCacheKey(text, colors, darkMode, copyLabel, resolvedImageDestinations = emptyList())
+    } else null
+    val cached = remember(sourceOnlyCacheKey) { sourceOnlyCacheKey?.let(CommonMarkRenderCache::get) }
 
-    val rendered by produceState<RenderedMarkdown?>(null, text, imageResolver, colors, darkMode, copyLabel) {
-        val document = withContext(Dispatchers.Default) { commonMarkParser.parse(text) }
-        rewriteDestinations(document, imageResolver)
-        val codeBlocks = collectMarkdownCodeBlocks(document)
-        val html = withContext(Dispatchers.Default) {
-            val fragment = commonMarkHtmlRenderer.render(document)
-            val decorated = decorateMarkdownCodeBlocks(fragment, codeBlocks, copyLabel, darkMode, assets::open)
-            wrapMarkdownHtml(decorated, colors)
+    val rendered by produceState<RenderedMarkdown?>(cached, text, imageResolver, colors, darkMode, copyLabel, sourceOnlyCacheKey) {
+        if (cached != null) {
+            value = cached
+        } else {
+            val document = withContext(Dispatchers.Default) { commonMarkParser.parse(text) }
+            val imageDestinations = rewriteDestinations(document, imageResolver)
+            val resolvedImages = if (imageResolver == null) emptyList() else imageDestinations
+            val cacheKey = if (text.length <= MAX_CACHEABLE_MARKDOWN_CHARS) {
+                MarkdownRenderCacheKey(text, colors, darkMode, copyLabel, resolvedImages)
+            } else null
+            val cachedAfterImageResolution = cacheKey?.let(CommonMarkRenderCache::get)
+            if (cachedAfterImageResolution != null) {
+                value = cachedAfterImageResolution
+            } else {
+                val codeBlocks = collectMarkdownCodeBlocks(document)
+                val html = withContext(Dispatchers.Default) {
+                    val fragment = commonMarkHtmlRenderer.render(document)
+                    val decorated = decorateMarkdownCodeBlocks(fragment, codeBlocks, copyLabel, darkMode, assets::open)
+                    wrapMarkdownHtml(decorated, colors)
+                }
+                val result = RenderedMarkdown(html, codeBlocks.map { it.code })
+                cacheKey?.let { CommonMarkRenderCache.put(it, result) }
+                value = result
+            }
         }
-        value = RenderedMarkdown(html, codeBlocks.map { it.code })
     }
     webState.onCopyCode = { index ->
         rendered?.codeBlocks?.getOrNull(index)?.let { clipboard.setText(AnnotatedString(it)) }
@@ -107,13 +226,15 @@ internal fun CommonMarkMarkdown(
 private suspend fun rewriteDestinations(
     root: Node,
     imageResolver: (suspend (String) -> String?)?,
-) {
+): List<String> {
+    val imageDestinations = mutableListOf<String>()
     suspend fun visit(node: Node) {
         when (node) {
             is Image -> {
                 val original = node.destination
                 val resolved = imageResolver?.let { resolver -> runCatching { resolver(original) }.getOrNull() }
                 if (!resolved.isNullOrBlank()) node.destination = resolved
+                imageDestinations += node.destination
             }
             is Link -> {
                 val destination = node.destination
@@ -128,6 +249,7 @@ private suspend fun rewriteDestinations(
         }
     }
     visit(root)
+    return imageDestinations
 }
 
 internal fun encodeMarkdownLink(destination: String): String {
@@ -288,24 +410,31 @@ private fun containsMarkdownEscapesOrEntities(markdown: String): Boolean {
 
 /** True only when parsing finds Markdown structure or inline formatting beyond plain paragraphs. */
 internal fun containsCommonMarkElements(markdown: String): Boolean {
-    if (containsMarkdownEscapesOrEntities(markdown)) return true
-    val document = commonMarkParser.parse(markdown)
-    var paragraphCount = 0
-    var node: Node? = document.firstChild
-    while (node != null) {
-        when (node) {
-            is Paragraph -> if (++paragraphCount > 1) return true
-            is Text, is SoftLineBreak -> Unit
-            else -> return true
+    CommonMarkElementDecisionCache.get(markdown)?.let { return it }
+    val result = if (containsMarkdownEscapesOrEntities(markdown)) {
+        true
+    } else {
+        val document = commonMarkParser.parse(markdown)
+        var paragraphCount = 0
+        var containsElements = false
+        var node: Node? = document.firstChild
+        while (node != null && !containsElements) {
+            when (node) {
+                is Paragraph -> if (++paragraphCount > 1) containsElements = true
+                is Text, is SoftLineBreak -> Unit
+                else -> containsElements = true
+            }
+            if (node.firstChild != null) {
+                node = node.firstChild
+            } else {
+                while (node != null && node.next == null) node = node.parent
+                node = node?.next
+            }
         }
-        if (node.firstChild != null) {
-            node = node.firstChild
-        } else {
-            while (node != null && node.next == null) node = node.parent
-            node = node?.next
-        }
+        containsElements
     }
-    return false
+    CommonMarkElementDecisionCache.put(markdown, result)
+    return result
 }
 
 private fun wrapMarkdownHtml(fragment: String, colors: DsColors): String {

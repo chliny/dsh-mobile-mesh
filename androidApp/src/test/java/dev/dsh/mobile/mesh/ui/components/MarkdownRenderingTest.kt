@@ -1,14 +1,34 @@
 package dev.dsh.mobile.mesh.ui.components
 
 import java.io.File
+import org.junit.Assert.assertEquals
+import dev.dsh.mobile.mesh.ui.theme.DsThemeTokens
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownRenderingTest {
     @Test
+    fun `render cache distinguishes resolved image destinations for identical markdown`() {
+        val markdown = "![logo](assets/logo.svg)"
+        val fromWorkspaceA = MarkdownRenderCacheKey(
+            markdown, DsThemeTokens.light, false, "Copy", listOf("data:image/svg+xml;base64,AAA"),
+        )
+        val fromWorkspaceB = MarkdownRenderCacheKey(
+            markdown, DsThemeTokens.light, false, "Copy", listOf("data:image/svg+xml;base64,BBB"),
+        )
+
+        assertNotEquals(fromWorkspaceA, fromWorkspaceB)
+    }
+
+    @Test
     fun `plain user text bypasses markdown rendering but formatting uses it`() {
-        assertFalse(containsCommonMarkElements("A normal message with 2 * 3 and a URL https://example.test"))
+        val plain = "A normal message with a URL https://example.test"
+        assertFalse(mightContainCommonMarkElements(plain))
+        assertFalse(containsCommonMarkElements(plain))
+        assertEquals(false, cachedCommonMarkDecision(plain))
+        assertFalse(containsCommonMarkElements("Math remains plain: 2 * 3"))
         assertFalse(containsCommonMarkElements("Two plain lines\nwith a line break"))
         assertTrue(containsCommonMarkElements("A `code` span"))
         assertTrue(containsCommonMarkElements("**bold** and _emphasis_"))
