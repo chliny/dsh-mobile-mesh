@@ -213,12 +213,15 @@ internal fun CommonMarkMarkdown(
         AndroidView(
             factory = { viewContext -> CommonMarkWebView(viewContext, webState, colors.bgBase) },
             update = { webView ->
+                webView.bind(webState)
                 webView.onOpenLink = onOpenLink
                 webView.onCopyCode = webState.onCopyCode
                 webView.setBackgroundColor(colors.bgBase.toArgb())
                 webView.render(content.html)
             },
             modifier = modifier.fillMaxWidth(),
+            onReset = { webView -> webView.prepareForReuse() },
+            onRelease = { webView -> webView.release() },
         )
     }
 }
@@ -490,9 +493,25 @@ private class CommonMarkWebState {
 
 private class CommonMarkWebView(
     context: android.content.Context,
-    private val state: CommonMarkWebState,
+    private var state: CommonMarkWebState,
     background: Color,
 ) : WebView(context) {
+    fun bind(state: CommonMarkWebState) {
+        this.state = state
+    }
+
+    fun prepareForReuse() {
+        stopLoading()
+        loadedHtml = null
+        onOpenLink = {}
+        onCopyCode = {}
+    }
+
+    fun release() {
+        stopLoading()
+        destroy()
+    }
+
     var onOpenLink: (String) -> Unit
         get() = state.onOpenLink
         set(value) { state.onOpenLink = value }
