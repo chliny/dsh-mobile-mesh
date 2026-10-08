@@ -1,9 +1,22 @@
 package dev.dsh.mobile.mesh.ui.components
 
+import java.io.File
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownRenderingTest {
+    @Test
+    fun `plain user text bypasses markdown rendering but formatting uses it`() {
+        assertFalse(containsCommonMarkElements("A normal message with 2 * 3 and a URL https://example.test"))
+        assertFalse(containsCommonMarkElements("Two plain lines\nwith a line break"))
+        assertTrue(containsCommonMarkElements("A `code` span"))
+        assertTrue(containsCommonMarkElements("**bold** and _emphasis_"))
+        assertTrue(containsCommonMarkElements("- list item"))
+        assertTrue(containsCommonMarkElements("AT&amp;T"))
+        assertTrue(containsCommonMarkElements("\\*escaped punctuation\\*"))
+    }
+
     @Test
     fun `commonmark renders all heading levels and setext headings`() {
         val html = renderCommonMarkFragment("# one\n\n###### six\n\nsetext\n===")
@@ -49,6 +62,43 @@ class MarkdownRenderingTest {
         assertTrue(html.contains("<hr />"))
         assertTrue(html.contains("class=\"language-kotlin\""))
         assertTrue(html.contains("val answer = 42"))
+    }
+
+    @Test
+    fun `fenced code html keeps syntax token colors and exposes copy action`() {
+        val html = renderMarkdownCodeBlockHtml(
+            index = 2,
+            language = "kotlin",
+            codeClass = "language-kotlin",
+            highlightedCodeHtml = "<span style=\"color:#FF0000\">val answer</span>",
+            copyLabel = "Copy",
+        )
+
+        assertTrue(html.contains("language-kotlin"))
+        assertTrue(html.contains("style=\"color:#FF0000\""))
+        assertTrue(html.contains("href=\"dsh-markdown-copy://copy/2\""))
+        assertTrue(html.contains(">Copy</a>"))
+    }
+
+    @Test
+    fun `CommonMark fenced code is highlighted and wired to copy action`() {
+        val code = "val answer = 42 // comment\n"
+        val fragment = renderCommonMarkFragment("```kotlin\n$code```")
+        val assets = File("src/main/assets")
+        val html = decorateMarkdownCodeBlocks(
+            fragment = fragment,
+            codeBlocks = listOf(MarkdownCodeBlock(code, "kotlin")),
+            copyLabel = "Copy",
+            darkMode = false,
+            openAsset = { assets.resolve(it).inputStream() },
+        )
+
+        assertTrue(html.contains("class=\"language-kotlin\""))
+        assertTrue(html.contains("style=\"color:#"))
+        assertTrue(html.contains("dsh-markdown-copy://copy/0"))
+        assertTrue(html.contains(">val</span>"))
+        assertTrue(html.contains("answer"))
+        assertTrue(html.contains("comment"))
     }
 
     @Test
