@@ -31,6 +31,12 @@ class MarkdownLinkTest {
     }
 
     @Test
+    fun `copy code links decode to their document block index`() {
+        assertEquals(4, decodeMarkdownCopyIndex("dsh-markdown-copy://copy/4"))
+        assertEquals(null, decodeMarkdownCopyIndex("https://example.test/copy/4"))
+    }
+
+    @Test
     fun `unrecognized navigation URLs are not mistaken for Markdown links`() {
         assertEquals(null, decodeMarkdownLink("https://example.test/path"))
         assertEquals(null, decodeMarkdownLink("dsh-markdown://unknown/token"))
