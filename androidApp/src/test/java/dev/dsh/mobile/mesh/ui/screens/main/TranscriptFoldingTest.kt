@@ -46,6 +46,21 @@ class TranscriptFoldingTest {
         assertEquals(listOf(2L, 3L, 4L, 5L), nodes(parts))
     }
 
+    @Test
+    fun `quick transcript tail skips trailing structural and process events`() {
+        val latestAnswer = answer(10, 1)
+        val nodes = listOf(
+            prompt(1),
+            latestAnswer,
+            TurnEndNode(11, 1, "completed"),
+            TurnStartNode(12, 2),
+            ToolCallNode(13, "tool-1", "bash", "{}", 2, 0),
+            TurnEndNode(14, 2, "completed"),
+        )
+
+        assertSame(latestAnswer, quickTailContentNode(nodes))
+    }
+
     @Test(timeout = 5_000)
     fun `large folded process is partitioned without quadratic membership scans`() {
         val processSize = 20_000
