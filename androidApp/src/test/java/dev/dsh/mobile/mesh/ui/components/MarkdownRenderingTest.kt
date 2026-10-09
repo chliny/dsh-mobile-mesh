@@ -10,6 +10,16 @@ import org.junit.Test
 
 class MarkdownRenderingTest {
     @Test
+    fun `markdown loading preview is immediate and bounded`() {
+        val short = "**render after parsing**"
+        val long = "x".repeat(MARKDOWN_LOADING_PREVIEW_LIMIT + 12)
+
+        assertEquals(short, markdownLoadingPreviewText(short))
+        assertEquals(MARKDOWN_LOADING_PREVIEW_LIMIT + 1, markdownLoadingPreviewText(long).length)
+        assertTrue(markdownLoadingPreviewText(long).endsWith("…"))
+    }
+
+    @Test
     fun `render cache distinguishes resolved image destinations for identical markdown`() {
         val markdown = "![logo](assets/logo.svg)"
         val fromWorkspaceA = MarkdownRenderCacheKey(
