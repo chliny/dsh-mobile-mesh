@@ -104,7 +104,10 @@ internal const val FOREGROUND_RENEW_AFTER_MS = 20 * 60_000L
 internal fun shouldRestartStaleForegroundOperation(
     backgroundDurationMs: Long,
     operationInFlight: Boolean,
-): Boolean = operationInFlight && backgroundDurationMs >= FOREGROUND_VERIFY_AFTER_MS
+    operationAgeMs: Long,
+): Boolean = operationInFlight &&
+    backgroundDurationMs >= FOREGROUND_VERIFY_AFTER_MS &&
+    operationAgeMs >= FOREGROUND_VERIFY_AFTER_MS
 internal const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 500L
 internal const val FOREGROUND_RECOVERY_STEADY_RETRY_DELAY_MS = 5_000L
 internal const val FOREGROUND_RECOVERY_FAST_ATTEMPTS = 3

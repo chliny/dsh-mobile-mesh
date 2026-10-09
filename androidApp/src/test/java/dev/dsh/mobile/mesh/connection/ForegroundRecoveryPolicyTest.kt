@@ -47,10 +47,19 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
-    fun `long background resumes restart stalled connection operations`() {
-        assertFalse(shouldRestartStaleForegroundOperation(4_999, operationInFlight = true))
-        assertTrue(shouldRestartStaleForegroundOperation(5_000, operationInFlight = true))
-        assertFalse(shouldRestartStaleForegroundOperation(60_000, operationInFlight = false))
+    fun `long background replaces only genuinely stale in flight operations`() {
+        assertFalse(shouldRestartStaleForegroundOperation(
+            4_999, operationInFlight = true, operationAgeMs = 10_000,
+        ))
+        assertFalse(shouldRestartStaleForegroundOperation(
+            60_000, operationInFlight = true, operationAgeMs = 1,
+        )) // onStart replacement must survive the immediately following onResume callback
+        assertTrue(shouldRestartStaleForegroundOperation(
+            60_000, operationInFlight = true, operationAgeMs = 5_000,
+        ))
+        assertFalse(shouldRestartStaleForegroundOperation(
+            60_000, operationInFlight = false, operationAgeMs = 60_000,
+        ))
     }
 
     @Test
