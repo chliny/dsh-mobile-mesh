@@ -48,8 +48,8 @@ class ForegroundLivenessTest {
     }
 
     @Test
-    fun `ZeroTier probe timeout allows native relay resume budget`() {
-        assertEquals(12_000L, foregroundProbeTimeoutMs(MeshTransport.ZERO_TIER))
+    fun `ZeroTier probe timeout is bounded to six seconds`() {
+        assertEquals(6_000L, foregroundProbeTimeoutMs(MeshTransport.ZERO_TIER))
         assertEquals(FOREGROUND_PROBE_TIMEOUT_MS, foregroundProbeTimeoutMs(MeshTransport.TAILSCALE))
     }
 

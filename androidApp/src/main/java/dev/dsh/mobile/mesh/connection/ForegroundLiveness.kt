@@ -11,7 +11,7 @@ import dev.dsh.mobile.mesh.core.wire.TransportFailures
  * published generation unless it was explicitly re-armed by a lifecycle/network boundary.
  */
 internal const val FOREGROUND_PROBE_TIMEOUT_MS = 5_000L
-internal const val ZERO_TIER_FOREGROUND_PROBE_TIMEOUT_MS = 12_000L
+internal const val ZERO_TIER_FOREGROUND_PROBE_TIMEOUT_MS = 6_000L
 
 internal fun foregroundProbeTimeoutMs(meshTransport: MeshTransport?): Long =
     if (meshTransport == MeshTransport.ZERO_TIER) ZERO_TIER_FOREGROUND_PROBE_TIMEOUT_MS
