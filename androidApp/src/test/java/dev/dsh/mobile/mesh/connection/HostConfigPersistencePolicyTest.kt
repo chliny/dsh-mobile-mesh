@@ -40,6 +40,23 @@ class HostConfigPersistencePolicyTest {
             mergeRememberedHost(existing, existing.copy(lastProtocol = HarnessProtocol.LEGACY_SUBAGENTS)).lastProtocol)
     }
 
+    @Test
+    fun `confirmed API generation survives persisted host serialization and transient refresh`() = kotlinx.coroutines.runBlocking {
+        val confirmed = host("first", token = "token").copy(lastProtocol = HarnessProtocol.PARENT_CATALOG)
+        val encoded = dev.dsh.mobile.mesh.core.wire.WireJson.encodeToString(
+            HostConfig.serializer(), confirmed,
+        )
+        val restored = dev.dsh.mobile.mesh.core.wire.WireJson.decodeFromString(
+            HostConfig.serializer(), encoded,
+        )
+
+        assertEquals(HarnessProtocol.PARENT_CATALOG, restored.lastProtocol)
+        assertEquals(HarnessProtocol.PARENT_CATALOG,
+            mergeRememberedHost(restored, restored.copy(lastProtocol = null)).lastProtocol)
+        assertEquals(HarnessProtocol.PARENT_CATALOG,
+            HarnessProtocolSelection(restored.lastProtocol).let { it.detect { error("probe timeout") } })
+    }
+
     private fun host(id: String, token: String) = HostConfig(
         id = id,
         name = id,
