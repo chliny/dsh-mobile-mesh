@@ -35,6 +35,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -109,6 +110,8 @@ private data class TranscriptProjection(
     val isComplete: Boolean,
 )
 
+private data class PendingTranscriptTail(val key: TranscriptProjectionKey, val node: ChatNode)
+
 internal fun quickTailContentNode(sourceNodes: List<ChatNode>): ChatNode? {
     val iterator = sourceNodes.listIterator(sourceNodes.size)
     var fallback: ChatNode? = null
@@ -131,6 +134,12 @@ private fun quickTailProjection(
     sourceNodes: List<ChatNode>,
     running: Boolean,
 ): TranscriptProjection? = quickTailContentNode(sourceNodes)?.let { quickProjection(key, it, running) }
+
+internal fun newQuickTailNode(previousNodes: List<ChatNode>, candidate: ChatNode?): ChatNode? {
+    candidate ?: return null
+    val previousTail = previousNodes.lastOrNull() ?: return candidate
+    return candidate.takeIf { it.seq > previousTail.seq || (it.seq == previousTail.seq && it != previousTail) }
+}
 
 private fun quickProjection(key: TranscriptProjectionKey, node: ChatNode, running: Boolean) =
     TranscriptProjection(
@@ -387,14 +396,24 @@ internal fun ChatTranscript(
     val sourceNodes = conversation?.nodes.orEmpty()
     val projectionKey = TranscriptProjectionKey(sessionId, sourceNodes)
     var preparedProjection by remember { mutableStateOf<TranscriptProjection?>(null) }
+    var pendingTail by remember { mutableStateOf<PendingTranscriptTail?>(null) }
     LaunchedEffect(projectionKey) {
-        val quickTail = withContext(Dispatchers.Default) {
-            quickTailProjection(projectionKey, sourceNodes, conversation?.running == true)
-        }
-        val hasCompleteSessionProjection = preparedProjection?.let {
+        pendingTail = null
+        val previousComplete = preparedProjection?.takeIf {
             it.key.sessionId == sessionId && it.isComplete
-        } == true
-        if (!hasCompleteSessionProjection) quickTail?.let { preparedProjection = it }
+        }
+        val (quickTail, newTailNode) = withContext(Dispatchers.Default) {
+            val quick = quickTailProjection(projectionKey, sourceNodes, conversation?.running == true)
+            val newNode = previousComplete?.let { prior ->
+                quick?.nodes?.singleOrNull()?.let { newQuickTailNode(prior.nodes, it) }
+            }
+            quick to newNode
+        }
+        if (previousComplete == null) {
+            quickTail?.let { preparedProjection = it }
+        } else {
+            newTailNode?.let { pendingTail = PendingTranscriptTail(projectionKey, it) }
+        }
 
         val fullProjection = withContext(Dispatchers.Default) {
             val visibleNodes = sourceNodes.filter { it.rendersContent() }
@@ -407,11 +426,13 @@ internal fun ChatTranscript(
             )
         }
         preparedProjection = fullProjection
+        pendingTail = null
     }
     // On a cold session, publish a fast tail row first; during updates retain the previous snapshot
     // until the complete projection is ready. Never show another session's data.
     val sessionProjection = preparedProjection?.takeIf { it.key.sessionId == sessionId }
     val projectionReady = sessionProjection?.let { it.key == projectionKey && it.isComplete } == true
+    val pendingTailNode = pendingTail?.takeIf { it.key == projectionKey }?.node
     val nodes = sessionProjection?.nodes.orEmpty()
     val parts = sessionProjection?.parts.orEmpty()
     DisposableEffect(sessionId, listState, readingPositions) {
@@ -432,13 +453,22 @@ internal fun ChatTranscript(
                 .toSet()
         }
     }
-    val rows = remember(parts, expandedProcesses) {
+    val baseRows = remember(parts, expandedProcesses) {
         buildTranscriptRows(parts) { startSeq -> startSeq in expandedProcesses }
     }
+    val rows = remember(baseRows, pendingTailNode?.seq) {
+        if (pendingTailNode != null && baseRows.lastOrNull()?.anchorSeq == pendingTailNode.seq) {
+            baseRows.subList(0, baseRows.lastIndex)
+        } else baseRows
+    }
     val hasMore = conversation?.hasMore == true
-    val itemCount = rows.size + if (hasMore) 1 else 0
     val turnStartedAtMillis = conversation?.turnStartedAtMillis
     val deepDiving = deepDivingVisible(conversation?.running == true, turnStartedAtMillis)
+    val showEmpty = nodes.isEmpty() && !deepDiving && pendingTailNode == null
+    val itemCount = (if (hasMore) 1 else 0) + if (showEmpty) 1 else {
+        rows.size + (if (pendingTailNode != null) 1 else 0) +
+            (if (deepDiving && turnStartedAtMillis != null) 1 else 0)
+    }
     val hasAssistant = sessionProjection?.hasAssistant == true
     val waitingForFirstResponse = waitingForFirstResponse(
         running = conversation?.running == true,
@@ -456,6 +486,14 @@ internal fun ChatTranscript(
     var olderPageAnchor by remember(sessionId) { mutableStateOf<OlderPageAnchor?>(null) }
     val userDragging by listState.interactionSource.collectIsDraggedAsState()
     val bottomTolerancePx = with(LocalDensity.current) { 48.dp.roundToPx() }
+    LaunchedEffect(pendingTail, itemCount, tailIntent, userDragging) {
+        val pending = pendingTail?.takeIf { it.key == projectionKey } ?: return@LaunchedEffect
+        if (!tailIntent || userDragging || itemCount <= 0) return@LaunchedEffect
+        withFrameNanos { }
+        if (pendingTail == pending && tailIntent && !userDragging) {
+            listState.scrollToItem(itemCount - 1)
+        }
+    }
     LaunchedEffect(listState, sessionId, itemCount, restoredSession, bottomTolerancePx, projectionReady) {
         // Do not let an empty/stale layout from before the initial anchor restore reset its
         // tail-follow state. Only a fully projected and restored transcript is meaningful.
@@ -525,7 +563,7 @@ internal fun ChatTranscript(
     // follow, and a page of history arriving at the top, which must not — asking for older messages
     // and being thrown back to the newest one is the opposite of what the tap meant. The paging row
     // appearing and disappearing changed the count too, which moved the view for no reason at all.
-    val newestSeq = nodes.lastOrNull()?.seq
+    val newestSeq = pendingTailNode?.seq ?: nodes.lastOrNull()?.seq
     var lastSession by remember { mutableStateOf<String?>(null) }
     var restoreTarget by remember(sessionId) { mutableStateOf<TranscriptReadingPosition?>(null) }
     // Observe only a laid-out row belonging to this session, and only after the initial restore.
@@ -745,7 +783,7 @@ internal fun ChatTranscript(
                 )
             }
         }
-        if (nodes.isEmpty() && !deepDiving) {
+        if (showEmpty) {
             item(key = "empty") {
                 EmptyHero(
                     headline = stringResource(R.string.chat_empty_title),
@@ -771,6 +809,11 @@ internal fun ChatTranscript(
                             color = DsTheme.colors.labelSecondary,
                         )
                     }
+                }
+            }
+            pendingTailNode?.let { node ->
+                item(key = "node-${node.seq}") {
+                    ChatNodeItem(node = node, context = context)
                 }
             }
             if (deepDiving && turnStartedAtMillis != null) {

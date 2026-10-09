@@ -58,6 +58,18 @@ class TranscriptFoldingTest {
         assertSame(latestAnswer, quickTailContentNode(nodes))
     }
 
+    @Test
+    fun `pending tail only appends a newer row and avoids duplicate LazyColumn keys`() {
+        val previous = answer(10, 1)
+        val current = answer(11, 1)
+
+        assertSame(current, newQuickTailNode(listOf(previous), current))
+        val updated = previous.copy(blocks = listOf(ChatBlock("text", "Updated answer")))
+        assertSame(updated, newQuickTailNode(listOf(previous), updated))
+        assertNull(newQuickTailNode(listOf(previous), previous.copy()))
+        assertNull(newQuickTailNode(listOf(previous), answer(9, 1)))
+    }
+
     @Test(timeout = 5_000)
     fun `large folded process is partitioned without quadratic membership scans`() {
         val processSize = 20_000
