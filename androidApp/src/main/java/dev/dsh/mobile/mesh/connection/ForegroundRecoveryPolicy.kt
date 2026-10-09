@@ -39,7 +39,6 @@ internal fun foregroundRecoveryAction(facts: ForegroundRecoveryFacts): Foregroun
     !facts.hasActiveHost || facts.recoveryInFlight || facts.foregroundCheckPending -> ForegroundRecoveryAction.NONE
     facts.networkChanged -> ForegroundRecoveryAction.RECOVER
     facts.phase != ConnectionPhase.CONNECTED -> ForegroundRecoveryAction.RECOVER
-    facts.backgroundDurationMs >= FOREGROUND_RENEW_AFTER_MS -> ForegroundRecoveryAction.RECOVER
     facts.backgroundDurationMs < FOREGROUND_VERIFY_AFTER_MS -> ForegroundRecoveryAction.NONE
     else -> ForegroundRecoveryAction.VERIFY
 }
@@ -86,9 +85,8 @@ internal fun shouldPublishConnectedGeneration(
     lifecycleCurrent: Boolean,
 ): Boolean = generationReady && lifecycleCurrent
 
-/** Verify resumed carriers; only very long background stays skip probing and renew directly. */
+/** Verify a connected carrier before renewal regardless of background duration; network changes still recover immediately. */
 internal const val FOREGROUND_VERIFY_AFTER_MS = 5_000L
-internal const val FOREGROUND_RENEW_AFTER_MS = 20 * 60_000L
 
 /**
  * Replace a possibly Doze-stalled connection operation on a long (>=5s) background resume.
@@ -165,14 +163,12 @@ internal fun shouldDeferRecoveryRetryUntilOperationReleased(operationInFlight: B
 /** A cancelled predecessor must not acknowledge its successor's handover or retry flags. */
 internal fun mayCompleteRecoveryOperation(completedJob: Any, currentJob: Any?): Boolean = completedJob === currentJob
 
-/** Do not spend a probe timeout on a handover, missing route, or long-idle carrier. */
+/** Do not spend the bounded HTTP probe timeout on a known network handover or missing route. */
 internal fun shouldRecoverBeforeForegroundProbe(
     handoverPending: Boolean,
     activeNetworkInternetCapable: Boolean,
     recoveryInFlight: Boolean,
-    backgroundDurationMs: Long = 0L,
-): Boolean = !recoveryInFlight &&
-    (handoverPending || !activeNetworkInternetCapable || backgroundDurationMs >= FOREGROUND_RENEW_AFTER_MS)
+): Boolean = !recoveryInFlight && (handoverPending || !activeNetworkInternetCapable)
 
 /** A transient name lookup after Android resumes networking is not a terminal manual-connect error. */
 internal fun shouldRetryConnectionOperation(
