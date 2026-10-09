@@ -48,6 +48,7 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ChatNode
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
+import dev.dsh.mobile.mesh.core.session.UserMessageNode
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonSize
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
@@ -104,7 +105,43 @@ private data class TranscriptProjection(
     val key: TranscriptProjectionKey,
     val nodes: List<ChatNode>,
     val parts: List<TranscriptPart>,
+    val hasAssistant: Boolean,
 )
+
+private const val QUICK_TAIL_SCAN_LIMIT = 512
+
+internal fun quickTailContentNode(sourceNodes: List<ChatNode>): ChatNode? {
+    val iterator = sourceNodes.listIterator(sourceNodes.size)
+    var scanned = 0
+    var fallback: ChatNode? = null
+    while (iterator.hasPrevious() && scanned < QUICK_TAIL_SCAN_LIMIT) {
+        val node = iterator.previous()
+        scanned++
+        if (!node.rendersContent()) continue
+        if (fallback == null) fallback = node
+        val userFacing = node is UserMessageNode ||
+            (node is AssistantMessageNode && node.blocks.any {
+                (it.kind == "text" && !it.text.isNullOrBlank()) || it.kind == "image"
+            })
+        if (userFacing) return node
+    }
+    return fallback
+}
+
+/** Render one recent user-facing row immediately while the full history projection is prepared. */
+private fun quickTailProjection(
+    key: TranscriptProjectionKey,
+    sourceNodes: List<ChatNode>,
+    running: Boolean,
+): TranscriptProjection? = quickTailContentNode(sourceNodes)?.let { quickProjection(key, it, running) }
+
+private fun quickProjection(key: TranscriptProjectionKey, node: ChatNode, running: Boolean) =
+    TranscriptProjection(
+        key = key,
+        nodes = listOf(node),
+        parts = listOf(TranscriptPart.Node(node)),
+        hasAssistant = running || node is AssistantMessageNode,
+    )
 
 private data class OlderPageAnchor(val seq: Long, val offset: Int)
 
@@ -354,16 +391,24 @@ internal fun ChatTranscript(
     var preparedProjection by remember { mutableStateOf<TranscriptProjection?>(null) }
     LaunchedEffect(projectionKey) {
         preparedProjection = withContext(Dispatchers.Default) {
+            val visibleNodes = sourceNodes.filter { it.rendersContent() }
             TranscriptProjection(
                 key = projectionKey,
-                nodes = sourceNodes.filter { it.rendersContent() },
+                nodes = visibleNodes,
                 parts = partitionTranscript(sourceNodes),
+                hasAssistant = visibleNodes.any { it is AssistantMessageNode },
             )
         }
     }
-    // Keep the prior snapshot visible while a newer one is folded off-main; never show another session.
-    val sessionProjection = preparedProjection?.takeIf { it.key.sessionId == sessionId }
-    val projectionReady = sessionProjection?.key == projectionKey
+    // Keep the prior snapshot visible during updates; on a newly opened session show the tail first
+    // instead of waiting for the full history to be partitioned on a worker thread.
+    val completeProjection = preparedProjection?.takeIf { it.key == projectionKey }
+    val priorSessionProjection = preparedProjection?.takeIf { it.key.sessionId == sessionId }
+    val quickTail = remember(projectionKey, conversation?.running) {
+        quickTailProjection(projectionKey, sourceNodes, conversation?.running == true)
+    }
+    val sessionProjection = completeProjection ?: priorSessionProjection ?: quickTail
+    val projectionReady = completeProjection != null
     val nodes = sessionProjection?.nodes.orEmpty()
     val parts = sessionProjection?.parts.orEmpty()
     DisposableEffect(sessionId, listState, readingPositions) {
@@ -391,7 +436,7 @@ internal fun ChatTranscript(
     val itemCount = rows.size + if (hasMore) 1 else 0
     val turnStartedAtMillis = conversation?.turnStartedAtMillis
     val deepDiving = deepDivingVisible(conversation?.running == true, turnStartedAtMillis)
-    val hasAssistant = remember(nodes) { nodes.any { it is AssistantMessageNode } }
+    val hasAssistant = sessionProjection?.hasAssistant == true
     val waitingForFirstResponse = waitingForFirstResponse(
         running = conversation?.running == true,
         hasAssistant = hasAssistant,
