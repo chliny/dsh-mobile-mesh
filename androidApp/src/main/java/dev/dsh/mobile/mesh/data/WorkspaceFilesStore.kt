@@ -212,7 +212,32 @@ class WorkspaceFilesStore @Inject constructor(
     fun readText(workspaceKey: String, sessionId: String, path: String, offset: Int = 1, limit: Int = PREVIEW_PAGE_LINES) {
         val safePath = validWorkspaceFilePath(path) ?: return
         readPreview(workspaceKey, sessionId, safePath, append = offset > 1, keepWholeText = isMarkdownPreviewPath(safePath)) { api ->
-            api.workspaceFilesRead(sessionId, safePath, offset = offset, limit = limit)
+            when (val result = api.workspaceFilesRead(sessionId, safePath, offset = offset, limit = limit)) {
+                is RpcResult.Ok -> result
+                is RpcResult.Err -> {
+                    // The text endpoint rejects legacy-encoded source; fetch authoritative bytes and
+                    // decode locally only when the server could not provide its normal text page.
+                    if (offset > 1) result else when (val raw = api.workspaceFilesReadAll(
+                        sessionId, safePath,
+                        legacyReadAll = connectionManager.harnessProtocol == HarnessProtocol.LEGACY_SUBAGENTS,
+                    )) {
+                        is RpcResult.Err -> result
+                        is RpcResult.Ok -> {
+                            val bytes = raw.value.bytesData()
+                            val text = decodeWorkspaceText(bytes)
+                            RpcResult.Ok(WorkspaceFileText(
+                                absolutePath = raw.value.absolutePath,
+                                version = raw.value.version,
+                                bytes = raw.value.bytes,
+                                offset = 1,
+                                text = text,
+                                lines = if (text.isEmpty()) 0 else text.count { it == '\n' } + if (text.endsWith('\n')) 0 else 1,
+                                eof = true,
+                            ))
+                        }
+                    }
+                }
+            }
         }
     }
 
