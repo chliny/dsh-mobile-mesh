@@ -141,13 +141,13 @@ internal fun cachedCommonMarkDecision(markdown: String): Boolean? = CommonMarkEl
 internal fun mightContainCommonMarkElements(markdown: String): Boolean = mightContainCommonMark(markdown)
 
 @Composable
-internal fun rememberCommonMarkDecision(markdown: String): State<Boolean> {
+internal fun rememberCommonMarkDecision(markdown: String): State<Boolean?> {
     val cached = remember(markdown) {
         CommonMarkElementDecisionCache.get(markdown) ?: if (!mightContainCommonMark(markdown)) {
             false.also { CommonMarkElementDecisionCache.put(markdown, it) }
         } else null
     }
-    return produceState(initialValue = cached ?: false, markdown, cached) {
+    return produceState<Boolean?>(initialValue = cached, markdown, cached) {
         if (cached == null) value = withContext(Dispatchers.Default) { containsCommonMarkElements(markdown) }
     }
 }
@@ -183,25 +183,24 @@ internal fun CommonMarkMarkdown(
         if (cached != null) {
             value = cached
         } else {
-            val document = withContext(Dispatchers.Default) { commonMarkParser.parse(text) }
-            val imageDestinations = rewriteDestinations(document, imageResolver)
-            val resolvedImages = if (imageResolver == null) emptyList() else imageDestinations
-            val cacheKey = if (text.length <= MAX_CACHEABLE_MARKDOWN_CHARS) {
-                MarkdownRenderCacheKey(text, colors, darkMode, copyLabel, resolvedImages)
-            } else null
-            val cachedAfterImageResolution = cacheKey?.let(CommonMarkRenderCache::get)
-            if (cachedAfterImageResolution != null) {
-                value = cachedAfterImageResolution
-            } else {
-                val codeBlocks = collectMarkdownCodeBlocks(document)
-                val html = withContext(Dispatchers.Default) {
+            value = withContext(Dispatchers.Default) {
+                val document = commonMarkParser.parse(text)
+                val imageDestinations = rewriteDestinations(document, imageResolver)
+                val resolvedImages = if (imageResolver == null) emptyList() else imageDestinations
+                val cacheKey = if (text.length <= MAX_CACHEABLE_MARKDOWN_CHARS) {
+                    MarkdownRenderCacheKey(text, colors, darkMode, copyLabel, resolvedImages)
+                } else null
+                val cachedAfterImageResolution = cacheKey?.let(CommonMarkRenderCache::get)
+                if (cachedAfterImageResolution != null) {
+                    cachedAfterImageResolution
+                } else {
+                    val codeBlocks = collectMarkdownCodeBlocks(document)
                     val fragment = commonMarkHtmlRenderer.render(document)
                     val decorated = decorateMarkdownCodeBlocks(fragment, codeBlocks, copyLabel, darkMode, assets::open)
-                    wrapMarkdownHtml(decorated, colors)
+                    val result = RenderedMarkdown(wrapMarkdownHtml(decorated, colors), codeBlocks.map { it.code })
+                    cacheKey?.let { CommonMarkRenderCache.put(it, result) }
+                    result
                 }
-                val result = RenderedMarkdown(html, codeBlocks.map { it.code })
-                cacheKey?.let { CommonMarkRenderCache.put(it, result) }
-                value = result
             }
         }
     }
@@ -209,7 +208,10 @@ internal fun CommonMarkMarkdown(
         rendered?.codeBlocks?.getOrNull(index)?.let { clipboard.setText(AnnotatedString(it)) }
     }
 
-    rendered?.let { content ->
+    val content = rendered
+    if (content == null) {
+        MarkdownLoadingPreview(text, modifier)
+    } else {
         AndroidView(
             factory = { viewContext -> CommonMarkWebView(viewContext, webState, colors.bgBase) },
             update = { webView ->
