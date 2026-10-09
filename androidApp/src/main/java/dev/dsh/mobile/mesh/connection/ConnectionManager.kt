@@ -185,8 +185,10 @@ class ConnectionManager @Inject constructor(
     private val lifecycleMutex = Mutex()
     /** Makes token validation and API/loop publication atomic against retirement. */
     private val publicationLock = Any()
-    /** Protects replacement of the one manager-owned operation job. */
+    /** Protects replacement of the one manager-owned operation job and its monotonic start time. */
     private val operationLock = Any()
+    /** Monotonic start time for the current connectJob; used to distinguish stale work from a fresh resume. */
+    private var connectOperationStartedAtNanos = 0L
     private data class ConnectionIntent(
         val host: HostConfig,
         val afterTransportReady: suspend (String) -> Unit,
@@ -503,6 +505,7 @@ class ConnectionManager @Inject constructor(
                 ),
             )
             val previousTeardown = teardownJob
+            connectOperationStartedAtNanos = System.nanoTime()
             job = scope.launch {
                 previousOperation?.join()
                 previousTeardown?.join()
@@ -524,6 +527,7 @@ class ConnectionManager @Inject constructor(
             val ownsOperationSlot = synchronized(operationLock) {
                 if (!mayCompleteRecoveryOperation(job, connectJob)) false else {
                     connectJob = null
+                    connectOperationStartedAtNanos = 0L
                     true
                 }
             }
@@ -1166,10 +1170,19 @@ class ConnectionManager @Inject constructor(
             // serialized, but slow/non-cancellable native teardown can still delay resume. See the
             // policy KDoc for Pixel 3 validation scope and crash-diagnostic hints.
             suspendedForBackground = false
-            val operationInFlight = synchronized(operationLock) { connectJob?.isActive == true }
+            val (operationInFlight, operationAgeMs) = synchronized(operationLock) {
+                val operationInFlight = connectJob?.isActive == true
+                val operationAgeMs = if (operationInFlight && connectOperationStartedAtNanos > 0L) {
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                        (System.nanoTime() - connectOperationStartedAtNanos).coerceAtLeast(0L),
+                    )
+                } else 0L
+                operationInFlight to operationAgeMs
+            }
             if (operationInFlight && !shouldRestartStaleForegroundOperation(
                     backgroundDurationBeforeResume,
                     operationInFlight = operationInFlight,
+                    operationAgeMs = operationAgeMs,
                 )) {
                 // onAppBackgrounded() clears this presentation latch while retaining the transport.
                 // Re-arm it before returning so the existing session is visibly blocked for the
@@ -1184,7 +1197,7 @@ class ConnectionManager @Inject constructor(
                     )
                 }
                 foregroundTiming.phase("foreground-resume", foregroundStartedAt, "in-flight")
-                Log.d("ConnectionManager", "Foreground recovery already in flight; keeping current operation")
+                Log.d("ConnectionManager", "Foreground recovery already in flight; keeping current operation operationAgeMs=$operationAgeMs backgroundMs=$backgroundDurationBeforeResume")
                 return
             }
             Log.d("ConnectionManager", "Foreground resume renews connection for ${resumedTarget.value.host.id}")
