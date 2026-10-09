@@ -1124,6 +1124,7 @@ class ConnectionManager @Inject constructor(
                 handoverPending = handoverPendingAtResume,
                 activeNetworkInternetCapable = resumeNetworkReady,
                 recoveryInFlight = recoveryInFlightAtResume,
+                backgroundDurationMs = backgroundDurationBeforeResume,
             )
         if (forceCheck && currentBeforeResume.hasConnected && currentPhaseBeforeResume == ConnectionPhase.CONNECTED &&
             !networkRecoveryPreferredAtResume
