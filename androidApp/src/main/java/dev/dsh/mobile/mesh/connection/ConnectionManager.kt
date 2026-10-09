@@ -121,6 +121,10 @@ class ConnectionManager @Inject constructor(
 
         override fun onAvailable(network: Network) {
             val connected = _state.value.phase == ConnectionPhase.CONNECTED
+            val (operationInFlight, operationNetwork) = synchronized(operationLock) {
+                val inFlight = connectJob?.isActive == true
+                inFlight to if (inFlight) connectOperationNetwork else null
+            }
             val previous = networkTracker.current()
             networkTracker.onAvailable(network, connected)
             defaultNetwork = networkTracker.current()
@@ -133,6 +137,8 @@ class ConnectionManager @Inject constructor(
                     connected = connected,
                     networkChanged = previous != network,
                     hasDesiredHost = activeHost != null || suspendedHost != null,
+                    operationInFlight = operationInFlight,
+                    operationTargetsReplacementNetwork = operationNetwork == network,
                 )) networkRecoveryGate.markPending()
             Log.d("ConnectionManager", "Default network available: $network (previous=$previous, dirty=${networkRecoveryGate.isPending()})")
             if (shouldRecoverOnNetworkEvent(appInForeground, keepConnectedInBackground, activeHost != null) && networkRecoveryGate.isPending()) {
@@ -187,8 +193,9 @@ class ConnectionManager @Inject constructor(
     private val publicationLock = Any()
     /** Protects replacement of the one manager-owned operation job and its monotonic start time. */
     private val operationLock = Any()
-    /** Monotonic start time for the current connectJob; used to distinguish stale work from a fresh resume. */
+    /** Monotonic start time and network target for the current connectJob. */
     private var connectOperationStartedAtNanos = 0L
+    private var connectOperationNetwork: Network? = null
     private data class ConnectionIntent(
         val host: HostConfig,
         val afterTransportReady: suspend (String) -> Unit,
@@ -311,6 +318,7 @@ class ConnectionManager @Inject constructor(
             eventApis[generation.clientId] = generationApi
             val host = activeHost
             val previousState = _state.value
+            acknowledgeNetworkHandoverFromReadyGeneration(generation)
             val needsLivenessProbe = shouldProbePublishedGeneration(
                 hasConnected = previousState.hasConnected,
                 recoveryOverlayVisible = previousState.recoveryOverlayVisible || previousState.foregroundCheckPending,
@@ -506,6 +514,7 @@ class ConnectionManager @Inject constructor(
             )
             val previousTeardown = teardownJob
             connectOperationStartedAtNanos = System.nanoTime()
+            connectOperationNetwork = connectivity.activeNetwork
             job = scope.launch {
                 previousOperation?.join()
                 previousTeardown?.join()
@@ -528,6 +537,7 @@ class ConnectionManager @Inject constructor(
                 if (!mayCompleteRecoveryOperation(job, connectJob)) false else {
                     connectJob = null
                     connectOperationStartedAtNanos = 0L
+                    connectOperationNetwork = null
                     true
                 }
             }
@@ -924,6 +934,34 @@ class ConnectionManager @Inject constructor(
         } else if (current.hasConnected && !current.recoveryOverlayVisible) {
             _state.value = current.copy(recoveryOverlayVisible = true)
         }
+    }
+
+    /**
+     * A ConnectionLoop retry can re-open a complete mux generation while a network handover retry is
+     * still cooling down. That ready frame already proves the new path reaches the host; consume only
+     * an unclaimed handover so its delayed timer cannot tear down this healthy relay a moment later.
+     * Explicit recovery operations keep ownership of their claimed handover.
+     */
+    private fun acknowledgeNetworkHandoverFromReadyGeneration(generation: HostGeneration) {
+        if (!networkRecoveryGate.isPending()) return
+        val operationInFlight = synchronized(operationLock) { connectJob?.isActive == true }
+        val recoveryInFlight = synchronized(recoveryLock) { transportRecoveryInFlight }
+        if (operationInFlight || recoveryInFlight || networkRecoveryAttemptVersion != null) return
+        if (!networkRecoveryGate.acknowledgeIfUnclaimed()) return
+
+        networkLostWhileConnected = false
+        networkTracker.consumeRecoveryNeeded()
+        carrierRecoveryPending = false
+        recoveryRetryWaitingForOperation = false
+        probeRecoveryPending = false
+        recoveryRetryJob?.let { retry ->
+            recoveryRetryJob = null
+            retry.cancel()
+        }
+        Log.i(
+            "ConnectionManager",
+            "Network handover satisfied by ready generation clientId=${generation.clientId}; skipped redundant relay renewal",
+        )
     }
 
     private fun recoverTransportAfterCarrierLoss() {

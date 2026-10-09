@@ -114,7 +114,10 @@ internal fun shouldReArmOnReplacementNetwork(
     connected: Boolean,
     networkChanged: Boolean,
     hasDesiredHost: Boolean,
-): Boolean = !connected && networkChanged && hasDesiredHost
+    operationInFlight: Boolean = false,
+    operationTargetsReplacementNetwork: Boolean = false,
+): Boolean = !connected && networkChanged && hasDesiredHost &&
+    !(operationInFlight && operationTargetsReplacementNetwork)
 
 internal fun recoveryRetryDelayMs(attempt: Int): Long =
     if (attempt < FOREGROUND_RECOVERY_FAST_ATTEMPTS) FOREGROUND_RECOVERY_RETRY_DELAY_MS
