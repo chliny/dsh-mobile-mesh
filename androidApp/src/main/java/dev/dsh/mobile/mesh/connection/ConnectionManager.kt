@@ -726,6 +726,13 @@ class ConnectionManager @Inject constructor(
                 },
             )
             val selection = target.value.protocolSelection
+            // Persist every positively identified API generation as soon as detection succeeds,
+            // before optional capability probes or publication can fail. HostsStore merges this
+            // with the remembered endpoint so a process restart can reuse it after a transient
+            // probe timeout.
+            if (selectedProtocol != HarnessProtocol.UNDETERMINED) {
+                hostsStore.upsertHost(config.copy(lastProtocol = selectedProtocol))
+            }
             // `terminal/list` takes a caller-controlled session ID and is a safe no-create probe.
             // Unknown/transient errors leave the entry hidden; a subsequent generation retries.
             // Optional capability discovery must not hold a recovered mux behind another slow
