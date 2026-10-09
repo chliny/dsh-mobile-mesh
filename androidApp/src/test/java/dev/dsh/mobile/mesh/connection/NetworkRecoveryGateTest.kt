@@ -81,6 +81,28 @@ class NetworkRecoveryGateTest {
     }
 
     @Test
+    fun `live generation acknowledges an unclaimed handover and prevents redundant renewal`() {
+        val gate = NetworkRecoveryGate()
+        gate.markPending()
+        assertTrue(gate.acknowledgeIfUnclaimed())
+        assertFalse(gate.isPending())
+
+        // A network event after that generation remains armed for its own recovery.
+        gate.markPending()
+        assertTrue(gate.isPending())
+    }
+
+    @Test
+    fun `live generation cannot steal a handover already owned by explicit recovery`() {
+        val gate = NetworkRecoveryGate()
+        gate.markPending()
+        val attempt = checkNotNull(gate.claimIfCanStart(canStart = true))
+        assertFalse(gate.acknowledgeIfUnclaimed())
+        gate.complete(attempt, transportSucceeded = false)
+        assertTrue(gate.isPending())
+    }
+
+    @Test
     fun `clear drops pending and claimed events`() {
         val gate = NetworkRecoveryGate()
         gate.markPending()

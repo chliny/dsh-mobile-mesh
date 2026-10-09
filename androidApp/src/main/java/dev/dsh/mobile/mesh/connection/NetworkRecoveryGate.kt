@@ -24,6 +24,16 @@ internal class NetworkRecoveryGate {
     }
 
     /**
+     * A newly published, end-to-end-ready loop generation can satisfy a handover without rebuilding
+     * its already-working carrier. Never steal events from an explicitly claimed recovery attempt.
+     */
+    @Synchronized fun acknowledgeIfUnclaimed(): Boolean {
+        if (claimedVersion != null) return false
+        acknowledgedVersion = eventVersion
+        return true
+    }
+
+    /**
      * Complete only the reservation for this attempt; newer callbacks remain armed.
      *
      * A terminal failure means the attempt did not prove it reached the replacement carrier, so

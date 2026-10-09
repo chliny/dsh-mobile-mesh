@@ -275,11 +275,17 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
-    fun `replacement network rearms only when disconnected with a desired host`() {
+    fun `replacement network rearms only when no operation is already targeting it`() {
         assertTrue(shouldReArmOnReplacementNetwork(false, true, true))
         assertFalse(shouldReArmOnReplacementNetwork(true, true, true))
         assertFalse(shouldReArmOnReplacementNetwork(false, false, true))
         assertFalse(shouldReArmOnReplacementNetwork(false, true, false))
+        assertFalse(shouldReArmOnReplacementNetwork(
+            false, true, true, operationInFlight = true, operationTargetsReplacementNetwork = true,
+        ))
+        assertTrue(shouldReArmOnReplacementNetwork(
+            false, true, true, operationInFlight = true, operationTargetsReplacementNetwork = false,
+        ))
     }
 
     @Test
