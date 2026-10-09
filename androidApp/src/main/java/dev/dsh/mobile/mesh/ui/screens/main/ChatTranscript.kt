@@ -106,17 +106,14 @@ private data class TranscriptProjection(
     val nodes: List<ChatNode>,
     val parts: List<TranscriptPart>,
     val hasAssistant: Boolean,
+    val isComplete: Boolean,
 )
-
-private const val QUICK_TAIL_SCAN_LIMIT = 512
 
 internal fun quickTailContentNode(sourceNodes: List<ChatNode>): ChatNode? {
     val iterator = sourceNodes.listIterator(sourceNodes.size)
-    var scanned = 0
     var fallback: ChatNode? = null
-    while (iterator.hasPrevious() && scanned < QUICK_TAIL_SCAN_LIMIT) {
+    while (iterator.hasPrevious()) {
         val node = iterator.previous()
-        scanned++
         if (!node.rendersContent()) continue
         if (fallback == null) fallback = node
         val userFacing = node is UserMessageNode ||
@@ -141,6 +138,7 @@ private fun quickProjection(key: TranscriptProjectionKey, node: ChatNode, runnin
         nodes = listOf(node),
         parts = listOf(TranscriptPart.Node(node)),
         hasAssistant = running || node is AssistantMessageNode,
+        isComplete = false,
     )
 
 private data class OlderPageAnchor(val seq: Long, val offset: Int)
@@ -390,25 +388,30 @@ internal fun ChatTranscript(
     val projectionKey = TranscriptProjectionKey(sessionId, sourceNodes)
     var preparedProjection by remember { mutableStateOf<TranscriptProjection?>(null) }
     LaunchedEffect(projectionKey) {
-        preparedProjection = withContext(Dispatchers.Default) {
+        val quickTail = withContext(Dispatchers.Default) {
+            quickTailProjection(projectionKey, sourceNodes, conversation?.running == true)
+        }
+        val hasCompleteSessionProjection = preparedProjection?.let {
+            it.key.sessionId == sessionId && it.isComplete
+        } == true
+        if (!hasCompleteSessionProjection) quickTail?.let { preparedProjection = it }
+
+        val fullProjection = withContext(Dispatchers.Default) {
             val visibleNodes = sourceNodes.filter { it.rendersContent() }
             TranscriptProjection(
                 key = projectionKey,
                 nodes = visibleNodes,
                 parts = partitionTranscript(sourceNodes),
                 hasAssistant = visibleNodes.any { it is AssistantMessageNode },
+                isComplete = true,
             )
         }
+        preparedProjection = fullProjection
     }
-    // Keep the prior snapshot visible during updates; on a newly opened session show the tail first
-    // instead of waiting for the full history to be partitioned on a worker thread.
-    val completeProjection = preparedProjection?.takeIf { it.key == projectionKey }
-    val priorSessionProjection = preparedProjection?.takeIf { it.key.sessionId == sessionId }
-    val quickTail = remember(projectionKey, conversation?.running) {
-        quickTailProjection(projectionKey, sourceNodes, conversation?.running == true)
-    }
-    val sessionProjection = completeProjection ?: priorSessionProjection ?: quickTail
-    val projectionReady = completeProjection != null
+    // On a cold session, publish a fast tail row first; during updates retain the previous snapshot
+    // until the complete projection is ready. Never show another session's data.
+    val sessionProjection = preparedProjection?.takeIf { it.key.sessionId == sessionId }
+    val projectionReady = sessionProjection?.let { it.key == projectionKey && it.isComplete } == true
     val nodes = sessionProjection?.nodes.orEmpty()
     val parts = sessionProjection?.parts.orEmpty()
     DisposableEffect(sessionId, listState, readingPositions) {

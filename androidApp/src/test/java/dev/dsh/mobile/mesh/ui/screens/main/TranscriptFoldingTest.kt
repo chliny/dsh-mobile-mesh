@@ -47,16 +47,13 @@ class TranscriptFoldingTest {
     }
 
     @Test
-    fun `quick transcript tail skips trailing structural and process events`() {
+    fun `quick transcript tail finds latest answer beyond long structural suffix`() {
         val latestAnswer = answer(10, 1)
-        val nodes = listOf(
-            prompt(1),
-            latestAnswer,
-            TurnEndNode(11, 1, "completed"),
-            TurnStartNode(12, 2),
-            ToolCallNode(13, "tool-1", "bash", "{}", 2, 0),
-            TurnEndNode(14, 2, "completed"),
-        )
+        val nodes = buildList {
+            add(prompt(1))
+            add(latestAnswer)
+            repeat(2_048) { index -> add(TurnEndNode(index + 11L, 1, "completed")) }
+        }
 
         assertSame(latestAnswer, quickTailContentNode(nodes))
     }
