@@ -324,7 +324,6 @@ internal fun decorateMarkdownCodeBlocks(
     val themeAsset = if (darkMode) "textmate-dark.json" else "textmate-light.json"
     return RENDERED_CODE_BLOCK.replace(fragment) { match ->
         val block = codeBlocks.getOrNull(codeIndex) ?: return@replace match.value
-        if (match.groupValues[2] != escapeMarkdownCodeText(block.code)) return@replace match.value
         val index = codeIndex++
         val highlighted = highlightFencedCode(
             block.code,

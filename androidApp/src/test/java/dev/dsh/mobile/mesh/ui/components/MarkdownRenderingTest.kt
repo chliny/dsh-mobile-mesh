@@ -122,6 +122,25 @@ class MarkdownRenderingTest {
     }
 
     @Test
+    fun `fenced code with html-sensitive characters still gets copy controls`() {
+        val code = "val html = \"<tag>&\"\n"
+        val fragment = renderCommonMarkFragment("```kotlin\n$code```")
+        assertTrue(fragment.contains("&lt;tag&gt;&amp;"))
+        val assets = File("src/main/assets")
+        val html = decorateMarkdownCodeBlocks(
+            fragment = fragment,
+            codeBlocks = listOf(MarkdownCodeBlock(code, "kotlin")),
+            copyLabel = "Copy",
+            darkMode = false,
+            openAsset = { assets.resolve(it).inputStream() },
+        )
+
+        assertTrue(html.contains("dsh-markdown-copy://copy/0"))
+        assertTrue(html.contains("language-kotlin"))
+        assertTrue(html.contains("tag"))
+    }
+
+    @Test
     fun `gfm tables task lists and strikethrough remain supported`() {
         val html = renderCommonMarkFragment("| A | B |\n| --- | --- |\n| x | y |\n\n- [x] done\n- [ ] todo\n\n~~old~~")
 
