@@ -60,9 +60,21 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
-    fun `long retained background verifies an established carrier before renewal`() {
+    fun `background stay probes until twenty minutes then renews without probing`() {
         assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 30_000))
-        assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 120_000))
+        assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 60_000))
+        assertEquals(ForegroundRecoveryAction.VERIFY, action(ConnectionPhase.CONNECTED, 20 * 60_000L - 1))
+        assertEquals(ForegroundRecoveryAction.RECOVER, action(ConnectionPhase.CONNECTED, 20 * 60_000L))
+        assertEquals(ForegroundRecoveryAction.RECOVER, action(ConnectionPhase.CONNECTED, 3_600_000))
+        assertEquals(ForegroundRecoveryAction.NONE, action(ConnectionPhase.CONNECTED, 3_600_000, inFlight = true))
+    }
+
+    @Test
+    fun `twenty minute renewal takes priority over rearmed generation probe without duplicate recovery`() {
+        assertFalse(shouldRecoverBeforeForegroundProbe(false, true, false, 20 * 60_000L - 1))
+        assertTrue(shouldRecoverBeforeForegroundProbe(false, true, false, 20 * 60_000L))
+        assertTrue(shouldRecoverBeforeForegroundProbe(false, true, false, 3_600_000))
+        assertFalse(shouldRecoverBeforeForegroundProbe(false, true, true, 3_600_000))
     }
 
     @Test
