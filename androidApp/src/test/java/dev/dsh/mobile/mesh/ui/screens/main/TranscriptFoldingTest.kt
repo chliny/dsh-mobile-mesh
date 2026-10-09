@@ -46,6 +46,27 @@ class TranscriptFoldingTest {
         assertEquals(listOf(2L, 3L, 4L, 5L), nodes(parts))
     }
 
+    @Test(timeout = 5_000)
+    fun `large folded process is partitioned without quadratic membership scans`() {
+        val processSize = 20_000
+        val events = buildList {
+            add(TurnStartNode(1, 1))
+            repeat(processSize) { index ->
+                val seq = index + 2L
+                add(ToolCallNode(seq, "call-$seq", "bash", "{}", 1, index))
+            }
+            add(answer(processSize + 2L, 1))
+            add(TurnEndNode(processSize + 3L, 1, "completed"))
+        }
+
+        val parts = partitionTranscript(events)
+        assertEquals(2, parts.size)
+        assertEquals(processSize, (parts.first() as TranscriptPart.Process).nodes.size)
+        val foldedRows = buildTranscriptRows(parts, emptyMap())
+        assertEquals(2, foldedRows.size)
+        assertEquals(processSize + 2L, (foldedRows.last() as TranscriptRow.Node).node.seq)
+    }
+
     @Test fun `empty and bare answer have no disclosure`() {
         assertTrue(partitionTranscript(emptyList()).isEmpty())
         assertEquals(listOf(2L), nodes(partitionTranscript(listOf(TurnStartNode(1, 1), answer(2, 1), TurnEndNode(3, 1, "completed")))))

@@ -53,14 +53,16 @@ internal fun partitionTranscript(nodes: List<ChatNode>): List<TranscriptPart> {
                         block.kind !in setOf("text", "reasoning", "image", "tool-call", "tool-result")
                     })
             }
-        val process = if (safe) turnNodes.filter { node ->
-            node !== final && node !is UserMessageNode && node !is PresentedFilesNode &&
+        val processFlags = BooleanArray(turnNodes.size) { turnIndex ->
+            val node = turnNodes[turnIndex]
+            safe && node !== final && node !is UserMessageNode && node !is PresentedFilesNode &&
                 node !is TodoNode && !(node is AssistantMessageNode &&
                 (node.interrupted || node.blocks.any { it.kind == "text" && !it.text.isNullOrBlank() || it.kind == "image" }))
-        } else emptyList()
-        val processPositions = turnNodes.indices.filter { turnNodes[it] in process }
-        val interleaved = processPositions.isNotEmpty() &&
-            (processPositions.first()..processPositions.last()).any { turnNodes[it] !in process }
+        }
+        val process = turnNodes.filterIndexed { turnIndex, _ -> processFlags[turnIndex] }
+        val firstProcess = processFlags.indexOfFirst { it }
+        val lastProcess = processFlags.indexOfLast { it }
+        val interleaved = firstProcess >= 0 && (firstProcess..lastProcess).any { !processFlags[it] }
         if (process.isEmpty() || interleaved) {
             turnNodes.forEach { result.add(TranscriptPart.Node(it)) }
         } else {
@@ -68,8 +70,8 @@ internal fun partitionTranscript(nodes: List<ChatNode>): List<TranscriptPart> {
             // The disclosure occupies the first process node's position; expansion puts every
             // process row back in its original order, with its original seq key.
             var inserted = false
-            for (node in turnNodes) {
-                if (node in process) {
+            turnNodes.forEachIndexed { turnIndex, node ->
+                if (processFlags[turnIndex]) {
                     if (!inserted) {
                         result.add(TranscriptPart.Process(start.seq, process))
                         inserted = true

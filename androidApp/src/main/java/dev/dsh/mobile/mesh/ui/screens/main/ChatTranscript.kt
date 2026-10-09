@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +46,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.dsh.mobile.mesh.BuildConfig
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
+import dev.dsh.mobile.mesh.core.session.ChatNode
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonSize
@@ -53,7 +55,9 @@ import dev.dsh.mobile.mesh.ui.components.EmptyHero
 import dev.dsh.mobile.mesh.ui.components.skeleton
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * How close to the top a reader must get before the next page is fetched.
@@ -85,6 +89,22 @@ internal fun transcriptItemsAnimatePlacement(): Boolean = false
  * row or two. Past that the reader asks, via the row at the head of the list.
  */
 private const val MAX_AUTO_PAGES = 1
+
+private class TranscriptProjectionKey(
+    val sessionId: String?,
+    val sourceNodes: List<ChatNode>,
+) {
+    override fun equals(other: Any?): Boolean =
+        other is TranscriptProjectionKey && sessionId == other.sessionId && sourceNodes === other.sourceNodes
+
+    override fun hashCode(): Int = 31 * (sessionId?.hashCode() ?: 0) + System.identityHashCode(sourceNodes)
+}
+
+private data class TranscriptProjection(
+    val key: TranscriptProjectionKey,
+    val nodes: List<ChatNode>,
+    val parts: List<TranscriptPart>,
+)
 
 private data class OlderPageAnchor(val seq: Long, val offset: Int)
 
@@ -328,12 +348,24 @@ internal fun ChatTranscript(
     onRestoreOlder: suspend (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Only the nodes that draw something: a zero-height item still costs its 4dp gap, and a turn's
-    // worth of structural events stacks those gaps into a blank band under the chrome.
-    val nodes = remember(conversation?.nodes) {
-        conversation?.nodes.orEmpty().filter { it.rendersContent() }
-    }
     val sessionId = conversation?.sessionId
+    val sourceNodes = conversation?.nodes.orEmpty()
+    val projectionKey = TranscriptProjectionKey(sessionId, sourceNodes)
+    var preparedProjection by remember { mutableStateOf<TranscriptProjection?>(null) }
+    LaunchedEffect(projectionKey) {
+        preparedProjection = withContext(Dispatchers.Default) {
+            TranscriptProjection(
+                key = projectionKey,
+                nodes = sourceNodes.filter { it.rendersContent() },
+                parts = partitionTranscript(sourceNodes),
+            )
+        }
+    }
+    // Keep the prior snapshot visible while a newer one is folded off-main; never show another session.
+    val sessionProjection = preparedProjection?.takeIf { it.key.sessionId == sessionId }
+    val projectionReady = sessionProjection?.key == projectionKey
+    val nodes = sessionProjection?.nodes.orEmpty()
+    val parts = sessionProjection?.parts.orEmpty()
     DisposableEffect(sessionId, listState, readingPositions) {
         onDispose {
             val saved = sessionId?.let(readingPositions::get)
@@ -343,16 +375,26 @@ internal fun ChatTranscript(
         }
     }
     val disclosureScope = context.disclosures
-    val isProcessExpanded: (Long) -> Boolean = { startSeq -> disclosureScope.isOpen(DisclosureKeys.process(startSeq)) }
-    val parts = remember(conversation?.nodes) { partitionTranscript(conversation?.nodes.orEmpty()) }
-    val rows = buildTranscriptRows(parts, isProcessExpanded)
+    val expandedProcesses by remember(parts, disclosureScope) {
+        derivedStateOf {
+            parts.asSequence()
+                .filterIsInstance<TranscriptPart.Process>()
+                .filter { disclosureScope.isOpen(DisclosureKeys.process(it.startSeq)) }
+                .map { it.startSeq }
+                .toSet()
+        }
+    }
+    val rows = remember(parts, expandedProcesses) {
+        buildTranscriptRows(parts) { startSeq -> startSeq in expandedProcesses }
+    }
     val hasMore = conversation?.hasMore == true
     val itemCount = rows.size + if (hasMore) 1 else 0
     val turnStartedAtMillis = conversation?.turnStartedAtMillis
     val deepDiving = deepDivingVisible(conversation?.running == true, turnStartedAtMillis)
+    val hasAssistant = remember(nodes) { nodes.any { it is AssistantMessageNode } }
     val waitingForFirstResponse = waitingForFirstResponse(
         running = conversation?.running == true,
-        hasAssistant = nodes.any { it is AssistantMessageNode },
+        hasAssistant = hasAssistant,
     )
 
     // Both keyed on the session so a freshly opened one starts from a clean assumption rather than
@@ -366,10 +408,10 @@ internal fun ChatTranscript(
     var olderPageAnchor by remember(sessionId) { mutableStateOf<OlderPageAnchor?>(null) }
     val userDragging by listState.interactionSource.collectIsDraggedAsState()
     val bottomTolerancePx = with(LocalDensity.current) { 48.dp.roundToPx() }
-    LaunchedEffect(listState, sessionId, itemCount, restoredSession, bottomTolerancePx) {
+    LaunchedEffect(listState, sessionId, itemCount, restoredSession, bottomTolerancePx, projectionReady) {
         // Do not let an empty/stale layout from before the initial anchor restore reset its
-        // tail-follow state. Only a visible row in the restored transcript is meaningful.
-        if (restoredSession != sessionId) return@LaunchedEffect
+        // tail-follow state. Only a fully projected and restored transcript is meaningful.
+        if (!projectionReady || restoredSession != sessionId) return@LaunchedEffect
         var previousViewportHeight: Int? = null
         var previousCanScrollForward: Boolean? = null
         var previousScrollCoordinate: Pair<Int, Int>? = null
@@ -440,8 +482,8 @@ internal fun ChatTranscript(
     var restoreTarget by remember(sessionId) { mutableStateOf<TranscriptReadingPosition?>(null) }
     // Observe only a laid-out row belonging to this session, and only after the initial restore.
     // In particular, an empty/loading snapshot must not replace a saved reading anchor.
-    LaunchedEffect(listState, sessionId, rows, hasMore, restoredSession, restoreTarget) {
-        if (sessionId == null || restoredSession != sessionId) return@LaunchedEffect
+    LaunchedEffect(listState, sessionId, rows, hasMore, restoredSession, restoreTarget, projectionReady) {
+        if (!projectionReady || sessionId == null || restoredSession != sessionId) return@LaunchedEffect
         // A follow snapshot can replace the cached older window with only the newest page.
         // Its automatic LazyColumn re-anchor is not a reader action: do not overwrite the
         // last known coordinate with whatever unrelated row happens to occupy that viewport.
@@ -508,14 +550,16 @@ internal fun ChatTranscript(
             previousScrollCoordinate = currentCoordinate
         }
     }
-    LaunchedEffect(rows, hasMore, sessionId) {
+    LaunchedEffect(rows, hasMore, sessionId, projectionReady) {
+        if (!projectionReady) return@LaunchedEffect
         val anchor = olderPageAnchor ?: return@LaunchedEffect
         val newIndex = rows.indexOfFirst { it.anchorSeq == anchor.seq }
         if (newIndex >= 0) listState.scrollToItem(newIndex + if (hasMore) 1 else 0, anchor.offset)
         olderPageAnchor = null
     }
 
-    LaunchedEffect(newestSeq, sessionId) {
+    LaunchedEffect(newestSeq, sessionId, projectionReady) {
+        if (!projectionReady) return@LaunchedEffect
         // A history snapshot can initially contain only structural events and the paging row.
         // Treating that sentinel as the restored session consumes the one-time restore before
         // the first readable message arrives on the next server page.
@@ -563,8 +607,8 @@ internal fun ChatTranscript(
     // without limit; a reader may still use the ordinary paging row to travel further back.
     val restoreScope = rememberCoroutineScope()
     var restorePageAttempted by remember(sessionId) { mutableStateOf(false) }
-    LaunchedEffect(sessionId, rows, hasMore, loadingOlder, restoredSession, restorePageAttempted, restoreTarget, userDragging) {
-        if (sessionId == null || restoredSession != sessionId) return@LaunchedEffect
+    LaunchedEffect(sessionId, rows, hasMore, loadingOlder, restoredSession, restorePageAttempted, restoreTarget, userDragging, projectionReady) {
+        if (!projectionReady || sessionId == null || restoredSession != sessionId) return@LaunchedEffect
         val saved = readingPositions.get(sessionId) ?: return@LaunchedEffect
         val target = restoreTarget
         if (target != null) {
@@ -597,7 +641,7 @@ internal fun ChatTranscript(
     var autoPages by rememberSaveable(sessionId) { mutableIntStateOf(0) }
     var userScrolling by remember(sessionId) { mutableStateOf(false) }
     var pullArmed by remember(sessionId) { mutableStateOf(false) }
-    val canPage = hasMore && !loading && !loadingOlder && !loadOlderFailed
+    val canPage = projectionReady && hasMore && !loading && !loadingOlder && !loadOlderFailed
     val autoPagingExhausted = hasMore && !loading && autoPages >= MAX_AUTO_PAGES
     LaunchedEffect(listState, sessionId) {
         snapshotFlow { listState.isScrollInProgress }
@@ -619,7 +663,7 @@ internal fun ChatTranscript(
         }
     }
 
-    if (loading) {
+    if (loading || sessionProjection == null) {
         TranscriptSkeleton(modifier)
         return
     }
