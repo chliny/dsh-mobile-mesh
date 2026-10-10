@@ -70,6 +70,19 @@ class TranscriptFoldingTest {
         assertNull(newQuickTailNode(listOf(previous), answer(9, 1)))
     }
 
+    @Test
+    fun `streaming assistant row key survives changing provisional seq and settlement`() {
+        val firstSnapshot = answer(10, 1).copy(streaming = true)
+        val nextSnapshot = answer(18, 1).copy(streaming = true, blocks = listOf(ChatBlock("text", "Growing answer")))
+        val settled = answer(22, 1)
+
+        assertEquals(transcriptNodeRowKey(firstSnapshot), transcriptNodeRowKey(nextSnapshot))
+        assertEquals(transcriptNodeRowKey(nextSnapshot), transcriptNodeRowKey(settled))
+        assertEquals(TranscriptRow.Node(firstSnapshot).anchorSeq, TranscriptRow.Node(nextSnapshot).anchorSeq)
+        assertSame(nextSnapshot, newQuickTailNode(listOf(firstSnapshot), nextSnapshot))
+        assertSame(settled, newQuickTailNode(listOf(nextSnapshot), settled))
+    }
+
     @Test(timeout = 5_000)
     fun `large folded process is partitioned without quadratic membership scans`() {
         val processSize = 20_000

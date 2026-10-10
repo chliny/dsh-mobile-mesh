@@ -138,7 +138,33 @@ private fun quickTailProjection(
 internal fun newQuickTailNode(previousNodes: List<ChatNode>, candidate: ChatNode?): ChatNode? {
     candidate ?: return null
     val previousTail = previousNodes.lastOrNull() ?: return candidate
+    val candidateAssistant = candidate as? AssistantMessageNode
+    val previousAssistant = previousTail as? AssistantMessageNode
+    val candidateTurn = candidateAssistant?.turn?.takeIf { it > 0 }
+    val previousTurn = previousAssistant?.turn?.takeIf { it > 0 }
+    val sameAssistantAttempt = candidateAssistant?.step != null && candidateTurn != null &&
+        candidateTurn == previousTurn && candidateAssistant.step == previousAssistant?.step
+    if (sameAssistantAttempt && previousAssistant?.streaming == true && candidateAssistant?.streaming == false) {
+        return candidate
+    }
+    if (sameAssistantAttempt && previousAssistant?.streaming == true && candidateAssistant?.streaming == true &&
+        candidate.seq >= previousTail.seq
+    ) return candidate.takeIf { it != previousTail }
     return candidate.takeIf { it.seq > previousTail.seq || (it.seq == previousTail.seq && it != previousTail) }
+}
+
+internal fun transcriptNodeRowKey(node: ChatNode): String = when (node) {
+    is AssistantMessageNode -> node.turn?.takeIf { it > 0 }?.let { turn ->
+        node.step?.let { step -> "assistant-$turn-$step" }
+    } ?: "node-${node.seq}"
+    else -> "node-${node.seq}"
+}
+
+private fun transcriptNodeAnchorSeq(node: ChatNode): Long {
+    if (node !is AssistantMessageNode || !node.streaming) return node.seq
+    val turn = node.turn?.takeIf { it > 0 } ?: return node.seq
+    val step = node.step ?: return node.seq
+    return Long.MIN_VALUE or ((turn.toLong() and 0x7fffffffL) shl 32) or (step.toLong() and 0xffffffffL)
 }
 
 private fun quickProjection(key: TranscriptProjectionKey, node: ChatNode, running: Boolean) =
@@ -157,8 +183,8 @@ internal sealed interface TranscriptRow {
     val anchorSeq: Long
 
     data class Node(val node: dev.dsh.mobile.mesh.core.session.ChatNode) : TranscriptRow {
-        override val key: String = "node-${node.seq}"
-        override val anchorSeq: Long = node.seq
+        override val key: String = transcriptNodeRowKey(node)
+        override val anchorSeq: Long = transcriptNodeAnchorSeq(node)
     }
 
     data class Process(val part: TranscriptPart.Process) : TranscriptRow {
@@ -456,8 +482,8 @@ internal fun ChatTranscript(
     val baseRows = remember(parts, expandedProcesses) {
         buildTranscriptRows(parts) { startSeq -> startSeq in expandedProcesses }
     }
-    val rows = remember(baseRows, pendingTailNode?.seq) {
-        if (pendingTailNode != null && baseRows.lastOrNull()?.anchorSeq == pendingTailNode.seq) {
+    val rows = remember(baseRows, pendingTailNode?.let(::transcriptNodeRowKey)) {
+        if (pendingTailNode != null && baseRows.lastOrNull()?.key == transcriptNodeRowKey(pendingTailNode)) {
             baseRows.subList(0, baseRows.lastIndex)
         } else baseRows
     }
@@ -563,7 +589,8 @@ internal fun ChatTranscript(
     // follow, and a page of history arriving at the top, which must not — asking for older messages
     // and being thrown back to the newest one is the opposite of what the tap meant. The paging row
     // appearing and disappearing changed the count too, which moved the view for no reason at all.
-    val newestSeq = pendingTailNode?.seq ?: nodes.lastOrNull()?.seq
+    val newestRowKey = pendingTailNode?.let(::transcriptNodeRowKey)
+        ?: nodes.lastOrNull()?.let(::transcriptNodeRowKey)
     var lastSession by remember { mutableStateOf<String?>(null) }
     var restoreTarget by remember(sessionId) { mutableStateOf<TranscriptReadingPosition?>(null) }
     // Observe only a laid-out row belonging to this session, and only after the initial restore.
@@ -644,7 +671,7 @@ internal fun ChatTranscript(
         olderPageAnchor = null
     }
 
-    LaunchedEffect(newestSeq, sessionId, projectionReady) {
+    LaunchedEffect(newestRowKey, sessionId, projectionReady) {
         if (!projectionReady) return@LaunchedEffect
         // A history snapshot can initially contain only structural events and the paging row.
         // Treating that sentinel as the restored session consumes the one-time restore before
@@ -812,7 +839,7 @@ internal fun ChatTranscript(
                 }
             }
             pendingTailNode?.let { node ->
-                item(key = "node-${node.seq}") {
+                item(key = transcriptNodeRowKey(node)) {
                     ChatNodeItem(node = node, context = context)
                 }
             }
