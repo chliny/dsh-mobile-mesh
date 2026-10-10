@@ -352,6 +352,13 @@ internal fun <T> historyTailWindow(
     return entries.subList(earliestIndex, entries.size)
 }
 
+private data class PageRequestContext(
+    val fence: HistoryPageFence,
+    val address: SessionAddress,
+    val oldestSeq: Long?,
+    val cursor: Int,
+)
+
 @Singleton
 class SessionStore @Inject constructor(
     private val connectionManager: ConnectionManager,
@@ -697,6 +704,10 @@ class SessionStore @Inject constructor(
      * gap — so a page requested before the snapshot arrives has nothing to send and is skipped.
      */
     private var followCursor: Int? = null
+    /** Increments whenever a new follow opening supersedes in-flight history-page requests. */
+    private var historyPageGeneration = 0L
+    /** Generation that owns the visible older-page loading flag, guarded by [lock]. */
+    private var loadingOlderGeneration: Long? = null
 
     /**
      * The reply being written in the open session, as the follow stream's assistant frames show
@@ -848,6 +859,9 @@ class SessionStore @Inject constructor(
             conversationCache.clear()
             changesPayloads.clear()
             currentId = null
+            historyPageGeneration++
+            loadingOlderGeneration = null
+            _loadingOlder.value = false
             currentEvents.clear()
             currentHasMore = false
             currentBlank = true
@@ -939,8 +953,13 @@ class SessionStore @Inject constructor(
                     jobFollowJobs.values.forEach(Job::cancel)
                     jobFollowJobs.clear()
                     workspaceJob?.cancel()
-                    // Keep followed ids/cursors so the replacement generation can resume them.
-                    _loadingOlder.value = false
+                    // Keep followed ids/cursors so the replacement generation can resume them,
+                    // but fence page RPCs and loading indicators to the dead carrier generation.
+                    synchronized(lock) {
+                        historyPageGeneration++
+                        loadingOlderGeneration = null
+                        _loadingOlder.value = false
+                    }
                     _loadOlderFailed.value = true
                 }
                 if (state.phase == ConnectionPhase.CONNECTED) clearConnectionError()
@@ -2175,6 +2194,10 @@ class SessionStore @Inject constructor(
             val api = apiOrNull()
         if (api == null) {
             synchronized(lock) {
+                historyPageGeneration++
+                loadingOlderGeneration = null
+                _loadingOlder.value = false
+                _loadOlderFailed.value = false
                 followCursor = null
                 currentId = sessionId
                 currentAddress = address
@@ -2190,7 +2213,10 @@ class SessionStore @Inject constructor(
         _loadOlderFailed.value = false
         synchronized(lock) {
             val same = currentId == sessionId
-            // Fence any rebuild already queued by the previous session before changing identity.
+            // Fence history pages from the previous selection/follow opening as well as queued folds.
+            historyPageGeneration++
+            loadingOlderGeneration = null
+            _loadingOlder.value = false
             followCursor = null
             currentId = sessionId
             currentAddress = address
@@ -2399,6 +2425,15 @@ class SessionStore @Inject constructor(
     private fun expandRecords(records: List<SessionHistoryRecord>): List<SessionEventEnvelope> =
         records.map { wireEventToEnvelope(it.event) }
 
+    private fun isCurrentHistoryPageLocked(fence: HistoryPageFence): Boolean =
+        shouldApplyHistoryPage(
+            request = fence,
+            currentSessionId = currentId,
+            currentGeneration = historyPageGeneration,
+            currentCursor = followCursor,
+            currentOldestSeq = currentEvents.firstOrNull()?.seq,
+        )
+
     /** Fetch a missing reading anchor from the authoritative session/page after follow opens. */
     suspend fun loadOlderForReadingPosition(sessionId: String) {
         val ready = withTimeoutOrNull(10_000L) {
@@ -2418,37 +2453,48 @@ class SessionStore @Inject constructor(
      * with no new records ends paging instead of walking the whole history automatically.
      */
     suspend fun loadOlder() = withContext(Dispatchers.Default) {
-        val sid = currentSessionId.value ?: return@withContext
         val api = apiOrNull() ?: return@withContext
-        if (!_loadingOlder.compareAndSet(expect = false, update = true)) return@withContext
+        val context = synchronized(lock) {
+            val sid = currentId ?: return@synchronized null
+            val address = currentAddress ?: return@synchronized null
+            val cursor = followCursor ?: return@synchronized null
+            if (loadingOlderGeneration == historyPageGeneration) return@synchronized null
+            val oldestSeq = currentEvents.firstOrNull()?.seq
+            val pageContext = PageRequestContext(
+                fence = HistoryPageFence(sid, historyPageGeneration, cursor, oldestSeq),
+                address = address,
+                oldestSeq = oldestSeq,
+                cursor = cursor,
+            )
+            loadingOlderGeneration = historyPageGeneration
+            _loadingOlder.value = true
+            pageContext
+        }
+        // A page is pinned to this exact follow opening and oldest loaded boundary. Before an
+        // opening snapshot lands there is nothing to pin to, so wait for another user request.
+        if (context == null) return@withContext
         try {
-            val (oldestSeq, cursor) = synchronized(lock) {
-                currentEvents.firstOrNull()?.seq to followCursor
-            }
-            // A page is pinned to the follow generation's log cut, and there is no page without
-            // one. Before the opening snapshot lands there is nothing to pin to, so this waits
-            // for the next scroll rather than guessing a cut the host would reject.
-            if (cursor == null) {
-                log("cannot page $sid: no follow cursor yet")
-                return@withContext
-            }
             val request = SessionPageRequest(
-                address = synchronized(lock) { currentAddress } ?: SessionAddress.Session(sessionId = sid),
-                throughSeq = cursor,
-                beforeSeq = oldestSeq?.toInt(),
+                address = context.address,
+                throughSeq = context.cursor,
+                beforeSeq = context.oldestSeq?.toInt(),
                 maxMessages = HISTORY_PAGE_SIZE,
             )
             when (val r = withTimeoutOrNull(pageTimeoutForTransport(SESSION_PAGE_TIMEOUT_MS)) { api.sessionPage(request) }) {
                 is RpcResult.Ok -> {
-                    clearConnectionError()
-                    _loadOlderFailed.value = false
                     // Same guard as the opening window, so paging backwards stays bounded instead
                     // of pulling the whole log at once.
                     val envelopes = expandRecords(r.value.records)
                     val page = historyTail(envelopes, HISTORY_PAGE_SIZE)
                     val overDelivered = envelopes.size > page.size
-                    synchronized(lock) {
-                        if (!shouldSchedulePageRebuild(sid, currentId)) return@synchronized
+                    val installed = synchronized(lock) {
+                        if (!shouldApplyHistoryPage(
+                                request = context.fence,
+                                currentSessionId = currentId,
+                                currentGeneration = historyPageGeneration,
+                                currentCursor = followCursor,
+                                currentOldestSeq = currentEvents.firstOrNull()?.seq,
+                            )) return@synchronized false
                         val existingSeqs = currentEvents.mapTo(HashSet()) { it.seq }
                         val fresh = page.filter { it.seq !in existingSeqs }
                         if (fresh.isNotEmpty()) {
@@ -2460,23 +2506,39 @@ class SessionStore @Inject constructor(
                         // work off the receiver's monitor so live follow consumers can continue
                         // draining their bounded mux queues while the page is installed.
                         rebuildTicks.trySend(Unit)
+                        true
+                    }
+                    if (installed) {
+                        clearConnectionError()
+                        _loadOlderFailed.value = false
                     }
                 }
                 // Not a connection fault: the session is healthy and the tail still streams, so this
                 // offers a retry in the transcript rather than raising a connection banner over it.
                 is RpcResult.Err -> {
-                    log("session/page failed for $sid: ${r.error.code}: ${r.error.message}")
-                    _loadOlderFailed.value = true
+                    val current = synchronized(lock) { isCurrentHistoryPageLocked(context.fence) }
+                    if (current) {
+                        log("session/page failed for ${context.fence.sessionId}: ${r.error.code}: ${r.error.message}")
+                        _loadOlderFailed.value = true
+                    }
                 }
                 null -> {
-                    log("session/page timed out after ${SESSION_PAGE_TIMEOUT_MS}ms for $sid")
-                    _loadOlderFailed.value = true
+                    val current = synchronized(lock) { isCurrentHistoryPageLocked(context.fence) }
+                    if (current) {
+                        log("session/page timed out after ${SESSION_PAGE_TIMEOUT_MS}ms for ${context.fence.sessionId}")
+                        _loadOlderFailed.value = true
+                    }
                     // A history page timeout is specific to this read; it does not imply that the
                     // independent live session/follow carrier disconnected.
                 }
             }
         } finally {
-            _loadingOlder.value = false
+            synchronized(lock) {
+                if (shouldReleaseHistoryPageLoading(context.fence.generation, loadingOlderGeneration)) {
+                    loadingOlderGeneration = null
+                    _loadingOlder.value = false
+                }
+            }
         }
     }
 

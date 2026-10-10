@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -71,6 +72,12 @@ private const val LOAD_OLDER_THRESHOLD = 2
 /** Placement animation is disabled because disclosure expansion must not animate every sibling. */
 internal fun transcriptItemsAnimatePlacement(): Boolean = false
 
+internal fun shouldRestoreOlderPageAnchor(
+    capturedDragGeneration: Int,
+    currentDragGeneration: Int,
+    userDragging: Boolean,
+): Boolean = !userDragging && capturedDragGeneration == currentDragGeneration
+
 /** Initial opens never fetch older pages just to fill the viewport; paging is user-driven. */
 private const val MAX_AUTO_PAGES = 0
 
@@ -105,7 +112,7 @@ private fun transcriptNodeAnchorSeq(node: ChatNode): Long {
     return Long.MIN_VALUE or ((turn.toLong() and 0x7fffffffL) shl 32) or (step.toLong() and 0xffffffffL)
 }
 
-private data class OlderPageAnchor(val seq: Long, val offset: Int)
+private data class OlderPageAnchor(val seq: Long, val offset: Int, val dragGeneration: Int)
 
 internal sealed interface TranscriptRow {
     val key: String
@@ -407,6 +414,12 @@ internal fun ChatTranscript(
     var restoredSession by remember { mutableStateOf<String?>(null) }
     var olderPageAnchor by remember(sessionId) { mutableStateOf<OlderPageAnchor?>(null) }
     val userDragging by listState.interactionSource.collectIsDraggedAsState()
+    var dragGeneration by remember(sessionId) { mutableIntStateOf(0) }
+    LaunchedEffect(listState, sessionId) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) dragGeneration++
+        }
+    }
     val bottomTolerancePx = with(LocalDensity.current) { 48.dp.roundToPx() }
     LaunchedEffect(listState, sessionId, itemCount, restoredSession, bottomTolerancePx) {
         // Do not let an empty/stale layout from before the initial anchor restore reset its
@@ -550,10 +563,16 @@ internal fun ChatTranscript(
             previousScrollCoordinate = currentCoordinate
         }
     }
-    LaunchedEffect(rows, hasMore, sessionId) {
+    LaunchedEffect(rows, hasMore, sessionId, dragGeneration, userDragging) {
         val anchor = olderPageAnchor ?: return@LaunchedEffect
+        if (!shouldRestoreOlderPageAnchor(anchor.dragGeneration, dragGeneration, userDragging)) {
+            olderPageAnchor = null
+            return@LaunchedEffect
+        }
         val newIndex = rows.indexOfFirst { it.anchorSeq == anchor.seq }
-        if (newIndex >= 0) listState.scrollToItem(newIndex + if (hasMore) 1 else 0, anchor.offset)
+        if (newIndex >= 0 && shouldRestoreOlderPageAnchor(anchor.dragGeneration, dragGeneration, userDragging)) {
+            listState.scrollToItem(newIndex + if (hasMore) 1 else 0, anchor.offset)
+        }
         olderPageAnchor = null
     }
 
@@ -656,7 +675,11 @@ internal fun ChatTranscript(
             if (!shouldPageAtTop(firstVisible, fillsViewport, autoPages, MAX_AUTO_PAGES, userScrolling)) return@collect
             if (!fillsViewport) autoPages++
             val anchor = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index > 0 }
-            if (anchor != null) olderPageAnchor = OlderPageAnchor(rows.getOrNull(anchor.index - 1)?.anchorSeq ?: return@collect, anchor.offset)
+            if (anchor != null) olderPageAnchor = OlderPageAnchor(
+                seq = rows.getOrNull(anchor.index - 1)?.anchorSeq ?: return@collect,
+                offset = anchor.offset,
+                dragGeneration = dragGeneration,
+            )
             onLoadOlder()
         }
     }
