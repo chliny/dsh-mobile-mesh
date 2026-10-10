@@ -22,7 +22,7 @@ internal fun readingPositionOf(
     return TranscriptReadingPosition(
         // The disclosure key uses turn/start, which can disappear when a fresh history window
         // starts mid-turn. Its first rendered process node survives both folded and plain rows.
-        (row as? TranscriptRow.Process)?.part?.nodes?.firstOrNull()?.seq ?: row.anchorSeq,
+        (row as? TranscriptRow.Process)?.part?.firstNodeSeq ?: row.anchorSeq,
         offset,
         assistantTurn = assistant?.takeIf { it.streaming }?.turn,
         assistantStep = assistant?.takeIf { it.streaming }?.step,
@@ -139,7 +139,7 @@ internal fun readingPositionIndex(rows: List<TranscriptRow>, position: Transcrip
     }
     return rows.indexOfFirst { row ->
         row.anchorSeq == position.seq || when (row) {
-            is TranscriptRow.Process -> row.part.nodes.any { it.seq == position.seq }
+            is TranscriptRow.Process -> row.part.containsSeq(position.seq)
             is TranscriptRow.Command -> row.activity.run?.seq == position.seq || row.activity.done?.seq == position.seq
             is TranscriptRow.Workflow -> row.activity.events.any { it.seq == position.seq }
             is TranscriptRow.Node -> false

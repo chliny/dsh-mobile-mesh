@@ -333,6 +333,25 @@ internal fun shouldClearPendingInteractionFromSessionState(running: Boolean): Bo
  * [StateFlow]; every RPC error becomes [connectionError] and never throws. The store survives
  * reconnects by re-baselining on the connection state transition and on `session/subscribed`.
  */
+internal fun <T> historyTailWindow(
+    entries: List<T>,
+    maxMessages: Int,
+    maxEvents: Int,
+    isMessage: (T) -> Boolean,
+): List<T> {
+    require(maxMessages > 0 && maxEvents > 0)
+    val earliestIndex = (entries.size - maxEvents).coerceAtLeast(0)
+    var messages = 0
+    var index = entries.lastIndex
+    while (index >= earliestIndex) {
+        if (isMessage(entries[index]) && ++messages >= maxMessages) {
+            return entries.subList(index, entries.size)
+        }
+        index--
+    }
+    return entries.subList(earliestIndex, entries.size)
+}
+
 @Singleton
 class SessionStore @Inject constructor(
     private val connectionManager: ConnectionManager,
@@ -2281,7 +2300,7 @@ class SessionStore @Inject constructor(
                     SessionFollowRequest.serializer(),
                     SessionFollowRequest(
                         address = address,
-                        maxMessages = HISTORY_PAGE_SIZE,
+                        maxMessages = INITIAL_TRANSCRIPT_MESSAGE_COUNT,
                         assistantStream = true,
                     ),
                 ),
@@ -2324,7 +2343,7 @@ class SessionStore @Inject constructor(
     /** Install one complete opening window, replacing any previous one for this session. */
     private fun applyFollowSnapshot(sessionId: String, frame: SessionFollowFrame.Snapshot) {
         val envelopes = expandRecords(frame.records)
-        val page = historyTail(envelopes)
+        val page = historyTail(envelopes, INITIAL_TRANSCRIPT_MESSAGE_COUNT)
         val overDelivered = envelopes.size > page.size
         synchronized(lock) {
             if (currentId != sessionId) return@synchronized
@@ -2426,7 +2445,7 @@ class SessionStore @Inject constructor(
                     // Same guard as the opening window, so paging backwards stays bounded instead
                     // of pulling the whole log at once.
                     val envelopes = expandRecords(r.value.records)
-                    val page = historyTail(envelopes)
+                    val page = historyTail(envelopes, HISTORY_PAGE_SIZE)
                     val overDelivered = envelopes.size > page.size
                     synchronized(lock) {
                         if (!shouldSchedulePageRebuild(sid, currentId)) return@synchronized
@@ -3175,7 +3194,7 @@ class SessionStore @Inject constructor(
                 "request",
                 encodeToJsonElement(
                     SessionFollowRequest.serializer(),
-                    SessionFollowRequest(address = address, maxMessages = HISTORY_PAGE_SIZE),
+                    SessionFollowRequest(address = address, maxMessages = INITIAL_TRANSCRIPT_MESSAGE_COUNT),
                 ),
             )
         }
@@ -3185,7 +3204,7 @@ class SessionStore @Inject constructor(
                 mux.openStream("session/follow", args).first(),
             )
             if (frame is SessionFollowFrame.Snapshot) {
-                val envelopes = historyTail(expandRecords(frame.records))
+                val envelopes = historyTail(expandRecords(frame.records), INITIAL_TRANSCRIPT_MESSAGE_COUNT)
                 _subagentConversation.value = EventFold(childSessionId).fold(envelopes)
                     .copy(hasMore = frame.hasMore)
             } else {
@@ -3516,31 +3535,16 @@ class SessionStore @Inject constructor(
         }
     }
 
-    /**
-     * The tail slice of a history page the host over-delivered.
-     *
-     * `maxMessages` is a bound on *messages*, and not every harness build honours it — one was
-     * observed answering a 60-message request with ~29k events (several MB), which folds slowly
-     * enough to stall the first paint. Trimming is not as simple as keeping the last N events
-     * though: a single assistant message can be hundreds of `assistant/chunk` deltas, so a fixed
-     * event count yields a page with almost nothing readable in it. This walks back until it has
-     * [HISTORY_PAGE_SIZE] actual messages, with a hard event ceiling so a pathological log still
-     * cannot stall the fold. Anything trimmed is reported as `hasMore`, which is what
-     * "Load older" is for.
-     */
-    private fun historyTail(entries: List<SessionEventEnvelope>): List<SessionEventEnvelope> {
-        if (entries.size <= MAX_PAGE_EVENTS) return entries
-        var messages = 0
-        var index = entries.lastIndex
-        while (index > 0 && entries.size - index < MAX_PAGE_EVENTS) {
-            if (entries[index].type in SURFACE_EVENT_TYPES) {
-                messages++
-                if (messages >= HISTORY_PAGE_SIZE) break
-            }
-            index--
-        }
-        return entries.subList(index.coerceAtLeast(0), entries.size)
-    }
+    /** Bound an opening or history page by visible messages and a hard event ceiling. */
+    private fun historyTail(
+        entries: List<SessionEventEnvelope>,
+        messageLimit: Int,
+    ): List<SessionEventEnvelope> = historyTailWindow(
+        entries = entries,
+        maxMessages = messageLimit,
+        maxEvents = MAX_PAGE_EVENTS,
+        isMessage = { it.type in SURFACE_EVENT_TYPES },
+    )
 
     private fun subagentEntryId(entry: SubagentListEntry): String? = when (entry) {
         is SubagentListEntry.ChildOneShot -> entry.id
@@ -3615,7 +3619,8 @@ class SessionStore @Inject constructor(
         /** Largest file the base64 Remote fallback will carry; anything bigger needs the route. */
         const val MAX_ENCODED_UPLOAD_BYTES = 20L * 1024 * 1024
         /** Recent visible messages requested on open/reconnect and per history page. */
-        const val HISTORY_PAGE_SIZE = 40
+        const val INITIAL_TRANSCRIPT_MESSAGE_COUNT = 20
+        const val HISTORY_PAGE_SIZE = 50
         const val RPC_TIMEOUT_MS = 8_000L
         const val OPTIMISTIC_QUEUE_PROMPT_TIMEOUT_MS = 15_000L
 
@@ -3623,7 +3628,7 @@ class SessionStore @Inject constructor(
         const val MAX_PAGE_EVENTS = 4_000
 
         /** The event types that produce a visible message; everything else frames them. */
-        val SURFACE_EVENT_TYPES = setOf("user/message", "assistant/message", "tool/result")
+        val SURFACE_EVENT_TYPES = setOf("user/message", "assistant/message")
 
         /** Host-side wire bound for `session.search` (SESSION_SEARCH_QUERY_MAX_CHARS). */
         const val SESSION_SEARCH_QUERY_MAX_CHARS = 500

@@ -36,7 +36,7 @@ internal fun CommandActivityRow(row: ActivityRow.Command, context: ChatNodeConte
     val name = run?.get("name").asString() ?: done?.get("name").asString() ?: source.kind
     val summary = run?.get("text").asString() ?: done?.get("text").asString()
     val status = commandDoneStatus(row.done)
-    val expanded = context.disclosure(DisclosureKeys.commandActivity(source.seq))
+    val expanded = context.disclosure(DisclosureKeys.commandActivity(row.commandId, source.seq))
     DisclosureRow(
         title = "/$name",
         summary = listOfNotNull(summary, status).joinToString(" · ").ifBlank { null },
@@ -65,7 +65,7 @@ private fun CommandPayload(label: String, node: CommandNode) {
 internal fun WorkflowActivityRow(row: ActivityRow.Workflow, context: ChatNodeContext) {
     val activity = remember(row.events) { workflowActivity(row.events) }
     val colors = DsTheme.colors
-    val expanded = context.disclosure(DisclosureKeys.workflowActivity(row.anchorSeq))
+    val expanded = context.disclosure(DisclosureKeys.workflowActivity(row.runId, row.anchorSeq))
     DisclosureRow(
         title = stringResource(R.string.workflow_title),
         summary = listOfNotNull(activity.name, workflowStatusLabel(activity.status)).joinToString(" · ").ifBlank { null },

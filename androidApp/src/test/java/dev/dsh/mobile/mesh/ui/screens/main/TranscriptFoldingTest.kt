@@ -17,8 +17,10 @@ class TranscriptFoldingTest {
             ToolCallNode(9, "b", "bash", "{}", 2, 0), answer(10, 2), TurnEndNode(11, 2, "completed"))
         val parts = partitionTranscript(events)
         assertEquals(listOf(1L, 5L, 7L, 10L), nodes(parts))
-        assertEquals(listOf(listOf(3L, 4L), listOf(9L)), parts.filterIsInstance<TranscriptPart.Process>().map { it.nodes.map(ChatNode::seq) })
-        assertEquals(listOf(2L, 8L), parts.filterIsInstance<TranscriptPart.Process>().map { it.startSeq })
+        val processes = parts.filterIsInstance<TranscriptPart.Process>()
+        assertEquals(listOf(listOf(3L, 4L), listOf(9L)), processes.map { it.materializeNodes().map(ChatNode::seq) })
+        assertSame(processes.first().source, processes.last().source)
+        assertEquals(listOf(2L, 8L), processes.map { it.startSeq })
     }
 
     @Test fun `pagination fragments and unfinished turns never fold`() {
@@ -47,27 +49,18 @@ class TranscriptFoldingTest {
     }
 
     @Test
-    fun `quick transcript tail finds latest answer beyond long structural suffix`() {
-        val latestAnswer = answer(10, 1)
-        val nodes = buildList {
-            add(prompt(1))
-            add(latestAnswer)
-            repeat(2_048) { index -> add(TurnEndNode(index + 11L, 1, "completed")) }
-        }
+    fun `collapsed process stores a source range and materializes only its visible nodes`() {
+        val events = listOf(
+            prompt(1), TurnStartNode(2, 1), thought(3, 1),
+            ToolCallNode(4, "tool", "bash", "{}", 1, 0),
+            answer(5, 1), TurnEndNode(6, 1, "completed"),
+        )
+        val process = partitionTranscript(events).filterIsInstance<TranscriptPart.Process>().single()
 
-        assertSame(latestAnswer, quickTailContentNode(nodes))
-    }
-
-    @Test
-    fun `pending tail only appends a newer row and avoids duplicate LazyColumn keys`() {
-        val previous = answer(10, 1)
-        val current = answer(11, 1)
-
-        assertSame(current, newQuickTailNode(listOf(previous), current))
-        val updated = previous.copy(blocks = listOf(ChatBlock("text", "Updated answer")))
-        assertSame(updated, newQuickTailNode(listOf(previous), updated))
-        assertNull(newQuickTailNode(listOf(previous), previous.copy()))
-        assertNull(newQuickTailNode(listOf(previous), answer(9, 1)))
+        assertEquals(2, process.startIndex)
+        assertEquals(4, process.endExclusive)
+        assertEquals(2, process.nodeCount)
+        assertEquals(listOf(3L, 4L), process.materializeNodes().map(ChatNode::seq))
     }
 
     @Test
@@ -78,9 +71,11 @@ class TranscriptFoldingTest {
 
         assertEquals(transcriptNodeRowKey(firstSnapshot), transcriptNodeRowKey(nextSnapshot))
         assertEquals(transcriptNodeRowKey(nextSnapshot), transcriptNodeRowKey(settled))
+        assertEquals(
+            DisclosureKeys.reasoning(transcriptNodeRowKey(firstSnapshot), 0),
+            DisclosureKeys.reasoning(transcriptNodeRowKey(nextSnapshot), 0),
+        )
         assertEquals(TranscriptRow.Node(firstSnapshot).anchorSeq, TranscriptRow.Node(nextSnapshot).anchorSeq)
-        assertSame(nextSnapshot, newQuickTailNode(listOf(firstSnapshot), nextSnapshot))
-        assertSame(settled, newQuickTailNode(listOf(nextSnapshot), settled))
     }
 
     @Test(timeout = 5_000)
@@ -98,7 +93,7 @@ class TranscriptFoldingTest {
 
         val parts = partitionTranscript(events)
         assertEquals(2, parts.size)
-        assertEquals(processSize, (parts.first() as TranscriptPart.Process).nodes.size)
+        assertEquals(processSize, (parts.first() as TranscriptPart.Process).nodeCount)
         val foldedRows = buildTranscriptRows(parts, emptyMap())
         assertEquals(2, foldedRows.size)
         assertEquals(processSize + 2L, (foldedRows.last() as TranscriptRow.Node).node.seq)

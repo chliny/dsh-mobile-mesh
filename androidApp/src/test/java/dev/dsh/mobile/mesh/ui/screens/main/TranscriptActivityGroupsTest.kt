@@ -34,6 +34,30 @@ class TranscriptActivityGroupsTest {
             groups.map { it.run?.seq to it.done?.seq })
     }
 
+    @Test fun `command and workflow row keys stay stable when older start events arrive`() {
+        val commandDoneOnly = groupTranscriptActivity(listOf(command(90, "command/done", "cmd-1")))
+            .single() as ActivityRow.Command
+        val commandPaired = groupTranscriptActivity(listOf(
+            command(10, "command/run", "cmd-1"), command(90, "command/done", "cmd-1"),
+        )).single() as ActivityRow.Command
+        assertEquals(TranscriptRow.Command(commandDoneOnly).key, TranscriptRow.Command(commandPaired).key)
+        assertEquals(
+            DisclosureKeys.commandActivity(commandDoneOnly.commandId, commandDoneOnly.anchorSeq),
+            DisclosureKeys.commandActivity(commandPaired.commandId, commandPaired.anchorSeq),
+        )
+
+        val workflowEndOnly = groupTranscriptActivity(listOf(workflow(90, "run-end", "run-1")))
+            .single() as ActivityRow.Workflow
+        val workflowPaired = groupTranscriptActivity(listOf(
+            workflow(10, "run-start", "run-1"), workflow(90, "run-end", "run-1"),
+        )).single() as ActivityRow.Workflow
+        assertEquals(TranscriptRow.Workflow(workflowEndOnly).key, TranscriptRow.Workflow(workflowPaired).key)
+        assertEquals(
+            DisclosureKeys.workflowActivity(workflowEndOnly.runId, workflowEndOnly.anchorSeq),
+            DisclosureKeys.workflowActivity(workflowPaired.runId, workflowPaired.anchorSeq),
+        )
+    }
+
     @Test fun `command done kind error supplies failure status`() {
         val done = CommandNode(2, "command/done", buildJsonObject {
             put("commandId", "a")

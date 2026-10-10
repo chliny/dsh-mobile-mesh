@@ -12,9 +12,9 @@ class ChatTranscriptPagingTest {
     }
 
     @Test
-    fun `a short transcript may fill one page`() {
-        assertTrue(shouldPageAtTop(firstVisible = 0, fillsViewport = false, autoPages = 0, maxAutoPages = 1, userScrolling = false))
-        assertFalse(shouldPageAtTop(firstVisible = 0, fillsViewport = false, autoPages = 1, maxAutoPages = 1, userScrolling = false))
+    fun `a short initial transcript waits for an explicit older-page request`() {
+        assertFalse(shouldPageAtTop(firstVisible = 0, fillsViewport = false, autoPages = 0, maxAutoPages = 0, userScrolling = false))
+        assertTrue(shouldPageAtTop(firstVisible = 0, fillsViewport = false, autoPages = 0, maxAutoPages = 0, userScrolling = true))
     }
 
     @Test

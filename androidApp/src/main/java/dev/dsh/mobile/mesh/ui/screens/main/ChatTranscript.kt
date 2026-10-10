@@ -35,7 +35,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -49,7 +48,6 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ChatNode
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
-import dev.dsh.mobile.mesh.core.session.UserMessageNode
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonSize
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
@@ -57,9 +55,7 @@ import dev.dsh.mobile.mesh.ui.components.EmptyHero
 import dev.dsh.mobile.mesh.ui.components.skeleton
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * How close to the top a reader must get before the next page is fetched.
@@ -75,22 +71,8 @@ private const val LOAD_OLDER_THRESHOLD = 2
 /** Placement animation is disabled because disclosure expansion must not animate every sibling. */
 internal fun transcriptItemsAnimatePlacement(): Boolean = false
 
-/**
- * How many pages the transcript may fetch on its own before it needs to be asked.
- *
- * Paging used to be automatic without limit while the transcript was shorter than the screen. That
- * reads as reasonable and is not: a page is counted in *events*, and most events — chunk deltas,
- * tool traffic, turn boundaries — render nothing at all. A session whose log is mostly machinery
- * therefore never fills the screen however much is loaded, so the fill loop pulled the entire
- * history in, four thousand events at a time, re-folding everything already held on each pass until
- * the heap gave out.
- *
- * One extra page is the whole of what the fill is for. A page carries up to sixty messages, which
- * is several screens' worth already; if it still does not reach the bottom of the viewport then the
- * session's log is mostly machinery, and pulling more of it is buying thousands more events for a
- * row or two. Past that the reader asks, via the row at the head of the list.
- */
-private const val MAX_AUTO_PAGES = 1
+/** Initial opens never fetch older pages just to fill the viewport; paging is user-driven. */
+private const val MAX_AUTO_PAGES = 0
 
 private class TranscriptProjectionKey(
     val sessionId: String?,
@@ -107,51 +89,7 @@ private data class TranscriptProjection(
     val nodes: List<ChatNode>,
     val parts: List<TranscriptPart>,
     val hasAssistant: Boolean,
-    val isComplete: Boolean,
 )
-
-private data class PendingTranscriptTail(val key: TranscriptProjectionKey, val node: ChatNode)
-
-internal fun quickTailContentNode(sourceNodes: List<ChatNode>): ChatNode? {
-    val iterator = sourceNodes.listIterator(sourceNodes.size)
-    var fallback: ChatNode? = null
-    while (iterator.hasPrevious()) {
-        val node = iterator.previous()
-        if (!node.rendersContent()) continue
-        if (fallback == null) fallback = node
-        val userFacing = node is UserMessageNode ||
-            (node is AssistantMessageNode && node.blocks.any {
-                (it.kind == "text" && !it.text.isNullOrBlank()) || it.kind == "image"
-            })
-        if (userFacing) return node
-    }
-    return fallback
-}
-
-/** Render one recent user-facing row immediately while the full history projection is prepared. */
-private fun quickTailProjection(
-    key: TranscriptProjectionKey,
-    sourceNodes: List<ChatNode>,
-    running: Boolean,
-): TranscriptProjection? = quickTailContentNode(sourceNodes)?.let { quickProjection(key, it, running) }
-
-internal fun newQuickTailNode(previousNodes: List<ChatNode>, candidate: ChatNode?): ChatNode? {
-    candidate ?: return null
-    val previousTail = previousNodes.lastOrNull() ?: return candidate
-    val candidateAssistant = candidate as? AssistantMessageNode
-    val previousAssistant = previousTail as? AssistantMessageNode
-    val candidateTurn = candidateAssistant?.turn?.takeIf { it > 0 }
-    val previousTurn = previousAssistant?.turn?.takeIf { it > 0 }
-    val sameAssistantAttempt = candidateAssistant?.step != null && candidateTurn != null &&
-        candidateTurn == previousTurn && candidateAssistant.step == previousAssistant?.step
-    if (sameAssistantAttempt && previousAssistant?.streaming == true && candidateAssistant?.streaming == false) {
-        return candidate
-    }
-    if (sameAssistantAttempt && previousAssistant?.streaming == true && candidateAssistant?.streaming == true &&
-        candidate.seq >= previousTail.seq
-    ) return candidate.takeIf { it != previousTail }
-    return candidate.takeIf { it.seq > previousTail.seq || (it.seq == previousTail.seq && it != previousTail) }
-}
 
 internal fun transcriptNodeRowKey(node: ChatNode): String = when (node) {
     is AssistantMessageNode -> node.turn?.takeIf { it > 0 }?.let { turn ->
@@ -166,15 +104,6 @@ private fun transcriptNodeAnchorSeq(node: ChatNode): Long {
     val step = node.step ?: return node.seq
     return Long.MIN_VALUE or ((turn.toLong() and 0x7fffffffL) shl 32) or (step.toLong() and 0xffffffffL)
 }
-
-private fun quickProjection(key: TranscriptProjectionKey, node: ChatNode, running: Boolean) =
-    TranscriptProjection(
-        key = key,
-        nodes = listOf(node),
-        parts = listOf(TranscriptPart.Node(node)),
-        hasAssistant = running || node is AssistantMessageNode,
-        isComplete = false,
-    )
 
 private data class OlderPageAnchor(val seq: Long, val offset: Int)
 
@@ -193,12 +122,12 @@ internal sealed interface TranscriptRow {
     }
 
     data class Command(val activity: ActivityRow.Command) : TranscriptRow {
-        override val key: String = "command-${activity.anchorSeq}"
+        override val key: String = activity.commandId?.let { "command-id-$it" } ?: "command-${activity.anchorSeq}"
         override val anchorSeq: Long = activity.anchorSeq
     }
 
     data class Workflow(val activity: ActivityRow.Workflow) : TranscriptRow {
-        override val key: String = "workflow-${activity.anchorSeq}"
+        override val key: String = activity.runId?.let { "workflow-run-$it" } ?: "workflow-${activity.anchorSeq}"
         override val anchorSeq: Long = activity.anchorSeq
     }
 }
@@ -238,7 +167,7 @@ internal fun buildTranscriptRows(
                 flush()
                 result.add(TranscriptRow.Process(part))
                 if (isProcessExpanded(part.startSeq)) {
-                    pending.addAll(part.nodes)
+                    pending.addAll(part.materializeNodes())
                     flush()
                 }
             }
@@ -421,46 +350,19 @@ internal fun ChatTranscript(
     val sessionId = conversation?.sessionId
     val sourceNodes = conversation?.nodes.orEmpty()
     val projectionKey = TranscriptProjectionKey(sessionId, sourceNodes)
-    var preparedProjection by remember { mutableStateOf<TranscriptProjection?>(null) }
-    var pendingTail by remember { mutableStateOf<PendingTranscriptTail?>(null) }
-    LaunchedEffect(projectionKey) {
-        pendingTail = null
-        val previousComplete = preparedProjection?.takeIf {
-            it.key.sessionId == sessionId && it.isComplete
-        }
-        val (quickTail, newTailNode) = withContext(Dispatchers.Default) {
-            val quick = quickTailProjection(projectionKey, sourceNodes, conversation?.running == true)
-            val newNode = previousComplete?.let { prior ->
-                quick?.nodes?.singleOrNull()?.let { newQuickTailNode(prior.nodes, it) }
-            }
-            quick to newNode
-        }
-        if (previousComplete == null) {
-            quickTail?.let { preparedProjection = it }
-        } else {
-            newTailNode?.let { pendingTail = PendingTranscriptTail(projectionKey, it) }
-        }
-
-        val fullProjection = withContext(Dispatchers.Default) {
-            val visibleNodes = sourceNodes.filter { it.rendersContent() }
-            TranscriptProjection(
-                key = projectionKey,
-                nodes = visibleNodes,
-                parts = partitionTranscript(sourceNodes),
-                hasAssistant = visibleNodes.any { it is AssistantMessageNode },
-                isComplete = true,
-            )
-        }
-        preparedProjection = fullProjection
-        pendingTail = null
+    // Build one presentation atomically from the immutable message window. A smaller initial
+    // follow window bounds this synchronous pass and avoids mixing stale/quick/pending projections.
+    val projection = remember(projectionKey) {
+        val visibleNodes = sourceNodes.filter { it.rendersContent() }
+        TranscriptProjection(
+            key = projectionKey,
+            nodes = visibleNodes,
+            parts = partitionTranscript(sourceNodes),
+            hasAssistant = visibleNodes.any { it is AssistantMessageNode },
+        )
     }
-    // On a cold session, publish a fast tail row first; during updates retain the previous snapshot
-    // until the complete projection is ready. Never show another session's data.
-    val sessionProjection = preparedProjection?.takeIf { it.key.sessionId == sessionId }
-    val projectionReady = sessionProjection?.let { it.key == projectionKey && it.isComplete } == true
-    val pendingTailNode = pendingTail?.takeIf { it.key == projectionKey }?.node
-    val nodes = sessionProjection?.nodes.orEmpty()
-    val parts = sessionProjection?.parts.orEmpty()
+    val nodes = projection.nodes
+    val parts = projection.parts
     DisposableEffect(sessionId, listState, readingPositions) {
         onDispose {
             val saved = sessionId?.let(readingPositions::get)
@@ -479,23 +381,17 @@ internal fun ChatTranscript(
                 .toSet()
         }
     }
-    val baseRows = remember(parts, expandedProcesses) {
+    val rows = remember(parts, expandedProcesses) {
         buildTranscriptRows(parts) { startSeq -> startSeq in expandedProcesses }
-    }
-    val rows = remember(baseRows, pendingTailNode?.let(::transcriptNodeRowKey)) {
-        if (pendingTailNode != null && baseRows.lastOrNull()?.key == transcriptNodeRowKey(pendingTailNode)) {
-            baseRows.subList(0, baseRows.lastIndex)
-        } else baseRows
     }
     val hasMore = conversation?.hasMore == true
     val turnStartedAtMillis = conversation?.turnStartedAtMillis
     val deepDiving = deepDivingVisible(conversation?.running == true, turnStartedAtMillis)
-    val showEmpty = nodes.isEmpty() && !deepDiving && pendingTailNode == null
+    val showEmpty = nodes.isEmpty() && !deepDiving
     val itemCount = (if (hasMore) 1 else 0) + if (showEmpty) 1 else {
-        rows.size + (if (pendingTailNode != null) 1 else 0) +
-            (if (deepDiving && turnStartedAtMillis != null) 1 else 0)
+        rows.size + (if (deepDiving && turnStartedAtMillis != null) 1 else 0)
     }
-    val hasAssistant = sessionProjection?.hasAssistant == true
+    val hasAssistant = projection.hasAssistant
     val waitingForFirstResponse = waitingForFirstResponse(
         running = conversation?.running == true,
         hasAssistant = hasAssistant,
@@ -512,18 +408,10 @@ internal fun ChatTranscript(
     var olderPageAnchor by remember(sessionId) { mutableStateOf<OlderPageAnchor?>(null) }
     val userDragging by listState.interactionSource.collectIsDraggedAsState()
     val bottomTolerancePx = with(LocalDensity.current) { 48.dp.roundToPx() }
-    LaunchedEffect(pendingTail, itemCount, tailIntent, userDragging) {
-        val pending = pendingTail?.takeIf { it.key == projectionKey } ?: return@LaunchedEffect
-        if (!tailIntent || userDragging || itemCount <= 0) return@LaunchedEffect
-        withFrameNanos { }
-        if (pendingTail == pending && tailIntent && !userDragging) {
-            listState.scrollToItem(itemCount - 1)
-        }
-    }
-    LaunchedEffect(listState, sessionId, itemCount, restoredSession, bottomTolerancePx, projectionReady) {
+    LaunchedEffect(listState, sessionId, itemCount, restoredSession, bottomTolerancePx) {
         // Do not let an empty/stale layout from before the initial anchor restore reset its
-        // tail-follow state. Only a fully projected and restored transcript is meaningful.
-        if (!projectionReady || restoredSession != sessionId) return@LaunchedEffect
+        // tail-follow state. Only a visible row in the restored transcript is meaningful.
+        if (restoredSession != sessionId) return@LaunchedEffect
         var previousViewportHeight: Int? = null
         var previousCanScrollForward: Boolean? = null
         var previousScrollCoordinate: Pair<Int, Int>? = null
@@ -589,14 +477,13 @@ internal fun ChatTranscript(
     // follow, and a page of history arriving at the top, which must not — asking for older messages
     // and being thrown back to the newest one is the opposite of what the tap meant. The paging row
     // appearing and disappearing changed the count too, which moved the view for no reason at all.
-    val newestRowKey = pendingTailNode?.let(::transcriptNodeRowKey)
-        ?: nodes.lastOrNull()?.let(::transcriptNodeRowKey)
+    val newestRowKey = nodes.lastOrNull()?.let(::transcriptNodeRowKey)
     var lastSession by remember { mutableStateOf<String?>(null) }
     var restoreTarget by remember(sessionId) { mutableStateOf<TranscriptReadingPosition?>(null) }
     // Observe only a laid-out row belonging to this session, and only after the initial restore.
     // In particular, an empty/loading snapshot must not replace a saved reading anchor.
-    LaunchedEffect(listState, sessionId, rows, hasMore, restoredSession, restoreTarget, projectionReady) {
-        if (!projectionReady || sessionId == null || restoredSession != sessionId) return@LaunchedEffect
+    LaunchedEffect(listState, sessionId, rows, hasMore, restoredSession, restoreTarget) {
+        if (sessionId == null || restoredSession != sessionId) return@LaunchedEffect
         // A follow snapshot can replace the cached older window with only the newest page.
         // Its automatic LazyColumn re-anchor is not a reader action: do not overwrite the
         // last known coordinate with whatever unrelated row happens to occupy that viewport.
@@ -663,16 +550,14 @@ internal fun ChatTranscript(
             previousScrollCoordinate = currentCoordinate
         }
     }
-    LaunchedEffect(rows, hasMore, sessionId, projectionReady) {
-        if (!projectionReady) return@LaunchedEffect
+    LaunchedEffect(rows, hasMore, sessionId) {
         val anchor = olderPageAnchor ?: return@LaunchedEffect
         val newIndex = rows.indexOfFirst { it.anchorSeq == anchor.seq }
         if (newIndex >= 0) listState.scrollToItem(newIndex + if (hasMore) 1 else 0, anchor.offset)
         olderPageAnchor = null
     }
 
-    LaunchedEffect(newestRowKey, sessionId, projectionReady) {
-        if (!projectionReady) return@LaunchedEffect
+    LaunchedEffect(newestRowKey, sessionId) {
         // A history snapshot can initially contain only structural events and the paging row.
         // Treating that sentinel as the restored session consumes the one-time restore before
         // the first readable message arrives on the next server page.
@@ -720,8 +605,8 @@ internal fun ChatTranscript(
     // without limit; a reader may still use the ordinary paging row to travel further back.
     val restoreScope = rememberCoroutineScope()
     var restorePageAttempted by remember(sessionId) { mutableStateOf(false) }
-    LaunchedEffect(sessionId, rows, hasMore, loadingOlder, restoredSession, restorePageAttempted, restoreTarget, userDragging, projectionReady) {
-        if (!projectionReady || sessionId == null || restoredSession != sessionId) return@LaunchedEffect
+    LaunchedEffect(sessionId, rows, hasMore, loadingOlder, restoredSession, restorePageAttempted, restoreTarget, userDragging) {
+        if (sessionId == null || restoredSession != sessionId) return@LaunchedEffect
         val saved = readingPositions.get(sessionId) ?: return@LaunchedEffect
         val target = restoreTarget
         if (target != null) {
@@ -754,7 +639,7 @@ internal fun ChatTranscript(
     var autoPages by rememberSaveable(sessionId) { mutableIntStateOf(0) }
     var userScrolling by remember(sessionId) { mutableStateOf(false) }
     var pullArmed by remember(sessionId) { mutableStateOf(false) }
-    val canPage = projectionReady && hasMore && !loading && !loadingOlder && !loadOlderFailed
+    val canPage = hasMore && !loading && !loadingOlder && !loadOlderFailed
     val autoPagingExhausted = hasMore && !loading && autoPages >= MAX_AUTO_PAGES
     LaunchedEffect(listState, sessionId) {
         snapshotFlow { listState.isScrollInProgress }
@@ -776,7 +661,7 @@ internal fun ChatTranscript(
         }
     }
 
-    if (loading || sessionProjection == null) {
+    if (loading) {
         TranscriptSkeleton(modifier)
         return
     }
@@ -827,8 +712,8 @@ internal fun ChatTranscript(
                         val processKey = DisclosureKeys.process(row.part.startSeq)
                         val open = disclosureScope.isOpen(processKey)
                         Text(
-                            text = if (open) stringResource(R.string.chat_process_hide, row.part.nodes.size)
-                                else stringResource(R.string.chat_process_summary, row.part.nodes.size),
+                            text = if (open) stringResource(R.string.chat_process_hide, row.part.nodeCount)
+                                else stringResource(R.string.chat_process_summary, row.part.nodeCount),
                             modifier = Modifier.fillMaxWidth().clickable {
                                 disclosureScope.toggle(processKey)
                             }.padding(horizontal = 8.dp, vertical = 8.dp),
@@ -836,11 +721,6 @@ internal fun ChatTranscript(
                             color = DsTheme.colors.labelSecondary,
                         )
                     }
-                }
-            }
-            pendingTailNode?.let { node ->
-                item(key = transcriptNodeRowKey(node)) {
-                    ChatNodeItem(node = node, context = context)
                 }
             }
             if (deepDiving && turnStartedAtMillis != null) {

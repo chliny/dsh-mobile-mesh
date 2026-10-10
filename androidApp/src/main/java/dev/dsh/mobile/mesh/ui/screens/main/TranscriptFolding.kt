@@ -10,10 +10,36 @@ import dev.dsh.mobile.mesh.core.session.TurnStartNode
 import dev.dsh.mobile.mesh.core.session.TodoNode
 import dev.dsh.mobile.mesh.core.session.UserMessageNode
 
+/** One immutable conversation list shared by range-based folded-process references. */
+internal class TranscriptNodeSnapshot(val nodes: List<ChatNode>)
+
 /** Presentation only: retain the original node (and seq) for every row. */
 internal sealed interface TranscriptPart {
     data class Node(val node: ChatNode) : TranscriptPart
-    data class Process(val startSeq: Long, val nodes: List<ChatNode>) : TranscriptPart
+    data class Process(
+        val startSeq: Long,
+        val source: TranscriptNodeSnapshot,
+        val startIndex: Int,
+        val endExclusive: Int,
+        val nodeCount: Int,
+    ) : TranscriptPart {
+        constructor(startSeq: Long, nodes: List<ChatNode>) : this(
+            startSeq,
+            TranscriptNodeSnapshot(nodes),
+            0,
+            nodes.size,
+            nodes.size,
+        )
+
+        /** Materialized only when the disclosure opens; collapsed rows retain only this range. */
+        fun materializeNodes(): List<ChatNode> =
+            source.nodes.subList(startIndex, endExclusive).filter { it.rendersContent() }
+
+        val firstNodeSeq: Long get() = source.nodes[startIndex].seq
+
+        fun containsSeq(seq: Long): Boolean =
+            (startIndex until endExclusive).any { source.nodes[it].seq == seq }
+    }
 }
 
 /**
@@ -22,6 +48,7 @@ internal sealed interface TranscriptPart {
  * Unexpected events and error/unfinished outcomes remain in the ordinary transcript.
  */
 internal fun partitionTranscript(nodes: List<ChatNode>): List<TranscriptPart> {
+    val source = TranscriptNodeSnapshot(nodes)
     val result = mutableListOf<TranscriptPart>()
     var index = 0
     while (index < nodes.size) {
@@ -41,7 +68,15 @@ internal fun partitionTranscript(nodes: List<ChatNode>): List<TranscriptPart> {
             index = stop
             continue
         }
-        val turnNodes = nodes.subList(index + 1, endIndex).filter { it.rendersContent() }
+        val turnNodes = mutableListOf<ChatNode>()
+        val turnSourceIndexes = mutableListOf<Int>()
+        for (sourceIndex in index + 1 until endIndex) {
+            val node = nodes[sourceIndex]
+            if (node.rendersContent()) {
+                turnNodes.add(node)
+                turnSourceIndexes.add(sourceIndex)
+            }
+        }
         // Without a delivered final answer there is no sensible summary to leave visible. Unknown
         // node/block types and errors also remain exposed rather than being silently concealed.
         val final = turnNodes.lastOrNull { it is AssistantMessageNode } as? AssistantMessageNode
@@ -59,11 +94,11 @@ internal fun partitionTranscript(nodes: List<ChatNode>): List<TranscriptPart> {
                 node !is TodoNode && !(node is AssistantMessageNode &&
                 (node.interrupted || node.blocks.any { it.kind == "text" && !it.text.isNullOrBlank() || it.kind == "image" }))
         }
-        val process = turnNodes.filterIndexed { turnIndex, _ -> processFlags[turnIndex] }
+        val processCount = processFlags.count { it }
         val firstProcess = processFlags.indexOfFirst { it }
         val lastProcess = processFlags.indexOfLast { it }
         val interleaved = firstProcess >= 0 && (firstProcess..lastProcess).any { !processFlags[it] }
-        if (process.isEmpty() || interleaved) {
+        if (processCount == 0 || interleaved) {
             turnNodes.forEach { result.add(TranscriptPart.Node(it)) }
         } else {
             // Keep all user input and the final answer in their original relative positions.
@@ -73,7 +108,15 @@ internal fun partitionTranscript(nodes: List<ChatNode>): List<TranscriptPart> {
             turnNodes.forEachIndexed { turnIndex, node ->
                 if (processFlags[turnIndex]) {
                     if (!inserted) {
-                        result.add(TranscriptPart.Process(start.seq, process))
+                        result.add(
+                            TranscriptPart.Process(
+                                startSeq = start.seq,
+                                source = source,
+                                startIndex = turnSourceIndexes[firstProcess],
+                                endExclusive = turnSourceIndexes[lastProcess] + 1,
+                                nodeCount = processCount,
+                            ),
+                        )
                         inserted = true
                     }
                 } else {

@@ -125,6 +125,7 @@ internal object DisclosureKeys {
     fun todo(callId: String) = "todo:$callId"
     fun todoUnchanged(callId: String) = "todo-unchanged:$callId"
     fun reasoning(seq: Long, blockIndex: Int) = "reasoning:$seq:$blockIndex"
+    fun reasoning(rowKey: String, blockIndex: Int) = "reasoning:$rowKey:$blockIndex"
     fun presentedFiles(seq: Long) = "presented-files:$seq"
     /** The to-do list as an event inside the transcript, as opposed to the dock above the composer. */
     fun transcriptTodo(seq: Long) = "transcript-todo:$seq"
@@ -134,7 +135,11 @@ internal object DisclosureKeys {
     fun command(seq: Long) = "command:$seq"
     fun workflow(seq: Long) = "workflow:$seq"
     fun commandActivity(seq: Long) = "command-activity:$seq"
+    fun commandActivity(commandId: String?, fallbackSeq: Long) =
+        commandId?.let { "command-activity:id:$it" } ?: commandActivity(fallbackSeq)
     fun workflowActivity(anchorSeq: Long) = "workflow-activity:$anchorSeq"
+    fun workflowActivity(runId: String?, fallbackSeq: Long) =
+        runId?.let { "workflow-activity:run:$it" } ?: workflowActivity(fallbackSeq)
     fun process(startSeq: Long) = "process:$startSeq"
     fun trajectoryCall(callId: String) = "trajectory-call:$callId"
     fun dock(name: String) = "dock:$name"
