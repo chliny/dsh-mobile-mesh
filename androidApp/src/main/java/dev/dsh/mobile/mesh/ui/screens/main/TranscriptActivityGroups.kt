@@ -11,10 +11,17 @@ internal sealed interface ActivityRow {
     data class Node(val node: ChatNode) : ActivityRow {
         override val anchorSeq: Long = node.seq
     }
-    data class Command(val run: CommandNode?, val done: CommandNode?) : ActivityRow {
+    data class Command(
+        val run: CommandNode?,
+        val done: CommandNode?,
+        val commandId: String? = run?.field("commandId") ?: done?.field("commandId"),
+    ) : ActivityRow {
         override val anchorSeq: Long = listOfNotNull(run?.seq, done?.seq).min()
     }
-    data class Workflow(val events: List<WorkflowNode>) : ActivityRow {
+    data class Workflow(
+        val events: List<WorkflowNode>,
+        val runId: String? = events.firstOrNull()?.field("runId"),
+    ) : ActivityRow {
         override val anchorSeq: Long = events.first().seq
     }
 }

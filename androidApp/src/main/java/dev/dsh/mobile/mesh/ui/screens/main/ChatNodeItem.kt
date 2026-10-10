@@ -437,7 +437,8 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
     // so `running` is still true for a frame. Without this the last thing the user sees after
     // tapping stop is the answer apparently still being written.
     val streaming = context.running && isLast && !node.interrupted
-    var actionsVisible by remember(node.seq) { mutableStateOf(false) }
+    val stableRowKey = transcriptNodeRowKey(node)
+    var actionsVisible by remember(stableRowKey) { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -452,7 +453,7 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
                 // opened has to be able to stay open across those renders as well as across a trip
                 // away from the transcript.
                 "reasoning" -> if (hasThinkingContent(block.text)) {
-                    val reasoning = context.disclosure(DisclosureKeys.reasoning(node.seq, index))
+                    val reasoning = context.disclosure(DisclosureKeys.reasoning(stableRowKey, index))
                     ThinkingRow(
                         summary = block.text?.lineSequence()?.firstOrNull()
                             ?: stringResource(R.string.chat_thinking),
