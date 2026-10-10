@@ -18,6 +18,38 @@ class ChatTranscriptPagingTest {
     }
 
     @Test
+    fun `tail intent catches up after a row grows before layout observer starts`() {
+        assertTrue(shouldCatchUpTranscriptTail(
+            tailIntent = true,
+            measuredNearBottom = false,
+            userDragging = false,
+            scrollInProgress = false,
+            canScrollForward = true,
+        ))
+        assertFalse(shouldCatchUpTranscriptTail(
+            tailIntent = true,
+            measuredNearBottom = false,
+            userDragging = true,
+            scrollInProgress = false,
+            canScrollForward = true,
+        ))
+        assertFalse(shouldCatchUpTranscriptTail(
+            tailIntent = false,
+            measuredNearBottom = false,
+            userDragging = false,
+            scrollInProgress = false,
+            canScrollForward = true,
+        ))
+        assertFalse(shouldCatchUpTranscriptTail(
+            tailIntent = true,
+            measuredNearBottom = true,
+            userDragging = false,
+            scrollInProgress = false,
+            canScrollForward = true,
+        ))
+    }
+
+    @Test
     fun `page completion restores prepend anchor only until the user starts a new drag`() {
         assertTrue(shouldRestoreOlderPageAnchor(capturedDragGeneration = 4, currentDragGeneration = 4, userDragging = false))
         assertFalse(shouldRestoreOlderPageAnchor(capturedDragGeneration = 4, currentDragGeneration = 5, userDragging = true))

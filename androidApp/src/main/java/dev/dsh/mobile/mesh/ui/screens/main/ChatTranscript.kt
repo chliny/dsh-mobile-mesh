@@ -195,6 +195,14 @@ internal fun shouldFollowTranscriptLayoutShift(
 ): Boolean = wasNearBottom && !userDragging && !scrollInProgress && canScrollForward &&
     sameScrollCoordinate && (previouslyCanScrollForward == false || measurementChanged)
 
+internal fun shouldCatchUpTranscriptTail(
+    tailIntent: Boolean,
+    measuredNearBottom: Boolean,
+    userDragging: Boolean,
+    scrollInProgress: Boolean,
+    canScrollForward: Boolean,
+): Boolean = tailIntent && !measuredNearBottom && !userDragging && !scrollInProgress && canScrollForward
+
 internal fun nextTranscriptTailIntent(
     currentIntent: Boolean,
     measuredAtBottom: Boolean,
@@ -458,7 +466,8 @@ internal fun ChatTranscript(
                 measurementChanged = previousItemMeasurements != null && previousItemMeasurements != sample.visibleItemMeasurements,
                 sameScrollCoordinate = previousScrollCoordinate == currentCoordinate,
             )
-            if ((layoutShiftedPastTail || viewportChanged) && wasNearBottom && sample.itemCount > 0) {
+            val followedLayoutShift = (layoutShiftedPastTail || viewportChanged) && wasNearBottom && sample.itemCount > 0
+            if (followedLayoutShift) {
                 transcriptPositionLog {
                     "follow-layout-shift session=${transcriptSessionLogId(sessionId)} " +
                         "shift=$layoutShiftedPastTail measurementsChanged=${previousItemMeasurements != sample.visibleItemMeasurements} " +
@@ -474,6 +483,23 @@ internal fun ChatTranscript(
                 sample.viewportEnd,
                 bottomTolerancePx,
             )
+            // The initial WebView measure can be replaced before this observer subscribes. In that
+            // case there is no previous measurement to compare; tail intent is the remaining signal
+            // that a larger final row must be brought fully into view.
+            if (!followedLayoutShift && shouldCatchUpTranscriptTail(
+                    tailIntent = tailIntent,
+                    measuredNearBottom = measuredNearBottom,
+                    userDragging = sample.userDragging,
+                    scrollInProgress = sample.scrollInProgress,
+                    canScrollForward = sample.canScrollForward,
+                ) && sample.itemCount > 0
+            ) {
+                transcriptPositionLog {
+                    "catch-up-tail-after-measure session=${transcriptSessionLogId(sessionId)} ${transcriptLayoutLog(listState)}"
+                }
+                scrollTranscriptToEnd(listState, sample.itemCount - 1)
+                wasNearBottom = true
+            }
             // A streamed row may grow between measurement and auto-follow. Preserve tail intent
             // across a layout-only shift if the scroll coordinate itself did not change.
             wasNearBottom = measuredNearBottom || tailIntent || (wasNearBottom && !sample.userDragging) ||

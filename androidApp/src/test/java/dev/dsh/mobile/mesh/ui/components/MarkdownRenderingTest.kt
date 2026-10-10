@@ -10,6 +10,13 @@ import org.junit.Test
 
 class MarkdownRenderingTest {
     @Test
+    fun `webview intrinsic height rounds up so last text baseline is not clipped`() {
+        assertEquals(100, markdownWebViewContentHeight(contentHeightCssPx = 40, scale = 2.5f))
+        assertEquals(103, markdownWebViewContentHeight(contentHeightCssPx = 41, scale = 2.49f))
+        assertEquals(1, markdownWebViewContentHeight(contentHeightCssPx = 0, scale = 1f))
+    }
+
+    @Test
     fun `markdown loading preview is immediate and bounded`() {
         val short = "**render after parsing**"
         val long = "x".repeat(MARKDOWN_LOADING_PREVIEW_LIMIT + 12)

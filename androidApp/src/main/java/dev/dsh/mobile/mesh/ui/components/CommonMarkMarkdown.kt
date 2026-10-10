@@ -41,6 +41,7 @@ import org.commonmark.renderer.html.HtmlRenderer
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 import java.util.LinkedHashMap
+import kotlin.math.ceil
 
 private const val MARKDOWN_BASE_URL = "https://markdown.invalid/"
 private const val MARKDOWN_LINK_SCHEME = "dsh-markdown"
@@ -492,6 +493,9 @@ private class CommonMarkWebState {
     var onCopyCode: (Int) -> Unit = {}
 }
 
+internal fun markdownWebViewContentHeight(contentHeightCssPx: Int, scale: Float): Int =
+    ceil(contentHeightCssPx * scale).toInt().coerceAtLeast(1)
+
 private class CommonMarkWebView(
     context: android.content.Context,
     private var state: CommonMarkWebState,
@@ -546,7 +550,16 @@ private class CommonMarkWebView(
                 handleMarkdownNavigation(url)
 
             override fun onPageFinished(view: WebView, url: String) {
-                view.post { view.requestLayout() }
+                // onPageFinished can precede WebView's committed visual/layout state. Re-measure only
+                // after Chromium confirms the document is ready to draw, then invalidate its parent.
+                view.post {
+                    view.postVisualStateCallback(System.nanoTime(), object : WebView.VisualStateCallback() {
+                        override fun onComplete(requestId: Long) {
+                            view.requestLayout()
+                            view.invalidate()
+                        }
+                    })
+                }
             }
         }
     }
@@ -575,7 +588,7 @@ private class CommonMarkWebView(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
-        val height = (contentHeight * scale).toInt().coerceAtLeast(1)
+        val height = markdownWebViewContentHeight(contentHeight, scale)
         setMeasuredDimension(resolveSize(measuredWidth, widthMeasureSpec), resolveSize(height, heightMeasureSpec))
     }
 }
