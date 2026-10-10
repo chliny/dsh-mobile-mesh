@@ -26,6 +26,22 @@ class HistoryPagingTest {
     }
 
     @Test
+    fun `a delayed page is rejected after session reopen changes cursor generation`() {
+        val request = HistoryPageFence(
+            sessionId = "session-1",
+            generation = 7,
+            throughSeq = 100,
+            beforeSeq = 40,
+        )
+
+        assertTrue(shouldApplyHistoryPage(request, "session-1", 7, 100, 40))
+        assertFalse(shouldApplyHistoryPage(request, "session-2", 7, 100, 40))
+        assertFalse(shouldApplyHistoryPage(request, "session-1", 8, 100, 40))
+        assertFalse(shouldApplyHistoryPage(request, "session-1", 7, 101, 40))
+        assertFalse(shouldApplyHistoryPage(request, "session-1", 7, 100, 39))
+    }
+
+    @Test
     fun `installing an older page requests a coalesced rebuild instead of folding under the receiver lock`() {
         assertTrue(shouldSchedulePageRebuild(pageSessionId = "session-1", currentSessionId = "session-1"))
         assertFalse(shouldSchedulePageRebuild(pageSessionId = "session-1", currentSessionId = "session-2"))

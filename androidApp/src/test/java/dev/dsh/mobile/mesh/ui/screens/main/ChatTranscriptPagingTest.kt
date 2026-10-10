@@ -18,6 +18,14 @@ class ChatTranscriptPagingTest {
     }
 
     @Test
+    fun `page completion restores prepend anchor only until the user starts a new drag`() {
+        assertTrue(shouldRestoreOlderPageAnchor(capturedDragGeneration = 4, currentDragGeneration = 4, userDragging = false))
+        assertFalse(shouldRestoreOlderPageAnchor(capturedDragGeneration = 4, currentDragGeneration = 5, userDragging = true))
+        assertFalse(shouldRestoreOlderPageAnchor(capturedDragGeneration = 4, currentDragGeneration = 5, userDragging = false))
+        assertFalse(shouldRestoreOlderPageAnchor(capturedDragGeneration = 4, currentDragGeneration = 4, userDragging = true))
+    }
+
+    @Test
     fun `away from the top never pages`() {
         assertFalse(shouldPageAtTop(firstVisible = 3, fillsViewport = false, autoPages = 0, maxAutoPages = 1, userScrolling = true))
     }
