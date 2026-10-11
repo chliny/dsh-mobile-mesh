@@ -2710,8 +2710,19 @@ class SessionStore @Inject constructor(
         val stream = open()
             ?: return@withContext RpcResult.Err(RpcError("internal", "could not read the file"))
         val streamed = stream.use { api.uploadFileBinary(sid, name, size, it, onProgress) }
-        if (streamed !is RpcResult.Err || streamed.error.code != "capability-unavailable") return@withContext streamed
-        if (size !in 0..MAX_ENCODED_UPLOAD_BYTES) return@withContext streamed
+        // The mesh/SSH relay can be renewed while a file picker or transient carrier interruption
+        // is in progress. A one-shot body cannot be replayed by OkHttp, so retry once here with a
+        // newly opened stream. Only retry transport/internal failures; host refusals are final.
+        val delivered = if (streamed is RpcResult.Err && streamed.error.code == "internal") {
+            delay(FILE_UPLOAD_RETRY_DELAY_MS)
+            open()?.use { retryStream ->
+                onProgress(0)
+                api.uploadFileBinary(sid, name, size, retryStream, onProgress)
+            } ?: streamed
+        } else streamed
+        if (delivered !is RpcResult.Err || delivered.error.code != "capability-unavailable") return@withContext delivered
+        val unavailable = delivered
+        if (size !in 0..MAX_ENCODED_UPLOAD_BYTES) return@withContext unavailable
         log("upload route unavailable; falling back to fileUploads/upload for ${size}B")
         val bytes = open()?.use { it.readBytes() }
             ?: return@withContext RpcResult.Err(RpcError("internal", "could not read the file"))
@@ -3688,6 +3699,7 @@ class SessionStore @Inject constructor(
 
         /** Largest file the base64 Remote fallback will carry; anything bigger needs the route. */
         const val MAX_ENCODED_UPLOAD_BYTES = 20L * 1024 * 1024
+        const val FILE_UPLOAD_RETRY_DELAY_MS = 500L
         /** Recent visible messages requested on open/reconnect and per history page. */
         const val INITIAL_TRANSCRIPT_MESSAGE_COUNT = 20
         const val HISTORY_PAGE_SIZE = 50
