@@ -268,10 +268,16 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
-    fun `quick retries stay fast before falling back to a slower cadence`() {
+    fun `quick retries stay fast before falling back to a two second cadence`() {
         assertEquals(500L, recoveryRetryDelayMs(0))
         assertEquals(500L, recoveryRetryDelayMs(2))
-        assertEquals(5_000L, recoveryRetryDelayMs(3))
+        assertEquals(2_000L, recoveryRetryDelayMs(3))
+    }
+
+    @Test
+    fun `network fallback rechecks faster in foreground than retained background`() {
+        assertEquals(500L, networkRecoveryRecheckDelayMs(appInForeground = true))
+        assertEquals(1_000L, networkRecoveryRecheckDelayMs(appInForeground = false))
     }
 
     @Test

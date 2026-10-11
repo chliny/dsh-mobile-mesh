@@ -107,8 +107,13 @@ internal fun shouldRestartStaleForegroundOperation(
     backgroundDurationMs >= FOREGROUND_VERIFY_AFTER_MS &&
     operationAgeMs >= FOREGROUND_VERIFY_AFTER_MS
 internal const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 500L
-internal const val FOREGROUND_RECOVERY_STEADY_RETRY_DELAY_MS = 5_000L
+internal const val FOREGROUND_RECOVERY_STEADY_RETRY_DELAY_MS = 2_000L
 internal const val FOREGROUND_RECOVERY_FAST_ATTEMPTS = 3
+internal const val FOREGROUND_NETWORK_RECHECK_INTERVAL_MS = 500L
+internal const val BACKGROUND_NETWORK_RECHECK_INTERVAL_MS = 1_000L
+
+internal fun networkRecoveryRecheckDelayMs(appInForeground: Boolean): Long =
+    if (appInForeground) FOREGROUND_NETWORK_RECHECK_INTERVAL_MS else BACKGROUND_NETWORK_RECHECK_INTERVAL_MS
 
 internal fun shouldReArmOnReplacementNetwork(
     connected: Boolean,

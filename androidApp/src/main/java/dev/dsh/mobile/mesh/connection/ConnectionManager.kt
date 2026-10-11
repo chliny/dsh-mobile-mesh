@@ -667,7 +667,7 @@ class ConnectionManager @Inject constructor(
             val transportStartedAt = timing?.start("transport") ?: System.nanoTime()
             val baseUrl = lifecycleMutex.withLock {
                 val timeoutMs = transportOperationTimeoutMs(config, preservePendingIdentity)
-                withTimeout(timeoutMs) {
+                withConnectionOperationTimeout(timeoutMs) {
                     if (reconnect || preservePendingIdentity) reconnectTransports(config) else startTransports(config)
                 }
             }
@@ -1067,7 +1067,7 @@ class ConnectionManager @Inject constructor(
     private fun schedulePendingNetworkRecoveryRecheck() {
         if (recoveryRetryJob?.isActive == true) return
         recoveryRetryJob = scope.launch {
-            kotlinx.coroutines.delay(FOREGROUND_NETWORK_RECHECK_DELAY_MS)
+            kotlinx.coroutines.delay(networkRecoveryRecheckDelayMs(appInForeground))
             recoveryRetryJob = null
             if (!shouldScheduleForegroundNetworkRecheck(appInForeground, networkRecoveryGate.isPending(), keepConnectedInBackground)) return@launch
             val activeNetwork = connectivity.activeNetwork
@@ -1682,8 +1682,6 @@ class ConnectionManager @Inject constructor(
     private companion object {
         /** Bound the resume probe so fake green is replaced promptly, even for a black-holed TCP path. */
         const val FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS = 10_000L
-        /** Recheck once Doze's delayed network capability callback has had a chance to settle. */
-        const val FOREGROUND_NETWORK_RECHECK_DELAY_MS = 1_000L
         const val AUTHORIZATION_RESUME_TIMEOUT_MS = ConnectionTimeoutPolicy.authorizationResumeMs
         const val TRANSPORT_READY_CALLBACK_TIMEOUT_MS = ConnectionTimeoutPolicy.transportReadyCallbackMs
     }
