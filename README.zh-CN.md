@@ -30,9 +30,12 @@ App 在 Android 内置运行 ZeroTier/libzt 或 Tailscale/tsnet 用户态网络�
 
 DeepSeek Harness 可以在主机上执行命令和读写文件。请优先使用 ZeroTier、Tailscale 或 SSH，不要将未保护的 DeepSeek Harness 端口暴露到公网，并保护启动令牌、SSH 密钥和 Mesh 身份数据。
 
-## 兼容版本
+## 兼容版本与协议基线
 
-App 会在连接时探测部分 Harness API，并缓存结果供自动重连复用，以兼容不同后端版本。
+Android App 协议 DTO 基线跟踪 DeepSeek Harness `v0.2.1-alpha.2`（session 与 terminal API 契约）。连接时通过现有只读 `session/list` 和 `session/projections` 探测接口，并缓存观测到的能力供自动重连使用；不会根据服务器版本字符串推断能力。没有 projection 接口的旧 Host 仍走旧版 subagent API。
+
+App 同时接受旧版 projection 响应（只有 `asOfSeq`、`values`，没有 `kind`）和当前 `session/projections` 响应。`migration-required` 响应只作为无序号提示处理，不会与实时事件水位合并。新版 `session/list.formatStatus` 为可选字段；`session/fork.allowMigration` 未显式请求时继续省略，以保留旧 Host 行为。catalog 新增的 `external` 子代理模式会按服务端数据展示，但不会当作可导航的会话 transcript。`terminal/environment.cwd` 表示 Host 记录的当前目录，终端元数据仍以 Host 返回为准。
+
 
 ## 参考
 

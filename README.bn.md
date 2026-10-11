@@ -29,9 +29,11 @@ DSH Mobile Mesh হলো [DeepSeek Harness](https://github.com/deepseek-ai/deep
 
 DeepSeek Harness host-এ command চালাতে এবং file পড়তে বা লিখতে পারে। সুরক্ষাহীন port public internet-এ প্রকাশ করবেন না এবং token, SSH key ও Mesh identity সুরক্ষিত রাখুন।
 
-## সামঞ্জস্য
+## সামঞ্জস্য ও প্রোটোকল বেসলাইন
 
-পরীক্ষিত সংস্করণ: [dsh-v0.1.6-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.6-alpha.2), package `0.1.6-alpha.2`।
+Android অ্যাপের DTO বেসলাইন DeepSeek Harness `v0.2.1-alpha.2`-এর session ও terminal API চুক্তি অনুসরণ করে। সংযোগের সময় অ্যাপ বিদ্যমান read-only `session/list` ও `session/projections` probe ব্যবহার করে এবং স্বয়ংক্রিয় reconnect-এর জন্য শনাক্ত ক্ষমতা cache করে; সার্ভারের version string দেখে সমর্থন অনুমান করে না। পুরোনো Host-এ projection route না থাকলে অ্যাপ legacy subagent API ব্যবহার করে।
+
+অ্যাপ `kind` ছাড়া পুরোনো projection response এবং নতুন `session/projections` response—দুটিই গ্রহণ করে। `migration-required` response-কে sequence-বিহীন hint হিসেবে ধরে, live event watermark-এর সঙ্গে merge করে না। `session/list.formatStatus` ঐচ্ছিক; পুরোনো Host-এর সঙ্গে সামঞ্জস্য রাখতে `session/fork.allowMigration` ডিফল্টে বাদ থাকে। `external` subagent entry-র server-returned metadata দেখানো হয়, তবে সেটিকে Session transcript হিসেবে খোলা যায় না। `terminal/environment.cwd` হলো Host-এ নথিভুক্ত বর্তমান directory।
 
 ## রেফারেন্স
 

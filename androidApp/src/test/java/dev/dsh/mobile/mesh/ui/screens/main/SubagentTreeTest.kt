@@ -47,6 +47,24 @@ class SubagentTreeTest {
         indexSubagents(listable, all.associateBy { it.sessionId })
 
     @Test
+    fun `external work is shown but is not opened as a session transcript`() {
+        val entry = SubagentListEntry.Projected(
+            SubagentCatalogProjectionEntry("external-id", 1720000000000L, "external", "External review"),
+        )
+        assertEquals("external-id", subagentId(entry))
+        assertEquals("External review", subagentLabel(entry))
+        assertEquals(false, canOpenSubagentTranscript(entry))
+    }
+
+    @Test
+    fun `known projected session modes remain openable`() {
+        val entry = SubagentListEntry.Projected(
+            SubagentCatalogProjectionEntry("child", 1720000000000L, "continuable", "Worker"),
+        )
+        assertEquals(true, canOpenSubagentTranscript(entry))
+    }
+
+    @Test
     fun `a subagent nests under its parent`() {
         val rows = listOf(session("root"), session("kid", parent = "root", origin = "subagent"))
         assertEquals(mapOf("root" to listOf(rows[1])), index(rows))

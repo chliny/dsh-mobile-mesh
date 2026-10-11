@@ -90,9 +90,12 @@ DeepSeek Harness can execute commands and read or write files on its host. Any c
 - Protect launch tokens, SSH keys, ZeroTier Planet files, and Tailscale identity data.
 - Remember that attachments are copied to the DeepSeek Harness host and can be read by the Agent.
 
-## Compatibility
+## Compatibility and protocol baseline
 
-The app probes selected Harness APIs on connection and caches results for automatic reconnects to support different backend versions.
+The Android app protocol DTO baseline tracks DeepSeek Harness `v0.2.1-alpha.2` (session and terminal API contracts). On connection it uses the existing read-only `session/list` and `session/projections` probes and caches observed capabilities for automatic reconnects; it does not infer capabilities from a server version string. Hosts without the projection route continue through the legacy subagent API.
+
+The app accepts both legacy projection responses (`asOfSeq` and `values`, with no `kind`) and the current `session/projections` response variants. A `migration-required` response is treated as a non-sequenced hint and is never merged with live event watermarks. New `session/list.formatStatus` is optional, and `session/fork.allowMigration` remains omitted unless explicitly requested, preserving legacy host behavior. The catalog's new `external` subagent mode is displayed as server-provided work metadata, but is not navigated as a session transcript. The `terminal/environment.cwd` value is the host's logged current directory; existing terminal metadata remains host-authoritative.
+
 
 ## Project structure
 

@@ -16,6 +16,7 @@ captures/
 .tmp/
 /.plan/
 /AGENTS.md
+/.agents/
 local.properties
 .KEYSTORE_ENV
 dsh-mobile-mesh-release.keystore

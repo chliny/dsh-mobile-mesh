@@ -26,7 +26,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Subagents-domain DTOs, ported from `packages/subagent/subagent/src/control-types.ts` and
- * `packages/subagent/subagent/src/types.ts` (v0.1.3-alpha.1).
+ * `packages/subagent/subagent/src/types.ts` (protocol baseline: v0.2.1-alpha.2).
  */
 
 /**
@@ -149,7 +149,7 @@ private fun JsonElement.withKind(kind: String): JsonElement = JsonObject(
 data class SubagentCatalogProjectionEntry(
     @SerialName("id") val id: String,
     @SerialName("createdAt") val createdAt: Long,
-    /** `one-shot`, `continuable`, or `unknown`. */
+    /** `one-shot`, `continuable`, `unknown`, or `external` work without a readable child Session. */
     @SerialName("mode") val mode: String,
     @SerialName("label") val label: String? = null,
 )

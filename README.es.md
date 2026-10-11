@@ -29,9 +29,11 @@ La app incorpora en Android una red userspace de ZeroTier/libzt o Tailscale/tsne
 
 DeepSeek Harness puede ejecutar comandos y leer o escribir archivos en su host. No expongas un puerto sin protección a Internet y protege tokens, claves SSH y credenciales Mesh.
 
-## Compatibilidad
+## Compatibilidad y referencia del protocolo
 
-La app comprueba algunas API de Harness al conectarse y guarda los resultados para las reconexiones automáticas, lo que permite elegir llamadas compatibles entre versiones.
+La referencia de DTO de Android sigue los contratos de session y terminal de DeepSeek Harness `v0.2.1-alpha.2`. Al conectarse, la app usa las sondas de solo lectura existentes `session/list` y `session/projections` y guarda las capacidades detectadas para reconexiones; no deduce compatibilidad a partir del número de versión. Si un Host antiguo no ofrece la ruta de projections, la app conserva la API legacy de subagents.
+
+La app acepta tanto respuestas antiguas de projections sin `kind` como las variantes actuales de `session/projections`. `migration-required` se trata como una indicación sin secuencia y no se combina con marcas de agua de eventos en vivo. `session/list.formatStatus` es opcional y `session/fork.allowMigration` se omite por defecto para mantener la compatibilidad con Hosts antiguos. Las entradas de subagent con modo `external` se muestran con los datos del servidor, pero no se abren como transcript de una Session. `terminal/environment.cwd` representa el directorio actual registrado por el Host.
 
 ## Referencias
 

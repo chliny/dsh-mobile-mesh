@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonElement
 /**
  * Sessions-domain DTOs, ported from `packages/api/session-controller/src/types.ts`,
  * `packages/attachment/attachment/src/types.ts` and `packages/client/file-upload/src/types.ts`
- * (v0.1.3-alpha.1). Includes the request/response values of the `session` namespace methods
+ * (protocol baseline: v0.2.1-alpha.2). Includes the request/response values of the `session` namespace methods
  * (list/search/create/rename/fork/selectModel/prompt/attachment/updateQueue/cancel), the
  * model-catalog shapes, and the image and file attachment shapes.
  */
@@ -32,6 +32,8 @@ data class SessionSummary(
     @SerialName("cwd") val cwd: String? = null,
     /** Agent preset this session's agent was composed from; absent when unset. */
     @SerialName("agentPreset") val agentPreset: String? = null,
+    /** Persistence format status on newer Hosts; absent on legacy Hosts. */
+    @SerialName("formatStatus") val formatStatus: String? = null,
     /** Projection baseline for this row; absent when no value is available. */
     @SerialName("projections") val projections: SessionProjectionsBlock? = null,
 )
@@ -59,9 +61,14 @@ data class SessionProjectionsRequest(
 /** One non-activating projection read; null denotes a missing session. */
 @Serializable
 data class SessionProjectionsValue(
-    @SerialName("asOfSeq") val asOfSeq: Int,
+    @SerialName("asOfSeq") val asOfSeq: Int? = null,
     @SerialName("values") val values: Map<String, JsonElement> = emptyMap(),
-)
+    /** Old Hosts omit kind and return a sequenced baseline; new migration hints have no watermark. */
+    @SerialName("kind") val kind: String = "sequenced",
+) {
+    /** Only a real Host sequence watermark may be merged with live event-derived projections. */
+    val watermarkComparableToLive: Boolean get() = kind == "sequenced" && asOfSeq != null
+}
 
 /**
  * The `modelSelection` projection: what this session last used, and what it will use next.
@@ -243,6 +250,8 @@ data class SessionRenameRequest(
 data class SessionForkRequest(
     @SerialName("sessionId") val sessionId: String,
     @SerialName("atSeq") val atSeq: Int? = null,
+    /** Optional newer-Host migration preflight; null preserves the Host default and legacy behavior. */
+    @SerialName("allowMigration") val allowMigration: Boolean? = null,
 )
 
 /** Request payload of `session.models`. */
