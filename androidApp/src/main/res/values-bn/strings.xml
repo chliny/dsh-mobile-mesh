@@ -252,6 +252,10 @@
     <string name="settings_notifications_goal">লক্ষ্য সম্পন্ন বা অবরুদ্ধ হলে জানান</string>
     <string name="settings_notifications_action">আপনার পদক্ষেপ প্রয়োজন হলে জানান</string>
     <string name="settings_background">ব্যাকগ্রাউন্ডে সংযুক্ত থাকুন</string>
+    <string name="settings_debug">ডিবাগ</string>
+    <string name="settings_logs_export">অ্যাপের লগ রপ্তানি করুন</string>
+    <string name="settings_logs_exported">অ্যাপের লগ রপ্তানি করা হয়েছে</string>
+    <string name="settings_logs_export_failed">অ্যাপের লগ রপ্তানি করা যায়নি</string>
     <string name="settings_about">সম্পর্কে</string>
     <string name="settings_about_version">অ্যাপ সংস্করণ %1$s · প্রোটোকল %2$s</string>
     <string name="settings_host_info">হোস্ট তথ্য</string>

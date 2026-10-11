@@ -417,6 +417,7 @@
     <string name="settings_notifications_goal">Notify when a goal completes or blocks</string>
     <string name="settings_notifications_action">Notify when your action is needed</string>
     <string name="settings_background">Keep connected in background</string>
+    <string name="settings_debug">Debug</string>
     <string name="settings_about">About</string>
     <string name="settings_about_version">App version %1$s · protocol baseline %2$s</string>
     <string name="settings_api_compatibility">Harness API compatibility is detected on each manual connection and reused during automatic reconnects.</string>
@@ -425,6 +426,9 @@
     <string name="settings_connection">Connection</string>
     <string name="settings_open_connection">Open connection settings</string>
     <string name="settings_connections_export">Export connections</string>
+    <string name="settings_logs_export">Export app logs</string>
+    <string name="settings_logs_exported">App logs exported</string>
+    <string name="settings_logs_export_failed">Could not export app logs</string>
     <string name="settings_connections_import">Import connections</string>
     <string name="settings_connections_exported">Connections exported</string>
     <string name="settings_connections_imported">Connections imported</string>

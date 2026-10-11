@@ -88,6 +88,9 @@ import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 import java.util.Locale
+import android.os.Process
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * App settings, grouped into cards.
@@ -125,6 +128,23 @@ fun SettingsScreen(
                     ?: error("Could not open export file")
             }.onSuccess { toast.second(context.getString(R.string.settings_connections_exported)) }
                 .onFailure { toast.second(context.getString(R.string.settings_connections_transfer_failed)) }
+        }
+    }
+    val logsExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                val logs = withContext(Dispatchers.IO) {
+                    val process = Runtime.getRuntime().exec(arrayOf("logcat", "-d", "--pid=${Process.myPid()}"))
+                    val output = process.inputStream.bufferedReader().use { it.readText() }
+                    val error = process.errorStream.bufferedReader().use { it.readText() }
+                    check(process.waitFor() == 0) { error.ifBlank { "logcat failed" } }
+                    output
+                }
+                context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(logs) }
+                    ?: error("Could not open export file")
+            }.onSuccess { toast.second(context.getString(R.string.settings_logs_exported)) }
+                .onFailure { toast.second(context.getString(R.string.settings_logs_export_failed)) }
         }
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -275,6 +295,15 @@ fun SettingsScreen(
                 // read-only banner is scoped to the facts it shows, and plugins are a different
                 // subject that happens to also be read-only.
                 plugins?.let { PluginsCard(it) { pluginsOpen = true } }
+
+                SettingsCard(stringResource(R.string.settings_debug)) {
+                    DsButton(
+                        text = stringResource(R.string.settings_logs_export),
+                        onClick = { logsExportLauncher.launch("dsh-mobile-mesh-logs.txt") },
+                        variant = DsButtonVariant.Outline,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
 
                 SettingsCard(stringResource(R.string.settings_about)) {
                     // Beside the version, because that is what it is about — and off-switchable,

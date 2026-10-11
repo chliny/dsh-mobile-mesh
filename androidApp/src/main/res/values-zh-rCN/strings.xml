@@ -296,6 +296,7 @@
     <string name="settings_notifications_goal">目标完成或受阻时通知</string>
     <string name="settings_notifications_action">需要你操作时通知</string>
     <string name="settings_background">在后台保持连接</string>
+    <string name="settings_debug">调试</string>
     <string name="settings_about">关于</string>
     <string name="settings_about_version">应用版本 %1$s · 协议基线 %2$s</string>
     <string name="settings_api_compatibility">每次手动连接时检测 Harness API 能力，自动重连时复用检测结果。</string>
@@ -415,6 +416,9 @@
     <string name="presets_locked">会话开始后预设即固定。请新建会话以选择其他预设。</string>
     <string name="presets_broken">不可用：%1$s</string>
     <string name="presets_empty">没有 Agent 预设</string>
+    <string name="settings_logs_export">导出应用日志</string>
+    <string name="settings_logs_exported">应用日志已导出</string>
+    <string name="settings_logs_export_failed">无法导出应用日志</string>
     <string name="settings_connection">连接</string>
     <string name="settings_open_connection">打开连接设置</string>
     <string name="settings_connection_status">状态</string>

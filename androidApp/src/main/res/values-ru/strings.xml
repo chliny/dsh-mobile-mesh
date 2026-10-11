@@ -252,6 +252,10 @@
     <string name="settings_notifications_goal">Уведомлять о завершении или блокировке цели</string>
     <string name="settings_notifications_action">Уведомлять, когда требуется ваше действие</string>
     <string name="settings_background">Оставаться на связи в фоне</string>
+    <string name="settings_debug">Отладка</string>
+    <string name="settings_logs_export">Экспортировать журналы приложения</string>
+    <string name="settings_logs_exported">Журналы приложения экспортированы</string>
+    <string name="settings_logs_export_failed">Не удалось экспортировать журналы приложения</string>
     <string name="settings_about">О приложении</string>
     <string name="settings_about_version">Версия приложения %1$s · протокол %2$s</string>
     <string name="settings_host_info">Информация о хосте</string>

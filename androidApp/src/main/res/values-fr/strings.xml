@@ -254,6 +254,10 @@
     <string name="settings_notifications_goal">Notifier quand un objectif se termine ou se bloque</string>
     <string name="settings_notifications_action">Notifier quand votre action est requise</string>
     <string name="settings_background">Rester connecté en arrière-plan</string>
+    <string name="settings_debug">Débogage</string>
+    <string name="settings_logs_export">Exporter les journaux de l’application</string>
+    <string name="settings_logs_exported">Journaux de l’application exportés</string>
+    <string name="settings_logs_export_failed">Impossible d’exporter les journaux de l’application</string>
     <string name="settings_about">À propos</string>
     <string name="settings_about_version">Version de l’app %1$s · protocole %2$s</string>
     <string name="settings_host_info">Informations sur l’hôte</string>

@@ -252,6 +252,10 @@
     <string name="settings_notifications_goal">लक्ष्य पूरा होने या अवरुद्ध होने पर सूचित करें</string>
     <string name="settings_notifications_action">आपकी कार्रवाई आवश्यक होने पर सूचित करें</string>
     <string name="settings_background">बैकग्राउंड में कनेक्टेड रहें</string>
+    <string name="settings_debug">डीबग</string>
+    <string name="settings_logs_export">ऐप लॉग निर्यात करें</string>
+    <string name="settings_logs_exported">ऐप लॉग निर्यात किए गए</string>
+    <string name="settings_logs_export_failed">ऐप लॉग निर्यात नहीं हो सके</string>
     <string name="settings_about">ऐप के बारे में</string>
     <string name="settings_about_version">ऐप संस्करण %1$s · प्रोटोकॉल %2$s</string>
     <string name="settings_host_info">होस्ट जानकारी</string>
