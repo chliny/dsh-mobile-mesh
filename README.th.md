@@ -29,9 +29,11 @@ DSH Mobile Mesh คือรีโมต Android แบบไม่เป็น�
 
 DeepSeek Harness สามารถรันคำสั่งและอ่านเขียนไฟล์บนเครื่องโฮสต์ได้ อย่าเปิดพอร์ตที่ไม่มีการป้องกันสู่สาธารณะ และรักษา token, SSH key และข้อมูล Mesh ให้ปลอดภัย
 
-## ความเข้ากันได้
+## ความเข้ากันได้และฐานโปรโตคอล
 
-แอปจะตรวจสอบ Harness API บางส่วนเมื่อเชื่อมต่อและเก็บผลไว้ใช้เมื่อเชื่อมต่อใหม่โดยอัตโนมัติ เพื่อเลือกเรียก API ให้เข้ากันได้กับ backend ต่างเวอร์ชัน
+DTO ของ Android อ้างอิงสัญญา API session และ terminal ของ DeepSeek Harness `v0.2.1-alpha.2` เมื่อเชื่อมต่อ แอปใช้ probe แบบอ่านอย่างเดียวที่มีอยู่แล้วสำหรับ `session/list` และ `session/projections` และบันทึก capability ที่ตรวจพบไว้ใช้เมื่อเชื่อมต่อใหม่ โดยไม่อนุมาน capability จากหมายเลขเวอร์ชันของเซิร์ฟเวอร์ หาก Host รุ่นเก่าไม่มี route projection แอปจะใช้ subagent API แบบเดิมต่อไป
+
+แอปรองรับทั้ง projection response รุ่นเก่าที่ไม่มี `kind` และ response รูปแบบใหม่ของ `session/projections` ค่า `migration-required` จะถือเป็น hint ที่ไม่มี sequence และจะไม่ถูกรวมกับ watermark ของ event แบบเรียลไทม์ `session/list.formatStatus` เป็นฟิลด์เสริม และจะไม่ส่ง `session/fork.allowMigration` หากไม่ได้ระบุ เพื่อให้ใช้กับ Host รุ่นเก่าได้ รายการ subagent โหมด `external` จะแสดง metadata ที่เซิร์ฟเวอร์ส่งมา แต่ไม่เปิดเป็น transcript ของ Session ส่วน `terminal/environment.cwd` คือไดเรกทอรีปัจจุบันที่ Host บันทึกไว้
 
 ## อ้างอิง
 

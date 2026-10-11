@@ -29,9 +29,11 @@ App Android में ZeroTier/libzt या Tailscale/tsnet userspace नेट�
 
 DeepSeek Harness host पर commands चला और files पढ़/लिख सकता है। Unprotected port को public internet पर न रखें और token, SSH keys तथा Mesh identity सुरक्षित रखें।
 
-## संगतता
+## संगतता और प्रोटोकॉल baseline
 
-ऐप कनेक्शन के समय कुछ Harness API की जाँच करता है और automatic reconnect के लिए परिणाम cache करता है, ताकि अलग-अलग backend versions के अनुरूप अनुरोध चुने जा सकें।
+Android ऐप का DTO baseline DeepSeek Harness `v0.2.1-alpha.2` के session और terminal API contracts पर आधारित है। कनेक्शन पर ऐप मौजूदा read-only `session/list` और `session/projections` probes का उपयोग करता है और automatic reconnect के लिए पहचानी गई capabilities cache करता है; यह server version string से support का अनुमान नहीं लगाता। पुराने Host में projection route न हो तो ऐप legacy subagent API का उपयोग जारी रखता है।
+
+ऐप बिना `kind` वाली legacy projection response और नए `session/projections` response variants दोनों स्वीकार करता है। `migration-required` को बिना sequence वाला hint माना जाता है और इसे live event watermarks के साथ merge नहीं किया जाता। `session/list.formatStatus` optional है; पुराने Host compatibility के लिए `session/fork.allowMigration` default में omit होता है। `external` mode वाले subagent records server की दी हुई metadata के साथ दिखते हैं, लेकिन Session transcript के रूप में नहीं खुलते। `terminal/environment.cwd` Host द्वारा दर्ज मौजूदा directory है।
 
 ## संदर्भ
 

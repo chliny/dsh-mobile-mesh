@@ -693,7 +693,7 @@ private fun SubagentsCard(subagents: List<SubagentListEntry>, disclosureScope: D
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(enabled = id != null) { id?.let(onOpen) },
+                    .clickable(enabled = canOpenSubagentTranscript(entry)) { id?.let(onOpen) },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 StateDot(if (subagentRunning(entry)) StateDotState.Running else StateDotState.Idle)

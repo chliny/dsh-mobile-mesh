@@ -29,9 +29,11 @@ DSH Mobile Mesh هو تطبيق Android غير رسمي للتحكم عن بُع
 
 يمكن لـ DeepSeek Harness تنفيذ الأوامر وقراءة الملفات وكتابتها على المضيف. لا تعرض منفذاً غير محمي للإنترنت واحفظ الرموز ومفاتيح SSH وبيانات Mesh بأمان.
 
-## التوافق
+## التوافق وخط أساس البروتوكول
 
-الإصدار المختبر: [dsh-v0.1.6-alpha.2](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.6-alpha.2)، الحزمة `0.1.6-alpha.2`.
+يتبع خط أساس DTO في تطبيق Android عقود session وterminal في DeepSeek Harness `v0.2.1-alpha.2`. عند الاتصال، يستخدم التطبيق فحصي `session/list` و`session/projections` الحاليين للقراءة فقط، ويخزن القدرات المكتشفة لإعادة الاتصال؛ ولا يستنتج الدعم من رقم الإصدار. إذا لم يتوفر مسار projection في خادم قديم، يستمر التطبيق باستخدام واجهة subagent القديمة.
+
+يقبل التطبيق استجابة projection القديمة التي لا تحتوي على `kind` واستجابات `session/projections` الجديدة. تُعامل `migration-required` كتلميح بلا تسلسل ولا تُدمج مع مؤشرات الأحداث الحية. يظل `session/list.formatStatus` اختيارياً، ويُحذف `session/fork.allowMigration` افتراضياً للتوافق مع الخوادم القديمة. تُعرض سجلات subagent ذات الوضع `external` كما أرسلها الخادم، لكنها لا تُفتح كسجل محادثة Session. وتشير `terminal/environment.cwd` إلى دليل العمل الحالي الذي سجله الخادم.
 
 ## المراجع
 

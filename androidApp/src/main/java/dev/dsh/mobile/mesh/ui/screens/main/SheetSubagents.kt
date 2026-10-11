@@ -80,7 +80,7 @@ private fun SubagentRow(entry: SubagentListEntry, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(enabled = canOpenSubagentTranscript(entry), onClick = onClick)
             .padding(vertical = DsSpacing.xsmall),
         verticalAlignment = Alignment.CenterVertically,
     ) {

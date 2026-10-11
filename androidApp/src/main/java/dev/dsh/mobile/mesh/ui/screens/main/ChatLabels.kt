@@ -71,6 +71,11 @@ internal fun subagentLabel(entry: SubagentListEntry): String? = when (entry) {
     else -> null
 }
 
+internal fun canOpenSubagentTranscript(entry: SubagentListEntry): Boolean = when (entry) {
+    is SubagentListEntry.Projected -> entry.entry.mode == "one-shot" || entry.entry.mode == "continuable"
+    else -> subagentId(entry) != null
+}
+
 internal fun subagentRunning(entry: SubagentListEntry): Boolean = when (entry) {
     is SubagentListEntry.ChildOneShot -> entry.activity == "running" || entry.activity == "active"
     is SubagentListEntry.ChildContinuable -> entry.activity == "running" || entry.activity == "active"

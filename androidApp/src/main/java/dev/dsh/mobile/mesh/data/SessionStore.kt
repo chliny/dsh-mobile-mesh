@@ -3131,9 +3131,12 @@ class SessionStore @Inject constructor(
                 val baseline = result.value ?: return
                 synchronized(lock) {
                     if (currentId != targetSessionId) return
-                    baseline.values.forEach { (key, value) -> mergeProjectionLocked(key, baseline.asOfSeq, value) }
-                    baseline.values["inbox"]?.let { applyInboxProjection(targetSessionId, it, baseline.asOfSeq) }
-                    rebuildCurrentLocked()
+                    val watermark = baseline.asOfSeq
+                    if (baseline.watermarkComparableToLive && watermark != null) {
+                        baseline.values.forEach { (key, value) -> mergeProjectionLocked(key, watermark, value) }
+                        baseline.values["inbox"]?.let { applyInboxProjection(targetSessionId, it, watermark) }
+                        rebuildCurrentLocked()
+                    }
                 }
             }
             is RpcResult.Err -> {
