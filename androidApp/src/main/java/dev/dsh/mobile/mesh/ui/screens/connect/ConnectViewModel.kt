@@ -3,6 +3,7 @@ package dev.dsh.mobile.mesh.ui.screens.connect
 import dev.dsh.mobile.mesh.core.wire.SessionExchange
 import dev.dsh.mobile.mesh.connection.HarnessSessionStore
 import dev.dsh.mobile.mesh.connection.shouldPairLaunchToken
+import dev.dsh.mobile.mesh.connection.resolveSignInHost
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -183,8 +184,12 @@ class ConnectViewModel @Inject constructor(
      */
     fun signIn(input: String) {
         val host = _state.value.let { current ->
-            current.signInHostId?.let { id -> current.remembered.firstOrNull { it.id == id } }
-                ?: current.remembered.firstOrNull { it.authority == current.attempted }
+            resolveSignInHost(
+                signInHostId = current.signInHostId,
+                remembered = current.remembered,
+                activeHost = connectionManager.state.value.host,
+                attempted = current.attempted,
+            )
         }
         if (host == null) {
             _state.update { it.copy(signInError = SignInError.NoHost) }
