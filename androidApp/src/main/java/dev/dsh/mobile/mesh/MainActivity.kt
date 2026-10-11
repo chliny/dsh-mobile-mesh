@@ -92,6 +92,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        android.util.Log.d(
+            "MainActivity",
+            "onStop: app activity stopped isChangingConfigurations=$isChangingConfigurations isFinishing=$isFinishing",
+        )
         navigationState.setActivityStarted(false)
         // onPause also fires for permission dialogs and translucent system surfaces. Treat only a
         // stopped activity as a real background transition; otherwise those short pauses cancel a

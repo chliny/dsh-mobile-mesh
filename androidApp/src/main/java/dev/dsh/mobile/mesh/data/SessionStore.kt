@@ -2709,16 +2709,32 @@ class SessionStore @Inject constructor(
             ?: return@withContext RpcResult.Err(RpcError("internal", "not connected"))
         val stream = open()
             ?: return@withContext RpcResult.Err(RpcError("internal", "could not read the file"))
-        val streamed = stream.use { api.uploadFileBinary(sid, name, size, it, onProgress) }
+        val uploadStartedAt = System.nanoTime()
+        var sentBytes = 0L
+        val progress: (Long) -> Unit = { sent ->
+            sentBytes = sent
+            onProgress(sent)
+        }
+        log("file upload attempt=1 started bytes=$size")
+        val streamed = stream.use { api.uploadFileBinary(sid, name, size, it, progress) }
+        logFileUploadResult(attempt = "1", startedAtNanos = uploadStartedAt, sentBytes = sentBytes, result = streamed)
         // The mesh/SSH relay can be renewed while a file picker or transient carrier interruption
         // is in progress. A one-shot body cannot be replayed by OkHttp, so retry once here with a
         // newly opened stream. Only retry transport/internal failures; host refusals are final.
         val delivered = if (streamed is RpcResult.Err && streamed.error.code == "internal") {
+            log("file upload retry scheduled bytes=$size afterMs=$FILE_UPLOAD_RETRY_DELAY_MS")
             delay(FILE_UPLOAD_RETRY_DELAY_MS)
             open()?.use { retryStream ->
+                sentBytes = 0L
                 onProgress(0)
-                api.uploadFileBinary(sid, name, size, retryStream, onProgress)
-            } ?: streamed
+                val retryStartedAt = System.nanoTime()
+                log("file upload attempt=2 started bytes=$size")
+                api.uploadFileBinary(sid, name, size, retryStream, progress).also { retryResult ->
+                    logFileUploadResult(attempt = "2", startedAtNanos = retryStartedAt, sentBytes = sentBytes, result = retryResult)
+                }
+            } ?: streamed.also {
+                log("file upload retry skipped: source could not be reopened")
+            }
         } else streamed
         if (delivered !is RpcResult.Err || delivered.error.code != "capability-unavailable") return@withContext delivered
         val unavailable = delivered
@@ -2726,10 +2742,15 @@ class SessionStore @Inject constructor(
         log("upload route unavailable; falling back to fileUploads/upload for ${size}B")
         val bytes = open()?.use { it.readBytes() }
             ?: return@withContext RpcResult.Err(RpcError("internal", "could not read the file"))
+        val fallbackStartedAt = System.nanoTime()
+        log("file upload fallback started bytes=${bytes.size}")
         api.fileUploadEncoded(
             sid,
             EncodedFileUploadRequest(data = Base64.encodeToString(bytes, Base64.NO_WRAP), name = name),
-        ).also { onProgress(bytes.size.toLong()) }
+        ).also { result ->
+            onProgress(bytes.size.toLong())
+            logFileUploadResult(attempt = "fallback", startedAtNanos = fallbackStartedAt, sentBytes = bytes.size.toLong(), result = result)
+        }
     }
 
     private suspend fun promptContent(mode: String, content: List<PromptContentPart>): PromptOutcome {
@@ -3681,6 +3702,22 @@ class SessionStore @Inject constructor(
         when (result) {
             is RpcResult.Ok -> Unit
             is RpcResult.Err -> setConnectionError(result.error.message)
+        }
+    }
+
+    private fun logFileUploadResult(
+        attempt: String,
+        startedAtNanos: Long,
+        sentBytes: Long,
+        result: RpcResult<FileUploadValue>,
+    ) {
+        val elapsedMs = (System.nanoTime() - startedAtNanos) / 1_000_000
+        when (result) {
+            is RpcResult.Ok -> log("file upload attempt=$attempt succeeded elapsedMs=$elapsedMs sentBytes=$sentBytes")
+            is RpcResult.Err -> log(
+                "file upload attempt=$attempt failed elapsedMs=$elapsedMs sentBytes=$sentBytes " +
+                    "errorCode=${result.error.code} error=${result.error.message}",
+            )
         }
     }
 

@@ -1532,7 +1532,11 @@ class ConnectionManager @Inject constructor(
             // latest desired host from a clean generation on foreground.
             val desiredHost = activeHost ?: suspendedHost
             val desiredCallback = pendingTransportReady ?: suspendedTransportReady
-            Log.d("ConnectionManager", "Background retention disabled; suspending active connection")
+            Log.d(
+                "ConnectionManager",
+                "Background retention disabled; suspending active connection phase=${_state.value.phase} " +
+                    "hasConnected=${_state.value.hasConnected} keepConnectedInBackground=$keepConnectedInBackground",
+            )
             stopConnection()
             suspendedHost = desiredHost
             suspendedTransportReady = desiredCallback
