@@ -252,6 +252,10 @@
     <string name="settings_notifications_goal">ہدف مکمل یا مسدود ہونے پر اطلاع دیں</string>
     <string name="settings_notifications_action">آپ کی کارروائی درکار ہونے پر اطلاع دیں</string>
     <string name="settings_background">پس منظر میں منسلک رہیں</string>
+    <string name="settings_debug">ڈیبگ</string>
+    <string name="settings_logs_export">ایپ لاگز برآمد کریں</string>
+    <string name="settings_logs_exported">ایپ لاگز برآمد ہو گئے</string>
+    <string name="settings_logs_export_failed">ایپ لاگز برآمد نہیں ہو سکے</string>
     <string name="settings_about">ایپ کے بارے میں</string>
     <string name="settings_about_version">ایپ ورژن %1$s · پروٹوکول %2$s</string>
     <string name="settings_host_info">میزبان کی معلومات</string>

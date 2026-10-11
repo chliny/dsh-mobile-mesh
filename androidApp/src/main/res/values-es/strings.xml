@@ -252,6 +252,10 @@
     <string name="settings_notifications_goal">Notificar cuando un objetivo se complete o se bloquee</string>
     <string name="settings_notifications_action">Notificar cuando se necesite tu acción</string>
     <string name="settings_background">Mantener la conexión en segundo plano</string>
+    <string name="settings_debug">Depuración</string>
+    <string name="settings_logs_export">Exportar registros de la app</string>
+    <string name="settings_logs_exported">Registros de la app exportados</string>
+    <string name="settings_logs_export_failed">No se pudieron exportar los registros de la app</string>
     <string name="settings_about">Acerca de</string>
     <string name="settings_about_version">Versión de la app %1$s · protocolo %2$s</string>
     <string name="settings_host_info">Información del host</string>

@@ -252,6 +252,10 @@
     <string name="settings_notifications_goal">الإشعار عند اكتمال الهدف أو حظره</string>
     <string name="settings_notifications_action">الإشعار عند الحاجة إلى إجراء منك</string>
     <string name="settings_background">البقاء متصلًا في الخلفية</string>
+    <string name="settings_debug">تصحيح الأخطاء</string>
+    <string name="settings_logs_export">تصدير سجلات التطبيق</string>
+    <string name="settings_logs_exported">تم تصدير سجلات التطبيق</string>
+    <string name="settings_logs_export_failed">تعذر تصدير سجلات التطبيق</string>
     <string name="settings_about">حول</string>
     <string name="settings_about_version">إصدار التطبيق %1$s · البروتوكول %2$s</string>
     <string name="settings_host_info">معلومات المضيف</string>

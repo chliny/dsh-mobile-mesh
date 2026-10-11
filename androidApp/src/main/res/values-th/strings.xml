@@ -252,6 +252,10 @@
     <string name="settings_notifications_goal">แจ้งเตือนเมื่อเป้าหมายเสร็จสมบูรณ์หรือถูกบล็อก</string>
     <string name="settings_notifications_action">แจ้งเตือนเมื่อต้องมีการดำเนินการของคุณ</string>
     <string name="settings_background">คงการเชื่อมต่อในเบื้องหลัง</string>
+    <string name="settings_debug">การดีบัก</string>
+    <string name="settings_logs_export">ส่งออกบันทึกของแอป</string>
+    <string name="settings_logs_exported">ส่งออกบันทึกของแอปแล้ว</string>
+    <string name="settings_logs_export_failed">ส่งออกบันทึกของแอปไม่สำเร็จ</string>
     <string name="settings_about">เกี่ยวกับ</string>
     <string name="settings_about_version">เวอร์ชันแอป %1$s · โปรโตคอล %2$s</string>
     <string name="settings_host_info">ข้อมูลโฮสต์</string>
