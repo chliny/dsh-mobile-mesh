@@ -3640,18 +3640,23 @@ class SessionStore @Inject constructor(
     val commandAttachmentsSupported: Boolean get() = connectionManager.connectedApi != null
 
     private suspend fun awaitConnectedApi(timeoutMs: Long = 2_000L): DshApiClient? {
-        val current = connectionManager.connectedApi
-        if (current != null && connectionManager.state.value.phase == ConnectionPhase.CONNECTED) return current
-        val deadline = System.nanoTime() + timeoutMs * 1_000_000L
-        while (System.nanoTime() < deadline) {
-            kotlinx.coroutines.delay(100L)
-            val candidate = connectionManager.connectedApi
-            if (candidate != null && connectionManager.state.value.phase == ConnectionPhase.CONNECTED) return candidate
+        fun readyApi(): DshApiClient? = connectionManager.connectedApi.takeIf {
+            it != null && connectionManager.state.value.phase == ConnectionPhase.CONNECTED
         }
+        val current = readyApi()
+        if (current != null) return current
+
+        // StateFlow replays the latest state to a new collector, so this is race-free even if the
+        // connection reaches CONNECTED between the fast-path check and collection. Avoid 100ms
+        // polling latency without extending the existing caller-visible wait budget.
+        val connected = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+            connectionManager.state.first { readyApi() != null }
+            readyApi()
+        }
+        if (connected != null) return connected
         log("not connected — ignoring request")
         return null
     }
-
     private fun apiOrNull(): DshApiClient? {
         val api = connectionManager.connectedApi
         if (api == null) log("not connected — ignoring request")

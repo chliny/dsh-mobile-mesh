@@ -42,6 +42,13 @@ class HistoryPagingTest {
     }
 
     @Test
+    fun `old page completion cannot release a newer generation loading state`() {
+        assertFalse(shouldReleaseHistoryPageLoading(requestGeneration = 7, loadingGeneration = 8))
+        assertTrue(shouldReleaseHistoryPageLoading(requestGeneration = 8, loadingGeneration = 8))
+        assertFalse(shouldReleaseHistoryPageLoading(requestGeneration = 8, loadingGeneration = null))
+    }
+
+    @Test
     fun `installing an older page requests a coalesced rebuild instead of folding under the receiver lock`() {
         assertTrue(shouldSchedulePageRebuild(pageSessionId = "session-1", currentSessionId = "session-1"))
         assertFalse(shouldSchedulePageRebuild(pageSessionId = "session-1", currentSessionId = "session-2"))
