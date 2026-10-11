@@ -719,6 +719,8 @@ class SessionStore @Inject constructor(
     /** Session-scoped metadata caches keep sheets usable while a weak network refresh is pending. */
     private val skillsCache = LinkedHashMap<String, List<SkillEntry>>()
     private var modelCatalogCache: ModelCatalog? = null
+    /** Avoid duplicate permission catalog calls when generation publication and session open race. */
+    private var permissionCatalogRequestedGeneration: String? = null
 
     /** User prompts rendered immediately while the follow stream catches up. */
     private val optimisticPromptBySession = mutableMapOf<String, MutableList<OptimisticPrompt>>()
@@ -904,16 +906,25 @@ class SessionStore @Inject constructor(
                     _sessionsBaselineFailed.value = false
                 }
                 triggerBaseline(generation.clientId, source = BaselineTriggerSource.CONNECTED_GENERATION)
-                if (connectionManager.supportsPermissionPresetsCatalog) refreshPermissionOptions()
-                val selectedSessionId = currentSessionId.value
-                if (shouldReopenSessionForGeneration(
-                        selectedSessionId,
-                        generation.clientId,
-                        selectedSessionReopened,
-                    )) {
-                    selectedSessionReopened = generation.clientId to selectedSessionId!!
-                    reopenSelectedSessionAfterReconnect()
-                }
+                recoverConnectedSession(
+                    scope = scope,
+                    reopen = {
+                        val selectedSessionId = currentSessionId.value
+                        if (shouldReopenSessionForGeneration(
+                                selectedSessionId,
+                                generation.clientId,
+                                selectedSessionReopened,
+                            )) {
+                            selectedSessionReopened = generation.clientId to selectedSessionId!!
+                            reopenSelectedSessionAfterReconnect()
+                        }
+                    },
+                    refreshCatalog = {
+                        if (connectionManager.generation === generation && connectionManager.supportsPermissionPresetsCatalog) {
+                            refreshPermissionOptions()
+                        }
+                    },
+                )
             }
         }
         scope.launch {
@@ -2258,6 +2269,7 @@ class SessionStore @Inject constructor(
         startFollow(sessionId, address)
         startJobList(sessionId)
         scope.launch { refreshProjections(sessionId) }
+        // Keep initial/late-created stores covered; generation and open paths coalesce this request.
         if (connectionManager.supportsPermissionPresetsCatalog) scope.launch { refreshPermissionOptions() }
         // A red/orange carrier has no usable API generation. Preserve the user's chosen session
         // locally and let the connection baseline reopen it once green, rather than launching
@@ -2332,11 +2344,16 @@ class SessionStore @Inject constructor(
                 ),
             )
         }
+        val followStartedAt = System.nanoTime()
         followJob = scope.launch {
             runCatching {
                 mux.openStream("session/follow", args).collect { item ->
                     when (val frame = decodeOrNull(SessionFollowFrameSerializer, item)) {
-                        is SessionFollowFrame.Snapshot -> applyFollowSnapshot(sessionId, frame)
+                        is SessionFollowFrame.Snapshot -> {
+                            val receivedMs = (System.nanoTime() - followStartedAt) / 1_000_000
+                            applyFollowSnapshot(sessionId, frame)
+                            log("session/follow snapshot session=$sessionId receivedMs=$receivedMs appliedMs=${(System.nanoTime() - followStartedAt) / 1_000_000} generationCurrent=${connectionManager.generation?.mux === mux}")
+                        }
                         is SessionFollowFrame.Entry -> applyFollowEntry(sessionId, frame.record)
                         is SessionFollowFrame.AssistantStream -> applyAssistantFrame(sessionId, frame)
                         null -> log("undecodable session/follow frame")
@@ -3138,8 +3155,23 @@ class SessionStore @Inject constructor(
             permissionOptions.value = null
             return
         }
-        val api = apiOrNull() ?: return
-        when (val result = api.permissionPresetsCatalog()) {
+        val generation = connectionManager.generation ?: return
+        val shouldRequest = synchronized(lock) {
+            if (!shouldRefreshPermissionCatalog(generation.clientId, permissionCatalogRequestedGeneration)) false
+            else {
+                permissionCatalogRequestedGeneration = generation.clientId
+                true
+            }
+        }
+        if (!shouldRequest) return
+        val api = apiOrNull() ?: run {
+            synchronized(lock) { if (permissionCatalogRequestedGeneration == generation.clientId) permissionCatalogRequestedGeneration = null }
+            return
+        }
+        val result = api.permissionPresetsCatalog()
+        // An optional response from a retired host/carrier cannot overwrite current choices.
+        if (connectionManager.generation !== generation) return
+        when (result) {
             is RpcResult.Ok -> {
                 val root = result.value as? JsonObject ?: return
                 permissionOptions.value = (root["options"] as? JsonArray).orEmpty().mapNotNull { row ->
@@ -3147,6 +3179,9 @@ class SessionStore @Inject constructor(
                 }
             }
             is RpcResult.Err -> {
+                synchronized(lock) {
+                    if (permissionCatalogRequestedGeneration == generation.clientId) permissionCatalogRequestedGeneration = null
+                }
                 log("permissionPresets/catalog unavailable (${result.error.code}): ${result.error.message}")
             }
         }
