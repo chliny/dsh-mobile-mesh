@@ -12,6 +12,8 @@ internal fun shouldShowConnectionRecoveryOverlay(
     phase != ConnectionPhase.CONNECTED || recoveryOverlayVisible || foregroundCheckPending
 )
 
+internal fun shouldBlockSystemBackDuringOverlay(overlayVisible: Boolean): Boolean = overlayVisible
+
 internal fun shouldRearmConnectionRecoveryOverlay(
     hasConnected: Boolean,
     recoveryInFlight: Boolean,
