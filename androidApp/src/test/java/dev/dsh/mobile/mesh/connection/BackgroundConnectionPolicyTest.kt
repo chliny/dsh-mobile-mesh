@@ -15,6 +15,14 @@ class BackgroundConnectionPolicyTest {
     }
 
     @Test
+    fun `background-disabled connection is retained while an attachment transfer is active`() {
+        assertEquals(
+            BackgroundConnectionAction.RETAIN,
+            backgroundConnectionAction(keepConnectedInBackground = false, activeFileTransfer = true),
+        )
+    }
+
+    @Test
     fun `background-enabled carrier recovery keeps connection service running`() {
         assertFalse(
             shouldStopConnectionServiceOnRetire(
