@@ -63,6 +63,7 @@ fun DisclosureRow(
     expanded: Boolean = false,
     onToggle: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    trailingContent: (@Composable () -> Unit)? = null,
     content: (@Composable () -> Unit)? = null,
 ) {
     val colors = DsTheme.colors
@@ -149,6 +150,10 @@ fun DisclosureRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+            }
+            trailingContent?.let {
+                Spacer(Modifier.width(8.dp))
+                it()
             }
         }
         // Keep the expanded subtree mounted and only toggle its visibility. This avoids the

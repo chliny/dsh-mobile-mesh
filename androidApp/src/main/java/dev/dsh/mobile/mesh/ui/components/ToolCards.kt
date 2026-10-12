@@ -147,17 +147,8 @@ internal fun diffStats(diffs: List<DiffHunk>): Triple<Int, Int, Int> {
 
 @Composable
 private fun ToolCardBody(view: ToolCardView, onOpenFile: ((String, String) -> Unit)?) {
-    val colors = DsTheme.colors
     SelectionContainer {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(DsShapes.block)
-                .background(colors.codeBlockBg)
-                .border(1.dp, colors.borderL1, DsShapes.block)
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        ToolCardSurface {
             when (view) {
                 is ToolCardView.GenericCard -> GenericBody(view)
                 is ToolCardView.TerminalCard -> TerminalBody(view)

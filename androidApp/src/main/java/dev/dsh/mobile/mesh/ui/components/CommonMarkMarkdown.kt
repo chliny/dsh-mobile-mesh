@@ -76,7 +76,7 @@ private object CommonMarkRenderCache {
     fun get(key: MarkdownRenderCacheKey): RenderedMarkdown? = synchronized(entries) { entries[key] }
 
     fun put(key: MarkdownRenderCacheKey, rendered: RenderedMarkdown) {
-        if (key.markdown.length > MAX_CACHEABLE_MARKDOWN_CHARS || rendered.html.length > MAX_CACHEABLE_HTML_CHARS) return
+        if (key.markdown.length > MAX_CACHEABLE_MARKDOWN_CHARS || rendered.parts.sumOf { it.htmlLength } > MAX_CACHEABLE_HTML_CHARS) return
         synchronized(entries) {
             entries.remove(key)?.let { retainedChars -= footprint(key, it) }
             entries[key] = rendered
@@ -91,7 +91,8 @@ private object CommonMarkRenderCache {
     }
 
     private fun footprint(key: MarkdownRenderCacheKey, value: RenderedMarkdown): Int =
-        key.markdown.length + key.resolvedImageDestinations.sumOf { it.length } + value.html.length + value.codeBlocks.sumOf { it.length }
+        key.markdown.length + key.resolvedImageDestinations.sumOf { it.length } +
+            value.parts.sumOf { it.htmlLength } + value.codeBlocks.sumOf { it.length }
 }
 
 private object CommonMarkElementDecisionCache {
@@ -185,7 +186,7 @@ internal fun CommonMarkMarkdown(
             value = cached
         } else {
             value = withContext(Dispatchers.Default) {
-                val document = commonMarkParser.parse(text)
+                val document = commonMarkParser.parse(normalizeStrongDelimiterWhitespace(text))
                 val imageDestinations = rewriteDestinations(document, imageResolver)
                 val resolvedImages = if (imageResolver == null) emptyList() else imageDestinations
                 val cacheKey = if (text.length <= MAX_CACHEABLE_MARKDOWN_CHARS) {
@@ -196,9 +197,8 @@ internal fun CommonMarkMarkdown(
                     cachedAfterImageResolution
                 } else {
                     val codeBlocks = collectMarkdownCodeBlocks(document)
-                    val fragment = commonMarkHtmlRenderer.render(document)
-                    val decorated = decorateMarkdownCodeBlocks(fragment, codeBlocks, copyLabel, darkMode, assets::open)
-                    val result = RenderedMarkdown(wrapMarkdownHtml(decorated, colors), codeBlocks.map { it.code })
+                    val parts = renderMarkdownParts(document, colors, copyLabel, darkMode, assets::open)
+                    val result = RenderedMarkdown(parts, codeBlocks.map { it.code })
                     cacheKey?.let { CommonMarkRenderCache.put(it, result) }
                     result
                 }
@@ -213,19 +213,33 @@ internal fun CommonMarkMarkdown(
     if (content == null) {
         MarkdownLoadingPreview(text, modifier)
     } else {
-        AndroidView(
-            factory = { viewContext -> CommonMarkWebView(viewContext, webState, colors.bgBase) },
-            update = { webView ->
-                webView.bind(webState)
-                webView.onOpenLink = onOpenLink
-                webView.onCopyCode = webState.onCopyCode
-                webView.setBackgroundColor(colors.bgBase.toArgb())
-                webView.render(content.html)
-            },
-            modifier = modifier.fillMaxWidth(),
-            onReset = { webView -> webView.prepareForReuse() },
-            onRelease = { webView -> webView.release() },
-        )
+        androidx.compose.foundation.layout.Column(modifier = modifier.fillMaxWidth()) {
+            content.parts.forEach { part ->
+                when (part) {
+                    is MarkdownPart.Html -> AndroidView(
+                        factory = { viewContext -> CommonMarkWebView(viewContext, webState, colors.bgBase) },
+                        update = { webView ->
+                            webView.bind(webState)
+                            webView.onOpenLink = onOpenLink
+                            webView.onCopyCode = webState.onCopyCode
+                            webView.setBackgroundColor(colors.bgBase.toArgb())
+                            webView.render(part.html)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        onReset = { webView -> webView.prepareForReuse() },
+                        onRelease = { webView -> webView.release() },
+                    )
+                    is MarkdownPart.Code -> MarkdownCodeBlockCard(
+                        code = part.block.code,
+                        language = part.block.language,
+                        copyLabel = copyLabel,
+                        onCopy = { clipboard.setText(AnnotatedString(part.block.code)) },
+                        textMate = rememberTextMateHighlighterForLanguage(part.block.language ?: "text"),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -290,10 +304,70 @@ internal fun relativeMarkdownNavigationTarget(url: String): String? = runCatchin
 
 /** Parse and render one fragment without the WebView document wrapper (also used by conformance tests). */
 internal fun renderCommonMarkFragment(markdown: String): String =
-    commonMarkHtmlRenderer.render(commonMarkParser.parse(markdown))
+    commonMarkHtmlRenderer.render(commonMarkParser.parse(normalizeStrongDelimiterWhitespace(markdown)))
+
+/** Be forgiving of a space before a closing strong delimiter, common in generated CJK prose. */
+private fun normalizeStrongDelimiterWhitespace(markdown: String): String =
+    markdown.replace(Regex("(?<!\\\\)\\*\\*([^*\\n]+?)\\s+\\*\\*"), "<strong>$1</strong>")
 
 internal data class MarkdownCodeBlock(val code: String, val language: String?)
-private data class RenderedMarkdown(val html: String, val codeBlocks: List<String>)
+internal sealed interface MarkdownPart {
+    val htmlLength: Int
+    data class Html(val html: String) : MarkdownPart { override val htmlLength: Int get() = html.length }
+    data class Code(val block: MarkdownCodeBlock) : MarkdownPart { override val htmlLength: Int get() = block.code.length }
+}
+private data class RenderedMarkdown(val parts: List<MarkdownPart>, val codeBlocks: List<String>)
+
+internal fun renderMarkdownPartsForTest(
+    markdown: String,
+    colors: DsColors,
+    copyLabel: String,
+    darkMode: Boolean,
+    openAsset: (String) -> java.io.InputStream,
+): List<MarkdownPart> = renderMarkdownParts(
+    commonMarkParser.parse(normalizeStrongDelimiterWhitespace(markdown)),
+    colors,
+    copyLabel,
+    darkMode,
+    openAsset,
+)
+
+private fun renderMarkdownParts(
+    document: Node,
+    colors: DsColors,
+    copyLabel: String,
+    darkMode: Boolean,
+    openAsset: (String) -> java.io.InputStream,
+): List<MarkdownPart> {
+    val parts = mutableListOf<MarkdownPart>()
+    var codeIndex = 0
+    var node = document.firstChild
+    while (node != null) {
+        val directCode = when (node) {
+            is FencedCodeBlock -> MarkdownCodeBlock(
+                node.literal.orEmpty(), node.info?.trim()?.substringBefore(' ')?.takeIf(String::isNotBlank),
+            )
+            is IndentedCodeBlock -> MarkdownCodeBlock(node.literal.orEmpty(), null)
+            else -> null
+        }
+        if (directCode != null) {
+            parts += MarkdownPart.Code(directCode)
+            codeIndex++
+        } else {
+            val nestedBlocks = collectMarkdownCodeBlocks(node)
+            var fragment = commonMarkHtmlRenderer.render(node)
+            if (nestedBlocks.isNotEmpty()) {
+                fragment = decorateMarkdownCodeBlocks(
+                    fragment, nestedBlocks, copyLabel, darkMode, openAsset, startIndex = codeIndex,
+                )
+                codeIndex += nestedBlocks.size
+            }
+            parts += MarkdownPart.Html(wrapMarkdownHtml(fragment, colors))
+        }
+        node = node.next
+    }
+    return parts
+}
 
 private fun collectMarkdownCodeBlocks(root: Node): List<MarkdownCodeBlock> {
     val blocks = mutableListOf<MarkdownCodeBlock>()
@@ -322,8 +396,9 @@ internal fun decorateMarkdownCodeBlocks(
     copyLabel: String,
     darkMode: Boolean,
     openAsset: (String) -> java.io.InputStream,
+    startIndex: Int = 0,
 ): String {
-    var codeIndex = 0
+    var codeIndex = startIndex
     val themeAsset = if (darkMode) "textmate-dark.json" else "textmate-light.json"
     return RENDERED_CODE_BLOCK.replace(fragment) { match ->
         val block = codeBlocks.getOrNull(codeIndex) ?: return@replace match.value
@@ -419,7 +494,7 @@ internal fun containsCommonMarkElements(markdown: String): Boolean {
     val result = if (containsMarkdownEscapesOrEntities(markdown)) {
         true
     } else {
-        val document = commonMarkParser.parse(markdown)
+        val document = commonMarkParser.parse(normalizeStrongDelimiterWhitespace(markdown))
         var paragraphCount = 0
         var containsElements = false
         var node: Node? = document.firstChild
@@ -450,6 +525,8 @@ private fun wrapMarkdownHtml(fragment: String, colors: DsColors): String {
     val border = css(colors.borderL1)
     val accent = css(colors.accent)
     val codeBackground = css(colors.inlineCode)
+    val panelBackground = css(colors.codeBlockBg)
+    val terminalBackground = css(colors.bgModulePlatform)
     return """
         <!doctype html>
         <html><head>
@@ -469,12 +546,13 @@ private fun wrapMarkdownHtml(fragment: String, colors: DsColors): String {
           blockquote { color: $secondary; border-left: 3px solid $border; margin: .5em 0; padding: .1em 0 .1em .9em; }
           a { color: $accent; text-decoration: underline; }
           code { font-family: monospace; background: $codeBackground; padding: .08em .25em; border-radius: 3px; }
-          pre { white-space: pre; overflow-x: auto; background: $background; border: 1px solid $border; border-radius: 8px; padding: 12px; margin: .5em 0 1em; }
+          pre { white-space: pre; overflow-x: auto; background: $terminalBackground; border: 1px solid $border; border-radius: 10px; padding: 10px 12px; margin: .5em 0 1em; }
           pre code { background: transparent; padding: 0; border-radius: 0; }
-          .markdown-code-block { margin: .5em 0 1em; border: 1px solid $border; border-radius: 8px; overflow: hidden; background: $background; }
-          .markdown-code-header { display: flex; align-items: center; justify-content: space-between; padding: 5px 10px; border-bottom: 1px solid $border; color: $secondary; font-size: 12px; }
-          .markdown-copy-code { color: $accent; text-decoration: none; font-weight: 600; }
-          .markdown-code-block pre { margin: 0; border: 0; border-radius: 0; }
+          .markdown-code-block { margin: .5em 0 1em; padding: 10px; border: 1px solid $border; border-radius: 12px; overflow: hidden; background: $panelBackground; }
+          .markdown-code-header { display: flex; align-items: center; justify-content: space-between; min-height: 28px; padding: 0 2px 8px; color: $secondary; font-size: 12px; }
+           .markdown-code-header span { font-family: monospace; font-weight: 600; letter-spacing: .02em; }
+          .markdown-copy-code { color: $accent; text-decoration: none; font-weight: 600; padding: 2px 7px; border: 1px solid $border; border-radius: 6px; }
+          .markdown-code-block pre { margin: 0; border: 1px solid $border; border-radius: 8px; padding: 10px 12px; }
           table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: auto; margin: .5em 0 1em; }
           th, td { border: 1px solid $border; padding: 6px 9px; text-align: left; vertical-align: top; }
           th { font-weight: 600; }

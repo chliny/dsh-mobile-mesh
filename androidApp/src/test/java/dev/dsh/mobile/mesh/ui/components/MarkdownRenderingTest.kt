@@ -55,6 +55,8 @@ class MarkdownRenderingTest {
         assertFalse(containsCommonMarkElements("Two plain lines\nwith a line break"))
         assertTrue(containsCommonMarkElements("A `code` span"))
         assertTrue(containsCommonMarkElements("**bold** and _emphasis_"))
+        val cjkBold = renderCommonMarkFragment("**Review 结论: **发现问题")
+        assertTrue(cjkBold.contains("<strong>Review 结论:</strong>发现问题"))
         assertTrue(containsCommonMarkElements("- list item"))
         assertTrue(containsCommonMarkElements("AT&amp;T"))
         assertTrue(containsCommonMarkElements("\\*escaped punctuation\\*"))
@@ -161,6 +163,24 @@ class MarkdownRenderingTest {
         assertTrue(html.contains("dsh-markdown-copy://copy/0"))
         assertTrue(html.contains("language-kotlin"))
         assertTrue(html.contains("tag"))
+    }
+
+    @Test
+    fun `top-level fenced Markdown is split into native code-card segments`() {
+        val parts = renderMarkdownPartsForTest(
+            "before\n\n```text\nhello world\n```\n\nafter",
+            colors = DsThemeTokens.light,
+            copyLabel = "Copy",
+            darkMode = false,
+            openAsset = { File("src/main/assets").resolve(it).inputStream() },
+        )
+
+        assertEquals(3, parts.size)
+        assertTrue(parts[0] is MarkdownPart.Html)
+        val code = parts[1] as MarkdownPart.Code
+        assertEquals("text", code.block.language)
+        assertEquals("hello world\n", code.block.code)
+        assertTrue(parts[2] is MarkdownPart.Html)
     }
 
     @Test

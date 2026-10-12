@@ -106,6 +106,8 @@ class TextMateCodeHighlighterTest {
         }
         assertEquals(null, textMateGrammarAsset("notes.rmd"))
         assertEquals("textmate-shellscript.tmLanguage.json", textMateGrammarAssetForLanguage("bash title=demo"))
+        assertEquals("textmate-shellscript.tmLanguage.json", textMateGrammarAssetForLanguage("text"))
+        assertEquals("textmate-shellscript.tmLanguage.json", textMateGrammarAssetForLanguage("plaintext"))
         assertEquals("textmate-powershell.tmLanguage.json", textMateGrammarAssetForLanguage("powershell"))
         assertEquals("textmate-scss.tmLanguage.json", textMateGrammarAssetForLanguage("scss"))
     }
