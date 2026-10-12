@@ -291,7 +291,7 @@ internal fun ChatScreen(
      * the message is sent the receipt is usually already there; the chip shows progress until it
      * is, and the send affordance waits for it.
      */
-    fun startUpload(file: PendingAttachment.File) {
+    fun startUpload(file: PendingAttachment.File, transferLease: AutoCloseable? = null) {
         updateFile(file.id) { it.copy(state = FileUploadState.Uploading(0)) }
         scope.launch {
             val result = store.uploadFile(
@@ -299,6 +299,7 @@ internal fun ChatScreen(
                 size = file.size,
                 open = { runCatching { context.contentResolver.openInputStream(file.uri) }.getOrNull() },
                 onProgress = { sent -> updateFile(file.id) { it.copy(state = FileUploadState.Uploading(sent)) } },
+                fileTransferLease = transferLease,
             )
             updateFile(file.id) {
                 when (result) {
@@ -309,10 +310,17 @@ internal fun ChatScreen(
         }
     }
 
+    var documentPickerLease by remember { mutableStateOf<AutoCloseable?>(null) }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+        val transferLease = documentPickerLease
+        documentPickerLease = null
+        if (uri == null) {
+            transferLease?.close()
+            return@rememberLauncherForActivityResult
+        }
         val (name, size) = describeDocument(context.contentResolver, uri)
         if (name == null) {
+            transferLease?.close()
             toast.second(context.getString(R.string.err_file_read_failed))
             return@rememberLauncherForActivityResult
         }
@@ -324,7 +332,19 @@ internal fun ChatScreen(
             state = FileUploadState.Uploading(0),
         )
         attachments.add(file)
-        startUpload(file)
+        startUpload(file, transferLease)
+    }
+
+    fun launchFilePicker() {
+        documentPickerLease?.close()
+        documentPickerLease = store.acquireFileTransferLease()
+        try {
+            filePicker.launch(arrayOf("*/*"))
+        } catch (failure: Exception) {
+            documentPickerLease?.close()
+            documentPickerLease = null
+            throw failure
+        }
     }
 
     fun removeSubmittedAttachments(submitted: List<PendingAttachment>) {
@@ -682,7 +702,7 @@ internal fun ChatScreen(
                         "permission" -> sheet = ChatSheet.Permission
                     }
                 },
-                onAddFiles = { filePicker.launch(arrayOf("*/*")) },
+                onAddFiles = { launchFilePicker() },
                 fileCandidates = fileCandidates,
                 sessionCandidates = sessionCandidates,
                 referenceSessionId = currentSessionId,
@@ -715,7 +735,7 @@ internal fun ChatScreen(
             canAttach = currentSessionId != null,
             onModeChange = { mode = it },
             onAttach = { imagePicker.launch("image/*") },
-            onAttachFile = { filePicker.launch(arrayOf("*/*")) },
+            onAttachFile = { launchFilePicker() },
             // The sheet only auto-runs commands that take no input at all, and a command that
             // takes no input takes no attachments either — so a pending attachment refuses here
             // for the same reason it refuses at the composer, rather than being silently dropped.

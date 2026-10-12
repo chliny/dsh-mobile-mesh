@@ -2714,15 +2714,20 @@ class SessionStore @Inject constructor(
      * A refusal is the composer's problem, not the connection's, so nothing here raises the
      * connection banner: the chip that owns the file shows the failure and offers a retry.
      */
+    fun acquireFileTransferLease(): AutoCloseable = connectionManager.acquireFileTransferLease()
+
     suspend fun uploadFile(
         name: String,
         size: Long,
         open: () -> InputStream?,
         onProgress: (sent: Long) -> Unit = {},
+        fileTransferLease: AutoCloseable? = null,
     ): RpcResult<FileUploadValue> = withContext(Dispatchers.IO) {
+        val transferLease = fileTransferLease ?: connectionManager.acquireFileTransferLease()
+        try {
         val sid = currentSessionId.value
             ?: return@withContext RpcResult.Err(RpcError("internal", "no open session"))
-        val api = apiOrNull()
+        val api = awaitConnectedApi(timeoutMs = FILE_UPLOAD_API_WAIT_MS)
             ?: return@withContext RpcResult.Err(RpcError("internal", "not connected"))
         val stream = open()
             ?: return@withContext RpcResult.Err(RpcError("internal", "could not read the file"))
@@ -2767,6 +2772,9 @@ class SessionStore @Inject constructor(
         ).also { result ->
             onProgress(bytes.size.toLong())
             logFileUploadResult(attempt = "fallback", startedAtNanos = fallbackStartedAt, sentBytes = bytes.size.toLong(), result = result)
+        }
+        } finally {
+            transferLease.close()
         }
     }
 
@@ -3772,6 +3780,7 @@ class SessionStore @Inject constructor(
         /** Largest file the base64 Remote fallback will carry; anything bigger needs the route. */
         const val MAX_ENCODED_UPLOAD_BYTES = 20L * 1024 * 1024
         const val FILE_UPLOAD_RETRY_DELAY_MS = 500L
+        const val FILE_UPLOAD_API_WAIT_MS = 15_000L
         /** Recent visible messages requested on open/reconnect and per history page. */
         const val INITIAL_TRANSCRIPT_MESSAGE_COUNT = 20
         const val HISTORY_PAGE_SIZE = 50
