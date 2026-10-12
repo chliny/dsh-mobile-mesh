@@ -7,6 +7,12 @@ import org.junit.Test
 
 class ConnectionRecoveryPolicyTest {
     @Test
+    fun `system Back is blocked exactly while the global overlay is visible`() {
+        assertTrue(shouldBlockSystemBackDuringOverlay(overlayVisible = true))
+        assertFalse(shouldBlockSystemBackDuringOverlay(overlayVisible = false))
+    }
+
+    @Test
     fun `recovery overlay blocks the existing page through every non-connected phase`() {
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.DISCONNECTED, false))
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, false))

@@ -1,5 +1,6 @@
 package dev.dsh.mobile.mesh.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -319,13 +320,16 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         // A connected session must not accept taps while its carrier is being verified or rebuilt.
         // The scrim consumes input at the root, preventing session switches and writes from racing
         // ConnectionManager's transport teardown/reconnect sequence.
-        if (shouldShowConnectionRecoveryOverlay(
-                connection.hasConnected,
-                connection.phase,
-                connection.foregroundCheckPending,
-                recoveryOverlayVisible = connection.recoveryOverlayVisible,
-                showingConnectionList = showingConnectionList,
-            )) {
+        val recoveryOverlayVisible = shouldShowConnectionRecoveryOverlay(
+            connection.hasConnected,
+            connection.phase,
+            connection.foregroundCheckPending,
+            recoveryOverlayVisible = connection.recoveryOverlayVisible,
+            showingConnectionList = showingConnectionList,
+        )
+        // The system Back gesture/key must not navigate away while the global blocking scrim is up.
+        BackHandler(enabled = shouldBlockSystemBackDuringOverlay(recoveryOverlayVisible)) { }
+        if (recoveryOverlayVisible) {
             ConnectionRecoveryOverlay()
         }
     }
