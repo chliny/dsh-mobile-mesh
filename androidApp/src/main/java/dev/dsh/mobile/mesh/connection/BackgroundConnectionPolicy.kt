@@ -6,8 +6,11 @@ internal enum class BackgroundConnectionAction {
 }
 
 /** Without background retention, Android lifecycle owns a hard transport suspension boundary. */
-internal fun backgroundConnectionAction(keepConnectedInBackground: Boolean): BackgroundConnectionAction =
-    if (keepConnectedInBackground) BackgroundConnectionAction.RETAIN else BackgroundConnectionAction.SUSPEND
+internal fun backgroundConnectionAction(
+    keepConnectedInBackground: Boolean,
+    activeFileTransfer: Boolean = false,
+): BackgroundConnectionAction =
+    if (keepConnectedInBackground || activeFileTransfer) BackgroundConnectionAction.RETAIN else BackgroundConnectionAction.SUSPEND
 
 /** Keep the process-pinning service alive while a retained background carrier is being renewed. */
 internal fun shouldStopConnectionServiceOnRetire(

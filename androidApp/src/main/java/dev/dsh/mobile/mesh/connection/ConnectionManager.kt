@@ -39,6 +39,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -242,6 +244,7 @@ class ConnectionManager @Inject constructor(
     @Volatile private var backgroundedAtMs = 0L
     private val lifecycleTransitionLock = Any()
     @Volatile private var keepConnectedInBackground = false
+    private val activeFileTransferLeases = AtomicInteger(0)
     @Volatile private var foregroundProbeJob: Job? = null
     @Volatile private var publishedGenerationNeedsProbe = false
     /** Failure reason from the last retired mux, retained across ConnectionLoop's reconnect window. */
@@ -1491,6 +1494,65 @@ class ConnectionManager @Inject constructor(
     private fun backgroundDurationSinceLastStopMs(): Long =
         (System.currentTimeMillis() - backgroundedAtMs).coerceAtLeast(0L)
 
+    /** Keep the carrier alive while a system document picker or its file upload is in flight. */
+    fun acquireFileTransferLease(): AutoCloseable {
+        activeFileTransferLeases.incrementAndGet()
+        Log.d("ConnectionManager", "File-transfer lifecycle lease acquired count=${activeFileTransferLeases.get()}")
+        val closed = AtomicBoolean(false)
+        return AutoCloseable {
+            if (closed.compareAndSet(false, true)) {
+                val remaining = activeFileTransferLeases.decrementAndGet().coerceAtLeast(0)
+                Log.d("ConnectionManager", "File-transfer lifecycle lease released count=$remaining")
+                if (remaining == 0) scheduleBackgroundSuspendAfterFileTransfer()
+            }
+        }
+    }
+
+    private fun scheduleBackgroundSuspendAfterFileTransfer() {
+        scope.launch {
+            kotlinx.coroutines.delay(FILE_TRANSFER_BACKGROUND_GRACE_MS)
+            if (appInForeground || keepConnectedInBackground || activeFileTransferLeases.get() > 0) return@launch
+            if (shouldPreserveAuthorizationOnBackground(
+                    authorizationPending = _state.value.authorizationPending != null,
+                    loginUrl = _state.value.tailscaleLoginUrl,
+                )) return@launch
+            Log.d("ConnectionManager", "File transfer finished in background; suspending retained connection")
+            suspendConnectionForBackground()
+        }
+    }
+
+    private fun suspendConnectionForBackground() {
+        if (shouldPreserveAuthorizationOnBackground(
+                authorizationPending = _state.value.authorizationPending != null,
+                loginUrl = _state.value.tailscaleLoginUrl,
+            )) return
+        recoveryRetryJob?.cancel()
+        recoveryRetryJob = null
+        // Do not let a startup/recovery coroutine retain lifecycleMutex while Android suspends its
+        // network path. Tear carriers down, then restart the latest desired host on foreground.
+        val desiredHost = activeHost ?: suspendedHost
+        val desiredCallback = pendingTransportReady ?: suspendedTransportReady
+        Log.d(
+            "ConnectionManager",
+            "Background retention disabled; suspending active connection phase=${_state.value.phase} " +
+                "hasConnected=${_state.value.hasConnected} keepConnectedInBackground=$keepConnectedInBackground",
+        )
+        stopConnection()
+        suspendedHost = desiredHost
+        suspendedTransportReady = desiredCallback
+        suspendedForBackground = desiredHost != null
+        if (desiredHost != null) {
+            _state.value = _state.value.copy(
+                phase = ConnectionPhase.RECONNECTING,
+                host = desiredHost,
+                stage = ConnectStage.OpeningStreams,
+                hasConnected = true,
+                foregroundCheckPending = true,
+                recoveryOverlayVisible = true,
+            )
+        }
+    }
+
     /** Mark carrier callbacks as backgrounded; foreground recovery is resumed explicitly on resume. */
     fun onAppBackgrounded() {
         val backgroundTiming = RecoveryTiming()
@@ -1520,38 +1582,19 @@ class ConnectionManager @Inject constructor(
                 "Background transition retains recovery retry flag retry=$retryPendingBeforeBackground handover=$networkRecoveryNeedsResume",
             )
         }
-        if (backgroundConnectionAction(keepConnectedInBackground) == BackgroundConnectionAction.SUSPEND &&
+        if (backgroundConnectionAction(
+                keepConnectedInBackground = keepConnectedInBackground,
+                activeFileTransfer = activeFileTransferLeases.get() > 0,
+            ) == BackgroundConnectionAction.SUSPEND &&
             !shouldPreserveAuthorizationOnBackground(
                 authorizationPending = _state.value.authorizationPending != null,
                 loginUrl = _state.value.tailscaleLoginUrl,
             )) {
-            recoveryRetryJob?.cancel()
-            recoveryRetryJob = null
-            // Do not let a startup/recovery coroutine retain lifecycleMutex while Android suspends
-            // its network path. Invalidate it, tear every carrier down, then restart exactly the
-            // latest desired host from a clean generation on foreground.
-            val desiredHost = activeHost ?: suspendedHost
-            val desiredCallback = pendingTransportReady ?: suspendedTransportReady
-            Log.d(
-                "ConnectionManager",
-                "Background retention disabled; suspending active connection phase=${_state.value.phase} " +
-                    "hasConnected=${_state.value.hasConnected} keepConnectedInBackground=$keepConnectedInBackground",
-            )
-            stopConnection()
-            suspendedHost = desiredHost
-            suspendedTransportReady = desiredCallback
-            suspendedForBackground = desiredHost != null
-            if (desiredHost != null) {
-                _state.value = _state.value.copy(
-                    phase = ConnectionPhase.RECONNECTING,
-                    host = desiredHost,
-                    stage = ConnectStage.OpeningStreams,
-                    hasConnected = true,
-                    foregroundCheckPending = true,
-                    recoveryOverlayVisible = true,
-                )
-            }
+            suspendConnectionForBackground()
         } else {
+            if (!keepConnectedInBackground && activeFileTransferLeases.get() > 0) {
+                Log.d("ConnectionManager", "Deferring background suspension for file transfer count=${activeFileTransferLeases.get()}")
+            }
             val current = _state.value
             // A retained carrier can die silently while Android keeps the same default network.
             // Force one foreground liveness probe for every established generation after a background
@@ -1684,6 +1727,7 @@ class ConnectionManager @Inject constructor(
     }
 
     private companion object {
+        const val FILE_TRANSFER_BACKGROUND_GRACE_MS = 1_500L
         /** Bound the resume probe so fake green is replaced promptly, even for a black-holed TCP path. */
         const val FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS = 10_000L
         const val AUTHORIZATION_RESUME_TIMEOUT_MS = ConnectionTimeoutPolicy.authorizationResumeMs
