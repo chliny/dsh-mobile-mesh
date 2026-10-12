@@ -255,6 +255,11 @@
     <string name="settings_notifications_action">Notifier quand votre action est requise</string>
     <string name="settings_background">Rester connecté en arrière-plan</string>
     <string name="settings_debug">Débogage</string>
+    <string name="settings_logs_range_title">Exporter les journaux sur une période</string>
+    <string name="settings_logs_range_start">Début</string>
+    <string name="settings_logs_range_end">Fin</string>
+    <string name="settings_logs_range_invalid">L’heure de début doit précéder l’heure de fin.</string>
+    <string name="settings_logs_range_export">Continuer</string>
     <string name="settings_logs_export">Exporter les journaux de l’application</string>
     <string name="settings_logs_exported">Journaux de l’application exportés</string>
     <string name="settings_logs_export_failed">Impossible d’exporter les journaux de l’application</string>

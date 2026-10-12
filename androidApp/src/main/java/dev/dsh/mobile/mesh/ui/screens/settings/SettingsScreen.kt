@@ -1,5 +1,9 @@
 package dev.dsh.mobile.mesh.ui.screens.settings
 
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
+import android.content.Context
+import android.text.format.DateFormat
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -87,8 +91,10 @@ import dev.dsh.mobile.mesh.ui.theme.DsShapes
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
+import java.util.Calendar
+import java.util.Date
+import java.text.DateFormat as JavaDateFormat
 import java.util.Locale
-import android.os.Process
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -115,6 +121,12 @@ fun SettingsScreen(
     val toast = rememberDsToast()
     val scope = rememberCoroutineScope()
     var showDisconnectDialog by remember { mutableStateOf(false) }
+    var showLogsRangeDialog by remember { mutableStateOf(false) }
+    val initialLogsRange = remember {
+        val now = System.currentTimeMillis()
+        AppLogTimeRange(startEpochMs = now - 24L * 60 * 60 * 1000, endEpochMs = now)
+    }
+    var logsExportRange by remember { mutableStateOf(initialLogsRange) }
     var pendingImport by remember { mutableStateOf<String?>(null) }
     var importConflicts by remember { mutableStateOf<List<ConnectionImportConflict>>(emptyList()) }
     var selectedReplaceIds by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -135,11 +147,7 @@ fun SettingsScreen(
         scope.launch {
             runCatching {
                 val logs = withContext(Dispatchers.IO) {
-                    val process = Runtime.getRuntime().exec(arrayOf("logcat", "-d", "--pid=${Process.myPid()}"))
-                    val output = process.inputStream.bufferedReader().use { it.readText() }
-                    val error = process.errorStream.bufferedReader().use { it.readText() }
-                    check(process.waitFor() == 0) { error.ifBlank { "logcat failed" } }
-                    output
+                    readAppLogs(context.applicationInfo.uid, logsExportRange)
                 }
                 context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(logs) }
                     ?: error("Could not open export file")
@@ -299,7 +307,7 @@ fun SettingsScreen(
                 SettingsCard(stringResource(R.string.settings_debug)) {
                     DsButton(
                         text = stringResource(R.string.settings_logs_export),
-                        onClick = { logsExportLauncher.launch("dsh-mobile-mesh-logs.txt") },
+                        onClick = { showLogsRangeDialog = true },
                         variant = DsButtonVariant.Outline,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -450,6 +458,86 @@ fun SettingsScreen(
             }
         }
     }
+    if (showLogsRangeDialog) {
+        LogsExportRangeDialog(
+            initialRange = logsExportRange,
+            onDismiss = { showLogsRangeDialog = false },
+            onExport = { range ->
+                logsExportRange = range
+                showLogsRangeDialog = false
+                logsExportLauncher.launch("dsh-mobile-mesh-logs.txt")
+            },
+        )
+    }
+}
+
+@Composable
+private fun LogsExportRangeDialog(
+    initialRange: AppLogTimeRange,
+    onDismiss: () -> Unit,
+    onExport: (AppLogTimeRange) -> Unit,
+) {
+    val context = LocalContext.current
+    var startEpochMs by remember(initialRange) { mutableStateOf(initialRange.startEpochMs) }
+    var endEpochMs by remember(initialRange) { mutableStateOf(initialRange.endEpochMs) }
+    val range = AppLogTimeRange(startEpochMs, endEpochMs)
+    val dateTimeFormat = remember { JavaDateFormat.getDateTimeInstance(JavaDateFormat.MEDIUM, JavaDateFormat.SHORT) }
+    val valid = range.isValid()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.settings_logs_range_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
+                TextButton(onClick = { showDateTimePicker(context, startEpochMs) { startEpochMs = it } }) {
+                    Text("${stringResource(R.string.settings_logs_range_start)}: ${dateTimeFormat.format(Date(startEpochMs))}")
+                }
+                TextButton(onClick = { showDateTimePicker(context, endEpochMs) { endEpochMs = it } }) {
+                    Text("${stringResource(R.string.settings_logs_range_end)}: ${dateTimeFormat.format(Date(endEpochMs))}")
+                }
+                if (!valid) {
+                    Text(
+                        stringResource(R.string.settings_logs_range_invalid),
+                        style = DsType.caption11,
+                        color = DsTheme.colors.warnLabel,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = valid, onClick = { onExport(range) }) {
+                Text(stringResource(R.string.settings_logs_range_export))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+        },
+    )
+}
+
+private fun showDateTimePicker(context: Context, currentEpochMs: Long, onSelected: (Long) -> Unit) {
+    val current = Calendar.getInstance().apply { timeInMillis = currentEpochMs }
+    DatePickerDialog(
+        context,
+        { _, year, month, day ->
+            TimePickerDialog(
+                context,
+                { _, hour, minute ->
+                    val selected = Calendar.getInstance().apply {
+                        clear()
+                        set(year, month, day, hour, minute, 0)
+                    }.timeInMillis
+                    onSelected(selected)
+                },
+                current.get(Calendar.HOUR_OF_DAY),
+                current.get(Calendar.MINUTE),
+                DateFormat.is24HourFormat(context),
+            ).show()
+        },
+        current.get(Calendar.YEAR),
+        current.get(Calendar.MONTH),
+        current.get(Calendar.DAY_OF_MONTH),
+    ).show()
 }
 
 /** One settings group as a raised card, so groups read as blocks rather than a running list. */

@@ -253,6 +253,11 @@
     <string name="settings_notifications_action">Уведомлять, когда требуется ваше действие</string>
     <string name="settings_background">Оставаться на связи в фоне</string>
     <string name="settings_debug">Отладка</string>
+    <string name="settings_logs_range_title">Экспорт журналов за период</string>
+    <string name="settings_logs_range_start">Начало</string>
+    <string name="settings_logs_range_end">Конец</string>
+    <string name="settings_logs_range_invalid">Время начала должно быть раньше времени окончания.</string>
+    <string name="settings_logs_range_export">Продолжить</string>
     <string name="settings_logs_export">Экспортировать журналы приложения</string>
     <string name="settings_logs_exported">Журналы приложения экспортированы</string>
     <string name="settings_logs_export_failed">Не удалось экспортировать журналы приложения</string>

@@ -253,6 +253,11 @@
     <string name="settings_notifications_action">Notificar quando sua ação for necessária</string>
     <string name="settings_background">Manter conexão em segundo plano</string>
     <string name="settings_debug">Depuração</string>
+    <string name="settings_logs_range_title">Exportar registros por período</string>
+    <string name="settings_logs_range_start">De</string>
+    <string name="settings_logs_range_end">Até</string>
+    <string name="settings_logs_range_invalid">O horário inicial deve ser anterior ao horário final.</string>
+    <string name="settings_logs_range_export">Continuar</string>
     <string name="settings_logs_export">Exportar registros do app</string>
     <string name="settings_logs_exported">Registros do app exportados</string>
     <string name="settings_logs_export_failed">Não foi possível exportar os registros do app</string>

@@ -253,6 +253,11 @@
     <string name="settings_notifications_action">آپ کی کارروائی درکار ہونے پر اطلاع دیں</string>
     <string name="settings_background">پس منظر میں منسلک رہیں</string>
     <string name="settings_debug">ڈیبگ</string>
+    <string name="settings_logs_range_title">وقت کی حد کے مطابق لاگز برآمد کریں</string>
+    <string name="settings_logs_range_start">سے</string>
+    <string name="settings_logs_range_end">تک</string>
+    <string name="settings_logs_range_invalid">آغاز کا وقت اختتام کے وقت سے پہلے ہونا چاہیے۔</string>
+    <string name="settings_logs_range_export">جاری رکھیں</string>
     <string name="settings_logs_export">ایپ لاگز برآمد کریں</string>
     <string name="settings_logs_exported">ایپ لاگز برآمد ہو گئے</string>
     <string name="settings_logs_export_failed">ایپ لاگز برآمد نہیں ہو سکے</string>
