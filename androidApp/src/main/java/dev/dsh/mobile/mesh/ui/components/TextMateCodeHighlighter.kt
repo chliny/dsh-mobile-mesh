@@ -77,6 +77,9 @@ internal fun textMateGrammarAsset(path: String?): String? {
 internal fun textMateGrammarAssetForLanguage(info: String?): String? {
     val language = info?.trim()?.substringBefore(' ')?.lowercase()?.removePrefix("language-")
     val extension = when (language) {
+        // Treat explicitly plain-text fences like shell snippets so they still receive
+        // useful token colors instead of rendering as an unstyled block.
+        "text", "plaintext", "txt" -> "sh"
         "kotlin" -> "kt"
         "javascript", "node" -> "js"
         "typescript" -> "ts"
