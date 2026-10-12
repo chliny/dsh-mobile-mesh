@@ -429,6 +429,11 @@
     <string name="settings_logs_export">Export app logs</string>
     <string name="settings_logs_exported">App logs exported</string>
     <string name="settings_logs_export_failed">Could not export app logs</string>
+    <string name="settings_logs_range_title">Export logs by time range</string>
+    <string name="settings_logs_range_start">From</string>
+    <string name="settings_logs_range_end">To</string>
+    <string name="settings_logs_range_invalid">Start time must be before end time.</string>
+    <string name="settings_logs_range_export">Continue</string>
     <string name="settings_connections_import">Import connections</string>
     <string name="settings_connections_exported">Connections exported</string>
     <string name="settings_connections_imported">Connections imported</string>

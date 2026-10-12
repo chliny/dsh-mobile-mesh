@@ -419,6 +419,11 @@
     <string name="settings_logs_export">导出应用日志</string>
     <string name="settings_logs_exported">应用日志已导出</string>
     <string name="settings_logs_export_failed">无法导出应用日志</string>
+    <string name="settings_logs_range_title">选择日志时间范围</string>
+    <string name="settings_logs_range_start">开始时间</string>
+    <string name="settings_logs_range_end">结束时间</string>
+    <string name="settings_logs_range_invalid">开始时间必须早于结束时间</string>
+    <string name="settings_logs_range_export">继续</string>
     <string name="settings_connection">连接</string>
     <string name="settings_open_connection">打开连接设置</string>
     <string name="settings_connection_status">状态</string>

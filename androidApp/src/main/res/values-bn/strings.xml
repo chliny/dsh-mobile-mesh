@@ -253,6 +253,11 @@
     <string name="settings_notifications_action">আপনার পদক্ষেপ প্রয়োজন হলে জানান</string>
     <string name="settings_background">ব্যাকগ্রাউন্ডে সংযুক্ত থাকুন</string>
     <string name="settings_debug">ডিবাগ</string>
+    <string name="settings_logs_range_title">সময়সীমা অনুযায়ী লগ রপ্তানি করুন</string>
+    <string name="settings_logs_range_start">শুরু</string>
+    <string name="settings_logs_range_end">শেষ</string>
+    <string name="settings_logs_range_invalid">শুরুর সময় শেষের সময়ের আগে হতে হবে।</string>
+    <string name="settings_logs_range_export">এগিয়ে যান</string>
     <string name="settings_logs_export">অ্যাপের লগ রপ্তানি করুন</string>
     <string name="settings_logs_exported">অ্যাপের লগ রপ্তানি করা হয়েছে</string>
     <string name="settings_logs_export_failed">অ্যাপের লগ রপ্তানি করা যায়নি</string>

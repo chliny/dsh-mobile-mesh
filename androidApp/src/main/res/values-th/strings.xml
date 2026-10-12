@@ -253,6 +253,11 @@
     <string name="settings_notifications_action">แจ้งเตือนเมื่อต้องมีการดำเนินการของคุณ</string>
     <string name="settings_background">คงการเชื่อมต่อในเบื้องหลัง</string>
     <string name="settings_debug">การดีบัก</string>
+    <string name="settings_logs_range_title">ส่งออกบันทึกตามช่วงเวลา</string>
+    <string name="settings_logs_range_start">เริ่มต้น</string>
+    <string name="settings_logs_range_end">สิ้นสุด</string>
+    <string name="settings_logs_range_invalid">เวลาเริ่มต้นต้องอยู่ก่อนเวลาสิ้นสุด</string>
+    <string name="settings_logs_range_export">ดำเนินการต่อ</string>
     <string name="settings_logs_export">ส่งออกบันทึกของแอป</string>
     <string name="settings_logs_exported">ส่งออกบันทึกของแอปแล้ว</string>
     <string name="settings_logs_export_failed">ส่งออกบันทึกของแอปไม่สำเร็จ</string>
