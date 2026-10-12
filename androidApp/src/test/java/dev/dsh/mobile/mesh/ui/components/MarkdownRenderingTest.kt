@@ -10,6 +10,12 @@ import org.junit.Test
 
 class MarkdownRenderingTest {
     @Test
+    fun `destroyed markdown webview rejects queued visual state callback`() {
+        assertTrue(canPostMarkdownVisualStateCallback(released = false))
+        assertFalse(canPostMarkdownVisualStateCallback(released = true))
+    }
+
+    @Test
     fun `webview intrinsic height rounds up so last text baseline is not clipped`() {
         assertEquals(100, markdownWebViewContentHeight(contentHeightCssPx = 40, scale = 2.5f))
         assertEquals(103, markdownWebViewContentHeight(contentHeightCssPx = 41, scale = 2.49f))

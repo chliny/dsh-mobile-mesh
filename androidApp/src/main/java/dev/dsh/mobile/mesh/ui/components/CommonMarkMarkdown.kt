@@ -496,6 +496,8 @@ private class CommonMarkWebState {
 internal fun markdownWebViewContentHeight(contentHeightCssPx: Int, scale: Float): Int =
     ceil(contentHeightCssPx * scale).toInt().coerceAtLeast(1)
 
+internal fun canPostMarkdownVisualStateCallback(released: Boolean): Boolean = !released
+
 private class CommonMarkWebView(
     context: android.content.Context,
     private var state: CommonMarkWebState,
@@ -512,7 +514,11 @@ private class CommonMarkWebView(
         onCopyCode = {}
     }
 
+    private var released = false
+
     fun release() {
+        if (released) return
+        released = true
         stopLoading()
         destroy()
     }
@@ -553,12 +559,20 @@ private class CommonMarkWebView(
                 // onPageFinished can precede WebView's committed visual/layout state. Re-measure only
                 // after Chromium confirms the document is ready to draw, then invalidate its parent.
                 view.post {
-                    view.postVisualStateCallback(System.nanoTime(), object : WebView.VisualStateCallback() {
-                        override fun onComplete(requestId: Long) {
-                            view.requestLayout()
-                            view.invalidate()
-                        }
-                    })
+                    if (!canPostMarkdownVisualStateCallback(released)) {
+                        return@post
+                    }
+                    // A queued WebView task may outlive Compose's disposal. Chromium can also destroy
+                    // its renderer independently, so do not let that lifecycle race crash the app.
+                    runCatching {
+                        view.postVisualStateCallback(System.nanoTime(), object : WebView.VisualStateCallback() {
+                            override fun onComplete(requestId: Long) {
+                                if (!canPostMarkdownVisualStateCallback(released)) return
+                                view.requestLayout()
+                                view.invalidate()
+                            }
+                        })
+                    }
                 }
             }
         }
