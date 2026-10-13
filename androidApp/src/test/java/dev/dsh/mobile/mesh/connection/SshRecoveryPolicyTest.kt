@@ -4,25 +4,28 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-private const val SSH_CONNECT_ATTEMPTS = 3
-private const val SSH_RECOVERY_CONNECT_ATTEMPTS = 2
-
 class SshRecoveryPolicyTest {
     @Test
-    fun `recovery uses a shorter bounded handshake budget without changing initial connect`() {
+    fun `recovery uses one bounded SSH attempt and outer loop retries with fresh relay`() {
         assertEquals(25_000, sshHandshakeTimeoutMs(recovery = false))
-        assertEquals(15_000, sshHandshakeTimeoutMs(recovery = true))
+        assertEquals(8_000, sshHandshakeTimeoutMs(recovery = true))
         assertEquals(25_000, SSH_INITIAL_HANDSHAKE_TIMEOUT_MS)
-        // The incident log's SSH transport handshake completed in 13,124ms after background resume.
-        assertEquals(15_000, SSH_RECOVERY_HANDSHAKE_TIMEOUT_MS)
-        assertTrue(SSH_RECOVERY_HANDSHAKE_TIMEOUT_MS > 13_124)
-        assertEquals(2, SSH_RECOVERY_CONNECT_ATTEMPTS)
-        assertEquals(3, SSH_CONNECT_ATTEMPTS)
+        assertEquals(8_000, SSH_RECOVERY_HANDSHAKE_TIMEOUT_MS)
+        assertEquals(3, sshConnectAttempts(recovery = false))
+        assertEquals(1, sshConnectAttempts(recovery = true))
     }
 
     @Test
-    fun `recovery uses one immediate retry while initial connect keeps full retries`() {
-        assertEquals(2, SSH_RECOVERY_CONNECT_ATTEMPTS)
-        assertEquals(3, SSH_CONNECT_ATTEMPTS)
+    fun `target port native connect has a short recovery budget and preserves initial budget`() {
+        assertEquals(30_000, zeroTierTargetConnectTimeoutMs(recovery = false))
+        assertEquals(5_000, zeroTierTargetConnectTimeoutMs(recovery = true))
+        assertTrue(SSH_RECOVERY_HANDSHAKE_TIMEOUT_MS > zeroTierTargetConnectTimeoutMs(recovery = true))
+    }
+
+    @Test
+    fun `all resolved target addresses share one bounded connect budget`() {
+        assertEquals(5_000, remainingConnectTimeoutMs(5_000, 1_000_000_000L, 1_000_000_000L))
+        assertEquals(3_250, remainingConnectTimeoutMs(5_000, 1_000_000_000L, 2_750_000_000L))
+        assertEquals(0, remainingConnectTimeoutMs(5_000, 1_000_000_000L, 7_000_000_000L))
     }
 }

@@ -122,8 +122,23 @@ public class ZeroTierSocket {
      */
     public void connect(InetAddress remoteAddr, int remotePort) throws IOException
     {
+        connect(remoteAddr, remotePort, 0);
+    }
+
+    /**
+     * Connect to a remote host with a bounded native retry budget.
+     * @param remoteAddr Remote address to which this socket should connect
+     * @param remotePort Remote port to which this socket should connect
+     * @param timeoutMs Maximum native connect retry budget in milliseconds; zero keeps libzt's default
+     * @exception IOException when an I/O error occurs
+     */
+    public void connect(InetAddress remoteAddr, int remotePort, int timeoutMs) throws IOException
+    {
         if (_zfd < 0) {
             throw new IOException("Invalid socket (fd < 0)");
+        }
+        if (timeoutMs < 0) {
+            throw new IOException("Invalid connect timeout");
         }
         if ((remoteAddr instanceof Inet4Address) && _family != ZeroTierNative.ZTS_AF_INET) {
             throw new IOException("Invalid address type. Socket is of type AF_INET");
@@ -132,7 +147,7 @@ public class ZeroTierSocket {
             throw new IOException("Invalid address type. Socket is of type AF_INET6");
         }
         int err;
-        if ((err = ZeroTierNative.zts_connect(_zfd, remoteAddr.getHostAddress(), remotePort, 0)) < 0) {
+        if ((err = ZeroTierNative.zts_connect(_zfd, remoteAddr.getHostAddress(), remotePort, timeoutMs)) < 0) {
             throw new IOException("Error while connecting to remote host (" + err + ")");
         }
         _isConnected = true;
@@ -147,8 +162,14 @@ public class ZeroTierSocket {
      */
     public void connect(String remoteAddr, int remotePort) throws IOException
     {
+        connect(remoteAddr, remotePort, 0);
+    }
+
+    /** Connect to a remote host with a bounded native retry budget. */
+    public void connect(String remoteAddr, int remotePort, int timeoutMs) throws IOException
+    {
         InetAddress remoteInetAddr = InetAddress.getByName(remoteAddr);
-        connect(remoteInetAddr, remotePort);
+        connect(remoteInetAddr, remotePort, timeoutMs);
     }
 
     /**
