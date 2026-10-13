@@ -424,7 +424,7 @@
     <string name="question_expires_in">Question expires in %1$d s</string>
     <string name="settings_host_info">Host information</string>
     <string name="settings_connection">Connection</string>
-    <string name="settings_open_connection">Open connection settings</string>
+    <string name="settings_open_connection">Open connection list</string>
     <string name="settings_connections_export">Export connections</string>
     <string name="settings_logs_export">Export app logs</string>
     <string name="settings_logs_exported">App logs exported</string>

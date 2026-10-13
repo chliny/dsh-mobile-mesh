@@ -425,7 +425,7 @@
     <string name="settings_logs_range_invalid">开始时间必须早于结束时间</string>
     <string name="settings_logs_range_export">继续</string>
     <string name="settings_connection">连接</string>
-    <string name="settings_open_connection">打开连接设置</string>
+    <string name="settings_open_connection">排开连接列表</string>
     <string name="settings_connection_status">状态</string>
     <string name="settings_connection_host">已连接到</string>
     <string name="settings_connection_disconnect">断开连接</string>
