@@ -67,7 +67,6 @@ internal fun MarkdownCodeBlockCard(
                     .fillMaxWidth()
                     .clip(DsShapes.block)
                     .background(colors.bgModulePlatform)
-                    .border(1.dp, colors.borderL2, DsShapes.block)
                     .padding(8.dp),
             ) {
                 HighlightedCodeLines(
