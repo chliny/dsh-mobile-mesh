@@ -35,8 +35,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicBoolean
@@ -803,6 +805,65 @@ class ConnectionManager @Inject constructor(
                 eventApis.clear()
                 val token = loopFence.next()
                 loop = ConnectionLoop(muxFactory(config, baseUrl, transportLatencyMs), sinksFor(token), LoopConfig()).also { it.start() }
+            }
+            if (selectedProtocol == HarnessProtocol.UNDETERMINED || knownSessionId == null) {
+                scope.launch {
+                    // The startup probe can race a slow Host/session-list response. Retry once
+                    // after the authoritative baseline has had time to complete; never block the
+                    // mux publication or turn a transient failure into a negative capability.
+                    delay(2_500L)
+                    if (api !== nextApi || !lifecycle.accepts(target.token)) return@launch
+                    val retryResult = try {
+                        withTimeoutOrNull(HARNESS_PROTOCOL_PROBE_TIMEOUT_MS) { nextApi.sessionListProbe() }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    } ?: return@launch
+                    val retryValue = (retryResult as? RpcResult.Ok<*>)?.value
+                        as? kotlinx.serialization.json.JsonElement
+                    val retrySessionId = retryValue?.let(::sessionIdForCapabilityProbe)
+                    if (retryValue != null && selection.selected == HarnessProtocol.UNDETERMINED) {
+                        val retriedProtocol = selection.detect(
+                            probe = { retryResult },
+                            probeProjection = {
+                                nextApi.sessionProjections(dev.dsh.mobile.mesh.core.wire.dto.SessionProjectionsRequest("__dsh_mobile_protocol_probe__"))
+                            },
+                        )
+                        if (retriedProtocol != HarnessProtocol.UNDETERMINED && api === nextApi && lifecycle.accepts(target.token)) {
+                            activeProtocol = retriedProtocol
+                            hostsStore.upsertHost(config.copy(lastProtocol = retriedProtocol))
+                        }
+                    }
+                    if (retrySessionId != null && api === nextApi && lifecycle.accepts(target.token)) {
+                        try {
+                            withTimeoutOrNull(HARNESS_PROTOCOL_PROBE_TIMEOUT_MS) {
+                                when (val projection = nextApi.sessionProjections(
+                                    dev.dsh.mobile.mesh.core.wire.dto.SessionProjectionsRequest(retrySessionId),
+                                )) {
+                                    is RpcResult.Ok -> projection.value?.let { selection.observeProjectionKeys(it.values) }
+                                    is RpcResult.Err -> Unit
+                                }
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) { }
+                        val terminalSupported = try {
+                            withTimeoutOrNull(HARNESS_PROTOCOL_PROBE_TIMEOUT_MS) {
+                                selection.probeBooleanCapability(HarnessCapability.TERMINAL) {
+                                    nextApi.terminalList(retrySessionId)
+                                }
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) { null }
+                        if (api === nextApi && lifecycle.accepts(target.token)) {
+                            activeUserQuestionsCapability = selection.supports(HarnessCapability.USER_QUESTIONS)
+                            if (terminalSupported != null) _terminalAvailable.value = terminalSupported
+                            Log.d("ConnectionManager", "Deferred Harness capability probe results=${selection.capabilities}")
+                        }
+                    }
+                }
             }
             timing?.phase("publish", publishStartedAt ?: System.nanoTime(), "ok")
             hostsStore.upsertHost(config.copy(lastProtocol = selectedProtocol.takeUnless {

@@ -117,6 +117,20 @@ class HarnessProtocolSelectionTest {
         assertEquals(HarnessProtocol.UNDETERMINED, intent.detect { error("retry must not probe") })
     }
 
+    @Test fun `inconclusive probe can be retried and does not cache unsupported projection`() = runBlocking {
+        val selection = HarnessProtocolSelection()
+        assertEquals(HarnessProtocol.UNDETERMINED, selection.detect(
+            probe = { RpcResult.Ok(list("""{"items":[]}""")) },
+            probeProjection = { RpcResult.Ok(kotlinx.serialization.json.JsonNull) },
+        ))
+        assertNull(selection.supports(HarnessCapability.SUBAGENT_PROJECTION))
+        assertEquals(HarnessProtocol.PARENT_CATALOG, selection.detect(
+            probe = { RpcResult.Ok(list("""{"items":[{"sessionId":"m3","agentAvailable":true}]}""")) },
+            probeProjection = { error("a conclusive list must not probe projections") },
+        ))
+        assertEquals(true, selection.supports(HarnessCapability.SUBAGENT_PROJECTION))
+    }
+
     @Test fun `session list probe timeout keeps transport publishable as undetermined`() = runBlocking {
         val intent = HarnessProtocolSelection()
         assertEquals(HarnessProtocol.UNDETERMINED, withTimeout(1_000) {

@@ -83,7 +83,9 @@ internal class HarnessProtocolSelection(private val previous: HarnessProtocol? =
         probeProjection: suspend () -> RpcResult<*>,
         probeTimeoutMs: Long = HARNESS_PROTOCOL_PROBE_TIMEOUT_MS,
     ): HarnessProtocol = lock.withLock {
-        selected?.let { return@withLock it }
+        // An inconclusive probe is not a settled protocol result. In particular, an empty or
+        // transiently unavailable session/list must not permanently suppress a later safe retry.
+        selected?.takeUnless { it == HarnessProtocol.UNDETERMINED }?.let { return@withLock it }
         val next = try {
             val result = withTimeoutOrNull(probeTimeoutMs) { probe() }
             classifyProbeResult(result, probeProjection, probeTimeoutMs)
@@ -98,7 +100,9 @@ internal class HarnessProtocolSelection(private val previous: HarnessProtocol? =
             previous?.takeUnless { it == HarnessProtocol.UNDETERMINED } ?: next
         } else next
         selected = resolved
-        record(HarnessCapability.SUBAGENT_PROJECTION, resolved == HarnessProtocol.PARENT_CATALOG)
+        if (resolved != HarnessProtocol.UNDETERMINED) {
+            record(HarnessCapability.SUBAGENT_PROJECTION, resolved == HarnessProtocol.PARENT_CATALOG)
+        }
         resolved
     }
 
