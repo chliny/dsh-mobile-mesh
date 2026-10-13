@@ -7,6 +7,18 @@ import org.junit.Test
 /** Guards the vendored native fast path alongside the Pixel 3 timing regression. */
 class ZeroTierConnectFastReturnTest {
     @Test
+    fun `java socket passes recovery timeout to native connect`() {
+        val source = generateSequence(File(System.getProperty("user.dir")).absoluteFile) { it.parentFile }
+            .map { File(it, "third_party/libzt/src/bindings/java/com/zerotier/sockets/ZeroTierSocket.java") }
+            .firstOrNull { it.isFile }
+            ?: error("Cannot locate vendored ZeroTierSocket.java")
+        val binding = source.readText()
+            .substringAfter("public void connect(InetAddress remoteAddr, int remotePort, int timeoutMs)")
+            .substringBefore("public void connect(String remoteAddr, int remotePort)")
+        assertTrue("native connect must receive the explicit recovery budget", binding.contains("remotePort, timeoutMs"))
+    }
+
+    @Test
     fun `successful native connect returns before retry delay`() {
         val source = generateSequence(File(System.getProperty("user.dir")).absoluteFile) { it.parentFile }
             .map { File(it, "third_party/libzt/src/Sockets.cpp") }

@@ -80,9 +80,9 @@ class SshTunnelManager @Inject constructor(
             return SSHClient(sshConfig).also {
                 it.addHostKeyVerifier(AcceptAllHostKeyVerifier)
                 it.setConnectTimeout(SSH_CONNECT_TIMEOUT_MS)
-                // SSHJ completes connect/auth through its transport callbacks and blocking API. The
-                // timeout is a safety ceiling; recovery uses a shorter budget because its caller
-                // already spent time proving the existing carrier unusable and performs one retry.
+                // SSHJ completes connect/auth through its transport callbacks and blocking API.
+                // Recovery uses a short banner budget; the outer transport loop owns retries so a
+                // failed attempt retires its mesh relay before opening another SSH session.
                 it.setTimeout(handshakeTimeoutMs)
                 it.transport.setTimeoutMs(handshakeTimeoutMs)
             }
@@ -99,7 +99,7 @@ class SshTunnelManager @Inject constructor(
             // native node becomes ready. Retry only the transport handshake; authentication is
             // never repeated blindly and remains below this block.
             var lastConnectError: Throwable? = null
-            val attempts = if (recovery) SSH_RECOVERY_CONNECT_ATTEMPTS else SSH_CONNECT_ATTEMPTS
+            val attempts = sshConnectAttempts(recovery)
             for (attempt in 0 until attempts) {
                 coroutineContext.ensureActive()
                 if (attempt > 0) client = newClient()
@@ -230,9 +230,6 @@ class SshTunnelManager @Inject constructor(
         /** Below typical mobile NAT idle expiry without needlessly waking the radio. */
         const val KEEP_ALIVE_INTERVAL_SECONDS = 20
         const val SSH_CONNECT_TIMEOUT_MS = 10_000
-        const val SSH_CONNECT_ATTEMPTS = 3
-        /** Recovery gets one immediate retry; the outer transport loop owns longer backoff. */
-        const val SSH_RECOVERY_CONNECT_ATTEMPTS = 2
         const val SSH_CONNECT_RETRY_DELAY_MS = 750L
         /**
          * Long enough for a slow userspace path, far short of sshj's default. A suspended peer
@@ -247,10 +244,16 @@ class SshTunnelManager @Inject constructor(
 internal fun shouldUseSshKeyPassphrase(passphrase: String?): Boolean = !passphrase.isNullOrBlank()
 
 internal const val SSH_INITIAL_HANDSHAKE_TIMEOUT_MS = 25_000
-internal const val SSH_RECOVERY_HANDSHAKE_TIMEOUT_MS = 15_000
+internal const val SSH_RECOVERY_HANDSHAKE_TIMEOUT_MS = 8_000
+internal const val SSH_INITIAL_CONNECT_ATTEMPTS = 3
+/** The outer transport retry tears down the relay, so recovery must not nest another SSH retry. */
+internal const val SSH_RECOVERY_CONNECT_ATTEMPTS = 1
 
 internal fun sshHandshakeTimeoutMs(recovery: Boolean): Int =
     if (recovery) SSH_RECOVERY_HANDSHAKE_TIMEOUT_MS else SSH_INITIAL_HANDSHAKE_TIMEOUT_MS
+
+internal fun sshConnectAttempts(recovery: Boolean): Int =
+    if (recovery) SSH_RECOVERY_CONNECT_ATTEMPTS else SSH_INITIAL_CONNECT_ATTEMPTS
 
 private object AcceptAllHostKeyVerifier : HostKeyVerifier {
     override fun verify(hostname: String, port: Int, key: PublicKey): Boolean = true
