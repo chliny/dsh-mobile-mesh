@@ -14,6 +14,17 @@ class SessionStoreBaselineSchedulerTest {
     }
 
     @Test
+    fun `replacement generation cancels an occupied old baseline and switch worker`() {
+        assertFalse(shouldCancelStaleSessionWork("g1", "g1"))
+        assertTrue(shouldCancelStaleSessionWork("g2", "g1"))
+        val source = java.io.File("src/main/java/dev/dsh/mobile/mesh/data/SessionStore.kt").readText()
+        val reconnect = source.substringAfter("if (shouldCancelStaleSessionWork(").substringBefore("triggerBaseline(generation.clientId")
+        assertTrue(reconnect.contains("baselineWorkerJob?.cancel()"))
+        assertTrue(reconnect.contains("sessionSwitchJob?.cancel()"))
+        assertTrue(reconnect.contains("baselineRunning = false"))
+    }
+
+    @Test
     fun `session create and notification refresh bypass generation dedupe`() {
         assertFalse(shouldQueueBaselineForRequest("g1", "g1", force = false))
         assertTrue(shouldQueueBaselineForRequest("g1", "g1", force = true))
