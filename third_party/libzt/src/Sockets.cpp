@@ -23,6 +23,8 @@
 #include "ZeroTierSockets.h"
 #include "lwip/dns.h"
 #include "lwip/netdb.h"
+#include <chrono>
+#include <cerrno>
 
 #if defined(__ANDROID__)
 #include <sys/endian.h>
@@ -406,6 +408,7 @@ int zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms)
     if (timeout_ms < 0) {
         return ZTS_ERR_ARG;
     }
+    const bool explicit_timeout = timeout_ms > 0;
     if (timeout_ms == 0) {
         timeout_ms = 30000;   // Default
     }
@@ -425,6 +428,59 @@ int zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms)
     sa = (struct zts_sockaddr*)&ss;
 
     if (addrlen > 0 && sa != NULL) {
+        // An explicit retry budget must also bound the *single* lwip_connect call. On Android a
+        // blocking lwip_connect has taken 44 seconds despite a 5-second zts_connect budget: the
+        // old loop only counted sleeps between calls, not the time spent inside each call.
+        if (explicit_timeout) {
+            const int original_flags = zts_bsd_fcntl(fd, ZTS_F_GETFL, 0);
+            if (original_flags < 0) return original_flags;
+            const bool restore_blocking = !(original_flags & ZTS_O_NONBLOCK);
+            if (restore_blocking && zts_bsd_fcntl(fd, ZTS_F_SETFL, original_flags | ZTS_O_NONBLOCK) < 0) {
+                return ZTS_ERR_SOCKET;
+            }
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+            err = zts_bsd_connect(fd, sa, addrlen);
+            if (err < 0 && (errno == EINPROGRESS || errno == EALREADY || errno == EWOULDBLOCK)) {
+                for (;;) {
+                    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        deadline - std::chrono::steady_clock::now()).count();
+                    if (remaining <= 0) {
+                        errno = ETIMEDOUT;
+                        break;
+                    }
+                    struct zts_pollfd pollfd = { fd, ZTS_POLLOUT, 0 };
+                    const int ready = zts_bsd_poll(&pollfd, 1, static_cast<int>(remaining));
+                    if (ready == 0) {
+                        errno = ETIMEDOUT;
+                        break;
+                    }
+                    if (ready < 0) {
+                        if (errno == EINTR) continue;
+                        break;
+                    }
+                    int socket_error = 0;
+                    zts_socklen_t error_len = sizeof(socket_error);
+                    if (zts_bsd_getsockopt(fd, ZTS_SOL_SOCKET, ZTS_SO_ERROR, &socket_error, &error_len) < 0) break;
+                    if (socket_error != 0) {
+                        errno = socket_error;
+                        break;
+                    }
+                    if (!(pollfd.revents & ZTS_POLLOUT)) {
+                        errno = ECONNREFUSED;
+                        break;
+                    }
+                    err = 0;
+                    break;
+                }
+            }
+            const int saved_errno = errno;
+            if (restore_blocking) {
+                const int restored = zts_bsd_fcntl(fd, ZTS_F_SETFL, original_flags);
+                if (restored < 0) return restored;
+            }
+            errno = saved_errno;
+            return err;
+        }
         if (zts_get_blocking(fd)) {
             do {
                 err = zts_bsd_connect(fd, sa, addrlen);

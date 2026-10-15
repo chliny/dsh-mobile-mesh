@@ -19,6 +19,21 @@ class ZeroTierConnectFastReturnTest {
     }
 
     @Test
+    fun `explicit native timeout uses nonblocking poll and restores blocking mode`() {
+        val source = generateSequence(File(System.getProperty("user.dir")).absoluteFile) { it.parentFile }
+            .map { File(it, "third_party/libzt/src/Sockets.cpp") }
+            .firstOrNull { it.isFile }
+            ?: error("Cannot locate vendored libzt Sockets.cpp")
+        val connect = source.readText().substringAfter("int zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms)")
+            .substringBefore("int zts_bind(")
+        val bounded = connect.substringAfter("if (explicit_timeout) {").substringBefore("if (zts_get_blocking(fd))")
+        assertTrue("native connect must be nonblocking before the handshake", bounded.indexOf("ZTS_O_NONBLOCK") < bounded.indexOf("err = zts_bsd_connect(fd, sa, addrlen);") && bounded.contains("ZTS_O_NONBLOCK"))
+        assertTrue("wait for the socket only within a monotonic deadline", bounded.contains("steady_clock::now()") && bounded.contains("zts_bsd_poll(&pollfd, 1, static_cast<int>(remaining))"))
+        assertTrue("a writable socket still needs SO_ERROR verification", bounded.contains("ZTS_SO_ERROR"))
+        assertTrue("restore blocking mode before handing socket to SSH", bounded.contains("ZTS_F_SETFL, original_flags"))
+    }
+
+    @Test
     fun `successful native connect returns before retry delay`() {
         val source = generateSequence(File(System.getProperty("user.dir")).absoluteFile) { it.parentFile }
             .map { File(it, "third_party/libzt/src/Sockets.cpp") }

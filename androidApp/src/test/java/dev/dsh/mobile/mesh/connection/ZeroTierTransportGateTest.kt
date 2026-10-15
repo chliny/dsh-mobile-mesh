@@ -39,6 +39,40 @@ class ZeroTierTransportGateTest {
     }
 
     @Test
+    fun `online node with black holed target cannot start SSH`() = runBlocking {
+        val signal = withTimeout(2_000) {
+            awaitZeroTierTransportReady(
+                awaitNodeOnline = { true },
+                scheduleDial = { },
+                dialAttempts = 2,
+                timeoutMillis = 120,
+                retryIntervalMillis = 10,
+                requireTargetDial = true,
+                sampleIntervalMillis = 20,
+            )
+        }
+        assertEquals(ZERO_TIER_TIMEOUT_SIGNAL, signal)
+    }
+
+    @Test
+    fun `target becomes reachable after dial burst without waiting for a new SSH timeout`() = runBlocking {
+        val scheduled = AtomicInteger()
+        val signal = withTimeout(2_000) {
+            awaitZeroTierTransportReady(
+                awaitNodeOnline = { true },
+                scheduleDial = { onConnected -> if (scheduled.incrementAndGet() == 4) onConnected() },
+                dialAttempts = 2,
+                timeoutMillis = 1_000,
+                retryIntervalMillis = 10,
+                requireTargetDial = true,
+                sampleIntervalMillis = 10,
+            )
+        }
+        assertEquals(ZERO_TIER_REMOTE_SIGNAL, signal)
+        assertEquals(4, scheduled.get())
+    }
+
+    @Test
     fun `a dial that connects on a later attempt still ends the wait`() = runBlocking {
         val scheduled = AtomicInteger()
         val signal = withTimeout(2_000) {
