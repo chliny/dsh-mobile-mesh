@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.appcompat.app.AppCompatDelegate
 import dev.dsh.mobile.mesh.connection.KeepAliveWorker
 import dev.dsh.mobile.mesh.notify.NotificationObserver
+import dev.dsh.mobile.mesh.ui.screens.settings.AppLogCapture
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -17,6 +18,7 @@ class DshApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        AppLogCapture.start(this)
         AppCompatDelegate.setDefaultNightMode(nightModeFor(storedThemePreference(this)))
         KeepAliveWorker.schedule(this)
         notificationObserver.start()

@@ -147,7 +147,7 @@ fun SettingsScreen(
         scope.launch {
             runCatching {
                 val logs = withContext(Dispatchers.IO) {
-                    readAppLogs(context.applicationInfo.uid, logsExportRange)
+                    readAppLogs(context, logsExportRange)
                 }
                 context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(logs) }
                     ?: error("Could not open export file")
