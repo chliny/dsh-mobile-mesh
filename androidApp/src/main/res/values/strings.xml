@@ -418,6 +418,8 @@
     <string name="settings_notifications_action">Notify when your action is needed</string>
     <string name="settings_background">Keep connected in background</string>
     <string name="settings_debug">Debug</string>
+    <string name="settings_logs_persist">Save logs to device storage</string>
+    <string name="settings_logs_persist_hint">On: keep a rolling history across app restarts (up to 64 MB) and export it. Off: do not save logs; export only the current logcat buffer, which may roll over.</string>
     <string name="settings_about">About</string>
     <string name="settings_about_version">App version %1$s · protocol baseline %2$s</string>
     <string name="settings_api_compatibility">Harness API compatibility is detected on each manual connection and reused during automatic reconnects.</string>

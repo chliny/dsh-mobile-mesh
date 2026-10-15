@@ -253,6 +253,8 @@
     <string name="settings_notifications_action">Уведомлять, когда требуется ваше действие</string>
     <string name="settings_background">Оставаться на связи в фоне</string>
     <string name="settings_debug">Отладка</string>
+    <string name="settings_logs_persist">Сохранять журналы в памяти устройства</string>
+    <string name="settings_logs_persist_hint">Включено: хранит циклическую историю между перезапусками приложения (до 64 МБ) и добавляет её в экспорт. Выключено: журналы не сохраняются; экспортируются только данные текущего буфера logcat, старые записи могут быть перезаписаны.</string>
     <string name="settings_logs_range_title">Экспорт журналов за период</string>
     <string name="settings_logs_range_start">Начало</string>
     <string name="settings_logs_range_end">Конец</string>

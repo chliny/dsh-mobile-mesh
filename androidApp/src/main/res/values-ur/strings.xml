@@ -253,6 +253,8 @@
     <string name="settings_notifications_action">آپ کی کارروائی درکار ہونے پر اطلاع دیں</string>
     <string name="settings_background">پس منظر میں منسلک رہیں</string>
     <string name="settings_debug">ڈیبگ</string>
+    <string name="settings_logs_persist">لاگز ڈیوائس کی اسٹوریج میں محفوظ کریں</string>
+    <string name="settings_logs_persist_hint">آن: ایپ دوبارہ شروع ہونے کے بعد بھی محدود گھومتی ہوئی تاریخ (زیادہ سے زیادہ 64 MB) محفوظ رکھتا ہے اور برآمد میں شامل کرتا ہے۔ آف: لاگز محفوظ نہیں ہوتے؛ برآمد میں صرف logcat کا موجودہ بفر ہوتا ہے، جس میں پرانے اندراجات مٹ سکتے ہیں۔</string>
     <string name="settings_logs_range_title">وقت کی حد کے مطابق لاگز برآمد کریں</string>
     <string name="settings_logs_range_start">سے</string>
     <string name="settings_logs_range_end">تک</string>

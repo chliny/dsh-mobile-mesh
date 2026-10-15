@@ -253,6 +253,8 @@
     <string name="settings_notifications_action">आपकी कार्रवाई आवश्यक होने पर सूचित करें</string>
     <string name="settings_background">बैकग्राउंड में कनेक्टेड रहें</string>
     <string name="settings_debug">डीबग</string>
+    <string name="settings_logs_persist">डिवाइस स्टोरेज में लॉग सहेजें</string>
+    <string name="settings_logs_persist_hint">चालू: ऐप रीस्टार्ट होने के बाद भी सीमित इतिहास (अधिकतम 64 MB) रखता है और निर्यात में शामिल करता है। बंद: लॉग सहेजे नहीं जाते; निर्यात में केवल logcat का मौजूदा बफ़र होगा, जिसमें पुराने लॉग मिट सकते हैं।</string>
     <string name="settings_logs_range_title">समय सीमा के अनुसार लॉग निर्यात करें</string>
     <string name="settings_logs_range_start">शुरू</string>
     <string name="settings_logs_range_end">समाप्त</string>

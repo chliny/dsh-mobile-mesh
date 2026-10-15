@@ -253,6 +253,8 @@
     <string name="settings_notifications_action">Notificar cuando se necesite tu acción</string>
     <string name="settings_background">Mantener la conexión en segundo plano</string>
     <string name="settings_debug">Depuración</string>
+    <string name="settings_logs_persist">Guardar registros en el almacenamiento del dispositivo</string>
+    <string name="settings_logs_persist_hint">Activado: conserva un historial rotativo entre reinicios de la app (hasta 64 MB) y lo incluye al exportar. Desactivado: no guarda registros; la exportación solo incluye el búfer actual de logcat, que puede sobrescribirse.</string>
     <string name="settings_logs_range_title">Exportar registros por intervalo</string>
     <string name="settings_logs_range_start">Desde</string>
     <string name="settings_logs_range_end">Hasta</string>
