@@ -309,6 +309,14 @@ internal fun shouldResetSessionBaselineForGeneration(
     currentClientId: String?,
 ): Boolean = publishedClientId != currentClientId
 
+/** Old-generation RPCs must not occupy either worker when the replacement carrier is ready. */
+internal fun shouldCancelStaleSessionWork(publishedClientId: String, currentClientId: String?): Boolean =
+    shouldResetSessionBaselineForGeneration(publishedClientId, currentClientId)
+
+/** Metadata is advisory; a blocked catalog RPC must never hold the session switch mutex. */
+internal fun launchSessionMetadataRefresh(scope: CoroutineScope, refresh: suspend () -> Unit): Job =
+    scope.launch { refresh() }
+
 internal fun shouldReopenSessionForGeneration(
     selectedSessionId: String?,
     generationClientId: String,
@@ -372,6 +380,7 @@ class SessionStore @Inject constructor(
     private var baselineQueuedClientId: String? = null
     private var baselineWorkerSerial = 0L
     private var baselineActiveWorkerId: Long? = null
+    private var baselineWorkerJob: Job? = null
     private var selectedSessionReopened: Pair<String, String>? = null
     /** Serialize session selection so rapid taps cannot interleave follow/metadata replacement. */
     private val sessionSwitchMutex = Mutex()
@@ -900,7 +909,22 @@ class SessionStore @Inject constructor(
                 // could leave the session drawer empty forever after a reconnect.
                 val hostId = sessionBaselineHostId(connectionManager.state.value.host?.id, connectionHostId)
                 if (hostId != null && sessionListBaselineHostId != hostId) connectionHostId = hostId
-                if (shouldResetSessionBaselineForGeneration(generation.clientId, _sessionsCurrentGenerationId.value)) {
+                if (shouldCancelStaleSessionWork(generation.clientId, _sessionsCurrentGenerationId.value)) {
+                    // The previous carrier may leave a unary request suspended indefinitely. Do not
+                    // let that worker own the next generation's baseline or session-switch queue.
+                    baselineWorkerJob?.cancel()
+                    synchronized(baselineStateLock) {
+                        baselineRunning = false
+                        baselineDirty = false
+                        baselineQueuedClientId = null
+                        baselineActiveWorkerId = null
+                    }
+                    synchronized(sessionSwitchStateLock) {
+                        sessionSwitchJob?.cancel()
+                        sessionSwitchJob = null
+                        pendingSessionId = null
+                        pendingSessionAddress = null
+                    }
                     _sessionsCurrentGenerationId.value = generation.clientId
                     _sessionsBaselineLoaded.value = false
                     _sessionsBaselineFailed.value = false
@@ -1061,7 +1085,7 @@ class SessionStore @Inject constructor(
         }
         if (workerId == null) return
         Log.d(TAG, "baseline worker started worker=$workerId source=${source.label} force=$force generationKnown=${generationClientId != null}")
-        scope.launch {
+        baselineWorkerJob = scope.launch {
             try {
                 while (true) {
                     val shouldContinue = synchronized(baselineStateLock) {
@@ -2274,7 +2298,7 @@ class SessionStore @Inject constructor(
         // A red/orange carrier has no usable API generation. Preserve the user's chosen session
         // locally and let the connection baseline reopen it once green, rather than launching
         // several unary RPCs to the relay that recovery is actively closing.
-        if (apiOrNull() != null) {
+        if (apiOrNull() != null) launchSessionMetadataRefresh(scope) {
             loadSkills(sessionId)
             loadModels(sessionId)
             refreshSubagents()
