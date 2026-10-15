@@ -14,13 +14,15 @@ internal const val ZERO_TIER_REMOTE_SIGNAL = "remote-reachable"
 internal const val ZERO_TIER_TIMEOUT_SIGNAL = "timeout"
 
 /**
- * Ends the mesh readiness wait on whichever evidence arrives first.
+ * When a target is configured, only a completed TCP dial proves end-to-end readiness.
+ * Without a resolvable target, the node-online event remains the fallback.
  *
  * libzt only reports a node online after its root handshake completes. Measured on a Pixel 3 that
  * returned to the foreground with background retention disabled, the ZeroTier TCP path to the host
  * already carried a connection while `zts_node_is_online()` was still false, and the online report
  * landed 1.4s later. A completed dial is direct evidence that the mesh transports this connection
- * needs, so it ends the wait; the online report stays as the fallback when no dial can run.
+ * needs, so it ends the wait. The online report is insufficient when a known target is black-holed:
+ * otherwise each false-positive causes an 8-second SSH banner timeout before another attempt.
  *
  * [scheduleDial] must start its work outside this caller's coroutine: a libzt connect blocks for up
  * to 30 seconds, and a wait that only ends when the dial returns would be slower than the online
@@ -34,6 +36,7 @@ internal suspend fun awaitZeroTierTransportReady(
     dialAttempts: Int,
     timeoutMillis: Long,
     retryIntervalMillis: Long,
+    requireTargetDial: Boolean = false,
     sampleIntervalMillis: Long = 1_000L,
     onSample: (String) -> Unit = {},
 ): String = coroutineScope {
@@ -44,7 +47,7 @@ internal suspend fun awaitZeroTierTransportReady(
         ready.complete(Unit)
     }
     val onlineWatcher = launch(Dispatchers.IO) {
-        if (awaitNodeOnline()) publish(ZERO_TIER_ONLINE_SIGNAL)
+        if (awaitNodeOnline() && !requireTargetDial) publish(ZERO_TIER_ONLINE_SIGNAL)
     }
     val dialWatcher = launch(Dispatchers.IO) {
         var attempt = 0
@@ -60,9 +63,17 @@ internal suspend fun awaitZeroTierTransportReady(
                 }
                 delay(retryIntervalMillis)
             } else {
-                // A blocking libzt connect can outlast the dial burst. Keep reporting so a stall of
-                // several seconds still names the signal that was missing while it ran.
+                // Keep probing after the initial burst: a black-holed target may become reachable
+                // while the app is foregrounded. Permits bound the number of concurrent native dials.
                 onSample("wait-pending")
+                if (requireTargetDial) {
+                    try {
+                        scheduleDial { publish(ZERO_TIER_REMOTE_SIGNAL) }
+                    } catch (error: Throwable) {
+                        if (error is CancellationException) throw error
+                        onSample("dial-schedule-failed=${error.javaClass.simpleName}")
+                    }
+                }
                 delay(sampleIntervalMillis)
             }
         }

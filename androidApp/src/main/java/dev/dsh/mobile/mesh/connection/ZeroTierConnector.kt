@@ -132,7 +132,7 @@ class ZeroTierConnector @Inject constructor(
             current,
             state,
             networkId,
-            runCatching { resolveTarget(config) }.getOrNull(),
+            resolveTarget(config),
             targetConnectTimeoutMs,
         )
         timing.phase(
@@ -216,7 +216,7 @@ class ZeroTierConnector @Inject constructor(
             current,
             state,
             networkId,
-            runCatching { resolveTarget(config) }.getOrNull(),
+            resolveTarget(config),
             targetConnectTimeoutMs,
         )
         timing.phase(
@@ -307,6 +307,7 @@ class ZeroTierConnector @Inject constructor(
                 dialAttempts = DIAL_ATTEMPTS,
                 timeoutMillis = READY_TIMEOUT_MILLIS,
                 retryIntervalMillis = DIAL_RETRY_INTERVAL_MILLIS,
+                requireTargetDial = target != null,
                 onSample = { note ->
                     val inFlight = permits.inFlight
                     Log.d(
