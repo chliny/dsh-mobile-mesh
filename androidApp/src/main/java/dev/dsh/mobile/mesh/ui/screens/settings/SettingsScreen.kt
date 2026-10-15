@@ -122,6 +122,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     var showDisconnectDialog by remember { mutableStateOf(false) }
     var showLogsRangeDialog by remember { mutableStateOf(false) }
+    var persistLogs by remember { mutableStateOf(AppLogCapture.isEnabled(context)) }
     val initialLogsRange = remember {
         val now = System.currentTimeMillis()
         AppLogTimeRange(startEpochMs = now - 24L * 60 * 60 * 1000, endEpochMs = now)
@@ -305,6 +306,15 @@ fun SettingsScreen(
                 plugins?.let { PluginsCard(it) { pluginsOpen = true } }
 
                 SettingsCard(stringResource(R.string.settings_debug)) {
+                    ToggleRow(
+                        stringResource(R.string.settings_logs_persist),
+                        persistLogs,
+                        stringResource(R.string.settings_logs_persist_hint),
+                    ) {
+                        val enabled = !persistLogs
+                        persistLogs = enabled
+                        AppLogCapture.setEnabled(context, enabled)
+                    }
                     DsButton(
                         text = stringResource(R.string.settings_logs_export),
                         onClick = { showLogsRangeDialog = true },

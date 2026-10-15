@@ -11,6 +11,12 @@ class AppLogExportTest {
     @get:Rule val files = TemporaryFolder()
 
     @Test
+    fun `disabled persistent logging exports logcat only while enabled mode includes archive`() {
+        assertFalse(shouldExportArchivedLogs(persistLogsEnabled = false))
+        assertTrue(shouldExportArchivedLogs(persistLogsEnabled = true))
+    }
+
+    @Test
     fun `archive retains prior process logs after device buffer rolls over`() {
         val directory = files.newFolder("archive")
         val priorProcess = AppLogArchive(directory, segmentBytes = 100, maxSegments = 3)

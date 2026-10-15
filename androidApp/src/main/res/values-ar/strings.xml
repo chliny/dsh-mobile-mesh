@@ -253,6 +253,8 @@
     <string name="settings_notifications_action">الإشعار عند الحاجة إلى إجراء منك</string>
     <string name="settings_background">البقاء متصلًا في الخلفية</string>
     <string name="settings_debug">تصحيح الأخطاء</string>
+    <string name="settings_logs_persist">حفظ السجلات في مساحة تخزين الجهاز</string>
+    <string name="settings_logs_persist_hint">عند التفعيل: يُحتفظ بسجل متجدد عبر إعادة تشغيل التطبيق (حتى 64 ميغابايت) ويُضمّن عند التصدير. عند الإيقاف: لا تُحفظ السجلات، ويقتصر التصدير على مخزن logcat الحالي الذي قد تُستبدل سجلاته القديمة.</string>
     <string name="settings_logs_range_title">تصدير السجلات حسب النطاق الزمني</string>
     <string name="settings_logs_range_start">من</string>
     <string name="settings_logs_range_end">إلى</string>

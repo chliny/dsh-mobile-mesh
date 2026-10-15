@@ -27,60 +27,86 @@ internal fun filterAppLogsByTimeRange(
     return selected.joinToString(separator = "\n") + if (logcatOutput.endsWith('\n')) "\n" else ""
 }
 
-/** Read durable history, then fill any gap at the tail from the current device buffer. */
+/** Export the selected logcat range, including durable history only when the user opted in. */
 internal fun readAppLogs(context: Context, range: AppLogTimeRange): String {
     require(range.isValid()) { "The log time range must have a start before its end" }
+    val archived = AppLogCapture.isEnabled(context)
     val archive = AppLogCapture.archive(context)
-    val (history, lastLine) = archive.snapshot(range)
+    val (history, lastLine) = if (archived) archive.snapshot(range) else "" to null
     val process = ProcessBuilder("logcat", "-d", "--uid=${context.applicationInfo.uid}", "-v", "epoch,uid")
         .redirectErrorStream(true).start()
-    val resume = LogcatResume(lastLine)
-    val recent = buildString {
-        process.inputStream.bufferedReader().useLines { lines ->
-            lines.forEach { line ->
-                val time = logEpochMillis(line)
-                if (resume.shouldAppend(line) && time != null && time >= range.startEpochMs && time < range.endEpochMs) {
-                    append(line).append('\n')
-                }
-            }
-        }
-    }
+    val output = process.inputStream.bufferedReader().use { it.readText() }
     val exitCode = process.waitFor()
     check(exitCode == 0) { "logcat exited with status $exitCode" }
-    return history + recent
+    if (!shouldExportArchivedLogs(archived)) return filterAppLogsByTimeRange(output, range)
+
+    val resume = LogcatResume(lastLine)
+    val recent = output.lineSequence().mapNotNull { line ->
+        val time = logEpochMillis(line)
+        if (resume.shouldAppend(line) && time != null && time >= range.startEpochMs && time < range.endEpochMs) line
+        else null
+    }.toList()
+    return history + recent.joinToString("\n", postfix = if (recent.isNotEmpty()) "\n" else "")
 }
 
 /** Begin a persistent UID-scoped logcat stream as soon as the app process starts. */
 internal object AppLogCapture {
     private const val FIRST_START_LINES = "100000"
-    @Volatile private var started = false
+    private const val PREFS = "app_log_settings"
+    private const val KEY_PERSIST = "persist_logs_to_storage"
+    @Volatile private var enabled = false
+    @Volatile private var worker: Thread? = null
+    @Volatile private var process: Process? = null
+    @Volatile private var generation = 0L
 
     fun archive(context: Context): AppLogArchive = AppLogArchive(File(context.noBackupFilesDir, "app-log-history"))
 
+    fun isEnabled(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getBoolean(KEY_PERSIST, false)
+
     @Synchronized fun start(context: Context) {
-        if (started) return
-        started = true
-        val archive = archive(context)
-        val uid = context.applicationInfo.uid
-        Thread({
-            while (true) {
-                var process: Process? = null
+        setEnabled(context, isEnabled(context))
+    }
+
+    @Synchronized fun setEnabled(context: Context, value: Boolean) {
+        if (enabled == value && (!value || worker?.isAlive == true)) return
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_PERSIST, value).apply()
+        enabled = value
+        val runGeneration = ++generation
+        if (!value) {
+            process?.destroy()
+            process = null
+            worker?.interrupt()
+            worker = null
+            return
+        }
+        if (worker?.isAlive == true) return
+        val appContext = context.applicationContext
+        val archive = archive(appContext)
+        val uid = appContext.applicationInfo.uid
+        worker = Thread({
+            while (enabled && generation == runGeneration) {
+                var stream: Process? = null
                 try {
                     val resume = LogcatResume(archive.lastLine())
-                    process = ProcessBuilder(
+                    stream = ProcessBuilder(
                         "logcat", "--uid=$uid", "-v", "epoch,uid", "-T", resume.startTime() ?: FIRST_START_LINES,
                     ).redirectErrorStream(true).start()
-                    process.inputStream.bufferedReader().useLines { lines ->
-                        lines.forEach { line -> if (resume.shouldAppend(line)) archive.append(line) }
+                    if (generation == runGeneration) process = stream
+                    stream.inputStream.bufferedReader().useLines { lines ->
+                        lines.forEach { line -> if (enabled && generation == runGeneration && resume.shouldAppend(line)) archive.append(line) }
                     }
-                    process.waitFor()
+                    stream.waitFor()
                 } catch (_: Exception) {
-                    // A logcat process may exit on buffer reset or device policy; retry from disk.
+                    // A logcat process may exit on buffer reset, disable, or device policy; retry only while enabled.
                 } finally {
-                    process?.destroy()
+                    if (process === stream) process = null
+                    stream?.destroy()
                 }
-                try { Thread.sleep(1_000) } catch (_: InterruptedException) { return@Thread }
+                if (enabled && generation == runGeneration) try { Thread.sleep(1_000) } catch (_: InterruptedException) { break }
             }
         }, "app-log-archive").apply { isDaemon = true; start() }
     }
 }
+
+internal fun shouldExportArchivedLogs(persistLogsEnabled: Boolean): Boolean = persistLogsEnabled

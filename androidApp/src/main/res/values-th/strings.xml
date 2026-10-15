@@ -253,6 +253,8 @@
     <string name="settings_notifications_action">แจ้งเตือนเมื่อต้องมีการดำเนินการของคุณ</string>
     <string name="settings_background">คงการเชื่อมต่อในเบื้องหลัง</string>
     <string name="settings_debug">การดีบัก</string>
+    <string name="settings_logs_persist">บันทึกล็อกลงในพื้นที่เก็บข้อมูลของอุปกรณ์</string>
+    <string name="settings_logs_persist_hint">เปิด: เก็บประวัติแบบวนทับระหว่างการเริ่มแอปใหม่ (สูงสุด 64 MB) และรวมไว้เมื่อส่งออก ปิด: ไม่บันทึกล็อกลงเครื่อง การส่งออกจะใช้เฉพาะบัฟเฟอร์ logcat ปัจจุบัน ซึ่งอาจเขียนทับรายการเก่า</string>
     <string name="settings_logs_range_title">ส่งออกบันทึกตามช่วงเวลา</string>
     <string name="settings_logs_range_start">เริ่มต้น</string>
     <string name="settings_logs_range_end">สิ้นสุด</string>

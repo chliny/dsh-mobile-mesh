@@ -255,6 +255,8 @@
     <string name="settings_notifications_action">Notifier quand votre action est requise</string>
     <string name="settings_background">Rester connecté en arrière-plan</string>
     <string name="settings_debug">Débogage</string>
+    <string name="settings_logs_persist">Enregistrer les journaux sur l’appareil</string>
+    <string name="settings_logs_persist_hint">Activé : conserve un historique circulaire entre les redémarrages de l’application (jusqu’à 64 Mo) et l’inclut dans l’export. Désactivé : aucun enregistrement local ; l’export ne contient que le tampon logcat actuel, qui peut écraser les anciennes entrées.</string>
     <string name="settings_logs_range_title">Exporter les journaux sur une période</string>
     <string name="settings_logs_range_start">Début</string>
     <string name="settings_logs_range_end">Fin</string>
