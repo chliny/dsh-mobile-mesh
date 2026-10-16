@@ -19,6 +19,16 @@ class WorkspacePinProtocolTest {
         assertEquals(listOf("a", "b"), (delta as WorkspaceFollowFrame.Pinned).pinnedSessionIds)
     }
 
+    @Test fun `mid generation replace decodes complete authoritative state`() {
+        val replacement = json.decodeFromString(WorkspaceFollowFrameSerializer,
+            """{"type":"replace","value":{"items":[],"archivedSessionIds":["archived"],"pinnedSessionIds":["pinned"]}}""")
+        val snapshot = replacement as WorkspaceFollowFrame.Replace
+        assertEquals(listOf("archived"), snapshot.value.archivedSessionIds)
+        assertEquals(listOf("pinned"), snapshot.value.pinnedSessionIds)
+        assertEquals(replacement, json.decodeFromString(WorkspaceFollowFrameSerializer,
+            json.encodeToString(WorkspaceFollowFrameSerializer, replacement)))
+    }
+
     @Test fun `old baseline without pin capability still decodes`() {
         val baseline = json.decodeFromString(WorkspaceFollowFrameSerializer,
             """{"type":"baseline","value":{"items":[],"archivedSessionIds":[]}}""")

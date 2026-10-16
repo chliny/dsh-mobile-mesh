@@ -16,6 +16,8 @@ data class TerminalShell(
 data class TerminalEnvironment(
     @SerialName("cwd") val cwd: String,
     @SerialName("maxInputBytes") val maxInputBytes: Int,
+    /** Harness 86a402200d: read-only positive signal for the bidirectional attach protocol. */
+    @SerialName("maxBufferedBytes") val maxBufferedBytes: Int? = null,
     @SerialName("maxCols") val maxCols: Int,
     @SerialName("maxRows") val maxRows: Int,
     @SerialName("scrollback") val scrollback: Int,

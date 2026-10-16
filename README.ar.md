@@ -33,6 +33,8 @@ DSH Mobile Mesh هو تطبيق Android غير رسمي للتحكم عن بُع
 
 يتبع خط أساس DTO في تطبيق Android عقود session وterminal في DeepSeek Harness `v0.2.1-alpha.2`. عند الاتصال، يستخدم التطبيق فحصي `session/list` و`session/projections` الحاليين للقراءة فقط، ويخزن القدرات المكتشفة لإعادة الاتصال؛ ولا يستنتج الدعم من رقم الإصدار. إذا لم يتوفر مسار projection في خادم قديم، يستمر التطبيق باستخدام واجهة subagent القديمة.
 
+يتابع التطبيق الآن أيضاً commit `86a402200d` في `workspace/follow`: يقبل `baseline` القديم و`replace` الجديد كحالتين كاملتين تحلان محل مساحات العمل والأرشيف وترتيب التثبيت. تبقى فحوص `session/list` و`session/projections` للقراءة فقط، ويُحذف `session/create.sessionId` افتراضياً ويُستخدم المعرّف المُعاد. يختار الحقل `terminal/environment.maxBufferedBytes` للقراءة فقط البث الثنائي `terminal/attach`؛ وعند غيابه يحتفظ التطبيق بمسار `terminal/follow` القديم وعمليتي write/resize. تنتظر الأوامر المرقمة في كل اتصال إقرار Host قبل إرسال الأمر التالي وتتحقق من حدود نافذة النقل.
+
 يقبل التطبيق استجابة projection القديمة التي لا تحتوي على `kind` واستجابات `session/projections` الجديدة. تُعامل `migration-required` كتلميح بلا تسلسل ولا تُدمج مع مؤشرات الأحداث الحية. يظل `session/list.formatStatus` اختيارياً، ويُحذف `session/fork.allowMigration` افتراضياً للتوافق مع الخوادم القديمة. تُعرض سجلات subagent ذات الوضع `external` كما أرسلها الخادم، لكنها لا تُفتح كسجل محادثة Session. وتشير `terminal/environment.cwd` إلى دليل العمل الحالي الذي سجله الخادم.
 
 ## المراجع

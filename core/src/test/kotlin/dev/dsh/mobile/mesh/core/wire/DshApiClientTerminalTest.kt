@@ -57,6 +57,9 @@ class DshApiClientTerminalTest {
         assertEquals(listOf("-i"), terminal.shell.args)
         assertEquals("attach-1", terminal.controllerId)
         assertEquals(null, terminal.exitCode)
+        val modernTransport = RecordingTransport("[${info.replace(",\"controllerId\":\"attach-1\"", "") }]")
+        val modern = DshApiClient(modernTransport).terminalList("session-1") as RpcResult.Ok
+        assertEquals(null, modern.value.single().controllerId)
     }
 
     @Test
@@ -66,6 +69,11 @@ class DshApiClientTerminalTest {
         transport.assertCall("terminal/environment", """{"agentId":"agent-1"}""")
         assertEquals(65536, (result as RpcResult.Ok).value.maxInputBytes)
         assertEquals("/work", result.value.cwd)
+        assertEquals(null, result.value.maxBufferedBytes)
+
+        val current = RecordingTransport("""{"cwd":"/work","maxInputBytes":65536,"maxBufferedBytes":1048576,"maxCols":500,"maxRows":200,"scrollback":1000}""")
+        val modern = DshApiClient(current).terminalEnvironment("agent-1") as RpcResult.Ok
+        assertEquals(1048576, modern.value.maxBufferedBytes)
     }
 
     @Test

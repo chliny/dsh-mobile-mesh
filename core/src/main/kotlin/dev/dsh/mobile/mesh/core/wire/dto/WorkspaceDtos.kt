@@ -4,8 +4,9 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * Workspace-domain DTOs, ported from `packages/host/apiproxy/src/api/workspace.schema.ts` and
- * `packages/host/apiproxy/src/api/workspace.ts` (v0.1.1-rc.2).
+ * Workspace DTOs retain legacy Host payload defaults and support the `workspace/follow` complete
+ * replacement snapshot introduced by DeepSeek Harness commit 86a402200d. The frame discriminant
+ * is decoded by [WorkspaceFollowFrameSerializer] in SessionHistoryDtos.kt.
  */
 
 /** One workspace row: the record projection every workspace.* value carries. */

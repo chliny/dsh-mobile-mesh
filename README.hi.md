@@ -33,6 +33,8 @@ DeepSeek Harness host पर commands चला और files पढ़/लिख
 
 Android ऐप का DTO baseline DeepSeek Harness `v0.2.1-alpha.2` के session और terminal API contracts पर आधारित है। कनेक्शन पर ऐप मौजूदा read-only `session/list` और `session/projections` probes का उपयोग करता है और automatic reconnect के लिए पहचानी गई capabilities cache करता है; यह server version string से support का अनुमान नहीं लगाता। पुराने Host में projection route न हो तो ऐप legacy subagent API का उपयोग जारी रखता है।
 
+ऐप `workspace/follow` के लिए commit `86a402200d` भी अपनाता है: पुराना `baseline` और नया `replace` दोनों workspace, archive और pin क्रम को पूरी तरह बदलते हैं। read-only `session/list` और `session/projections` probes बने रहते हैं; `session/create.sessionId` default में छोड़ा जाता है और लौटाई गई ID इस्तेमाल होती है। read-only `terminal/environment.maxBufferedBytes` फ़ील्ड नए द्विदिश `terminal/attach` stream को चुनती है; पुराने Host में इसके न होने पर `terminal/follow` और write/resize मार्ग बने रहते हैं। हर attachment में क्रमांकित command अगला भेजने से पहले Host acknowledgement की प्रतीक्षा करती है और transport window सीमा जाँचती है।
+
 ऐप बिना `kind` वाली legacy projection response और नए `session/projections` response variants दोनों स्वीकार करता है। `migration-required` को बिना sequence वाला hint माना जाता है और इसे live event watermarks के साथ merge नहीं किया जाता। `session/list.formatStatus` optional है; पुराने Host compatibility के लिए `session/fork.allowMigration` default में omit होता है। `external` mode वाले subagent records server की दी हुई metadata के साथ दिखते हैं, लेकिन Session transcript के रूप में नहीं खुलते। `terminal/environment.cwd` Host द्वारा दर्ज मौजूदा directory है।
 
 ## संदर्भ

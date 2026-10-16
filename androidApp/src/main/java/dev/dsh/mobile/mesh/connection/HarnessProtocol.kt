@@ -63,9 +63,8 @@ internal class HarnessProtocolSelection(private val previous: HarnessProtocol? =
         val supported = when (val result = probe()) {
             is RpcResult.Ok -> true
             is RpcResult.Err -> when {
-                TransportFailures.of(result.error) == TransportFailure.NOT_FOUND &&
-                    TransportFailures.statusOf(result.error) == 404 -> false
-                result.error.code == "gateway/invocation-unavailable" -> false
+                capability == HarnessCapability.TERMINAL &&
+                    missingRemoteEndpoint(result.error.code, result.error.details, "terminal/list") -> false
                 else -> throw ProtocolProbeException(result.error.code, result.error.message)
             }
         }
@@ -156,13 +155,16 @@ internal fun classifySessionList(value: JsonElement): HarnessProtocol? {
 internal fun classifyProjectionRoute(result: RpcResult<*>): HarnessProtocol = when (result) {
     is RpcResult.Ok -> HarnessProtocol.UNDETERMINED
     is RpcResult.Err -> {
-        if (TransportFailures.of(result.error) == TransportFailure.NOT_FOUND ||
-            result.error.code == "gateway/invocation-unavailable" &&
-            (result.error.details as? JsonObject)?.get("endpoint") == JsonPrimitive("session/projections")
-        ) HarnessProtocol.LEGACY_SUBAGENTS
+        if (missingRemoteEndpoint(result.error.code, result.error.details, "session/projections"))
+            HarnessProtocol.LEGACY_SUBAGENTS
         else throw ProtocolProbeException(result.error.code, result.error.message)
     }
 }
+
+/** A named missing Remote export, not an arbitrary HTTP 404, access refusal, or lookup failure. */
+internal fun missingRemoteEndpoint(code: String, details: JsonElement?, endpoint: String): Boolean =
+    code == "gateway/invocation-unavailable" &&
+        (details as? JsonObject)?.get("endpoint") == JsonPrimitive(endpoint)
 
 internal class ProtocolProbeException(code: String, message: String) :
     Exception("Could not determine Harness session API ($code): $message")

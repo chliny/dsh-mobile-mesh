@@ -590,8 +590,9 @@ object SessionControlFrameSerializer : KSerializer<SessionControlFrame> {
 /**
  * One frame of the `workspace/follow` stream.
  *
- * The [Order] frame is authoritative and complete: display order is never inferred from the
- * arrival order of upserts, which is what makes the list converge after a reconnect baseline.
+ * The [Order] frame is authoritative and complete. Harness 86a402200d adds [Replace], a
+ * complete mid-generation snapshot (not a new opening baseline) when access visibility changes.
+ * Older Hosts omit it and continue to send baseline and ordered increments.
  */
 @Serializable(with = WorkspaceFollowFrameSerializer::class)
 sealed class WorkspaceFollowFrame {
@@ -603,6 +604,13 @@ sealed class WorkspaceFollowFrame {
     data class Baseline(
         @SerialName("type") override val type: String = "baseline",
         @SerialName("value") val value: WorkspaceBaseline = WorkspaceBaseline(),
+    ) : WorkspaceFollowFrame()
+
+    /** Complete state superseding every earlier frame in this generation (Harness 86a402200d). */
+    @Serializable
+    data class Replace(
+        @SerialName("type") override val type: String = "replace",
+        @SerialName("value") val value: WorkspaceBaseline,
     ) : WorkspaceFollowFrame()
 
     /** One workspace was added or changed. */
@@ -657,6 +665,8 @@ object WorkspaceFollowFrameSerializer : KSerializer<WorkspaceFollowFrame> {
         val json: JsonElement = when (value) {
             is WorkspaceFollowFrame.Baseline ->
                 encodeToJsonElement(WorkspaceFollowFrame.Baseline.serializer(), value)
+            is WorkspaceFollowFrame.Replace ->
+                encodeToJsonElement(WorkspaceFollowFrame.Replace.serializer(), value)
             is WorkspaceFollowFrame.Upsert ->
                 encodeToJsonElement(WorkspaceFollowFrame.Upsert.serializer(), value)
             is WorkspaceFollowFrame.Remove ->
@@ -676,6 +686,7 @@ object WorkspaceFollowFrameSerializer : KSerializer<WorkspaceFollowFrame> {
         val json = (decoder as JsonDecoder).decodeJsonElement().jsonObject
         return when (val type = json["type"]?.jsonPrimitive?.contentOrNull ?: "") {
             "baseline" -> decodeFromJsonElement(WorkspaceFollowFrame.Baseline.serializer(), json)
+            "replace" -> decodeFromJsonElement(WorkspaceFollowFrame.Replace.serializer(), json)
             "upsert" -> decodeFromJsonElement(WorkspaceFollowFrame.Upsert.serializer(), json)
             "remove" -> decodeFromJsonElement(WorkspaceFollowFrame.Remove.serializer(), json)
             "order" -> decodeFromJsonElement(WorkspaceFollowFrame.Order.serializer(), json)
