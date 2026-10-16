@@ -34,6 +34,20 @@ class ZeroTierConnectFastReturnTest {
     }
 
     @Test
+    fun `target probe logs native connect budget result code and cleanup duration`() {
+        val source = generateSequence(File(System.getProperty("user.dir")).absoluteFile) { it.parentFile }
+            .map { File(it, "androidApp/src/main/java/dev/dsh/mobile/mesh/connection/ZeroTierConnector.kt") }
+            .firstOrNull { it.isFile }
+            ?: error("Cannot locate ZeroTierConnector.kt")
+        val dial = source.readText().substringAfter("private fun dialTarget(")
+            .substringBefore("private fun resolveTarget(")
+        assertTrue("log the exact timeout passed to native connect", dial.contains("budgetMs=") && dial.contains("remainingMs"))
+        assertTrue("log time spent inside native connect separately", dial.contains("nativeConnectMs=") && dial.contains("nativeConnectMs"))
+        assertTrue("log the native error code when present", dial.contains("errorCode=") && dial.contains("nativeError"))
+        assertTrue("log socket close duration separately", dial.contains("socketCloseMs=") && dial.contains("socketCloseMs"))
+    }
+
+    @Test
     fun `successful native connect returns before retry delay`() {
         val source = generateSequence(File(System.getProperty("user.dir")).absoluteFile) { it.parentFile }
             .map { File(it, "third_party/libzt/src/Sockets.cpp") }

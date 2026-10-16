@@ -25,11 +25,15 @@ internal class BoundedConnectRegistry<T>(private val closeResource: (T) -> Unit)
     }
 
     /** Transfer a connected resource only while the registry is live; otherwise close it. */
-    fun finish(resource: T, connected: Boolean): Boolean {
+    fun finish(resource: T, connected: Boolean, onClosed: ((Long) -> Unit)? = null): Boolean {
         val transferred = synchronized(lock) {
             connecting.remove(resource) && connected && !closed
         }
-        if (!transferred) closeQuietly(resource)
+        if (!transferred) {
+            val closeStartedAt = System.nanoTime()
+            closeQuietly(resource)
+            onClosed?.invoke(java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - closeStartedAt))
+        }
         return transferred
     }
 
