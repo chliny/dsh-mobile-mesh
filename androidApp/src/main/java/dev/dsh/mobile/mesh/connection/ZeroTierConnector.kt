@@ -345,13 +345,28 @@ class ZeroTierConnector @Inject constructor(
             val socket = runCatching { ZeroTierSocket(family, ZeroTierNative.ZTS_SOCK_STREAM, 0) }.getOrNull()
                 ?: continue
             if (!pendingDials.register(socket)) return null
+            val nativeStartedAt = System.nanoTime()
             val failure = runCatching { socket.connect(address, remotePort, remainingMs) }.exceptionOrNull()
-            val transferred = pendingDials.finish(socket, connected = failure == null)
+            val nativeConnectMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - nativeStartedAt)
+            val nativeError = failure?.message?.let { message ->
+                Regex("\\((-?\\d+)\\)").find(message)?.groupValues?.get(1)
+            }
+            Log.d(
+                TAG,
+                "remote-dial native-connect target=$address:$remotePort budgetMs=$remainingMs" +
+                    " elapsedMs=$nativeConnectMs result=${if (failure == null) "ok" else "error"}" +
+                    " errorType=${failure?.javaClass?.simpleName ?: "none"} errorCode=${nativeError ?: "none"}",
+            )
+            var socketCloseMs: Long? = null
+            val transferred = pendingDials.finish(socket, connected = failure == null) { elapsed ->
+                socketCloseMs = elapsed
+            }
             if (failure != null || !transferred) {
                 Log.d(
                     TAG,
                     "remote-dial result=failed target=$address:$remotePort" +
-                        " elapsedMs=${elapsedMsSince(startedAt)} online=${isServiceOnline()}" +
+                        " elapsedMs=${elapsedMsSince(startedAt)} nativeConnectMs=$nativeConnectMs" +
+                        " socketCloseMs=${socketCloseMs ?: "not-closed"} online=${isServiceOnline()}" +
                         " reason=${failure?.javaClass?.simpleName ?: "cancelled"}",
                 )
                 continue
@@ -359,7 +374,8 @@ class ZeroTierConnector @Inject constructor(
             Log.d(
                 TAG,
                 "remote-dial result=connected target=$address:$remotePort" +
-                    " elapsedMs=${elapsedMsSince(startedAt)} online=${isServiceOnline()}",
+                    " elapsedMs=${elapsedMsSince(startedAt)} nativeConnectMs=$nativeConnectMs" +
+                    " socketCloseMs=${socketCloseMs ?: "not-closed"} online=${isServiceOnline()}",
             )
             return DialedTarget(socket, address)
         }
