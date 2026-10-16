@@ -100,8 +100,8 @@ class HarnessProtocolSelectionTest {
             probe = { calls++; RpcResult.Ok(list("""{"items":[]}""")) },
             probeProjection = {
                 calls++
-                RpcResult.Err(RpcError("capability-unavailable", "HTTP 404",
-                    TransportFailures.details(TransportFailure.NOT_FOUND, 404)))
+                RpcResult.Err(RpcError("gateway/invocation-unavailable", "route missing",
+                    list("""{"endpoint":"session/projections"}""")))
             },
         ))
         assertEquals(HarnessProtocol.LEGACY_SUBAGENTS, intent.detect { error("retry must not probe") })
@@ -196,7 +196,7 @@ class HarnessProtocolSelectionTest {
 
         val old = HarnessProtocolSelection()
         assertEquals(false, old.probeBooleanCapability(HarnessCapability.TERMINAL) {
-            RpcResult.Err(RpcError("internal", "HTTP 404", TransportFailures.details(TransportFailure.NOT_FOUND, 404)))
+            RpcResult.Err(RpcError("gateway/invocation-unavailable", "route missing", list("""{"endpoint":"terminal/list"}""")))
         })
         assertEquals(false, old.supports(HarnessCapability.TERMINAL))
     }
@@ -216,11 +216,37 @@ class HarnessProtocolSelectionTest {
     @Test fun `unsupported terminal route remains hidden on reconnect and a new intent does not inherit it`() = runBlocking {
         val selection = HarnessProtocolSelection()
         selection.probeBooleanCapability(HarnessCapability.TERMINAL) {
-            RpcResult.Err(RpcError("internal", "HTTP 404", TransportFailures.details(TransportFailure.NOT_FOUND, 404)))
+            RpcResult.Err(RpcError("gateway/invocation-unavailable", "route missing", list("""{"endpoint":"terminal/list"}""")))
         }
         assertEquals(false, terminalCapabilityForConnection(selection, null, true))
         assertEquals(false, terminalCapabilityForConnection(HarnessProtocolSelection(), null, null))
         assertEquals(true, terminalCapabilityForConnection(HarnessProtocolSelection(), "session", true))
+    }
+
+    @Test fun `unrelated 404 and differently addressed gateway errors do not disprove routes`() = runBlocking {
+        val terminal = HarnessProtocolSelection()
+        assertThrows(ProtocolProbeException::class.java) {
+            runBlocking { terminal.probeBooleanCapability(HarnessCapability.TERMINAL) {
+                RpcResult.Err(RpcError("session/not-found", "HTTP 404",
+                    TransportFailures.details(TransportFailure.NOT_FOUND, 404)))
+            } }
+        }
+        assertNull(terminal.supports(HarnessCapability.TERMINAL))
+        assertThrows(ProtocolProbeException::class.java) {
+            runBlocking { terminal.probeBooleanCapability(HarnessCapability.TERMINAL) {
+                RpcResult.Err(RpcError("gateway/invocation-unavailable", "different endpoint",
+                    list("""{"endpoint":"session/projections"}""")))
+            } }
+        }
+        val sessions = HarnessProtocolSelection()
+        assertThrows(ProtocolProbeException::class.java) {
+            runBlocking { sessions.detect(
+                probe = { RpcResult.Ok(list("""{"items":[]}""")) },
+                probeProjection = { RpcResult.Err(RpcError("session/not-found", "HTTP 404",
+                    TransportFailures.details(TransportFailure.NOT_FOUND, 404))) },
+            ) }
+        }
+        assertNull(sessions.selected)
     }
 
     @Test fun `terminal capability refuses to interpret auth errors as missing route`() {

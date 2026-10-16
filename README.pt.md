@@ -33,6 +33,8 @@ O DeepSeek Harness pode executar comandos e ler ou escrever arquivos no host. N�
 
 A referência de DTO do Android acompanha os contratos de session e terminal do DeepSeek Harness `v0.2.1-alpha.2`. Ao conectar, o app usa as sondagens existentes somente de leitura `session/list` e `session/projections` e armazena as capacidades detectadas para reconexões; não deduz suporte pela versão do servidor. Se um Host antigo não tiver a rota de projection, o app continua usando a API legada de subagent.
 
+O app também acompanha o commit `86a402200d` em `workspace/follow`: tanto o antigo `baseline` quanto o novo `replace` substituem por completo workspaces, arquivos e ordem dos fixados. As sondagens de leitura `session/list` e `session/projections` permanecem; `session/create.sessionId` é omitido por padrão e o ID retornado é usado. O campo somente de leitura `terminal/environment.maxBufferedBytes` seleciona o fluxo bidirecional `terminal/attach`; em Hosts antigos sem ele, permanecem `terminal/follow` e as rotas write/resize. Comandos numerados por conexão aguardam o reconhecimento do Host antes do próximo envio e respeitam os limites da janela de transporte.
+
 O app aceita tanto respostas antigas de projection sem `kind` quanto as variantes atuais de `session/projections`. `migration-required` é tratado como uma indicação sem sequência e não é mesclado com marcas de eventos ao vivo. `session/list.formatStatus` é opcional e `session/fork.allowMigration` é omitido por padrão para manter a compatibilidade com Hosts antigos. Registros de subagent no modo `external` são exibidos com os metadados do servidor, mas não são abertos como transcript de Session. `terminal/environment.cwd` representa o diretório atual registrado pelo Host.
 
 ## Referências

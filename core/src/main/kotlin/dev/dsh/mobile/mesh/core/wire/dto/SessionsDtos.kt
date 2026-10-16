@@ -229,7 +229,11 @@ data class SessionSearchItem(
     @SerialName("snippet") val snippet: String,
 )
 
-/** Request payload of `session.create` (at most one of workspaceId / cwd). */
+/**
+ * Request for a new conversation (at most one of workspaceId / cwd). On Harness 86a402200d,
+ * `sessionId` only proposes a reusable blank session: the Host may return another ID.
+ * Omit optional fields by default for older Hosts; never select a blank session from client state.
+ */
 @Serializable
 data class SessionCreateRequest(
     @SerialName("workspaceId") val workspaceId: String? = null,
@@ -393,7 +397,7 @@ data class SessionSearchValue(
     @SerialName("hasMore") val hasMore: Boolean,
 )
 
-/** Value of `session.create`. */
+/** Host-selected identity of the created or reused Session; it may differ from the requested ID. */
 @Serializable
 data class SessionCreateValue(
     @SerialName("sessionId") val sessionId: String,

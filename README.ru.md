@@ -33,6 +33,8 @@ DeepSeek Harness может выполнять команды и читать и
 
 DTO Android соответствуют контрактам session и terminal в DeepSeek Harness `v0.2.1-alpha.2`. При подключении приложение использует существующие read-only проверки `session/list` и `session/projections` и сохраняет обнаруженные возможности для переподключений; поддержка не определяется по номеру версии сервера. Если старый Host не предоставляет маршрут projection, приложение продолжает использовать прежний subagent API.
 
+Приложение также учитывает commit `86a402200d` для `workspace/follow`: старый `baseline` и новый `replace` полностью заменяют рабочие области, архив и порядок закрепления. Проверки чтения `session/list` и `session/projections` сохранены; `session/create.sessionId` по умолчанию пропускается, используется возвращённый ID. Поле чтения `terminal/environment.maxBufferedBytes` выбирает двусторонний поток `terminal/attach`; на старых Host без него остаются `terminal/follow` и вызовы write/resize. Команды нумеруются на каждое подключение, ждут подтверждения Host до следующей отправки и учитывают предел транспортного окна.
+
 Приложение принимает как старые ответы projection без `kind`, так и новые варианты `session/projections`. Ответ `migration-required` считается подсказкой без последовательности и не объединяется с водяными знаками событий реального времени. `session/list.formatStatus` — необязательное поле, а `session/fork.allowMigration` по умолчанию не отправляется для совместимости со старыми Host. Записи subagent с режимом `external` отображаются с метаданными сервера, но не открываются как transcript Session. `terminal/environment.cwd` — текущий каталог, записанный Host.
 
 ## Ссылки

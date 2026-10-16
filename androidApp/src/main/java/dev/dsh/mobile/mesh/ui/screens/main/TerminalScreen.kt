@@ -77,6 +77,7 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
     var status by remember(sessionId) { mutableStateOf("") }
     var maxDimensions by remember(sessionId) { mutableStateOf(500 to 200) }
     var maxInputBytes by remember(sessionId) { mutableStateOf(65_536) }
+    var modernAttachment by remember(sessionId) { mutableStateOf<Boolean?>(null) }
     var ctrl by remember { mutableStateOf(false) }
     var shift by remember { mutableStateOf(false) }
     var alt by remember { mutableStateOf(false) }
@@ -135,10 +136,12 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
     }
     LaunchedEffect(sessionId) {
         suspend fun updateFromHost() {
+            modernAttachment = null
             when (val env = manager.connectedApi?.terminalEnvironment(sessionId)) {
                 is RpcResult.Ok -> {
                     maxDimensions = env.value.maxCols to env.value.maxRows
                     maxInputBytes = env.value.maxInputBytes
+                    modernAttachment = env.value.maxBufferedBytes != null
                 }
                 else -> Unit
             }
@@ -147,9 +150,10 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
         updateFromHost()
         manager.connectedGenerations.collect { updateFromHost() }
     }
-    LaunchedEffect(selected, webReady, screen, manager.generation) {
+    LaunchedEffect(selected, webReady, screen, manager.generation, modernAttachment) {
         val id = selected ?: return@LaunchedEffect
         if (!webReady) return@LaunchedEffect
+        val useAttach = modernAttachment ?: return@LaunchedEffect
         // Each attachment has its own control identity; the server supplies the baseline screen.
         while (isActive) {
             val generation = manager.generation
@@ -170,6 +174,7 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
             var holdJob: Job? = null
             var writerJob: Job? = null
             var resizeJob: Job? = null
+            var modernInput: TerminalAttachmentInput? = null
             try {
                 // A hold survives transient output follower disconnections until leaving this view.
                 val retained = CompletableDeferred<Unit>()
@@ -184,6 +189,64 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                     }
                 }
                 kotlinx.coroutines.withTimeout(10_000) { retained.await() }
+                if (useAttach) {
+                    val stream = generation.mux.open("terminal/attach", buildJsonObject {
+                        put("agentId", JsonPrimitive(sessionId))
+                        put("id", JsonPrimitive(id))
+                    })
+                    val input = TerminalAttachmentInput(stream)
+                    modernInput = input
+                    fun installQueues() {
+                        if (inputQueue != null) return
+                        val queue = TerminalInputQueue { data -> input.write(data) }
+                        val resize = TerminalResizeQueue { size ->
+                            input.resize(size.first.coerceIn(2, currentMaxDimensions.first),
+                                size.second.coerceIn(1, currentMaxDimensions.second))
+                        }
+                        inputQueue = queue
+                        resizeQueue = resize
+                        attachment = token
+                        writerJob = launch { queue.drain { status = it.message.orEmpty() } }
+                        resizeJob = launch { resize.drain() }
+                        resize.offer(dimensions.first to dimensions.second)
+                    }
+                    var sequence: Int? = null
+                    while (isActive) {
+                        val raw = stream.receive() ?: break
+                        val frame = raw.jsonObject
+                        when (frame["type"]?.jsonPrimitive?.content) {
+                            "snapshot" -> {
+                                sequence = frame["sequence"]?.jsonPrimitive?.intOrNull
+                                render("terminalReset", frame["screen"]?.jsonPrimitive?.content.orEmpty())
+                                input.snapshot(frame["writable"]?.jsonPrimitive?.content == "true", frame["inputWindow"] as? kotlinx.serialization.json.JsonObject)
+                                if (frame["writable"]?.jsonPrimitive?.content == "true") installQueues()
+                                status = ""
+                            }
+                            "ack" -> input.acknowledge(frame["sequence"]?.jsonPrimitive?.intOrNull ?: -1,
+                                frame["refusal"]?.jsonPrimitive?.content)
+                            "state" -> {
+                                val writable = frame["writable"]?.jsonPrimitive?.content == "true"
+                                input.state(writable)
+                                if (!writable) {
+                                    inputQueue?.close()
+                                    inputQueue = null
+                                    resizeQueue?.close()
+                                    resizeQueue = null
+                                    attachment = null
+                                    writerJob?.cancel()
+                                    resizeJob?.cancel()
+                                } else installQueues()
+                                if (frame["info"]?.jsonObject?.get("state")?.jsonPrimitive?.content != "running") refresh()
+                            }
+                            "output" -> {
+                                val next = frame["sequence"]?.jsonPrimitive?.intOrNull
+                                if (sequence == null || next != sequence!! + 1) error("Terminal output gap")
+                                sequence = next
+                                render("terminalWrite", frame["data"]?.jsonPrimitive?.content.orEmpty())
+                            }
+                        }
+                    }
+                } else {
                 var sequence: Int? = null
                 var writableToken: String? = null
                 generation.mux.openStream("terminal/follow", args).collect { raw ->
@@ -254,9 +317,11 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                         }
                     }
                 }
+                }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { status = failure.message.orEmpty() }
             finally {
+                modernInput?.close()
                 inputQueue?.close()
                 inputQueue = null
                 resizeQueue?.close()

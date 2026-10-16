@@ -1043,7 +1043,7 @@ class SessionStore @Inject constructor(
                 open = { mux.openStream("workspace/follow") },
                 onItem = { item ->
                     val frame = decodeOrNull(WorkspaceFollowFrameSerializer, item)
-                    if (frame is WorkspaceFollowFrame.Baseline) {
+                    if (frame is WorkspaceFollowFrame.Baseline || frame is WorkspaceFollowFrame.Replace) {
                         _pinAvailable.value = ((item as? JsonObject)?.get("value") as? JsonObject)
                             ?.containsKey("pinnedSessionIds") == true
                     }
@@ -1516,15 +1516,20 @@ class SessionStore @Inject constructor(
      */
     private fun handleWorkspaceFrame(frame: WorkspaceFollowFrame) {
         when (frame) {
-            is WorkspaceFollowFrame.Baseline -> synchronized(lock) {
+            is WorkspaceFollowFrame.Baseline, is WorkspaceFollowFrame.Replace -> synchronized(lock) {
+                val snapshot = when (frame) {
+                    is WorkspaceFollowFrame.Baseline -> frame.value
+                    is WorkspaceFollowFrame.Replace -> frame.value
+                    else -> error("unreachable workspace snapshot")
+                }
                 workspaceRows.clear()
                 workspaceOrder.clear()
-                for (w in frame.value.items) workspaceRows[w.workspaceId] = w.toRow()
-                workspaceOrder.addAll(frame.value.items.map { it.workspaceId })
+                for (w in snapshot.items) workspaceRows[w.workspaceId] = w.toRow()
+                workspaceOrder.addAll(snapshot.items.map { it.workspaceId })
                 _workspacesLoaded.value = true
-                archived = frame.value.archivedSessionIds.toSet()
+                archived = snapshot.archivedSessionIds.toSet()
                 _archivedSessionIds.value = archived
-                _pinnedSessionIds.value = frame.value.pinnedSessionIds
+                _pinnedSessionIds.value = snapshot.pinnedSessionIds
                 emitWorkspacesLocked()
                 logSessionListPresentationSnapshotLocked("workspace-baseline")
             }
@@ -2584,20 +2589,8 @@ class SessionStore @Inject constructor(
     }
 
     suspend fun createSession(cwd: String? = null, workspaceId: String? = null) {
-        // Reuse the workspace's existing blank session instead of leaving another empty one behind
-        // — the harness's own New Session does this, and it is why its list stays clean.
-        if (workspaceId != null) {
-            val reusable = synchronized(lock) {
-                workspaceRows[workspaceId]?.sessionIds
-                    ?.mapNotNull { sessionRows[it] }
-                    ?.firstOrNull { it.blank && it.sessionId !in archived && it.origin != "subagent" }
-                    ?.sessionId
-            }
-            if (reusable != null) {
-                openSession(reusable)
-                return
-            }
-        }
+        // The Host decides whether a named blank session can be reused; never select one from
+        // possibly stale workspace and session projections on this client.
         val api = apiOrNull() ?: return
         when (val r = api.sessionCreate(SessionCreateRequest(workspaceId = workspaceId, cwd = cwd))) {
             is RpcResult.Ok -> {
