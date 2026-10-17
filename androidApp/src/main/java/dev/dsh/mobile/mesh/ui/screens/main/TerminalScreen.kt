@@ -33,9 +33,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.RpcResult
+import dev.dsh.mobile.mesh.core.wire.WireJson
 import dev.dsh.mobile.mesh.core.wire.dto.TerminalCreateRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WebTerminalInfo
+import dev.dsh.mobile.mesh.data.TerminalListOffline
 import dev.dsh.mobile.mesh.ui.rememberConnectionManager
+import dev.dsh.mobile.mesh.ui.rememberTerminalInventoryStore
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -44,6 +47,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
@@ -70,6 +75,8 @@ internal class InitialTerminalCreation {
 internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     val manager = rememberConnectionManager()
+    val inventoryStore = rememberTerminalInventoryStore()
+    val inventory = remember(sessionId, inventoryStore) { inventoryStore.inventory(sessionId) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var terminals by remember(sessionId) { mutableStateOf<List<WebTerminalInfo>>(emptyList()) }
@@ -106,23 +113,32 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
             when (val result = manager.connectedApi?.terminalCreate(sessionId, TerminalCreateRequest(
                 UUID.randomUUID().toString(), dimensions.first.coerceIn(2, maxDimensions.first), dimensions.second.coerceIn(1, maxDimensions.second),
             ))) {
-                is RpcResult.Ok -> { selected = result.value.id; onCreated() }
+                is RpcResult.Ok -> { inventory.update(result.value); selected = result.value.id; onCreated() }
                 is RpcResult.Err -> status = result.error.message
                 null -> status = context.getString(R.string.terminal_offline)
             }
         } finally { creating = false }
     }
-    suspend fun refresh() {
+    suspend fun refresh(refreshRemote: Boolean = false) {
         val version = ++refreshVersion
-        when (val result = manager.connectedApi?.terminalList(sessionId)) {
-            is RpcResult.Ok -> if (version == refreshVersion) {
-                terminals = result.value
-                if (selected !in terminals.map { it.id }) selected = terminals.firstOrNull()?.id
-                if (initialCreation.listed(terminals.size) && !creating) createTerminal { refresh() }
-            }
-            is RpcResult.Err -> if (version == refreshVersion) status = result.error.message
-            null -> if (version == refreshVersion) status = context.getString(R.string.terminal_offline)
+        try {
+            val listed = inventory.read(refreshRemote)
+            if (version != refreshVersion) return
+            terminals = listed
+            if (selected !in terminals.map { it.id }) selected = terminals.firstOrNull()?.id
+            if (initialCreation.listed(terminals.size) && !creating) createTerminal { refresh() }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: TerminalListOffline) {
+            if (version == refreshVersion) status = context.getString(R.string.terminal_offline)
+        } catch (failure: Throwable) {
+            if (version == refreshVersion) status = failure.message.orEmpty()
         }
+    }
+    fun updateTerminalInfo(raw: JsonElement?) {
+        val info = raw as? JsonObject ?: return
+        runCatching { WireJson.decodeFromJsonElement(WebTerminalInfo.serializer(), info) }
+            .onSuccess(inventory::update)
     }
     fun render(name: String, text: String) {
         // JSON string encoding is a valid JavaScript string literal (quotes, controls and emojis).
@@ -135,7 +151,7 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
         } ?: ""
     }
     LaunchedEffect(sessionId) {
-        suspend fun updateFromHost() {
+        suspend fun updateFromHost(refreshRemote: Boolean) {
             modernAttachment = null
             when (val env = manager.connectedApi?.terminalEnvironment(sessionId)) {
                 is RpcResult.Ok -> {
@@ -145,10 +161,12 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                 }
                 else -> Unit
             }
-            refresh()
+            refresh(refreshRemote)
         }
-        updateFromHost()
-        manager.connectedGenerations.collect { updateFromHost() }
+        // The first read may answer from the shared Session cache; a new connection generation
+        // replaces it with the Host's current list once per generation.
+        updateFromHost(refreshRemote = false)
+        manager.connectedGenerations.collect { updateFromHost(refreshRemote = true) }
     }
     LaunchedEffect(selected, webReady, screen, manager.generation, modernAttachment) {
         val id = selected ?: return@LaunchedEffect
@@ -218,6 +236,7 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                             "snapshot" -> {
                                 sequence = frame["sequence"]?.jsonPrimitive?.intOrNull
                                 render("terminalReset", frame["screen"]?.jsonPrimitive?.content.orEmpty())
+                                updateTerminalInfo(frame["info"])
                                 input.snapshot(frame["writable"]?.jsonPrimitive?.content == "true", frame["inputWindow"] as? kotlinx.serialization.json.JsonObject)
                                 if (frame["writable"]?.jsonPrimitive?.content == "true") installQueues()
                                 status = ""
@@ -227,6 +246,7 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                             "state" -> {
                                 val writable = frame["writable"]?.jsonPrimitive?.content == "true"
                                 input.state(writable)
+                                updateTerminalInfo(frame["info"])
                                 if (!writable) {
                                     inputQueue?.close()
                                     inputQueue = null
@@ -236,7 +256,7 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                                     writerJob?.cancel()
                                     resizeJob?.cancel()
                                 } else installQueues()
-                                if (frame["info"]?.jsonObject?.get("state")?.jsonPrimitive?.content != "running") refresh()
+                                if (frame["info"]?.jsonObject?.get("state")?.jsonPrimitive?.content != "running") refresh(refreshRemote = true)
                             }
                             "output" -> {
                                 val next = frame["sequence"]?.jsonPrimitive?.intOrNull
@@ -255,6 +275,7 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                         "snapshot" -> {
                             sequence = frame["sequence"]?.jsonPrimitive?.intOrNull
                             render("terminalReset", frame["screen"]?.jsonPrimitive?.content.orEmpty())
+                            updateTerminalInfo(frame["info"])
                             val info = frame["info"]?.jsonObject
                             if (info?.get("controllerId")?.jsonPrimitive?.content != token && writableToken == token) {
                                 writableToken = null
@@ -313,7 +334,8 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                             render("terminalWrite", frame["data"]?.jsonPrimitive?.content.orEmpty())
                         }
                         "state" -> {
-                            if (frame["info"]?.jsonObject?.get("state")?.jsonPrimitive?.content != "running") refresh()
+                            updateTerminalInfo(frame["info"])
+                            if (frame["info"]?.jsonObject?.get("state")?.jsonPrimitive?.content != "running") refresh(refreshRemote = true)
                         }
                     }
                 }
@@ -347,7 +369,7 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                 val id = selected ?: return@TextButton
                 scope.launch {
                     when (val result = manager.connectedApi?.terminalClose(sessionId, id)) {
-                        is RpcResult.Ok -> { selected = null; refresh() }
+                        is RpcResult.Ok -> { inventory.remove(id); selected = null; refresh() }
                         is RpcResult.Err -> status = result.error.message
                         null -> status = context.getString(R.string.terminal_offline)
                     }

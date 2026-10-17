@@ -22,7 +22,8 @@ import kotlinx.serialization.Serializable
  *
  * In particular there is no `version`. The connect list, the details panel and Settings screens
  * used to show the harness's own version here; no 0.1.2 wire field replaces it, so they show
- * this client's pinned baseline instead — see `docs/COMPATIBILITY.md`.
+ * this client's pinned baseline instead — see the "Compatibility and protocol baseline" section
+ * of the root `README.md`.
  */
 @Serializable
 data class HostDescription(

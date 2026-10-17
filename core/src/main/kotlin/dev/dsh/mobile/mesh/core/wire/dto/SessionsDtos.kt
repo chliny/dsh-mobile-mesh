@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonElement
 /**
  * Sessions-domain DTOs, ported from `packages/api/session-controller/src/types.ts`,
  * `packages/attachment/attachment/src/types.ts` and `packages/client/file-upload/src/types.ts`
- * (protocol baseline: v0.2.1-alpha.2). Includes the request/response values of the `session` namespace methods
+ * (protocol baseline: v0.2.1-rc.2). Includes the request/response values of the `session` namespace methods
  * (list/search/create/rename/fork/selectModel/prompt/attachment/updateQueue/cancel), the
  * model-catalog shapes, and the image and file attachment shapes.
  */
