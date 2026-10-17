@@ -7,6 +7,7 @@ import dev.dsh.mobile.mesh.connection.ConnectionManager
 import dev.dsh.mobile.mesh.connection.HostsStore
 import dev.dsh.mobile.mesh.data.ChatDraftStore
 import dev.dsh.mobile.mesh.data.SessionStore
+import dev.dsh.mobile.mesh.data.TerminalInventoryStore
 import dev.dsh.mobile.mesh.data.WorkspaceFilesStore
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -27,6 +28,7 @@ interface SessionStoreEntryPoint {
     fun sessionStore(): SessionStore
     fun chatDraftStore(): ChatDraftStore
     fun workspaceFilesStore(): WorkspaceFilesStore
+    fun terminalInventoryStore(): TerminalInventoryStore
     fun hostsStore(): HostsStore
     fun connectionManager(): ConnectionManager
     fun appNavigationState(): AppNavigationState
@@ -62,6 +64,20 @@ internal fun rememberConnectionManager(): ConnectionManager {
     val context = LocalContext.current.applicationContext
     return remember {
         EntryPointAccessors.fromApplication(context, SessionStoreEntryPoint::class.java).connectionManager()
+    }
+}
+
+/**
+ * Resolves the process-scoped terminal discovery cache once per composition.
+ *
+ * Terminal metadata is Host-owned, so this retains the last `terminal/list` result per Session
+ * and refreshes it on a new connection generation; it never derives rows locally.
+ */
+@Composable
+internal fun rememberTerminalInventoryStore(): TerminalInventoryStore {
+    val context = LocalContext.current.applicationContext
+    return remember {
+        EntryPointAccessors.fromApplication(context, SessionStoreEntryPoint::class.java).terminalInventoryStore()
     }
 }
 
