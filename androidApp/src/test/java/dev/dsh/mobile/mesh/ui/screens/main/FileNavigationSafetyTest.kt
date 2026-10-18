@@ -8,6 +8,8 @@ class FileNavigationSafetyTest {
     @Test
     fun `rejects absolute file paths outside the session cwd`() {
         assertNull(safePreviewPath("/tmp/secret.txt", "/home/me/project"))
+        assertNull(safePreviewPath("/home/me/project2/secret.txt", "/home/me/project"))
+        assertNull(safePreviewPath("/home/me/PROJECT/secret.txt", "/home/me/project"))
         assertNull(safePreviewPath("C:/other/secret.txt", "C:/work/project"))
     }
 
@@ -15,6 +17,8 @@ class FileNavigationSafetyTest {
     fun `keeps relative paths and strips the session cwd`() {
         assertEquals("src/Main.kt", safePreviewPath("src/Main.kt", "/home/me/project"))
         assertEquals("src/Main.kt", safePreviewPath("/home/me/project/src/Main.kt", "/home/me/project"))
+        assertEquals(" folder / report .md ", safePreviewPath("/home/me/project/ folder / report .md ", "/home/me/project"))
+        assertEquals(" ", safePreviewPath(" ", "/home/me/project"))
     }
 
     @Test
@@ -35,5 +39,10 @@ class FileNavigationSafetyTest {
 
         assertEquals("src/Main.kt", opened?.first)
         assertEquals("Main.kt", opened?.second)
+        opened = null
+        openWorkspacePath(context, "/home/me/project2/secret.txt", "secret.txt", context.onOpenFile)
+        assertNull(opened)
+        openWorkspacePath(context, "/home/me/project/ report .md ", " report .md ", context.onOpenFile)
+        assertEquals(" report .md " to " report .md ", opened)
     }
 }

@@ -5,9 +5,9 @@ import org.junit.Test
 
 class WorkspaceFilesNavigationTest {
     @Test
-    fun `blank initial path is normalized to workspace root`() {
+    fun `only empty initial path is normalized to workspace root`() {
         assertEquals(".", normalizeWorkspaceFilesPath(""))
-        assertEquals(".", normalizeWorkspaceFilesPath("   "))
+        assertEquals("   ", normalizeWorkspaceFilesPath("   "))
         assertEquals("src", normalizeWorkspaceFilesPath("src"))
     }
 }

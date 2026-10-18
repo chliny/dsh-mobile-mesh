@@ -33,20 +33,33 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.data.DirectoryLevel
+import dev.dsh.mobile.mesh.data.normalizeWorkspaceFilesRequestPath
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 
-internal fun normalizeWorkspaceFilesPath(path: String): String = path.trim().ifBlank { "." }
+// Path segments come from the server and can legally contain leading or trailing spaces.
+internal fun normalizeWorkspaceFilesPath(path: String): String = path.ifEmpty { "." }
 
-internal fun normalizeWorkspaceFilesRoot(path: String): String = path.trim().ifBlank { "." }
+internal fun normalizeWorkspaceFilesRoot(path: String): String = path.ifEmpty { "." }
+
+internal fun workspaceFilesLevelPath(path: String): String = normalizeWorkspaceFilesRequestPath(path)
+
+internal fun parentWorkspaceFilesPath(path: String, rootPath: String): String {
+    if (path == rootPath) return rootPath
+    return path.substringBeforeLast('/', rootPath).ifEmpty { rootPath }
+}
 
 internal fun childWorkspacePath(parent: String, name: String): String {
     val cleanParent = normalizeWorkspaceFilesPath(parent).trimEnd('/')
-    val cleanName = name.trim().trimStart('/')
-    if (cleanName.isBlank()) return cleanParent
-    return if (cleanParent == ".") cleanName else "$cleanParent/$cleanName"
+    val cleanName = name.trimStart('/')
+    if (cleanName.isEmpty()) return cleanParent.ifEmpty { "/" }
+    return when (cleanParent) {
+        "." -> cleanName
+        "" -> "/$cleanName"
+        else -> "$cleanParent/$cleanName"
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,14 +77,14 @@ fun WorkspaceFilesScreen(
     val state by store.state.collectAsStateWithLifecycle()
     val normalizedRootPath = remember(rootPath) { normalizeWorkspaceFilesRoot(rootPath) }
     var currentPath by remember { mutableStateOf(normalizeWorkspaceFilesPath(initialPath)) }
-    val level = state.levels[currentPath]
+    val level = state.levels[workspaceFilesLevelPath(currentPath)]
     val refreshing = level is DirectoryLevel.Loading
 
     fun reload() = store.list(workspaceKey, sessionId, currentPath, reload = true)
 
     BackHandler {
         if (currentPath == normalizedRootPath) onBack()
-        else currentPath = currentPath.substringBeforeLast('/', normalizedRootPath)
+        else currentPath = parentWorkspaceFilesPath(currentPath, normalizedRootPath)
     }
     LaunchedEffect(workspaceKey, sessionId, initialPath, rootPath) {
         store.reset(workspaceKey)
@@ -88,7 +101,7 @@ fun WorkspaceFilesScreen(
                 contentDescription = stringResource(R.string.common_back),
                 onClick = {
                     if (currentPath == normalizedRootPath) onBack()
-                    else currentPath = currentPath.substringBeforeLast('/', normalizedRootPath)
+                    else currentPath = parentWorkspaceFilesPath(currentPath, normalizedRootPath)
                 },
                 tint = DsTheme.colors.labelSecondary,
                 iconSize = 18.dp,
