@@ -24,9 +24,9 @@ internal const val ZERO_TIER_TIMEOUT_SIGNAL = "timeout"
  * needs, so it ends the wait. The online report is insufficient when a known target is black-holed:
  * otherwise each false-positive causes an 8-second SSH banner timeout before another attempt.
  *
- * [scheduleDial] must start its work outside this caller's coroutine: a libzt connect blocks for up
- * to 30 seconds, and a wait that only ends when the dial returns would be slower than the online
- * report it is meant to replace. [onConnected] is invoked from whatever thread the dial used.
+ * [scheduleDial] must start its work outside this caller's coroutine: a libzt connect blocks for
+ * up to its cold/recovery budget, and waiting for that call to return could be slower than the
+ * online report this gate can use. [onConnected] is invoked from whatever thread the dial used.
  *
  * Returns [ZERO_TIER_ONLINE_SIGNAL], [ZERO_TIER_REMOTE_SIGNAL] or [ZERO_TIER_TIMEOUT_SIGNAL].
  */

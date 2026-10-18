@@ -127,13 +127,16 @@ class ZeroTierConnector @Inject constructor(
         }
         timing.phase("node-select", selectStart, "ok", detail = "reused=$reused")
         val readyStart = timing.start("await-transport-ready")
-        val targetConnectTimeoutMs = zeroTierTargetConnectTimeoutMs(recovery = false)
+        // Background suspension clears MeshTransportManager.active but retains the process-global
+        // native node. A subsequent start is therefore recovery, not a cold bootstrap.
+        val targetConnectTimeoutMs = zeroTierTargetConnectTimeoutMs(recovery = reused)
         val (readySignal, dialedTarget) = awaitTransportReady(
             current,
             state,
             networkId,
             resolveTarget(config),
             targetConnectTimeoutMs,
+            zeroTierReadinessTimeoutMs(reusedNode = reused),
         )
         timing.phase(
             "await-transport-ready",
@@ -218,6 +221,7 @@ class ZeroTierConnector @Inject constructor(
             networkId,
             resolveTarget(config),
             targetConnectTimeoutMs,
+            zeroTierReadinessTimeoutMs(reusedNode = true),
         )
         timing.phase(
             "await-transport-ready",
@@ -264,6 +268,7 @@ class ZeroTierConnector @Inject constructor(
         networkId: Long,
         target: Pair<List<String>, Int>?,
         targetConnectTimeoutMs: Int,
+        readinessTimeoutMs: Long,
     ): Pair<String, DialedTarget?> {
         val startedAt = System.nanoTime()
         // Native connect blocks, so dials run on the connector executor. The registry bounds each
@@ -275,7 +280,7 @@ class ZeroTierConnector @Inject constructor(
         try {
             val signal = awaitZeroTierTransportReady(
                 awaitNodeOnline = {
-                    state.awaitNodeOnline(ONLINE_TIMEOUT_SECONDS, TimeUnit.SECONDS) { current.isOnline() }
+                    state.awaitNodeOnline(readinessTimeoutMs, TimeUnit.MILLISECONDS) { current.isOnline() }
                 },
                 scheduleDial = { onConnected ->
                     val slot = if (target != null) permits.tryAcquire() else null
@@ -305,7 +310,7 @@ class ZeroTierConnector @Inject constructor(
                     }
                 },
                 dialAttempts = DIAL_ATTEMPTS,
-                timeoutMillis = READY_TIMEOUT_MILLIS,
+                timeoutMillis = readinessTimeoutMs,
                 retryIntervalMillis = DIAL_RETRY_INTERVAL_MILLIS,
                 requireTargetDial = target != null,
                 onSample = { note ->
@@ -445,8 +450,6 @@ class ZeroTierConnector @Inject constructor(
 
     private companion object {
         const val TAG = "ZeroTierConnector"
-        const val ONLINE_TIMEOUT_SECONDS = 30L
-        const val READY_TIMEOUT_MILLIS = 30_000L
         const val DIAL_ATTEMPTS = 6
         const val DIAL_RETRY_INTERVAL_MILLIS = 300L
         const val SECOND_DIAL_AFTER_MILLIS = 1_200L
