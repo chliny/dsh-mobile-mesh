@@ -138,6 +138,7 @@ internal fun ChatScreen(
     val tokenUsage by store.tokenUsage.collectAsStateWithLifecycle()
     val contextBreakdown by store.contextBreakdown.collectAsStateWithLifecycle()
     val imageLimits by store.imageLimits.collectAsStateWithLifecycle()
+    val transcriptPresentation by store.transcriptPresentation.collectAsStateWithLifecycle()
     val modsBand by store.modsBand.collectAsStateWithLifecycle()
     var modsBandBusy by remember(currentSessionId) { mutableStateOf(false) }
 
@@ -511,6 +512,7 @@ internal fun ChatScreen(
                 onOpenChangedDiff = onOpenChangedDiff,
                 running = visibleConversation?.running == true,
                 cwd = currentSession?.cwd,
+                presentation = transcriptPresentation,
                 onOpenSubagent = onOpenSubagent,
                 onBranchFrom = { seq ->
                     scope.launch {
@@ -546,6 +548,7 @@ internal fun ChatScreen(
                         loadingOlder = loadingOlder,
                         loadOlderFailed = loadOlderFailed,
                         context = nodeContext,
+                        presentation = transcriptPresentation,
                         listState = chatListState,
                         readingPositions = readingPositions,
                         onLoadOlder = { scope.launch { store.loadOlder() } },

@@ -151,6 +151,7 @@ internal data class ChatNodeContext(
     val store: dev.dsh.mobile.mesh.data.SessionStore? = null,
     val running: Boolean,
     val cwd: String?,
+    val presentation: dev.dsh.mobile.mesh.data.TranscriptPresentation = dev.dsh.mobile.mesh.data.TranscriptPresentation(),
     /** Host account home, used only to abbreviate a leftover home-rooted path as `~`. */
     val home: String? = null,
     val onOpenFile: ((String, String) -> Unit)? = null,
@@ -483,8 +484,9 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
                 "reasoning" -> if (hasThinkingContent(block.text)) {
                     val reasoning = context.disclosure(DisclosureKeys.reasoning(stableRowKey, index))
                     ThinkingRow(
-                        summary = block.text?.lineSequence()?.firstOrNull()
-                            ?: stringResource(R.string.chat_thinking),
+                        summary = if (streaming || context.presentation.settledReasoningPreview)
+                            block.text?.lineSequence()?.firstOrNull() ?: stringResource(R.string.chat_thinking)
+                        else stringResource(R.string.chat_thinking),
                         expanded = reasoning.expanded,
                         onToggle = reasoning.onToggle,
                         streaming = streaming,
