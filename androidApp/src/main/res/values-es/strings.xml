@@ -327,6 +327,16 @@
     <string name="chatlist_workspace_new_session">Nueva sesión aquí</string>
     <string name="chatlist_needs_action">Te necesita</string>
     <string name="chatlist_sort_title">Orden</string>
+    <string name="chatlist_view_options">Opciones de vista</string>
+    <string name="chatlist_group_title">Agrupar por</string>
+    <string name="chatlist_group_workspace">Por espacio de trabajo</string>
+    <string name="chatlist_group_tree">Por árbol de espacios</string>
+    <string name="chatlist_group_flat">Lista única</string>
+    <string name="chatlist_order_title">Ordenar por</string>
+    <string name="chatlist_filter_title">Filtrar sesiones</string>
+    <string name="chatlist_hide_archived">Ocultar archivadas</string>
+    <string name="chatlist_show_archived">Todas las sesiones (incluir archivadas)</string>
+    <string name="chatlist_only_archived">Solo archivadas</string>
     <string name="chat_composer_send">Enviar mensaje</string>
     <string name="chat_composer_commands">Comandos</string>
     <string name="chat_composer_mode">Modo de envío</string>

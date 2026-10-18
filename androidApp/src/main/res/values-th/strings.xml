@@ -327,6 +327,16 @@
     <string name="chatlist_workspace_new_session">เซสชันใหม่ที่นี่</string>
     <string name="chatlist_needs_action">รอคุณอยู่</string>
     <string name="chatlist_sort_title">การเรียงลำดับ</string>
+    <string name="chatlist_view_options">ตัวเลือกมุมมอง</string>
+    <string name="chatlist_group_title">จัดกลุ่มตาม</string>
+    <string name="chatlist_group_workspace">ตามพื้นที่ทำงาน</string>
+    <string name="chatlist_group_tree">ตามแผนผังพื้นที่ทำงาน</string>
+    <string name="chatlist_group_flat">รายการเดียว</string>
+    <string name="chatlist_order_title">เรียงตาม</string>
+    <string name="chatlist_filter_title">กรองเซสชัน</string>
+    <string name="chatlist_hide_archived">ซ่อนที่เก็บถาวร</string>
+    <string name="chatlist_show_archived">เซสชันทั้งหมด (รวมที่เก็บถาวร)</string>
+    <string name="chatlist_only_archived">เฉพาะที่เก็บถาวร</string>
     <string name="chat_composer_send">ส่งข้อความ</string>
     <string name="chat_composer_commands">คำสั่ง</string>
     <string name="chat_composer_mode">โหมดการส่ง</string>
