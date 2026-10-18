@@ -384,6 +384,10 @@ internal val STRUCTURAL_EVENT_TYPES = setOf(
     "session/end-seed",
     "session/title-llm-request",
     "agent/inbox/spliced",
+    // Job lifecycle is already available in the server-owned Jobs panel. Rendering every
+    // registration and settlement again in chat floods long-running sessions.
+    "job/registered",
+    "job/settled",
     "assistant/chunk",
     // A model attempt that settled without a message (harness 0.1.3): replay data, not content.
     "assistant/attempt",

@@ -452,6 +452,7 @@ private class FoldState(private val sessionId: String) {
             "request/header", "request/context", "session/end-seed", "approval/asked", "approval/decided",
             "approval/policy", "permission/preset", "sandbox/mode", "schedule/change", "feedback/record",
             "hook/invoked", "hook/result", "agent-preset/selected", "agent/inbox/spliced",
+            "job/registered", "job/settled",
             "tool/code-dispatch", "tool/code-dispatch-start", "web/deepseek-search-llm-request",
             "session/title-llm-request",
             -> {

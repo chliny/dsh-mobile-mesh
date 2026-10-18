@@ -25,6 +25,18 @@ class EventFoldTest {
         SessionEventEnvelope(type, seq, seq, data)
 
     @Test
+    fun `job lifecycle ledger events advance the cursor without adding chat rows`() {
+        val events = listOf(
+            event("job/registered", 1, buildJsonObject { put("jobId", "j1") }),
+            event("job/settled", 2, buildJsonObject { put("jobId", "j1") }),
+            event("job/new-event", 3, buildJsonObject { put("jobId", "j1") }),
+        )
+        val snapshot = EventFold("s1").fold(events)
+        assertEquals(listOf("job/new-event"), snapshot.nodes.filterIsInstance<OtherNode>().map { it.type })
+        assertEquals(3L, snapshot.lastSeq)
+    }
+
+    @Test
     fun `consecutive compaction events collapse into one node and keep summary`() {
         val events = listOf(
             event("compaction/start", 1, buildJsonObject { put("text", "Compacting") }),
