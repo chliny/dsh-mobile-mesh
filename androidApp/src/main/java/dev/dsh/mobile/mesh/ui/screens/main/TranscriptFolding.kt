@@ -8,7 +8,9 @@ import dev.dsh.mobile.mesh.core.session.TurnEndNode
 import dev.dsh.mobile.mesh.core.session.TurnErrorNode
 import dev.dsh.mobile.mesh.core.session.TurnStartNode
 import dev.dsh.mobile.mesh.core.session.TodoNode
+import dev.dsh.mobile.mesh.core.session.ToolCallNode
 import dev.dsh.mobile.mesh.core.session.UserMessageNode
+import dev.dsh.mobile.mesh.data.TranscriptPresentation
 
 /** One immutable conversation list shared by range-based folded-process references. */
 internal class TranscriptNodeSnapshot(val nodes: List<ChatNode>)
@@ -22,6 +24,8 @@ internal sealed interface TranscriptPart {
         val startIndex: Int,
         val endExclusive: Int,
         val nodeCount: Int,
+        val defaultExpanded: Boolean = false,
+        val live: Boolean = false,
     ) : TranscriptPart {
         constructor(startSeq: Long, nodes: List<ChatNode>) : this(
             startSeq,
@@ -42,12 +46,31 @@ internal sealed interface TranscriptPart {
     }
 }
 
+/** Explicit reader choice overrides the next-input default-open completed Turn. */
+internal fun processExpanded(part: TranscriptPart.Process, scope: DisclosureScope): Boolean {
+    val key = DisclosureKeys.process(part.startSeq)
+    return if (scope.isSet(key)) scope.isOpen(key) else part.defaultExpanded
+}
+
+/** The current running call's command, path or query; compact omits this preview. */
+internal fun liveProcessDetail(part: TranscriptPart.Process, presentation: TranscriptPresentation, cwd: String?): String? {
+    if (!part.live || !presentation.liveProcessDetail) return null
+    for (index in part.endExclusive - 1 downTo part.startIndex) {
+        val call = part.source.nodes[index] as? ToolCallNode ?: continue
+        return toolRowModel(call.name, call.arguments, cwd).summary
+    }
+    return null
+}
+
 /**
- * Only a fully observed, successfully completed turn can hide its process. A history page may
- * start in the middle of a turn, and a live page may end in the middle of one: both stay unfolded.
- * Unexpected events and error/unfinished outcomes remain in the ordinary transcript.
+ * Only a fully observed, successfully completed turn can hide its outer process. A partial
+ * historical turn stays flat; compact and standard may group the current live work separately.
+ * Unexpected events, interleaved input and failed outcomes remain visible.
  */
-internal fun partitionTranscript(nodes: List<ChatNode>): List<TranscriptPart> {
+internal fun partitionTranscript(
+    nodes: List<ChatNode>,
+    presentation: TranscriptPresentation = TranscriptPresentation(),
+): List<TranscriptPart> {
     val source = TranscriptNodeSnapshot(nodes)
     val result = mutableListOf<TranscriptPart>()
     var index = 0
@@ -62,9 +85,26 @@ internal fun partitionTranscript(nodes: List<ChatNode>): List<TranscriptPart> {
             nodes[i] is TurnStartNode || nodes[i] is TurnEndNode
         }
         val end = endIndex?.let { nodes[it] as? TurnEndNode }
-        if (end == null || end.turn != start.turn || end.reasonKind != "completed") {
+        if (end == null || end.turn != start.turn || end.reasonKind != "completed" ||
+            !presentation.foldCompletedTurns
+        ) {
             val stop = endIndex ?: nodes.size
-            for (i in index until stop) if (nodes[i].rendersContent()) result.add(TranscriptPart.Node(nodes[i]))
+            val visible = (index + 1 until stop).filter { nodes[it].rendersContent() }
+            val live = end == null && endIndex == null
+            val groupable = visible.takeWhile { i ->
+                val node = nodes[i]
+                node !is UserMessageNode && node !is OtherNode && node !is TurnErrorNode &&
+                    node !is PresentedFilesNode && node !is TodoNode &&
+                    !(node is AssistantMessageNode && node.blocks.any { block ->
+                        block.kind == "text" && !block.text.isNullOrBlank() || block.kind == "image"
+                    })
+            }
+            val canGroup = presentation.groupLiveSteps && (live || end?.reasonKind in setOf("error", "aborted", "interrupted"))
+            if (canGroup && groupable.isNotEmpty()) {
+                result.add(TranscriptPart.Process(start.seq, source, groupable.first(), groupable.last() + 1,
+                    groupable.size, live = live))
+                visible.drop(groupable.size).forEach { result.add(TranscriptPart.Node(nodes[it])) }
+            } else visible.forEach { result.add(TranscriptPart.Node(nodes[it])) }
             index = stop
             continue
         }
@@ -115,6 +155,8 @@ internal fun partitionTranscript(nodes: List<ChatNode>): List<TranscriptPart> {
                                 startIndex = turnSourceIndexes[firstProcess],
                                 endExclusive = turnSourceIndexes[lastProcess] + 1,
                                 nodeCount = processCount,
+                                defaultExpanded = presentation.collapseTiming == TranscriptPresentation.CollapseTiming.NextInput &&
+                                    endIndex == nodes.lastIndex,
                             ),
                         )
                         inserted = true

@@ -50,6 +50,7 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ChatNode
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
+import dev.dsh.mobile.mesh.data.TranscriptPresentation
 import dev.dsh.mobile.mesh.ui.components.DsButton
 import dev.dsh.mobile.mesh.ui.components.DsButtonSize
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
@@ -176,11 +177,17 @@ internal fun buildTranscriptRows(
  */
 internal fun buildTranscriptRows(
     parts: List<TranscriptPart>,
+    groupActivities: Boolean = true,
     isProcessExpanded: (Long) -> Boolean,
 ): List<TranscriptRow> {
     val result = mutableListOf<TranscriptRow>()
     val pending = mutableListOf<dev.dsh.mobile.mesh.core.session.ChatNode>()
     fun flush() {
+        if (!groupActivities) {
+            pending.forEach { result.add(TranscriptRow.Node(it)) }
+            pending.clear()
+            return
+        }
         groupTranscriptActivity(pending).forEach { row ->
             result.add(when (row) {
                 is ActivityRow.Node -> TranscriptRow.Node(row.node)
@@ -369,6 +376,7 @@ internal fun ChatTranscript(
     loadingOlder: Boolean,
     loadOlderFailed: Boolean,
     context: ChatNodeContext,
+    presentation: TranscriptPresentation,
     listState: LazyListState,
     readingPositions: TranscriptReadingPositions,
     onLoadOlder: () -> Unit,
@@ -380,12 +388,12 @@ internal fun ChatTranscript(
     val projectionKey = TranscriptProjectionKey(sessionId, sourceNodes)
     // Build one presentation atomically from the immutable message window. A smaller initial
     // follow window bounds this synchronous pass and avoids mixing stale/quick/pending projections.
-    val projection = remember(projectionKey) {
+    val projection = remember(projectionKey, presentation) {
         val visibleNodes = sourceNodes.filter { it.rendersContent() }
         TranscriptProjection(
             key = projectionKey,
             nodes = visibleNodes,
-            parts = partitionTranscript(sourceNodes),
+            parts = partitionTranscript(sourceNodes, presentation),
             hasAssistant = visibleNodes.any { it is AssistantMessageNode },
         )
     }
@@ -404,13 +412,15 @@ internal fun ChatTranscript(
         derivedStateOf {
             parts.asSequence()
                 .filterIsInstance<TranscriptPart.Process>()
-                .filter { disclosureScope.isOpen(DisclosureKeys.process(it.startSeq)) }
+                .filter { processExpanded(it, disclosureScope) }
                 .map { it.startSeq }
                 .toSet()
         }
     }
-    val rows = remember(parts, expandedProcesses) {
-        buildTranscriptRows(parts) { startSeq -> startSeq in expandedProcesses }
+    val rows = remember(parts, expandedProcesses, presentation) {
+        buildTranscriptRows(parts, groupActivities = presentation.mode != TranscriptPresentation.Mode.Verbose) {
+            startSeq -> startSeq in expandedProcesses
+        }
     }
     val hasMore = conversation?.hasMore == true
     val turnStartedAtMillis = conversation?.turnStartedAtMillis
@@ -779,12 +789,14 @@ internal fun ChatTranscript(
                     is TranscriptRow.Workflow -> WorkflowActivityRow(row.activity, context)
                     is TranscriptRow.Process -> {
                         val processKey = DisclosureKeys.process(row.part.startSeq)
-                        val open = disclosureScope.isOpen(processKey)
+                        val open = row.part.startSeq in expandedProcesses
+                        val title = if (open) stringResource(R.string.chat_process_hide, row.part.nodeCount)
+                            else stringResource(R.string.chat_process_summary, row.part.nodeCount)
+                        val detail = liveProcessDetail(row.part, presentation, context.cwd)
                         Text(
-                            text = if (open) stringResource(R.string.chat_process_hide, row.part.nodeCount)
-                                else stringResource(R.string.chat_process_summary, row.part.nodeCount),
+                            text = if (detail.isNullOrBlank()) title else "$title · $detail",
                             modifier = Modifier.fillMaxWidth().clickable {
-                                disclosureScope.toggle(processKey)
+                                disclosureScope.setOpen(processKey, !open)
                             }.padding(horizontal = 8.dp, vertical = 8.dp),
                             style = DsType.small13,
                             color = DsTheme.colors.labelSecondary,

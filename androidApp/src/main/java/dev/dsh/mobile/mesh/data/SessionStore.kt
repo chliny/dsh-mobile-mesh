@@ -515,6 +515,10 @@ class SessionStore @Inject constructor(
     private val _skills = MutableStateFlow<List<SkillEntry>>(emptyList())
     val skills: StateFlow<List<SkillEntry>> = _skills.asStateFlow()
 
+    private val transcriptPresentationReadFence = TranscriptPresentationReadFence()
+    private val _transcriptPresentation = MutableStateFlow(TranscriptPresentation())
+    val transcriptPresentation: StateFlow<TranscriptPresentation> = _transcriptPresentation.asStateFlow()
+
     private val _models = MutableStateFlow<ModelCatalog?>(null)
 
     /** The host generation's routable model catalog, before the session's own selection is joined in. */
@@ -946,6 +950,8 @@ class SessionStore @Inject constructor(
                     _sessionsBaselineLoaded.value = false
                     _sessionsBaselineFailed.value = false
                 }
+                _transcriptPresentation.value = TranscriptPresentation()
+                scope.launch { refreshTranscriptPresentation(generation.clientId) }
                 triggerBaseline(generation.clientId, source = BaselineTriggerSource.CONNECTED_GENERATION)
                 recoverConnectedSession(
                     scope = scope,
@@ -1026,6 +1032,15 @@ class SessionStore @Inject constructor(
         } ?: SessionAddress.Session(sessionId = sessionId)
         log("reopening selected session after connected generation: $sessionId")
         openSessionAtAddress(sessionId, address)
+    }
+
+    private suspend fun refreshTranscriptPresentation(clientId: String) {
+        val ticket = transcriptPresentationReadFence.begin()
+        val result = apiOrNull()?.settingsDescribe() ?: return
+        if (result is RpcResult.Ok && transcriptPresentationReadFence.isCurrent(ticket) &&
+            connectionManager.generation?.clientId == clientId) {
+            _transcriptPresentation.value = transcriptPresentationOf(result.value)
+        }
     }
 
     private fun observeEvents() {
@@ -1221,6 +1236,10 @@ class SessionStore @Inject constructor(
             }
             "api-session/error" -> setConnectionError(str(1))
             "schedule/changed" -> { scheduleRevision.value += 1 }
+            "settings/document-updated" -> if (str(0) == "ui-chat") {
+                val clientId = connectionManager.generation?.clientId
+                if (clientId != null) scope.launch { refreshTranscriptPresentation(clientId) }
+            }
             "commands/change" -> scope.launch { refreshCommands() }
             "agent-preset/selected" -> scope.launch {
                 refreshAgentPresets()
