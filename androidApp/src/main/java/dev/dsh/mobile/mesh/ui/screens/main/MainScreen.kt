@@ -30,18 +30,19 @@ import dev.dsh.mobile.mesh.ui.theme.DsAnimations
 import kotlinx.coroutines.launch
 
 internal fun safePreviewPath(path: String, cwd: String?): String? {
-    val clean = path.trim().trim('"').replace('\\', '/')
-    if (clean.isBlank()) return null
-    val root = cwd?.trim()?.trimEnd('/', '\\')?.replace('\\', '/')
-    if (clean.startsWith("/", ignoreCase = false) || clean.matches(Regex("^[A-Za-z]:/.*"))) {
-        if (!root.isNullOrBlank() && !clean.startsWith(root, ignoreCase = true)) return null
+    val clean = path.replace('\\', '/')
+    if (clean.isEmpty()) return null
+    val root = cwd?.replace('\\', '/')?.let { value ->
+        if (value == "/" || value.matches(Regex("^[A-Za-z]:/$"))) value else value.trimEnd('/')
     }
-    val relative = if (!root.isNullOrBlank() && clean.startsWith(root, ignoreCase = true)) {
-        clean.substring(root.length).trimStart('/')
-    } else {
-        clean.trimStart('/')
+    val isWindowsRoot = root?.matches(Regex("^[A-Za-z]:/.*")) == true
+    val insideRoot = !root.isNullOrEmpty() && clean.startsWith(root, ignoreCase = isWindowsRoot) &&
+        (clean.length == root.length || root.endsWith('/') || clean[root.length] == '/')
+    if (clean.startsWith('/') || clean.matches(Regex("^[A-Za-z]:/.*"))) {
+        if (!root.isNullOrEmpty() && !insideRoot) return null
     }
-    return relative.takeIf { it.isNotBlank() && it != "." && !hasUnsafePreviewSegment(it) }
+    val relative = if (insideRoot) clean.substring(root!!.length).trimStart('/') else clean.trimStart('/')
+    return relative.takeIf { it.isNotEmpty() && it != "." && !hasUnsafePreviewSegment(it) }
 }
 
 private fun hasUnsafePreviewSegment(path: String): Boolean =

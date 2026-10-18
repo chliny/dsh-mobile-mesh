@@ -120,6 +120,15 @@ class ToolRowModelTest {
     }
 
     @Test
+    fun `relativizing tool paths requires a directory boundary`() {
+        assertEquals("/home/me/project-copy/src/a.kt", relativizeToCwd("/home/me/project-copy/src/a.kt", "/home/me/project"))
+        assertEquals("/home/me/PROJECT/src/a.kt", relativizeToCwd("/home/me/PROJECT/src/a.kt", "/home/me/project"))
+        assertEquals("src/a.kt", relativizeToCwd("/home/me/project/src/a.kt", "/home/me/project"))
+        assertEquals("src\\a.kt", relativizeToCwd("C:\\WORK\\project\\src\\a.kt", "c:\\work\\project"))
+        assertEquals("C:\\work\\project2\\src\\a.kt", relativizeToCwd("C:\\work\\project2\\src\\a.kt", "C:\\work\\project"))
+    }
+
+    @Test
     fun `basename handles both separators for file display`() {
         assertEquals("main.kt", basename("D:\\LabTeto\\deepseek-mobile\\src\\main.kt"))
         assertEquals("main.kt", basename("/home/me/project/src/main.kt"))

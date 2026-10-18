@@ -147,10 +147,16 @@ internal fun toolRowModel(
  * host may be Windows or POSIX regardless of what the phone runs.
  */
 internal fun relativizeToCwd(text: String, cwd: String?): String {
-    val root = cwd?.takeIf { it.isNotBlank() } ?: return text
-    val normalizedRoot = root.trimEnd('\\', '/')
-    if (!text.startsWith(normalizedRoot, ignoreCase = true)) return text
-    return text.substring(normalizedRoot.length).trimStart('\\', '/').ifBlank { text }
+    val root = cwd?.takeIf { it.isNotEmpty() } ?: return text
+    val slashRoot = root.replace('\\', '/')
+    val normalizedRoot = if (slashRoot == "/" || slashRoot.matches(Regex("^[A-Za-z]:/$"))) slashRoot else slashRoot.trimEnd('/')
+    if (normalizedRoot.isEmpty()) return text
+    val normalizedText = text.replace('\\', '/')
+    val windowsRoot = normalizedRoot.matches(Regex("^[A-Za-z]:/.*"))
+    if (!normalizedText.startsWith(normalizedRoot, ignoreCase = windowsRoot)) return text
+    if (normalizedText.length > normalizedRoot.length && !normalizedRoot.endsWith('/') &&
+        normalizedText[normalizedRoot.length] != '/') return text
+    return text.substring(normalizedRoot.length).trimStart('\\', '/').ifEmpty { text }
 }
 
 /** The last path segment, whichever separator the host uses. */

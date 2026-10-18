@@ -684,5 +684,9 @@ private class CommonMarkWebView(
 }
 
 /** Clean a Markdown image path before resolving it relative to a workspace document. */
-internal fun markdownImagePath(source: String): String? =
-    source.trim().trim('<', '>').substringBefore('#').substringBefore('?').takeIf { it.isNotBlank() }
+internal fun markdownImagePath(source: String): String? {
+    val cleaned = source.trim().trim('<', '>')
+    if (cleaned.startsWith("http://", ignoreCase = true) || cleaned.startsWith("https://", ignoreCase = true) ||
+        cleaned.startsWith("data:", ignoreCase = true)) return cleaned.takeIf { it.isNotBlank() }
+    return cleaned.substringBefore('#').substringBefore('?').takeIf { it.isNotBlank() }
+}

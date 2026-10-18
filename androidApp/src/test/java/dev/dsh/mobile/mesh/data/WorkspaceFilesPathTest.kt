@@ -8,16 +8,18 @@ class WorkspaceFilesPathTest {
     fun `workspace file list preserves the server path contract`() {
         assertEquals(".", normalizeWorkspaceFilesRequestPath("."))
         assertEquals(".", normalizeWorkspaceFilesRequestPath(""))
-        assertEquals("src", normalizeWorkspaceFilesRequestPath(" src "))
+        assertEquals(" src ", normalizeWorkspaceFilesRequestPath(" src "))
+        assertEquals(" ", normalizeWorkspaceFilesRequestPath(" "))
+        assertEquals(" name ", normalizeWorkspaceFilesRequestPath("/ name "))
         assertEquals("src", normalizeWorkspaceFilesRequestPath("/src"))
         assertEquals(".", normalizeWorkspaceFilesRequestPath("/"))
-        assertEquals(".", normalizeWorkspaceFilesRequestPath("   "))
+        assertEquals("   ", normalizeWorkspaceFilesRequestPath("   "))
     }
 
     @Test
-    fun `file reads reject blank paths before reaching the API`() {
+    fun `file reads reject empty paths but preserve whitespace in file names`() {
         assertEquals(null, validWorkspaceFilePath(""))
-        assertEquals(null, validWorkspaceFilePath("   "))
-        assertEquals("src/main.kt", validWorkspaceFilePath(" src/main.kt "))
+        assertEquals("   ", validWorkspaceFilePath("   "))
+        assertEquals(" src/main.kt ", validWorkspaceFilePath(" src/main.kt "))
     }
 }

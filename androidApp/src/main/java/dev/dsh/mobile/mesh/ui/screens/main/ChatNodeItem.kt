@@ -137,11 +137,8 @@ internal fun openMarkdownLink(context: ChatNodeContext, target: String, onOpenUr
 
 /** Everything one transcript row needs that is not on the node itself. */
 internal fun openWorkspacePath(context: ChatNodeContext, path: String, title: String, onOpen: ((String, String) -> Unit)?) {
-    val clean = path.trim().trim('"').replace('\\', '/')
-    if (clean.isBlank()) return
-    val relative = relativizeToCwd(clean, context.cwd).trimStart('/')
-    val target = relative.ifBlank { clean }.trim()
-    if (target.isNotEmpty() && target != ".") onOpen?.invoke(target, title)
+    val target = safePreviewPath(path, context.cwd) ?: return
+    onOpen?.invoke(target, title)
 }
 
 internal data class ChatNodeContext(
@@ -623,7 +620,7 @@ private fun ProducedFilesRow(paths: List<String>, context: ChatNodeContext) {
 
 @Composable
 private fun PresentedFilesRow(node: PresentedFilesNode, context: ChatNodeContext) {
-    val rows = node.files.filter { it.path.isNotBlank() }
+    val rows = node.files.filter { it.path.isNotEmpty() }
     if (rows.isEmpty()) return
     val expanded = context.disclosure(DisclosureKeys.presentedFiles(node.seq))
     val visible = if (expanded.expanded) rows else rows.take(4)

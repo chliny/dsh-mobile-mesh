@@ -20,6 +20,13 @@ class WorkspacePreviewChunksTest {
         assertTrue(chunks.none { it.isEmpty() })
     }
 
+    @Test fun `code chunks keep supplementary characters intact at every boundary`() {
+        val text = "A😀B"
+        assertEquals(listOf("A", "😀", "B"), previewCodeChunks(text, maxChars = 2))
+        assertEquals(listOf("A", "😀", "B"), previewCodeChunks(text, maxChars = 1))
+        assertEquals(text, previewCodeChunks(text, maxChars = 1).joinToString(""))
+    }
+
     @Test fun `preview state retains page chunks for lazy list rendering`() {
         val page = WorkspaceFileText("/work/main.ts", "v1", null, 1, "one\ntwo\n", 2, false)
         val state = PreviewState.Text(page, previewCodeChunks(page.text, maxChars = 4))

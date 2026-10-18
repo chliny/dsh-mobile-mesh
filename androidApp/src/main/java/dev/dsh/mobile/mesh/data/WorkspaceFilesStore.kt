@@ -3,6 +3,7 @@ package dev.dsh.mobile.mesh.data
 import dev.dsh.mobile.mesh.connection.ConnectionManager
 import dev.dsh.mobile.mesh.connection.HarnessProtocol
 import dev.dsh.mobile.mesh.core.wire.DshApiClient
+import dev.dsh.mobile.mesh.core.wire.RpcError
 import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryEntry
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryListing
@@ -23,23 +24,31 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
 
 /** Every workspace-files directory request must carry a non-empty path; `.` is the API root. */
 internal fun normalizeWorkspaceFilesRequestPath(path: String): String =
-    path.trim().let { clean ->
-        when {
-            clean.isBlank() -> "."
-            clean == "." -> "."
-            clean.startsWith("/") -> clean.trimStart('/').ifBlank { "." }
-            else -> clean
-        }
+    when {
+        path.isEmpty() -> "."
+        path.startsWith("/") -> path.trimStart('/').ifEmpty { "." }
+        else -> path
     }
 
-internal fun validWorkspaceFilePath(path: String): String? =
-    path.trim().takeIf { it.isNotEmpty() }
+internal fun validWorkspaceFilePath(path: String): String? = path.takeIf { it.isNotEmpty() }
+
+/** Decode the server's candidate rows without letting one malformed row cancel the companion search. */
+internal fun decodeFileReferenceRows(value: JsonElement): List<WorkspaceDirectoryEntry> {
+    val entries = ((value as? JsonArray) ?: (value as? JsonObject)?.get("items") as? JsonArray).orEmpty()
+    return entries.mapNotNull { item ->
+        val row = item as? JsonObject ?: return@mapNotNull null
+        val path = (row["path"] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+        val kind = (row["kind"] as? JsonPrimitive)?.contentOrNull ?: "file"
+        WorkspaceDirectoryEntry(name = path, type = kind)
+    }
+}
 
 private fun isMarkdownPreviewPath(path: String): Boolean =
     path.substringAfterLast('.', "").lowercase() in setOf("md", "markdown", "mdown", "mkd", "rmd")
@@ -54,9 +63,13 @@ data class WorkspaceFilesState(
     val workspaceKey: String? = null,
     val levels: Map<String, DirectoryLevel> = emptyMap(),
     val preview: PreviewState? = null,
+    val previewPath: String? = null,
+    val previewSessionId: String? = null,
     val previewLoadingMore: Boolean = false,
+    val previewPageError: String? = null,
     val referenceSessionId: String? = null,
     val referenceQuery: String? = null,
+    val referenceSerial: Long = 0,
     val fileReferences: List<WorkspaceDirectoryEntry> = emptyList(),
     val sessionReferences: List<SessionReferenceCandidate> = emptyList(),
 )
@@ -72,6 +85,11 @@ internal fun previewCodeChunks(text: String, maxChars: Int = 8_192): List<String
         if (end < text.length) {
             val lineEnd = text.lastIndexOf('\n', end - 1)
             if (lineEnd >= start) end = lineEnd + 1
+            // A fixed UTF-16 boundary can fall between the halves of one code point. A
+            // two-unit item is preferable to an empty item when maxChars is only one.
+            if (text[end - 1].isHighSurrogate() && text[end].isLowSurrogate()) {
+                end = if (end - start == 1) end + 1 else end - 1
+            }
         }
         chunks.add(text.substring(start, end))
         start = end
@@ -84,11 +102,35 @@ internal fun WorkspaceFilesState.withReferenceResult(
     workspaceKey: String,
     sessionId: String,
     query: String,
+    serial: Long,
     files: List<WorkspaceDirectoryEntry>? = null,
     sessions: List<SessionReferenceCandidate>? = null,
-): WorkspaceFilesState = if (this.workspaceKey == workspaceKey && referenceSessionId == sessionId && referenceQuery == query) {
+): WorkspaceFilesState = if (this.workspaceKey == workspaceKey && referenceSessionId == sessionId &&
+    referenceQuery == query && referenceSerial == serial) {
     copy(fileReferences = files ?: fileReferences, sessionReferences = sessions ?: sessionReferences)
 } else this
+
+internal fun WorkspaceFilesState.canLoadNextPreviewPage(sessionId: String, path: String, hasApi: Boolean): Boolean =
+    hasApi && previewSessionId == sessionId && previewPath == path && previewPageError == null &&
+        preview is PreviewState.Text && !preview.value.eof && !previewLoadingMore
+
+/** A later page failure does not revoke the earlier text the server already supplied. */
+internal fun WorkspaceFilesState.withPreviewError(error: RpcError, append: Boolean): WorkspaceFilesState =
+    if (append && preview is PreviewState.Text) copy(previewPageError = error.message)
+    else copy(preview = PreviewState.Failed(error.code, error.message), previewPageError = null)
+
+/** Serializes preview publication with replacement requests, including non-cooperative replies. */
+internal class PreviewRequestFence {
+    private var generation = 0L
+
+    @Synchronized fun next(): Long = ++generation
+
+    @Synchronized fun runIfCurrent(serial: Long, action: () -> Unit): Boolean {
+        if (serial != generation) return false
+        action()
+        return true
+    }
+}
 
 sealed interface PreviewState {
     data object Loading : PreviewState
@@ -111,6 +153,7 @@ class WorkspaceFilesStore @Inject constructor(
     private var treeJob: Job? = null
     private var treeRequest: TreeRequest? = null
     private var previewJob: Job? = null
+    private val previewFence = PreviewRequestFence()
     private var referenceSearchJob: Job? = null
     private var requestSerial = 0L
 
@@ -118,6 +161,7 @@ class WorkspaceFilesStore @Inject constructor(
         treeJob?.cancel()
         treeJob = null
         treeRequest = null
+        previewFence.next()
         previewJob?.cancel()
         referenceSearchJob?.cancel()
         requestSerial++
@@ -132,8 +176,9 @@ class WorkspaceFilesStore @Inject constructor(
     fun searchReferences(workspaceKey: String, sessionId: String, query: String) {
         if (_state.value.workspaceKey != workspaceKey) reset(workspaceKey)
         referenceSearchJob?.cancel()
+        val serial = ++requestSerial
         _state.value = _state.value.copy(
-            referenceSessionId = sessionId, referenceQuery = query,
+            referenceSessionId = sessionId, referenceQuery = query, referenceSerial = serial,
             fileReferences = emptyList(), sessionReferences = emptyList(),
         )
         val api = connectionManager.connectedApi ?: return
@@ -143,21 +188,16 @@ class WorkspaceFilesStore @Inject constructor(
             val files = launch {
                 val result = api.fileReferencesList(sessionId, query)
                 if (result is RpcResult.Ok) {
-                    val entries = ((result.value as? JsonArray) ?: (result.value as? JsonObject)?.get("items") as? JsonArray)
-                        .orEmpty().mapNotNull { item ->
-                            val row = item as? JsonObject ?: return@mapNotNull null
-                            val path = row["path"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                            WorkspaceDirectoryEntry(name = path, type = row["kind"]?.jsonPrimitive?.contentOrNull ?: "file")
-                        }
+                    val entries = decodeFileReferenceRows(result.value)
                     _state.update { current ->
-                        current.withReferenceResult(workspaceKey, sessionId, query, files = entries)
+                        current.withReferenceResult(workspaceKey, sessionId, query, serial, files = entries)
                     }
                 }
             }
             val sessions = launch {
                 val result = api.sessionReferenceCandidates(sessionId, query)
                 if (result is RpcResult.Ok) _state.update { current ->
-                    current.withReferenceResult(workspaceKey, sessionId, query, sessions = result.value)
+                    current.withReferenceResult(workspaceKey, sessionId, query, serial, sessions = result.value)
                 }
             }
             files.join()
@@ -244,10 +284,12 @@ class WorkspaceFilesStore @Inject constructor(
 
     fun loadNextPreviewPage(workspaceKey: String, sessionId: String, path: String) {
         val safePath = validWorkspaceFilePath(path) ?: return
-        val current = _state.value.preview as? PreviewState.Text ?: return
-        if (current.value.eof || _state.value.previewLoadingMore) return
-        _state.value = _state.value.copy(previewLoadingMore = true)
-        readPreview(workspaceKey, sessionId, path, append = true, keepWholeText = isMarkdownPreviewPath(safePath), onFinished = {
+        val api = connectionManager.connectedApi
+        val state = _state.value
+        if (!state.canLoadNextPreviewPage(sessionId, safePath, hasApi = api != null)) return
+        val current = state.preview as PreviewState.Text
+        _state.value = state.copy(previewLoadingMore = true)
+        readPreview(workspaceKey, sessionId, safePath, append = true, keepWholeText = isMarkdownPreviewPath(safePath), api = api, onFinished = {
             _state.value = _state.value.copy(previewLoadingMore = false)
         }) { api ->
             api.workspaceFilesRead(
@@ -270,22 +312,37 @@ class WorkspaceFilesStore @Inject constructor(
         path: String,
         append: Boolean = false,
         keepWholeText: Boolean = true,
+        api: DshApiClient? = connectionManager.connectedApi,
         onFinished: () -> Unit = {},
         request: suspend (DshApiClient) -> RpcResult<T>,
     ) {
-        val api = connectionManager.connectedApi ?: return
+        val serial = previewFence.next()
         previewJob?.cancel()
-        if (!append) _state.value = _state.value.copy(preview = PreviewState.Loading)
+        val activeApi = api ?: return
+        if (!append) _state.value = _state.value.copy(
+            preview = PreviewState.Loading,
+            previewPath = path,
+            previewSessionId = sessionId,
+            previewLoadingMore = false,
+            previewPageError = null,
+        )
         previewJob = scope.launch {
             try {
-                when (val result = request(api)) {
-                    is RpcResult.Ok -> updateIfCurrent(workspaceKey) {
-                        copy(preview = if (append) appendPreview(preview, previewValue(result.value), keepWholeText) else previewValue(result.value))
+                when (val result = request(activeApi)) {
+                    is RpcResult.Ok -> previewFence.runIfCurrent(serial) {
+                        updateIfCurrent(workspaceKey) {
+                            copy(
+                                preview = if (append) appendPreview(preview, previewValue(result.value), keepWholeText) else previewValue(result.value),
+                                previewPageError = null,
+                            )
+                        }
                     }
-                    is RpcResult.Err -> updateIfCurrent(workspaceKey) { copy(preview = PreviewState.Failed(result.error.code, result.error.message)) }
+                    is RpcResult.Err -> previewFence.runIfCurrent(serial) {
+                        updateIfCurrent(workspaceKey) { withPreviewError(result.error, append) }
+                    }
                 }
             } finally {
-                onFinished()
+                previewFence.runIfCurrent(serial, onFinished)
             }
         }
     }

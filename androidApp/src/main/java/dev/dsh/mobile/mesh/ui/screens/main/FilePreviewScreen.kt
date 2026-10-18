@@ -52,12 +52,21 @@ import dev.dsh.mobile.mesh.ui.theme.DsType
 internal fun svgDataUrl(bytes: ByteArray): String =
     "data:image/svg+xml;base64,${java.util.Base64.getEncoder().encodeToString(bytes)}"
 
+internal fun markdownSvgWorkspacePath(markdownPath: String, source: String): String? {
+    val cleanSource = markdownImagePath(source)?.replace("\\", "/") ?: return null
+    if (cleanSource.startsWith("http://", ignoreCase = true) || cleanSource.startsWith("https://", ignoreCase = true) ||
+        cleanSource.startsWith("data:", ignoreCase = true)) return null
+    if (!cleanSource.endsWith(".svg", ignoreCase = true)) return null
+    if (cleanSource.startsWith('/') || cleanSource.matches(Regex("^[A-Za-z]:/.*"))) return cleanSource
+    val parent = markdownPath.replace("\\", "/").substringBeforeLast('/', "")
+    return listOf(parent, cleanSource).filter { it.isNotEmpty() }.joinToString("/")
+}
+
 private suspend fun resolveMarkdownImage(source: String, markdownPath: String, store: dev.dsh.mobile.mesh.data.WorkspaceFilesStore, sessionId: String): String? {
     val cleanSource = markdownImagePath(source) ?: return null
-    if (cleanSource.startsWith("http://") || cleanSource.startsWith("https://") || cleanSource.startsWith("data:")) return cleanSource
-    val parent = markdownPath.substringBeforeLast('/', "")
-    val imagePath = listOf(parent, cleanSource).filter { it.isNotBlank() }.joinToString("/").replace("\\", "/")
-    if (!imagePath.lowercase().endsWith(".svg")) return null
+    if (cleanSource.startsWith("http://", ignoreCase = true) || cleanSource.startsWith("https://", ignoreCase = true) ||
+        cleanSource.startsWith("data:", ignoreCase = true)) return cleanSource
+    val imagePath = markdownSvgWorkspacePath(markdownPath, cleanSource) ?: return null
     val bytes = store.readSvgBytes(sessionId, imagePath) ?: return null
     return svgDataUrl(bytes)
 }
@@ -176,6 +185,11 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                             }
+                        }
+                    }
+                    state.previewPageError?.let { message ->
+                        item(key = "preview-page-error") {
+                            Text(message, color = DsTheme.colors.labelSecondary, modifier = Modifier.padding(vertical = 12.dp))
                         }
                     }
                 }
