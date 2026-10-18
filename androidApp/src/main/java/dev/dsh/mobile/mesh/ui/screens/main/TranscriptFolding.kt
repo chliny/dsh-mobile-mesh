@@ -52,6 +52,31 @@ internal fun processExpanded(part: TranscriptPart.Process, scope: DisclosureScop
     return if (scope.isSet(key)) scope.isOpen(key) else part.defaultExpanded
 }
 
+/**
+ * A prepend can supply the missing turn start for rows that were flat in the opening window.
+ * Folding those already-visible rows as soon as the page arrives changes their height and keys,
+ * invalidating the reader's scroll anchor. Keep only these newly completed fragments open; a
+ * process that was already folded still obeys its stored reader choice and presentation default.
+ */
+internal fun newlyFoldedPrependProcesses(
+    previousNodes: List<ChatNode>,
+    previousParts: List<TranscriptPart>,
+    currentNodes: List<ChatNode>,
+    currentParts: List<TranscriptPart>,
+): Set<Long> {
+    val previousFirst = previousNodes.firstOrNull()?.seq ?: return emptySet()
+    if (currentNodes.firstOrNull()?.seq?.let { it < previousFirst } != true) return emptySet()
+    val visibleFlatSeqs = previousParts.filterIsInstance<TranscriptPart.Node>()
+        .mapTo(HashSet()) { it.node.seq }
+    if (visibleFlatSeqs.isEmpty()) return emptySet()
+    val previousProcesses = previousParts.filterIsInstance<TranscriptPart.Process>()
+        .mapTo(HashSet()) { it.startSeq }
+    return currentParts.filterIsInstance<TranscriptPart.Process>()
+        .filter { part -> part.startSeq !in previousProcesses &&
+            (part.startIndex until part.endExclusive).any { part.source.nodes[it].seq in visibleFlatSeqs } }
+        .mapTo(HashSet()) { it.startSeq }
+}
+
 /** The current running call's command, path or query; compact omits this preview. */
 internal fun liveProcessDetail(part: TranscriptPart.Process, presentation: TranscriptPresentation, cwd: String?): String? {
     if (!part.live || !presentation.liveProcessDetail) return null
