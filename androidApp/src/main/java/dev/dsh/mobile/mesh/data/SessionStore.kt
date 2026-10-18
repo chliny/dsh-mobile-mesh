@@ -666,6 +666,11 @@ class SessionStore @Inject constructor(
     // ------------------------------------------------------------------ internal state (guarded by `lock`)
     private val sessionRows = LinkedHashMap<String, SessionRow>()
     private val runningBySession = HashMap<String, Boolean>()
+    /** Status events received while session/list is in flight must outrank its older response. */
+    private val statusRevisionBySession = HashMap<String, Long>()
+    private var statusRevision = 0L
+    private var sessionListRequestSerial = 0L
+    private var sessionListAppliedSerial = 0L
     private val turnStartedAtBySession = HashMap<String, Long>()
     private val titleBySession = HashMap<String, String>()
     private val workspaceRows = LinkedHashMap<String, WorkspaceRow>()
@@ -871,6 +876,10 @@ class SessionStore @Inject constructor(
             connectionHostId = hostId
             sessionRows.clear()
             runningBySession.clear()
+            statusRevisionBySession.clear()
+            statusRevision = 0L
+            sessionListRequestSerial = 0L
+            sessionListAppliedSerial = 0L
             turnStartedAtBySession.clear()
             titleBySession.clear()
             workspaceRows.clear()
@@ -1810,6 +1819,7 @@ class SessionStore @Inject constructor(
             sessionRows.remove(sessionId)
             pendingKinds.remove(sessionId)
             runningBySession.remove(sessionId)
+            statusRevisionBySession.remove(sessionId)
             turnStartedAtBySession.remove(sessionId)
             questionEventBySession.remove(sessionId)
             questionClientBySession.remove(sessionId)
@@ -1821,6 +1831,7 @@ class SessionStore @Inject constructor(
     private fun setRunning(sessionId: String, running: Boolean) {
         synchronized(lock) {
             runningBySession[sessionId] = running
+            statusRevisionBySession[sessionId] = ++statusRevision
             if (!running) turnStartedAtBySession.remove(sessionId)
             sessionRows[sessionId]?.let { if (it.running != running) sessionRows[sessionId] = it.copy(running = running) }
             if (sessionId == currentId) rebuildCurrentLocked()
@@ -2119,6 +2130,9 @@ class SessionStore @Inject constructor(
             Log.w(TAG, "session/list skipped reason=stale-generation generationCurrent=false")
             return
         }
+        val (requestStartRevision, requestSerial) = synchronized(lock) {
+            statusRevision to ++sessionListRequestSerial
+        }
         Log.d(TAG, "session/list request begin generationCurrent=${generationIsCurrent()}")
         when (val r = api.sessionList(null)) {
             is RpcResult.Ok -> {
@@ -2126,8 +2140,6 @@ class SessionStore @Inject constructor(
                     Log.w(TAG, "session/list result ignored reason=stale-generation generationCurrent=false")
                     return
                 }
-                sessionListBaselineCount = r.value.items.size
-                sessionListBaselineState = "ok"
                 if (r.value.items.isEmpty()) {
                     Log.w(TAG, "session/list empty response generationCurrent=true")
                 } else {
@@ -2135,6 +2147,10 @@ class SessionStore @Inject constructor(
                 }
                 clearConnectionError()
                 synchronized(lock) {
+                    if (requestSerial <= sessionListAppliedSerial) return@synchronized
+                    sessionListAppliedSerial = requestSerial
+                    sessionListBaselineCount = r.value.items.size
+                    sessionListBaselineState = "ok"
                     sessionRows.clear()
                     for (item in r.value.items) {
                         val title = titleBySession[item.sessionId]
@@ -2142,12 +2158,18 @@ class SessionStore @Inject constructor(
                         // session/list is the authoritative recovery snapshot. Replacing rather than
                         // putIfAbsent repairs a stale true left behind when the previous generation
                         // missed the session's final turn/end event.
-                        runningBySession[item.sessionId] = item.running
-                        if (!item.running) turnStartedAtBySession.remove(item.sessionId)
+                        val running = runningStateFromList(
+                            listed = item.running,
+                            live = runningBySession[item.sessionId],
+                            statusRevision = statusRevisionBySession[item.sessionId],
+                            requestStartRevision = requestStartRevision,
+                        )
+                        runningBySession[item.sessionId] = running
+                        if (!running) turnStartedAtBySession.remove(item.sessionId)
                         sessionRows[item.sessionId] = SessionRow(
                             sessionId = item.sessionId,
                             title = title,
-                            running = runningBySession[item.sessionId] ?: item.running,
+                            running = running,
                             blank = item.blank,
                             parentSessionId = item.parentSessionId,
                             origin = item.origin,
