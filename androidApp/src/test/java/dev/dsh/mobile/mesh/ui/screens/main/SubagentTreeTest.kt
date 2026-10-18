@@ -120,6 +120,31 @@ class SubagentTreeTest {
     }
 
     @Test
+    fun `active subagent parent disclosure collapses and expands on successive taps`() {
+        val collapsed = mutableMapOf<String, Boolean>()
+        val openPath = setOf("root", "running-child")
+        assertTrue(sessionChildrenExpanded("root", collapsed, openPath))
+
+        toggleSessionChildren("root", collapsed, openPath)
+        assertEquals(false, sessionChildrenExpanded("root", collapsed, openPath))
+
+        toggleSessionChildren("root", collapsed, openPath)
+        assertEquals(true, sessionChildrenExpanded("root", collapsed, openPath))
+    }
+
+    @Test
+    fun `inactive subagent parent disclosure expands and collapses on successive taps`() {
+        val collapsed = mutableMapOf<String, Boolean>()
+        assertEquals(false, sessionChildrenExpanded("root", collapsed, emptySet()))
+
+        toggleSessionChildren("root", collapsed, emptySet())
+        assertEquals(true, sessionChildrenExpanded("root", collapsed, emptySet()))
+
+        toggleSessionChildren("root", collapsed, emptySet())
+        assertEquals(false, sessionChildrenExpanded("root", collapsed, emptySet()))
+    }
+
+    @Test
     fun `several subagents of one parent are grouped together`() {
         val rows = listOf(
             session("root"),

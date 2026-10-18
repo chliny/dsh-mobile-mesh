@@ -296,9 +296,9 @@ fun ChatListDrawer(
 
     fun isExpanded(workspaceId: String): Boolean =
         workspaceOverrides[workspaceId] ?: workspaceExpansion[workspaceId] ?: false
-    fun isChildExpanded(sessionId: String): Boolean = childCollapsed[sessionId]?.not() ?: (sessionId in openPath)
+    fun isChildExpanded(sessionId: String): Boolean = sessionChildrenExpanded(sessionId, childCollapsed, openPath)
     fun toggleChildren(sessionId: String) {
-        childCollapsed[sessionId] = !isChildExpanded(sessionId)
+        toggleSessionChildren(sessionId, childCollapsed, openPath)
     }
 
     /** Depth-first expansion of one top-level session, honouring each row's collapse state. */
@@ -1258,6 +1258,22 @@ private fun NewWorkspaceDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+internal fun sessionChildrenExpanded(
+    sessionId: String,
+    childCollapsed: Map<String, Boolean>,
+    openPath: Set<String>,
+): Boolean = childCollapsed[sessionId]?.not() ?: (sessionId in openPath)
+
+internal fun toggleSessionChildren(
+    sessionId: String,
+    childCollapsed: MutableMap<String, Boolean>,
+    openPath: Set<String>,
+) {
+    // Store the *previous expanded* state as the new collapsed state. Negating it here
+    // would leave the chevron unchanged, including when an active child opens its parent by default.
+    childCollapsed[sessionId] = sessionChildrenExpanded(sessionId, childCollapsed, openPath)
+}
 
 /** Preserve the server pin order, excluding only rows not rendered as top-level sessions. */
 internal fun pinnedRootIds(pins: List<String>, visibleIds: Set<String>, nestedIds: Set<String>): List<String> =
