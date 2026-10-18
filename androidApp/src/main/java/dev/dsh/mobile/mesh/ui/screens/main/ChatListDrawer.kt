@@ -30,6 +30,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapVert
@@ -151,6 +152,7 @@ fun ChatListDrawer(
 
     var query by remember { mutableStateOf("") }
     var searchOpen by remember { mutableStateOf(false) }
+    var schedulesOpen by remember { mutableStateOf(false) }
     // Persisted, not remembered: the order you read your sessions in is a preference, and it used
     // to reset every time the drawer was closed.
     val sessionSort by hostsStore.sessionSort.collectAsStateWithLifecycle(initialValue = SORT_MANUAL)
@@ -231,6 +233,21 @@ fun ChatListDrawer(
         return out
     }
 
+    if (schedulesOpen) {
+        ScheduleScreen(
+            onBack = { schedulesOpen = false },
+            onNewTask = {
+                schedulesOpen = false
+                scope.launch { store.createSession(); onClose() }
+            },
+            onOpenSession = { sessionId ->
+                schedulesOpen = false
+                scope.launch { store.openSession(sessionId); onClose() }
+            },
+        )
+        return
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -264,6 +281,12 @@ fun ChatListDrawer(
                     if (!searchOpen) query = ""
                 },
                 tint = if (searchOpen) colors.accent else colors.labelTertiary,
+            )
+            DsIconButton(
+                icon = Icons.Filled.Schedule,
+                contentDescription = stringResource(R.string.schedule_title),
+                onClick = { schedulesOpen = true },
+                tint = colors.labelTertiary,
             )
             SortChip(sortByRecency) { next ->
                 scope.launch { hostsStore.setSessionSort(if (next) SORT_UPDATED else SORT_MANUAL) }

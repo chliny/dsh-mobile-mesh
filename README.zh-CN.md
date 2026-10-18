@@ -40,6 +40,8 @@ Android App 协议 DTO 基线跟踪 DeepSeek Harness `v0.2.1-rc.2`（提交 `687
 
 App 同时接受旧版 projection 响应（只有 `asOfSeq`、`values`，没有 `kind`）和当前 `session/projections` 响应。`migration-required` 响应只作为无序号提示处理，不会与实时事件水位合并。新版 `session/list.formatStatus` 为可选字段；`session/fork.allowMigration` 未显式请求时继续省略，以保留旧 Host 行为。catalog 新增的 `external` 子代理模式会按服务端数据展示，但不会当作可导航的会话 transcript。`terminal/environment.cwd` 表示 Host 记录的当前目录，终端元数据仍以 Host 返回为准。
 
+Android 会话列表现可打开 Host 管理的自动化任务。只读 `schedule/catalog` 请求检查能力；只有结构化的路由不存在响应才将旧 Host 判为不支持。App 按 Host 返回的顺序和状态展示任务，使用原始 `sessionId` 调用 `schedule/history` 与 `schedule/delete`，并以完整观测到的规则作为 `schedule/update.expected` 检测冲突。与网页端相同，新建任务先启动会话，再由 Agent 创建提醒。Host 尚无目录搜索或状态过滤 API，因此 Android 不自行实现另一套客户端筛选。
+
 
 ## 参考
 

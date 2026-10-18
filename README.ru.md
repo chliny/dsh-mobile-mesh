@@ -39,6 +39,8 @@ DTO Android соответствуют DeepSeek Harness `v0.2.1-rc.2` (commit `6
 
 Приложение принимает как старые ответы projection без `kind`, так и новые варианты `session/projections`. Ответ `migration-required` считается подсказкой без последовательности и не объединяется с водяными знаками событий реального времени. `session/list.formatStatus` — необязательное поле, а `session/fork.allowMigration` по умолчанию не отправляется для совместимости со старыми Host. Записи subagent с режимом `external` отображаются с метаданными сервера, но не открываются как transcript Session. `terminal/environment.cwd` — текущий каталог, записанный Host.
 
+Список бесед Android теперь открывает автоматические задачи, которыми управляет Host. Запрос чтения `schedule/catalog` проверяет доступность; только структурированный ответ об отсутствии маршрута означает, что старый Host не поддерживается. Приложение показывает порядок и статус Host, использует исходный `sessionId` для `schedule/history` и `schedule/delete` и передаёт увиденное правило в `schedule/update.expected` для обнаружения конфликтов. Как в Web, создание задачи начинает Session, где Agent создаёт напоминание. У Host нет API поиска или фильтрации статуса каталога, поэтому Android не дублирует фильтрацию локально.
+
 ## Ссылки
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)

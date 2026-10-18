@@ -25,6 +25,13 @@ import dev.dsh.mobile.mesh.core.wire.dto.PluginInventorySnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.REMOTE_EVENT_RESULT_ENDPOINT
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventOutcome
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventResult
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleCatalogEntry
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleDeleteRequest
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleDeleteResult
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleHistoryRequest
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleHistoryResult
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleUpdateRequest
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleUpdateResult
 import dev.dsh.mobile.mesh.core.wire.dto.SessionAttachmentRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionAttachmentValue
 import dev.dsh.mobile.mesh.core.wire.dto.JobKillRequest
@@ -178,6 +185,20 @@ class DshApiClient(
      */
     suspend fun <T> call(endpoint: String, args: JsonObject, value: KSerializer<T>): RpcResult<T> =
         unary(endpoint, buildJsonObject { put("args", args) }, value)
+
+    /** Read the Host's complete cross-session task catalog (also a safe old-Host capability probe). */
+    suspend fun scheduleCatalog(): RpcResult<List<ScheduleCatalogEntry>> = callEmpty("schedule/catalog")
+
+    /** Read saved deliveries using the original Session binding; never activate the Session. */
+    suspend fun scheduleHistory(request: ScheduleHistoryRequest): RpcResult<ScheduleHistoryResult> =
+        callRequest("schedule/history", request)
+
+    /** Compare against the complete committed record; never retry a conflict with a stale draft. */
+    suspend fun scheduleUpdate(request: ScheduleUpdateRequest): RpcResult<ScheduleUpdateResult> =
+        callRequest("schedule/update", request)
+
+    suspend fun scheduleDelete(request: ScheduleDeleteRequest): RpcResult<ScheduleDeleteResult> =
+        callRequest("schedule/delete", request)
 
     /** Invoke one Remote endpoint and decode its value by inferred type. */
     private suspend inline fun <reified T> call(endpoint: String, args: JsonObject): RpcResult<T> =

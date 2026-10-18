@@ -397,6 +397,9 @@ class SessionStore @Inject constructor(
     /** Coalesces transcript rebuilds during a stream; see [observeRebuildTicks]. */
     private val rebuildTicks = Channel<Unit>(Channel.CONFLATED)
 
+    // A notification is only an invalidation hint; the screen always rereads the Host catalog.
+    val scheduleRevision = MutableStateFlow(0L)
+
     // ------------------------------------------------------------------ public StateFlows
     private val _sessions = MutableStateFlow<List<SessionRow>>(emptyList())
     val sessions: StateFlow<List<SessionRow>> = _sessions.asStateFlow()
@@ -1203,6 +1206,7 @@ class SessionStore @Inject constructor(
                 setUpdatedAt(sid, updatedAt)
             }
             "api-session/error" -> setConnectionError(str(1))
+            "schedule/changed" -> { scheduleRevision.value += 1 }
             "commands/change" -> scope.launch { refreshCommands() }
             "agent-preset/selected" -> scope.launch {
                 refreshAgentPresets()

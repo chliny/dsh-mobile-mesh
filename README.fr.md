@@ -39,6 +39,8 @@ La référence 0.2.1 adoptée couvre aussi `workspace/follow` : l’ancien `base
 
 L’application accepte les anciennes réponses projection sans `kind` et les variantes actuelles de `session/projections`. Une réponse `migration-required` reste un indice sans séquence et n’est pas fusionnée avec les compteurs des événements en direct. `session/list.formatStatus` est facultatif et `session/fork.allowMigration` est omis par défaut pour préserver la compatibilité avec les anciens Hosts. Les entrées subagent en mode `external` sont affichées avec les métadonnées du serveur, sans être ouvertes comme transcript de Session. `terminal/environment.cwd` désigne le répertoire courant enregistré par le Host.
 
+La liste des conversations Android ouvre désormais les tâches automatisées gérées par le Host. `schedule/catalog`, en lecture seule, vérifie leur disponibilité ; seule une réponse structurée de route absente signale un ancien Host incompatible. L’application respecte l’ordre et le statut du Host, utilise le `sessionId` d’origine pour `schedule/history` et `schedule/delete`, et transmet la règle observée dans `schedule/update.expected` pour détecter les conflits. Comme sur le Web, une nouvelle tâche commence dans une Session où l’Agent crée le rappel. Le Host n’offre pas d’API de recherche ni de filtre de statut du catalogue ; Android ne crée donc pas de filtre local parallèle.
+
 ## Références
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)

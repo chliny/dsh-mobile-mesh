@@ -39,6 +39,8 @@ Android অ্যাপের DTO baseline DeepSeek Harness `v0.2.1-rc.2` (commi
 
 অ্যাপ `kind` ছাড়া পুরোনো projection response এবং নতুন `session/projections` response—দুটিই গ্রহণ করে। `migration-required` response-কে sequence-বিহীন hint হিসেবে ধরে, live event watermark-এর সঙ্গে merge করে না। `session/list.formatStatus` ঐচ্ছিক; পুরোনো Host-এর সঙ্গে সামঞ্জস্য রাখতে `session/fork.allowMigration` ডিফল্টে বাদ থাকে। `external` subagent entry-র server-returned metadata দেখানো হয়, তবে সেটিকে Session transcript হিসেবে খোলা যায় না। `terminal/environment.cwd` হলো Host-এ নথিভুক্ত বর্তমান directory।
 
+Android কথোপকথন তালিকা এখন Host-পরিচালিত স্বয়ংক্রিয় কাজ দেখায়। read-only `schedule/catalog` দিয়ে সমর্থন যাচাই করা হয়; কেবল কাঠামোবদ্ধ missing-route উত্তর পুরোনো Host-কে অসমর্থিত বলে। অ্যাপ Host-এর ক্রম ও অবস্থা দেখায়, মূল `sessionId` দিয়ে `schedule/history` ও `schedule/delete` ডাকে এবং সংঘাত শনাক্তে দেখা নিয়মটি `schedule/update.expected`-এ পাঠায়। নতুন কাজের জন্য Session শুরু হয় এবং Agent সেখানে reminder তৈরি করে। Host-এ catalog search বা status-filter API নেই, তাই Android আলাদা local filtering বানায় না।
+
 ## রেফারেন্স
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
