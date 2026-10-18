@@ -1,20 +1,25 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatTranscriptPagingTest {
     @Test
-    fun `a full viewport at the top does not auto page`() {
-        assertFalse(shouldPageAtTop(firstVisible = 0, fillsViewport = true, autoPages = 0, maxAutoPages = 1, userScrolling = false))
-        assertTrue(shouldPageAtTop(firstVisible = 0, fillsViewport = true, autoPages = 0, maxAutoPages = 1, userScrolling = true))
+    fun `two distinct history pulls are required before paging`() {
+        val first = nextTopPullCount(0, 0, 48f, 32f, canPage = true)
+        assertEquals(1, first)
+        assertEquals(2, nextTopPullCount(first, 0, 48f, 32f, canPage = true))
+        assertEquals(1, nextTopPullCount(first, 0, 4f, 32f, canPage = true))
+        assertEquals(1, nextTopPullCount(first, 3, 48f, 32f, canPage = true))
+        assertEquals(1, nextTopPullCount(first, 0, 48f, 32f, canPage = false))
     }
 
     @Test
-    fun `a short initial transcript waits for an explicit older-page request`() {
-        assertFalse(shouldPageAtTop(firstVisible = 0, fillsViewport = false, autoPages = 0, maxAutoPages = 0, userScrolling = false))
-        assertTrue(shouldPageAtTop(firstVisible = 0, fillsViewport = false, autoPages = 0, maxAutoPages = 0, userScrolling = true))
+    fun `prepend anchor keeps the same visible message rather than jumping further into history`() {
+        assertEquals(28, olderPageAnchorScrollOffset(-28))
+        assertEquals(-42, olderPageAnchorScrollOffset(42))
     }
 
     @Test
@@ -50,6 +55,14 @@ class ChatTranscriptPagingTest {
     }
 
     @Test
+    fun `prepend anchor survives drag release and loading until a new first row arrives`() {
+        assertTrue(shouldWaitForOlderPageAnchor(false, true, false, "old-first", "old-first"))
+        assertTrue(shouldWaitForOlderPageAnchor(true, true, false, "new-first", "old-first"))
+        assertFalse(shouldWaitForOlderPageAnchor(false, true, false, "new-first", "old-first"))
+        assertFalse(shouldWaitForOlderPageAnchor(false, true, true, "old-first", "old-first"))
+    }
+
+    @Test
     fun `page completion restores prepend anchor only until the user starts a new drag`() {
         assertTrue(shouldRestoreOlderPageAnchor(capturedDragGeneration = 4, currentDragGeneration = 4, userDragging = false))
         assertFalse(shouldRestoreOlderPageAnchor(capturedDragGeneration = 4, currentDragGeneration = 5, userDragging = true))
@@ -57,8 +70,4 @@ class ChatTranscriptPagingTest {
         assertFalse(shouldRestoreOlderPageAnchor(capturedDragGeneration = 4, currentDragGeneration = 4, userDragging = true))
     }
 
-    @Test
-    fun `away from the top never pages`() {
-        assertFalse(shouldPageAtTop(firstVisible = 3, fillsViewport = false, autoPages = 0, maxAutoPages = 1, userScrolling = true))
-    }
 }
