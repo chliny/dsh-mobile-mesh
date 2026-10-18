@@ -32,20 +32,24 @@ import kotlinx.serialization.json.jsonPrimitive
  *
  * The fold is pure: same events → same snapshot.
  */
+private fun JsonObject.primitiveText(key: String): String? = (get(key) as? JsonPrimitive)?.contentOrNull
+private fun JsonObject.primitiveInt(key: String): Int? = (get(key) as? JsonPrimitive)?.intOrNull
+private fun JsonObject.primitiveBoolean(key: String): Boolean? = (get(key) as? JsonPrimitive)?.booleanOrNull
+
 private fun retryFailureText(data: JsonObject?): String? = data?.let { obj ->
     val failure = obj["failure"]
     if (failure is JsonObject) {
-        val status = failure["status"]?.jsonPrimitive?.contentOrNull
+        val status = failure.primitiveText("status")
         val raw = JsonObject(failure.filterKeys { it != "status" }).toString()
         return@let if (status.isNullOrBlank()) raw else "$status: $raw"
     }
     sequenceOf("message", "error", "reason", "detail")
-        .mapNotNull { key -> obj[key]?.jsonPrimitive?.contentOrNull }
+        .mapNotNull { key -> obj.primitiveText(key) }
         .firstOrNull { it.isNotBlank() }
 }
 
 private fun compactionId(data: JsonElement): String? =
-    (data as? JsonObject)?.get("compactionId")?.jsonPrimitive?.contentOrNull
+    (data as? JsonObject)?.primitiveText("compactionId")
 
 private fun mergeCompactionData(previous: JsonElement, current: JsonElement): JsonElement {
     val old = previous as? JsonObject ?: return current
@@ -59,13 +63,13 @@ private fun mergeCompactionData(previous: JsonElement, current: JsonElement): Js
 }
 
 private fun retryMaxAttempts(data: JsonObject): Int = sequenceOf("maxAttempts", "maxRetries", "limit")
-    .mapNotNull { key -> data[key]?.jsonPrimitive?.intOrNull }
+    .mapNotNull { key -> (data[key] as? JsonPrimitive)?.intOrNull }
     .firstOrNull { it > 0 }
     ?: 20
 
 private fun sameRetryChain(previous: RetryNode, current: JsonObject?): Boolean {
-    val previousId = (previous.data as? JsonObject)?.get("retryId")?.jsonPrimitive?.contentOrNull
-    val currentId = current?.get("retryId")?.jsonPrimitive?.contentOrNull
+    val previousId = (previous.data as? JsonObject)?.primitiveText("retryId")
+    val currentId = current?.primitiveText("retryId")
     return previousId != null && currentId != null && previousId == currentId
 }
 
@@ -112,6 +116,7 @@ class EventFold(private val sessionId: String) {
             }
             state.running = initial.running
             state.hasMore = initial.hasMore
+            state.lastSeq = initial.lastSeq
         }
 
         fun apply(event: SessionEventEnvelope): ConversationSnapshot? {
@@ -198,8 +203,8 @@ private class FoldState(private val sessionId: String) {
     fun applyTransient(event: SessionEventEnvelope) {
         if (event.type != "assistant/chunk") return
         val data = event.data as? JsonObject ?: return
-        val turn = data["turn"]?.jsonPrimitive?.intOrNull ?: 0
-        val step = data["step"]?.jsonPrimitive?.intOrNull ?: 0
+        val turn = if ("turn" in data) (data["turn"] as? JsonPrimitive)?.intOrNull ?: return else 0
+        val step = if ("step" in data) (data["step"] as? JsonPrimitive)?.intOrNull ?: return else 0
         val chunk = data["chunk"] as? JsonObject ?: return
         mergeChunk(turn, step, chunk)
     }
@@ -207,17 +212,20 @@ private class FoldState(private val sessionId: String) {
     fun apply(event: SessionEventEnvelope) {
         lastSeq = maxOf(lastSeq, event.seq)
         val data = event.data
+        // Format-compatible unknown events remain visible, but known events that require named
+        // fields cannot be folded from a primitive or array. Skip only that malformed row.
+        if (event.type in OBJECT_DATA_EVENTS && data !is JsonObject) return
         when (event.type) {
             "turn/start" -> {
-                val turn = data.jsonObject["turn"]?.jsonPrimitive?.intOrNull ?: 0
+                val turn = data.jsonObject.primitiveInt("turn") ?: 0
                 nodes.add(TurnStartNode(event.seq, turn))
                 running = true
             }
 
             "turn/end" -> {
-                val turn = data.jsonObject["turn"]?.jsonPrimitive?.intOrNull ?: 0
-                val reason = data.jsonObject["reason"]?.jsonObject
-                val kind = reason?.get("kind")?.jsonPrimitive?.contentOrNull ?: "completed"
+                val turn = data.jsonObject.primitiveInt("turn") ?: 0
+                val reason = data.jsonObject["reason"] as? JsonObject
+                val kind = reason?.primitiveText("kind") ?: "completed"
                 nodes.add(TurnEndNode(event.seq, turn, kind, reason?.get("reason")))
                 if (kind == "interrupted" || kind == "aborted" || kind == "error") {
                     markInterrupted(turn)
@@ -227,12 +235,12 @@ private class FoldState(private val sessionId: String) {
 
             "user/message" -> {
                 blank = false
-                val messageId = data.jsonObject["id"]?.jsonPrimitive?.contentOrNull
+                val messageId = data.jsonObject.primitiveText("id")
                 val source = data.jsonObject["source"] as? JsonObject
-                val sourceKind = source?.get("kind")?.jsonPrimitive?.contentOrNull
+                val sourceKind = source?.primitiveText("kind")
                 val blocks = parseBlocks(data.jsonObject["content"])
                 val compactionCheckpointId = if (sourceKind == "compact-checkpoint") {
-                    source?.get("compactionId")?.jsonPrimitive?.contentOrNull
+                    source?.primitiveText("compactionId")
                 } else null
                 if (compactionCheckpointId != null) {
                     val lifecycle = compactionNodeById[compactionCheckpointId]
@@ -273,7 +281,7 @@ private class FoldState(private val sessionId: String) {
                     blank = false
                     nodes.add(ContextMessageNode(
                         event.seq,
-                        message?.get("id")?.jsonPrimitive?.contentOrNull,
+                        message?.primitiveText("id"),
                         blocks,
                         "developer",
                     ))
@@ -288,23 +296,23 @@ private class FoldState(private val sessionId: String) {
             // Durable through harness 0.1.2; a live-only transient row since 0.1.3. Either way it
             // is merged into the open attempt for its (turn, step) and shown as provisional text.
             "assistant/chunk" -> {
-                val turn = data.jsonObject["turn"]?.jsonPrimitive?.intOrNull ?: 0
-                val step = data.jsonObject["step"]?.jsonPrimitive?.intOrNull ?: 0
-                val chunk = data.jsonObject["chunk"]?.jsonObject ?: return
+                val turn = data.jsonObject.primitiveInt("turn") ?: 0
+                val step = data.jsonObject.primitiveInt("step") ?: 0
+                val chunk = data.jsonObject["chunk"] as? JsonObject ?: return
                 mergeChunk(turn, step, chunk)
             }
 
             "assistant/message" -> {
-                val turn = data.jsonObject["turn"]?.jsonPrimitive?.intOrNull ?: 0
-                val step = data.jsonObject["step"]?.jsonPrimitive?.intOrNull ?: 0
-                val message = data.jsonObject["message"]?.jsonObject
-                val messageId = message?.get("id")?.jsonPrimitive?.contentOrNull
+                val turn = data.jsonObject.primitiveInt("turn") ?: 0
+                val step = data.jsonObject.primitiveInt("step") ?: 0
+                val message = data.jsonObject["message"] as? JsonObject
+                val messageId = message?.primitiveText("id")
                 val usage = data.jsonObject["usage"]
                 // Harness 0.1.0-rc.8 finalises a cancelled turn's delivered prefix as an ordinary
                 // `assistant/message` carrying this marker, which is authoritative. Before rc.8
                 // the host appended nothing at all and the prefix was simply lost, so the absence
                 // of the key is not "not interrupted" — see markInterrupted.
-                val interrupted = data.jsonObject["interrupted"]?.jsonPrimitive?.booleanOrNull ?: false
+                val interrupted = data.jsonObject.primitiveBoolean("interrupted") ?: false
                 val key = key(turn, step)
                 val open = openByKey[key]
                 // The settlement's assembled message is the model-visible truth. Chunks seen for
@@ -330,55 +338,55 @@ private class FoldState(private val sessionId: String) {
             // data, not something a transcript shows; but it does close the open attempt for that
             // step, so any provisional rows for it are retired here.
             "assistant/attempt" -> {
-                val turn = data.jsonObject["turn"]?.jsonPrimitive?.intOrNull ?: 0
-                val step = data.jsonObject["step"]?.jsonPrimitive?.intOrNull ?: 0
+                val turn = data.jsonObject.primitiveInt("turn") ?: 0
+                val step = data.jsonObject.primitiveInt("step") ?: 0
                 openByKey.remove(key(turn, step))
             }
 
             "tool/call" -> {
-                val callId = data.jsonObject["callId"]?.jsonPrimitive?.contentOrNull ?: ""
-                val name = data.jsonObject["name"]?.jsonPrimitive?.contentOrNull ?: "tool"
-                val args = data.jsonObject["arguments"]?.jsonPrimitive?.contentOrNull ?: ""
-                val turn = data.jsonObject["turn"]?.jsonPrimitive?.intOrNull ?: 0
-                val step = data.jsonObject["step"]?.jsonPrimitive?.intOrNull ?: 0
+                val callId = data.jsonObject.primitiveText("callId") ?: ""
+                val name = data.jsonObject.primitiveText("name") ?: "tool"
+                val args = data.jsonObject.primitiveText("arguments") ?: ""
+                val turn = data.jsonObject.primitiveInt("turn") ?: 0
+                val step = data.jsonObject.primitiveInt("step") ?: 0
                 nodes.add(ToolCallNode(event.seq, callId, name, args, turn, step))
             }
 
             "workspace/changes" -> {
-                val turn = data.jsonObject["turn"]?.jsonPrimitive?.intOrNull ?: return
+                val turn = data.jsonObject.primitiveInt("turn") ?: return
                 nodes.add(ChangesNode(event.seq, turn))
             }
 
             "deliverables/presented" -> {
-                val turn = data.jsonObject["turn"]?.jsonPrimitive?.intOrNull ?: 0
+                val turn = data.jsonObject.primitiveInt("turn") ?: 0
                 val files = (data.jsonObject["files"] as? JsonArray).orEmpty()
                     .mapNotNull { file ->
                         val fileObject = file as? JsonObject ?: return@mapNotNull null
-                        val path = fileObject["path"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+                        val path = fileObject.primitiveText("path")?.takeIf { it.isNotEmpty() }
                             ?: return@mapNotNull null
-                        PresentedFile(path, fileObject["description"]?.jsonPrimitive?.contentOrNull)
+                        PresentedFile(path, fileObject.primitiveText("description"))
                     }
                     .distinctBy { it.path }
                 if (files.isNotEmpty()) nodes.add(PresentedFilesNode(event.seq, turn, files))
             }
 
             "tool/result" -> {
-                val message = data.jsonObject["message"]?.jsonObject
+                val message = data.jsonObject["message"] as? JsonObject
                 val messageContent = message?.get("content") as? JsonArray
                 val resultBlock = messageContent
-                    ?.firstOrNull { it is JsonObject && it["type"]?.jsonPrimitive?.contentOrNull == "tool-result" }
+                    ?.firstOrNull { it is JsonObject && it.primitiveText("type") == "tool-result" }
                     as? JsonObject
                 // V3 stored a nested tool-result content block; V4 uses a native tool-role message
                 // whose toolCallId and isError fields sit beside its unwrapped content.
                 val content = resultBlock?.get("content") ?: message?.get("content")
-                val toolCallId = message?.get("toolCallId")?.jsonPrimitive?.contentOrNull
-                    ?: resultBlock?.get("toolCallId")?.jsonPrimitive?.contentOrNull
-                    ?: messageContent?.firstOrNull()?.jsonObject?.get("toolCallId")?.jsonPrimitive?.contentOrNull
-                val isError = message?.get("isError")?.jsonPrimitive?.booleanOrNull
-                    ?: resultBlock?.get("isError")?.jsonPrimitive?.booleanOrNull
+                val toolCallId = message?.primitiveText("toolCallId")
+                    ?: resultBlock?.primitiveText("toolCallId")
+                    ?: (messageContent?.firstOrNull() as? JsonObject)?.primitiveText("toolCallId")
+                val isError = (message?.get("isError") as? JsonPrimitive)?.booleanOrNull
+                    ?: (resultBlock?.get("isError") as? JsonPrimitive)?.booleanOrNull
                     ?: false
-                val turn = data.jsonObject["turn"]?.jsonPrimitive?.intOrNull ?: 0
-                val step = data.jsonObject["step"]?.jsonPrimitive?.intOrNull ?: 0
+                val turn = data.jsonObject.primitiveInt("turn") ?: 0
+                val step = data.jsonObject.primitiveInt("step") ?: 0
                 nodes.add(ToolResultNode(event.seq, toolCallId.orEmpty(), content, isError, turn, step, data.jsonObject["meta"]))
             }
 
@@ -386,7 +394,7 @@ private class FoldState(private val sessionId: String) {
 
             "goal/change" -> nodes.add(GoalNode(event.seq, data))
 
-            "plan/mode" -> nodes.add(PlanModeNode(event.seq, data.jsonObject["active"]?.jsonPrimitive?.booleanOrNull ?: false))
+            "plan/mode" -> nodes.add(PlanModeNode(event.seq, data.jsonObject.primitiveBoolean("active") ?: false))
 
             "compaction/start", "compaction/end", "compaction/prune", "compaction/summary" -> {
                 val id = compactionId(data)
@@ -440,7 +448,7 @@ private class FoldState(private val sessionId: String) {
             "command/run", "command/done" -> nodes.add(CommandNode(event.seq, event.type, data))
 
             "session/title" -> {
-                val title = data.jsonObject["title"]?.jsonPrimitive?.contentOrNull ?: return
+                val title = data.jsonObject.primitiveText("title") ?: return
                 nodes.add(TitleNode(event.seq, title))
             }
 
@@ -466,30 +474,34 @@ private class FoldState(private val sessionId: String) {
     private fun key(turn: Int, step: Int) = "$turn.$step"
 
     private fun mergeChunk(turn: Int, step: Int, chunk: JsonObject) {
-        val type = chunk["type"]?.jsonPrimitive?.contentOrNull ?: return
+        val type = (chunk["type"] as? JsonPrimitive)?.contentOrNull ?: return
         // Usage, finish, and future metadata chunks do not address a content block. Creating an
         // accumulator for them would leave a phantom `unknown` block that can hide the complete
         // content carried by a following non-streamed assistant/message event.
         if (type !in BLOCK_CHUNK_TYPES) return
-        val index = chunk["index"]?.jsonPrimitive?.intOrNull ?: 0
+        val rawIndex = chunk["index"]
+        val index = if (rawIndex == null) 0 else (rawIndex as? JsonPrimitive)?.intOrNull ?: return
+        // Live chunks are provisional presentation. A corrupt index must not allocate an
+        // unbounded number of empty blocks or crash the entire conversation fold.
+        if (index !in 0..MAX_STREAM_BLOCK_INDEX) return
         val open = openByKey.getOrPut(key(turn, step)) { OpenAssistant(turn, step) }
         while (open.blocks.size <= index) open.blocks.add(MutableChatBlockAccumulator())
         val acc = open.blocks[index]
         when (type) {
-            "block-start" -> acc.kind = chunk["blockType"]?.jsonPrimitive?.contentOrNull ?: "unknown"
+            "block-start" -> acc.kind = (chunk["blockType"] as? JsonPrimitive)?.contentOrNull ?: "unknown"
             "text-delta" -> {
                 if (acc.kind == "unknown") acc.kind = "text"
-                acc.text.append(chunk["text"]?.jsonPrimitive?.contentOrNull ?: "")
+                acc.text.append((chunk["text"] as? JsonPrimitive)?.contentOrNull ?: "")
             }
             "reasoning-delta" -> {
                 acc.kind = "reasoning"
-                acc.text.append(chunk["text"]?.jsonPrimitive?.contentOrNull ?: "")
+                acc.text.append((chunk["text"] as? JsonPrimitive)?.contentOrNull ?: "")
             }
             "tool-call-delta" -> {
                 acc.kind = "tool-call"
-                acc.toolCallId = chunk["id"]?.jsonPrimitive?.contentOrNull
-                chunk["name"]?.jsonPrimitive?.contentOrNull?.let { acc.toolName = it }
-                acc.arguments.append(chunk["argumentsDelta"]?.jsonPrimitive?.contentOrNull ?: "")
+                (chunk["id"] as? JsonPrimitive)?.contentOrNull?.let { acc.toolCallId = it }
+                (chunk["name"] as? JsonPrimitive)?.contentOrNull?.let { acc.toolName = it }
+                acc.arguments.append((chunk["argumentsDelta"] as? JsonPrimitive)?.contentOrNull ?: "")
             }
             "block-end" -> acc.raw = chunk["block"]
             else -> Unit
@@ -497,6 +509,12 @@ private class FoldState(private val sessionId: String) {
     }
 
     private companion object {
+        const val MAX_STREAM_BLOCK_INDEX = 1023
+        val OBJECT_DATA_EVENTS = setOf(
+            "turn/start", "turn/end", "user/message", "assistant/chunk", "assistant/message",
+            "assistant/attempt", "tool/call", "tool/result", "workspace/changes",
+            "deliverables/presented", "todo/write", "plan/mode", "session/title",
+        )
         val BLOCK_CHUNK_TYPES = setOf(
             "block-start",
             "text-delta",
@@ -507,26 +525,26 @@ private class FoldState(private val sessionId: String) {
     }
 
     private fun commit(open: OpenAssistant): List<ChatBlock> = open.blocks.map { acc ->
-        val assembled = acc.raw?.jsonObject
+        val assembled = acc.raw as? JsonObject
         when {
             acc.kind == "text" || acc.kind == "reasoning" -> ChatBlock(
                 kind = acc.kind,
-                text = assembled?.get("text")?.jsonPrimitive?.contentOrNull ?: acc.text.toString(),
+                text = assembled?.primitiveText("text") ?: acc.text.toString(),
                 raw = acc.raw,
             )
             acc.kind == "tool-call" -> ChatBlock(
                 kind = "tool-call",
-                toolCallId = assembled?.get("id")?.jsonPrimitive?.contentOrNull ?: acc.toolCallId,
-                toolName = assembled?.get("name")?.jsonPrimitive?.contentOrNull ?: acc.toolName,
-                argumentsJson = assembled?.get("arguments")?.jsonPrimitive?.contentOrNull ?: acc.arguments.toString(),
+                toolCallId = assembled?.primitiveText("id") ?: acc.toolCallId,
+                toolName = assembled?.primitiveText("name") ?: acc.toolName,
+                argumentsJson = assembled?.primitiveText("arguments") ?: acc.arguments.toString(),
                 raw = acc.raw,
             )
             else -> ChatBlock(
-                kind = assembled?.get("type")?.jsonPrimitive?.contentOrNull ?: acc.kind,
-                text = assembled?.get("text")?.jsonPrimitive?.contentOrNull,
-                toolCallId = assembled?.get("id")?.jsonPrimitive?.contentOrNull ?: acc.toolCallId,
-                toolName = assembled?.get("name")?.jsonPrimitive?.contentOrNull ?: acc.toolName,
-                argumentsJson = assembled?.get("arguments")?.jsonPrimitive?.contentOrNull ?: acc.arguments.toString(),
+                kind = assembled?.primitiveText("type") ?: acc.kind,
+                text = assembled?.primitiveText("text"),
+                toolCallId = assembled?.primitiveText("id") ?: acc.toolCallId,
+                toolName = assembled?.primitiveText("name") ?: acc.toolName,
+                argumentsJson = assembled?.primitiveText("arguments") ?: acc.arguments.toString(),
                 raw = acc.raw,
             )
         }
@@ -543,21 +561,21 @@ private class FoldState(private val sessionId: String) {
         val array = content as? JsonArray ?: return emptyList()
         return array.mapNotNull { element ->
             val obj = element as? JsonObject ?: return@mapNotNull null
-            val type = obj["type"]?.jsonPrimitive?.contentOrNull ?: "unknown"
+            val type = obj.primitiveText("type") ?: "unknown"
             when (type) {
-                "text" -> ChatBlock("text", text = obj["text"]?.jsonPrimitive?.contentOrNull, raw = element)
-                "reasoning" -> ChatBlock("reasoning", text = obj["text"]?.jsonPrimitive?.contentOrNull, raw = element)
+                "text" -> ChatBlock("text", text = obj.primitiveText("text"), raw = element)
+                "reasoning" -> ChatBlock("reasoning", text = obj.primitiveText("text"), raw = element)
                 "tool-call" -> ChatBlock(
                     kind = "tool-call",
-                    toolCallId = obj["id"]?.jsonPrimitive?.contentOrNull,
-                    toolName = obj["name"]?.jsonPrimitive?.contentOrNull,
-                    argumentsJson = obj["arguments"]?.jsonPrimitive?.contentOrNull,
+                    toolCallId = obj.primitiveText("id"),
+                    toolName = obj.primitiveText("name"),
+                    argumentsJson = obj.primitiveText("arguments"),
                     raw = element,
                 )
                 "tool-result" -> ChatBlock(
                     kind = "tool-result",
-                    toolCallId = obj["toolCallId"]?.jsonPrimitive?.contentOrNull,
-                    isError = obj["isError"]?.jsonPrimitive?.booleanOrNull ?: false,
+                    toolCallId = obj.primitiveText("toolCallId"),
+                    isError = (obj["isError"] as? JsonPrimitive)?.booleanOrNull ?: false,
                     raw = element,
                 )
                 "image" -> ChatBlock("image", raw = element)
@@ -566,7 +584,7 @@ private class FoldState(private val sessionId: String) {
                 // attachment id stay on `raw` for the chip that renders it.
                 "file" -> ChatBlock(
                     kind = "file",
-                    text = (obj["attachment"] as? JsonObject)?.get("name")?.jsonPrimitive?.contentOrNull,
+                    text = (obj["attachment"] as? JsonObject)?.primitiveText("name"),
                     raw = element,
                 )
                 else -> ChatBlock("unknown", raw = element)

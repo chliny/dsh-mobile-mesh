@@ -3,9 +3,10 @@ package dev.dsh.mobile.mesh.core.notify
 import dev.dsh.mobile.mesh.core.session.SessionEventEnvelope
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
 
 /** Notification-worthy completions/requests derived from the wire. */
 sealed interface CompletionEvent {
@@ -71,8 +72,8 @@ class CompletionClassifier {
         val data = event.data as? JsonObject
         return when (event.type) {
             "turn/end" -> {
-                val kind = data?.get("reason")?.jsonObject?.get("kind")?.jsonPrimitive?.contentOrNull
-                val turn = data?.get("turn")?.jsonPrimitive?.let { runCatching { it.content.toInt() }.getOrNull() } ?: 0
+                val kind = ((data?.get("reason") as? JsonObject)?.get("kind") as? JsonPrimitive)?.contentOrNull
+                val turn = (data?.get("turn") as? JsonPrimitive)?.intOrNull ?: 0
                 when (kind) {
                     "completed" -> CompletionEvent.TurnComplete(sessionId, event.seq, turn)
                     // Both forms represent a stopped task in the session transcript.
@@ -82,17 +83,17 @@ class CompletionClassifier {
             }
 
             "goal/change" -> {
-                val goal = data?.get("goal")?.jsonObject ?: return null
-                when (goal["phase"]?.jsonPrimitive?.contentOrNull) {
+                val goal = data?.get("goal") as? JsonObject ?: return null
+                when ((goal["phase"] as? JsonPrimitive)?.contentOrNull) {
                     "complete" -> CompletionEvent.GoalComplete(
                         sessionId,
                         event.seq,
-                        goal["objective"]?.jsonPrimitive?.contentOrNull,
+                        (goal["objective"] as? JsonPrimitive)?.contentOrNull,
                     )
                     "blocked" -> CompletionEvent.GoalBlocked(
                         sessionId,
                         event.seq,
-                        goal["blockedReason"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull,
+                        ((goal["blockedReason"] as? JsonObject)?.get("message") as? JsonPrimitive)?.contentOrNull,
                     )
                     else -> null
                 }
@@ -128,15 +129,16 @@ class CompletionClassifier {
             sessionId = agentId,
             seq = 0L,
             approvalId = eventId,
-            toolName = request["toolName"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-            reason = request["reason"]?.jsonPrimitive?.contentOrNull,
+            toolName = (request["toolName"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
+            reason = (request["reason"] as? JsonPrimitive)?.contentOrNull,
         )
 
         "user-questions/request" -> CompletionEvent.QuestionRequested(
             sessionId = agentId,
             seq = 0L,
             firstQuestion = (request["questions"] as? kotlinx.serialization.json.JsonArray)
-                ?.firstOrNull()?.jsonObject?.get("question")?.jsonPrimitive?.contentOrNull,
+                ?.firstOrNull()?.let { it as? JsonObject }?.get("question")
+                ?.let { it as? JsonPrimitive }?.contentOrNull,
         )
 
         else -> null
@@ -155,9 +157,11 @@ class CompletionClassifier {
      */
     fun classifyNotification(event: String, args: List<JsonElement>): CompletionEvent? {
         if (event != "api-session/status") return null
-        val sessionId = args.getOrNull(0)?.jsonPrimitive?.contentOrNull ?: return null
-        val isRunning = args.getOrNull(1)?.jsonPrimitive
-            ?.let { runCatching { it.content.toBoolean() }.getOrNull() } ?: false
+        val sessionId = (args.getOrNull(0) as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull ?: return null
+        // Missing, string, or malformed booleans are not a stop signal. Treating them as false
+        // would emit a spurious completion and forget that this session is still running.
+        val isRunning = (args.getOrNull(1) as? JsonPrimitive)
+            ?.takeUnless { it.isString }?.booleanOrNull ?: return null
         val wasRunning = running.contains(sessionId)
         if (isRunning) {
             running.add(sessionId)

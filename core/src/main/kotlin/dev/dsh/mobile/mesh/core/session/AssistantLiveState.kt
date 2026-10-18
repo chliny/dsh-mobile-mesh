@@ -87,13 +87,16 @@ class AssistantLiveState {
         revision = baseline?.revision ?: 0
         val opening = baseline?.activeAttempt ?: return
         val chunks = AssistantStream.expand(opening.stream)
+        // An incomplete or malformed prefix cannot be combined with later live chunks: doing so
+        // would display a suffix as though it were the whole reply. Await the durable settlement.
+        if (opening.nextIndex < 0 || chunks.size < opening.nextIndex) return
         attempt = Attempt(
             attemptId = opening.attemptId,
             startedAfterSeq = opening.startedAfterSeq,
             turn = opening.turn,
             step = opening.step,
             nextIndex = opening.nextIndex,
-            chunks = chunks.take(opening.nextIndex.coerceAtLeast(0)).toMutableList(),
+            chunks = chunks.take(opening.nextIndex).toMutableList(),
         )
     }
 
@@ -123,8 +126,8 @@ class AssistantLiveState {
                 val open = attempt ?: return Change.NONE
                 if (open.attemptId != frame.attemptId) return Change.NONE
                 if (frame.index != open.nextIndex) return reset()
+                val chunk = frame.chunk as? JsonObject ?: return reset()
                 open.nextIndex += 1
-                val chunk = frame.chunk as? JsonObject ?: return Change.NONE
                 open.chunks.add(TimedChunk(frame.time, chunk))
                 Change.CHANGED
             }

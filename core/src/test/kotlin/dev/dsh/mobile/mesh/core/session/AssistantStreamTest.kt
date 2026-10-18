@@ -103,6 +103,37 @@ class AssistantStreamTest {
     }
 
     @Test
+    fun `malformed nested metadata drops the stream without throwing`() {
+        val badRecords = listOf(
+            """{"type":{},"time":1,"chunk":{"type":"finish"}}""",
+            """{"type":"text-chunks","time0":1,"index":{},"dt":[],"texts":["a"]}""",
+            """{"type":"tool-call-chunks","time0":1,"index":0,"id":{},"dt":[],"args":["a"]}""",
+            """{"type":"tool-call-chunks","time0":1,"index":0,"id":"id","name":{},"dt":[],"args":["a"]}""",
+        )
+        for (badRecord in badRecords) {
+            val stream = WireJson.parseToJsonElement(
+                """[{"type":"chunk","time":0,"chunk":{"type":"block-start"}},$badRecord]""",
+            )
+            assertTrue("Unexpected partial expansion of $badRecord", AssistantStream.expand(stream).isEmpty())
+        }
+    }
+
+    @Test
+    fun `unsafe or overflowing stream times discard the whole prefix`() {
+        val badRecords = listOf(
+            """{"type":"chunk","time":9223372036854775807,"chunk":{"type":"finish"}}""",
+            """{"type":"chunk","time":1e309,"chunk":{"type":"finish"}}""",
+            """{"type":"text-chunks","time0":9007199254740991,"index":0,"dt":[1],"texts":["a","b"]}""",
+        )
+        for (record in badRecords) {
+            val stream = WireJson.parseToJsonElement(
+                """[{"type":"chunk","time":1,"chunk":{"type":"block-start"}},$record]""",
+            )
+            assertTrue("Unexpected overflowed time in $record", AssistantStream.expand(stream).isEmpty())
+        }
+    }
+
+    @Test
     fun `an absent or empty stream expands to nothing`() {
         assertTrue(AssistantStream.expand(null).isEmpty())
         assertTrue(AssistantStream.expand(WireJson.parseToJsonElement("[]")).isEmpty())

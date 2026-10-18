@@ -1,6 +1,7 @@
 package dev.dsh.mobile.mesh.core.wire
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -93,6 +94,20 @@ class TransportFailureTest {
         val bare = RpcError("agent-busy", "busy", JsonObject(emptyMap()))
         assertNull(TransportFailures.of(bare))
         assertNull(TransportFailures.statusOf(bare))
+    }
+
+    @Test
+    fun `malformed transport marker does not crash error diagnosis`() {
+        val error = RpcError(
+            code = "internal",
+            message = "unrelated server error",
+            details = kotlinx.serialization.json.buildJsonObject {
+                put("transport", kotlinx.serialization.json.buildJsonObject { put("unexpected", true) })
+                put("httpStatus", kotlinx.serialization.json.buildJsonObject { put("unexpected", 403) })
+            },
+        )
+        assertNull(TransportFailures.of(error))
+        assertNull(TransportFailures.statusOf(error))
     }
 
     @Test

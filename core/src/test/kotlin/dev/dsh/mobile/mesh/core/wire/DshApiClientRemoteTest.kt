@@ -223,6 +223,18 @@ class DshApiClientRemoteTest {
     }
 
     @Test
+    fun `workspace files list preserves whitespace-only directory names`() = runTest {
+        val transport = RecordingTransport { _, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """{"path":" ","entries":[],"truncated":false}""")
+        }
+        assertTrue(client(transport).workspaceFilesList("session-7", " ") is RpcResult.Ok)
+        val args = Json.parseToJsonElement(transport.lastBody!!)
+            .jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject
+        assertEquals(" ", args["path"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `commands list posts a client-request envelope with agentId in args`() = runTest {
         val transport = RecordingTransport { _, body ->
             val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
