@@ -28,6 +28,24 @@ class UserQuestionSelectionTest {
         assertEquals(QuestionRoute.Foreground, questionRoute(pending.copy(foreground = true), null))
     }
 
+    @Test fun `simultaneous session prompts remain visible when switching sessions`() {
+        val first = PendingQuestions("first", "event-first", emptyList())
+        val second = PendingQuestions("second", "event-second", emptyList())
+        val claims = mapOf(first.sessionId to first, second.sessionId to second)
+        assertEquals(first, visibleQuestion(claims, null, "first"))
+        assertEquals(second, visibleQuestion(claims, null, "second"))
+        assertEquals(first, visibleQuestion(claims - "second", null, "first"))
+        assertEquals(null, visibleQuestion(claims, null, "missing"))
+    }
+
+    @Test fun `foreground timed claim survives another session prompt`() {
+        val first = PendingQuestions("first", "event-first", emptyList(), "call-first", foreground = true)
+        val second = PendingQuestions("second", "event-second", emptyList(), "call-second", foreground = true)
+        val claims = mapOf(first.sessionId to first, second.sessionId to second)
+        assertEquals(first, visibleQuestion(claims, null, "first"))
+        assertEquals(second, visibleQuestion(claims, null, "second"))
+    }
+
     @Test fun `projection cannot duplicate foreground call`() {
         val view = UserQuestionsProjectionView(active = listOf(
             PendingUserQuestion("foreground", emptyList(), "continued"),

@@ -59,6 +59,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.QUESTION_CANCELLED
 import dev.dsh.mobile.mesh.core.wire.dto.QueueAction
 import dev.dsh.mobile.mesh.core.wire.dto.ModelSelectionProjection
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import dev.dsh.mobile.mesh.core.wire.dto.ModelCatalog
 import dev.dsh.mobile.mesh.core.wire.dto.InboxView
 import dev.dsh.mobile.mesh.core.wire.dto.QueuedInboxItem
@@ -548,23 +549,23 @@ class SessionStore @Inject constructor(
     private val _pendingApproval = MutableStateFlow<PendingApproval?>(null)
     val pendingApproval: StateFlow<PendingApproval?> = _pendingApproval.asStateFlow()
 
-    private val _pendingQuestions = MutableStateFlow<PendingQuestions?>(null)
-    val pendingQuestions: StateFlow<PendingQuestions?> = _pendingQuestions.asStateFlow()
+    // Waterfalls are host-wide: another session's prompt must not replace the selected session's claim.
+    private val pendingQuestionsBySession = MutableStateFlow<Map<String, PendingQuestions>>(emptyMap())
     val userQuestions: StateFlow<UserQuestionsProjectionView?> =
         projectionOf(UserQuestionsProjectionView.serializer(), "userQuestions")
-    val visibleQuestions: StateFlow<PendingQuestions?> = combine(_pendingQuestions, userQuestions, currentSessionId) {
-        pending, projection, sessionId ->
-        if (sessionId == null) null else {
-            val foreground = pending?.takeIf { it.sessionId == sessionId && it.foreground }
-            val continued = continuedQuestion(projection, foreground?.callId)
-            if (continued != null) PendingQuestions(
-                sessionId = sessionId,
-                rpcId = continued.callId,
-                items = continued.questions,
-                callId = continued.callId,
-            ) else pending?.takeIf { it.sessionId == sessionId && questionRoute(it, projection) != QuestionRoute.None }
-        }
+    val visibleQuestions: StateFlow<PendingQuestions?> = combine(pendingQuestionsBySession, userQuestions, currentSessionId) {
+        pending, projection, sessionId -> visibleQuestion(pending, projection, sessionId)
     }.stateIn(scope, SharingStarted.Eagerly, null)
+
+    private fun putQuestion(question: PendingQuestions) {
+        pendingQuestionsBySession.update { it + (question.sessionId to question) }
+    }
+
+    private fun removeQuestion(sessionId: String, eventId: String) {
+        pendingQuestionsBySession.update { existing ->
+            if (existing[sessionId]?.rpcId == eventId) existing - sessionId else existing
+        }
+    }
 
     private val _commands = MutableStateFlow<List<CommandDescriptor>>(emptyList())
     val commands: StateFlow<List<CommandDescriptor>> = _commands.asStateFlow()
@@ -849,7 +850,7 @@ class SessionStore @Inject constructor(
         _modsBand.value = null
         questionWaitJobs.values.forEach(Job::cancel)
         questionWaitJobs.clear()
-        _pendingQuestions.value = null
+        pendingQuestionsBySession.value = emptyMap()
         controlJob?.cancel()
         jobListJob?.cancel()
         jobFollowJobs.values.forEach(Job::cancel)
@@ -985,7 +986,7 @@ class SessionStore @Inject constructor(
                     _modsBand.value = null
                     questionWaitJobs.values.forEach(Job::cancel)
                     questionWaitJobs.clear()
-                    _pendingQuestions.value = null
+                    pendingQuestionsBySession.value = emptyMap()
                     controlJob?.cancel()
                     jobListJob?.cancel()
                     jobFollowJobs.values.forEach(Job::cancel)
@@ -1258,21 +1259,20 @@ class SessionStore @Inject constructor(
             if (_pendingApproval.value?.approvalId == eventId) _pendingApproval.value = null
             return
         }
-        val visibleQuestions = _pendingQuestions.value
         val sessionId = synchronized(lock) {
             questionEventBySession.entries.firstOrNull { it.value == eventId }?.key
-        } ?: visibleQuestions?.takeIf { it.rpcId == eventId }?.sessionId
+        } ?: pendingQuestionsBySession.value.values.firstOrNull { it.rpcId == eventId }?.sessionId
         if (sessionId == null) return
         synchronized(lock) {
-            questionEventBySession.remove(sessionId)
-            questionClientBySession.remove(sessionId)
-            removePendingLocked(sessionId, "question")
-            removePendingLocked(sessionId, "plan-review")
-            emitSessionsLocked()
+            if (questionEventBySession[sessionId] == eventId) {
+                questionEventBySession.remove(sessionId)
+                questionClientBySession.remove(sessionId)
+                removePendingLocked(sessionId, "question")
+                removePendingLocked(sessionId, "plan-review")
+                emitSessionsLocked()
+            }
         }
-        if (_pendingQuestions.value?.let { it.sessionId == sessionId && it.rpcId == eventId } == true) {
-            _pendingQuestions.value = null
-        }
+        removeQuestion(sessionId, eventId)
     }
 
     // ------------------------------------------------------------------ control stream
@@ -1665,7 +1665,7 @@ class SessionStore @Inject constructor(
             addPendingLocked(sessionId, kind)
             emitSessionsLocked()
         }
-        _pendingQuestions.value = PendingQuestions(sessionId, eventId, questions)
+        putQuestion(PendingQuestions(sessionId, eventId, questions))
     }
 
     /** Claim before showing a timed prompt; a failed claim must never offer an unanswerable card. */
@@ -1699,9 +1699,9 @@ class SessionStore @Inject constructor(
                             addPendingLocked(sessionId, "question")
                             emitSessionsLocked()
                         }
-                        _pendingQuestions.value = PendingQuestions(sessionId, eventId, questions, callId, true, duration)
+                        putQuestion(PendingQuestions(sessionId, eventId, questions, callId, true, duration))
                         val deadline = android.os.SystemClock.elapsedRealtime() + duration
-                        while (stream.isActive && _pendingQuestions.value?.rpcId == eventId) {
+                        while (stream.isActive && pendingQuestionsBySession.value[sessionId]?.rpcId == eventId) {
                             val left = (deadline - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0L)
                             if (left == 0L) {
                                 // The Host pauses its timer while this Client holds the claim.
@@ -1713,9 +1713,13 @@ class SessionStore @Inject constructor(
                                 break
                             }
                             delay(minOf(200L, left))
-                            _pendingQuestions.value = _pendingQuestions.value?.takeIf { it.rpcId == eventId }?.copy(
-                                remainingMs = (deadline - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0L),
-                            )
+                            pendingQuestionsBySession.update { existing ->
+                                val question = existing[sessionId]?.takeIf { it.rpcId == eventId }
+                                    ?: return@update existing
+                                existing + (sessionId to question.copy(
+                                    remainingMs = (deadline - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0L),
+                                ))
+                            }
                         }
                         // An accepted reply must retain the claim until the Host settles the wait.
                         if (stream.isActive && connectionManager.generation?.clientId == generation.clientId) stream.join()
@@ -1797,6 +1801,8 @@ class SessionStore @Inject constructor(
             runningBySession.remove(sessionId)
             turnStartedAtBySession.remove(sessionId)
             questionEventBySession.remove(sessionId)
+            questionClientBySession.remove(sessionId)
+            pendingQuestionsBySession.update { it - sessionId }
             emitSessionsLocked()
         }
     }
@@ -1819,11 +1825,10 @@ class SessionStore @Inject constructor(
         synchronized(lock) {
             pendingKinds.remove(sessionId)
             questionEventBySession.remove(sessionId)
+            questionClientBySession.remove(sessionId)
             approvalRequests.entries.removeIf { it.value.sessionId == sessionId }
-            if (sessionId == currentId) {
-                _pendingApproval.value = null
-                _pendingQuestions.value = null
-            }
+            if (sessionId == currentId) _pendingApproval.value = null
+            pendingQuestionsBySession.update { it - sessionId }
             emitSessionsLocked()
         }
     }
@@ -2999,7 +3004,7 @@ class SessionStore @Inject constructor(
      * typed answer deleted in transit with nothing to show for it.
      */
     suspend fun answerQuestions(sessionId: String, answer: AskUserQuestionAnswer, callId: String? = null): QuestionOutcome {
-        if (callId != null && _pendingQuestions.value?.callId != callId) {
+        if (callId != null && pendingQuestionsBySession.value[sessionId]?.callId != callId) {
             val continued = userQuestions.value?.active?.any { it.callId == callId && it.state == "continued" } == true
             if (!continued) return QuestionOutcome.Refused("not-pending")
             val api = apiOrNull() ?: return QuestionOutcome.Unsent("no connection is available")
@@ -3039,9 +3044,7 @@ class SessionStore @Inject constructor(
             removePendingLocked(sessionId, "plan-review")
             emitSessionsLocked()
         }
-        if (_pendingQuestions.value?.let { it.sessionId == sessionId && it.rpcId == eventId } == true) {
-            _pendingQuestions.value = null
-        }
+        removeQuestion(sessionId, eventId)
     }
 
     /**
@@ -3053,7 +3056,7 @@ class SessionStore @Inject constructor(
      * `ok:false` carrying any other.
      */
     suspend fun dismissQuestions(sessionId: String, callId: String? = null): QuestionOutcome {
-        if (callId != null && _pendingQuestions.value?.callId != callId) {
+        if (callId != null && pendingQuestionsBySession.value[sessionId]?.callId != callId) {
             return QuestionOutcome.Refused("continued questions require an answer")
         }
         val eventId = pendingQuestionEvent(sessionId) ?: return QuestionOutcome.Refused("not-pending")
