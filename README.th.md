@@ -39,6 +39,8 @@ DTO ของ Android อ้างอิง DeepSeek Harness `v0.2.1-rc.2` (comm
 
 แอปรองรับทั้ง projection response รุ่นเก่าที่ไม่มี `kind` และ response รูปแบบใหม่ของ `session/projections` ค่า `migration-required` จะถือเป็น hint ที่ไม่มี sequence และจะไม่ถูกรวมกับ watermark ของ event แบบเรียลไทม์ `session/list.formatStatus` เป็นฟิลด์เสริม และจะไม่ส่ง `session/fork.allowMigration` หากไม่ได้ระบุ เพื่อให้ใช้กับ Host รุ่นเก่าได้ รายการ subagent โหมด `external` จะแสดง metadata ที่เซิร์ฟเวอร์ส่งมา แต่ไม่เปิดเป็น transcript ของ Session ส่วน `terminal/environment.cwd` คือไดเรกทอรีปัจจุบันที่ Host บันทึกไว้
 
+รายการสนทนา Android เปิดงานอัตโนมัติที่ Host จัดการได้แล้ว คำขอแบบอ่านอย่างเดียว `schedule/catalog` ตรวจสอบการรองรับ โดยจะถือว่า Host รุ่นเก่าไม่รองรับเฉพาะเมื่อได้คำตอบเชิงโครงสร้างว่าไม่มี route แอปแสดงลำดับและสถานะจาก Host ใช้ `sessionId` เดิมกับ `schedule/history` และ `schedule/delete` และส่งกฎที่อ่านได้ใน `schedule/update.expected` เพื่อตรวจความขัดแย้ง เช่นเดียวกับ Web การสร้างงานเริ่ม Session ให้ Agent สร้างการเตือน Host ยังไม่มี API ค้นหาหรือกรองสถานะ catalog ดังนั้น Android ไม่ทำตัวกรองภายในแอปขึ้นมาอีกชุด
+
 ## อ้างอิง
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)

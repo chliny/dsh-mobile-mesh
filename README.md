@@ -100,6 +100,8 @@ The adopted baseline also covers `workspace/follow`: both the old opening `basel
 
 The app accepts both legacy projection responses (`asOfSeq` and `values`, with no `kind`) and the current `session/projections` response variants. A `migration-required` response is treated as a non-sequenced hint and is never merged with live event watermarks. New `session/list.formatStatus` is optional, and `session/fork.allowMigration` remains omitted unless explicitly requested, preserving legacy host behavior. The catalog's new `external` subagent mode is displayed as server-provided work metadata, but is not navigated as a session transcript. The `terminal/environment.cwd` value is the host's logged current directory; existing terminal metadata remains host-authoritative.
 
+The Android conversation list now opens Host-owned automation tasks. A read-only `schedule/catalog` request checks availability; only a structured missing-route response marks an older Host unsupported. The app renders the returned order and status, uses the original `sessionId` for `schedule/history` and `schedule/delete`, and sends the complete observed rule as `schedule/update.expected` for conflict detection. Creation starts a Session as on the Web; reminders are created by asking its Agent. Host catalog search/filter APIs are not available, so Android does not invent a separate client-side search or status filter.
+
 
 ## Project structure
 

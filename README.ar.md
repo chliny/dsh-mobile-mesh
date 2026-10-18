@@ -39,6 +39,8 @@ DSH Mobile Mesh هو تطبيق Android غير رسمي للتحكم عن بُع
 
 يقبل التطبيق استجابة projection القديمة التي لا تحتوي على `kind` واستجابات `session/projections` الجديدة. تُعامل `migration-required` كتلميح بلا تسلسل ولا تُدمج مع مؤشرات الأحداث الحية. يظل `session/list.formatStatus` اختيارياً، ويُحذف `session/fork.allowMigration` افتراضياً للتوافق مع الخوادم القديمة. تُعرض سجلات subagent ذات الوضع `external` كما أرسلها الخادم، لكنها لا تُفتح كسجل محادثة Session. وتشير `terminal/environment.cwd` إلى دليل العمل الحالي الذي سجله الخادم.
 
+تعرض قائمة المحادثات في Android الآن المهام الآلية التي يديرها Host. يفحص طلب `schedule/catalog` للقراءة فقط توفرها، ولا يعد Host قديمًا غير مدعوم إلا عند غياب المسار بإشارة منظمة. يعرض التطبيق الترتيب والحالة من Host ويستخدم `sessionId` الأصلي في `schedule/history` و`schedule/delete`، ويرسل القاعدة المرصودة في `schedule/update.expected` لكشف التعارض. يبدأ إنشاء المهمة بجلسة ينشئ فيها Agent التذكير. لا توجد API للبحث أو تصفية الحالة في Host، لذلك لا ينشئ Android تصفية محلية بديلة.
+
 ## المراجع
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
