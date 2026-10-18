@@ -109,6 +109,23 @@ private const val SORT_MANUAL = "manual"
 private const val SORT_UPDATED = "updated"
 internal const val SESSION_PAGE_SIZE = 5
 
+/** Folding a workspace restarts its own and its tree descendants' session pages. */
+internal fun resetCollapsedWorkspacePages(
+    pages: MutableMap<String, Int>,
+    workspaces: List<WorkspaceRow>,
+    workspaceId: String,
+) {
+    val path = workspaces.firstOrNull { it.workspaceId == workspaceId }?.path
+        ?.replace('\\', '/')?.trimEnd('/')
+    pages.keys.toList().forEach { key ->
+        val candidate = workspaces.firstOrNull { it.workspaceId == key }?.path
+            ?.replace('\\', '/')?.trimEnd('/')
+        if (key == workspaceId || (path != null && path.isNotEmpty() && candidate?.startsWith("$path/") == true)) {
+            pages.remove(key)
+        }
+    }
+}
+
 internal enum class SessionGrouping { WORKSPACE, WORKSPACE_TREE, FLAT }
 internal enum class ArchivedSessionFilter { HIDE, SHOW, ONLY }
 
@@ -471,6 +488,9 @@ fun ChatListDrawer(
                         sessionCount = orderedRoots.size,
                         onToggle = {
                              val expanded = !isExpanded(workspace.workspaceId)
+                             if (!expanded) {
+                                 resetCollapsedWorkspacePages(visiblePageByWorkspace, workspaces, workspace.workspaceId)
+                             }
                              workspaceOverrides[workspace.workspaceId] = expanded
                              scope.launch { hostsStore.setWorkspaceExpanded(workspace.workspaceId, expanded) }
                          },
