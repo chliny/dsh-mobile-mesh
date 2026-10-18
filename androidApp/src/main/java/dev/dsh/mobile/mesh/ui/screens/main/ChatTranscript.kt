@@ -408,11 +408,22 @@ internal fun ChatTranscript(
         }
     }
     val disclosureScope = context.disclosures
-    val expandedProcesses by remember(parts, disclosureScope) {
+    // A history page can complete a turn whose initial-window fragment was previously flat.
+    // Preserve those visible rows before LazyColumn measures the prepend, rather than collapsing
+    // their anchor in the first frame and reopening it only after the layout has jumped.
+    val previousProjection = remember(sessionId) { arrayOfNulls<TranscriptProjection>(1) }
+    val newlyFolded = previousProjection[0]?.let { previous ->
+        newlyFoldedPrependProcesses(previous.key.sourceNodes, previous.parts, sourceNodes, parts)
+    }.orEmpty().filterTo(HashSet()) { !disclosureScope.isSet(DisclosureKeys.process(it)) }
+    SideEffect {
+        newlyFolded.forEach { disclosureScope.setOpen(DisclosureKeys.process(it), true) }
+        previousProjection[0] = projection
+    }
+    val expandedProcesses by remember(parts, disclosureScope, newlyFolded) {
         derivedStateOf {
             parts.asSequence()
                 .filterIsInstance<TranscriptPart.Process>()
-                .filter { processExpanded(it, disclosureScope) }
+                .filter { it.startSeq in newlyFolded || processExpanded(it, disclosureScope) }
                 .map { it.startSeq }
                 .toSet()
         }

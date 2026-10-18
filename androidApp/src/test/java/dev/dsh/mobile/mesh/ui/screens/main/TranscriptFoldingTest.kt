@@ -147,6 +147,33 @@ class TranscriptFoldingTest {
             .filterIsInstance<TranscriptPart.Process>().single().defaultExpanded)
     }
 
+    @Test fun `older page keeps previously visible turn fragment open when its start arrives`() {
+        val opening = listOf(thought(3, 1), ToolCallNode(4, "call", "bash", "{}", 1, 0),
+            answer(5, 1), TurnEndNode(6, 1, "completed"), prompt(7))
+        val complete = listOf(prompt(1), TurnStartNode(2, 1)) + opening
+        val before = partitionTranscript(opening)
+        val after = partitionTranscript(complete)
+        val newlyFolded = newlyFoldedPrependProcesses(opening, before, complete, after)
+        val scope = DisclosureScope(TranscriptDisclosures(), "session")
+
+        assertEquals(setOf(2L), newlyFolded)
+        newlyFolded.forEach { scope.setOpen(DisclosureKeys.process(it), true) }
+        val rows = buildTranscriptRows(after) { seq ->
+            (after.filterIsInstance<TranscriptPart.Process>().firstOrNull { it.startSeq == seq })
+                ?.let { processExpanded(it, scope) } == true
+        }
+        assertTrue(rows.any { it is TranscriptRow.Node && it.node.seq == 3L })
+        assertEquals(TranscriptRow.Node(opening[0]).key, rows.first { it.anchorSeq == 3L }.key)
+        assertTrue(newlyFoldedPrependProcesses(complete, after, complete, after).isEmpty())
+
+        // Existing folded rows and explicit reader choices must not be opened by a later prepend.
+        scope.setOpen(DisclosureKeys.process(2), false)
+        assertFalse(processExpanded(after.filterIsInstance<TranscriptPart.Process>().single(), scope))
+        val evenOlder = listOf(prompt(0)) + complete
+        assertTrue(newlyFoldedPrependProcesses(complete, after, evenOlder,
+            partitionTranscript(evenOlder)).isEmpty())
+    }
+
     @Test fun `deferred fold can be closed manually before next input`() {
         val part = partitionTranscript(listOf(TurnStartNode(1, 1), thought(2, 1), answer(3, 1),
             TurnEndNode(4, 1, "completed")), TranscriptPresentation(
