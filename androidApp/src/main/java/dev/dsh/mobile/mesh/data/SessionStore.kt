@@ -106,6 +106,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceCreateRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDeleteRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceFollowFrame
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceFollowFrameSerializer
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceInsertBeforeRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceRenameRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceValue
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceView
@@ -3441,6 +3442,21 @@ class SessionStore @Inject constructor(
         when (val r = api.workspaceDelete(WorkspaceDeleteRequest(id))) {
             is RpcResult.Ok -> removeWorkspace(id)
             is RpcResult.Err -> setConnectionError(r.error.message)
+        }
+    }
+
+    /** Commit on the Host so every workspace/follow subscriber, including Web, sees the order. */
+    suspend fun reorderWorkspace(id: String, beforeId: String?): Boolean {
+        val api = apiOrNull() ?: return false
+        return when (val r = api.workspaceInsertBefore(WorkspaceInsertBeforeRequest(id, beforeId))) {
+            is RpcResult.Ok -> {
+                setWorkspaceOrder(r.value.workspaceIds)
+                true
+            }
+            is RpcResult.Err -> {
+                setConnectionError(r.error.message)
+                false
+            }
         }
     }
 

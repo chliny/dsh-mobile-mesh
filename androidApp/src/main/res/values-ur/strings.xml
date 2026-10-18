@@ -319,6 +319,8 @@
     <string name="time_months">%1$d ماہ</string>
     <string name="time_years">%1$d سال</string>
     <string name="chatlist_open">چیٹس کھولیں</string>
+    <string name="chatlist_workspace_move_up">ورک اسپیس اوپر لے جائیں</string>
+    <string name="chatlist_workspace_move_down">ورک اسپیس نیچے لے جائیں</string>
     <string name="chatlist_workspace_rename">ورک اسپیس کا نام بدلیں</string>
     <string name="chatlist_workspace_delete">ورک اسپیس ہٹائیں</string>
     <string name="chatlist_workspace_delete_confirm">اس ورک اسپیس کو Harness سے ہٹائیں؟ فولڈر اور اس کے سیشن لاگ ویسے ہی رہیں گے۔</string>
