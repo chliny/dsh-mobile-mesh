@@ -63,6 +63,18 @@ class MarkdownRenderingTest {
     }
 
     @Test
+    fun `mixed user prose and markdown retain line breaks without a white webview surface`() {
+        val message = "First plain line\nSecond plain line with **bold**\nThird plain line"
+        val parts = renderMarkdownPartsForTest(message, DsThemeTokens.light, "Copy", false) { error("No assets expected") }
+        val html = (parts.single() as MarkdownPart.Html).html
+
+        assertTrue(html.contains("First plain line\nSecond plain line with <strong>bold</strong>\nThird plain line"))
+        assertTrue(html.contains("p { margin: 0 0 1em; white-space: pre-wrap; }"))
+        assertTrue(html.contains("html, body { margin: 0; padding: 0; background: transparent;"))
+        assertFalse(html.contains("background: #FFFFFF;"))
+    }
+
+    @Test
     fun `commonmark renders all heading levels and setext headings`() {
         val html = renderCommonMarkFragment("# one\n\n###### six\n\nsetext\n===")
 

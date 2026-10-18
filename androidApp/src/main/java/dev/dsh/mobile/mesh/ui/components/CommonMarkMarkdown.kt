@@ -217,12 +217,12 @@ internal fun CommonMarkMarkdown(
             content.parts.forEach { part ->
                 when (part) {
                     is MarkdownPart.Html -> AndroidView(
-                        factory = { viewContext -> CommonMarkWebView(viewContext, webState, colors.bgBase) },
+                        factory = { viewContext -> CommonMarkWebView(viewContext, webState) },
                         update = { webView ->
                             webView.bind(webState)
                             webView.onOpenLink = onOpenLink
                             webView.onCopyCode = webState.onCopyCode
-                            webView.setBackgroundColor(colors.bgBase.toArgb())
+                            webView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
                             webView.render(part.html)
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -519,7 +519,6 @@ internal fun containsCommonMarkElements(markdown: String): Boolean {
 
 private fun wrapMarkdownHtml(fragment: String, colors: DsColors): String {
     fun css(color: Color): String = "#%06X".format(color.toArgb() and 0xFFFFFF)
-    val background = css(colors.bgBase)
     val text = css(colors.labelPrimary)
     val secondary = css(colors.labelSecondary)
     val border = css(colors.borderL1)
@@ -534,9 +533,9 @@ private fun wrapMarkdownHtml(fragment: String, colors: DsColors): String {
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; font-src data: https:;">
         <style>
           * { box-sizing: border-box; }
-          html, body { margin: 0; padding: 0; background: $background; color: $text; }
+          html, body { margin: 0; padding: 0; background: transparent; color: $text; }
           body { font-family: sans-serif; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
-          p { margin: 0 0 1em; }
+          p { margin: 0 0 1em; white-space: pre-wrap; }
           p:last-child, ul:last-child, ol:last-child, blockquote:last-child, pre:last-child, table:last-child { margin-bottom: 0; }
           h1, h2, h3, h4, h5, h6 { color: $text; line-height: 1.25; margin: 1em 0 .45em; }
           h1 { font-size: 1.8em; } h2 { font-size: 1.55em; } h3 { font-size: 1.3em; }
@@ -579,7 +578,6 @@ internal fun canPostMarkdownVisualStateCallback(released: Boolean): Boolean = !r
 private class CommonMarkWebView(
     context: android.content.Context,
     private var state: CommonMarkWebState,
-    background: Color,
 ) : WebView(context) {
     fun bind(state: CommonMarkWebState) {
         this.state = state
@@ -612,7 +610,7 @@ private class CommonMarkWebView(
     private var loadedHtml: String? = null
 
     init {
-        setBackgroundColor(background.toArgb())
+        setBackgroundColor(android.graphics.Color.TRANSPARENT)
         isVerticalScrollBarEnabled = false
         isHorizontalScrollBarEnabled = false
         settings.apply {
