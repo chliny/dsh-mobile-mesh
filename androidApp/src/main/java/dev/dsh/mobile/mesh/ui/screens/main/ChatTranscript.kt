@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -78,6 +79,12 @@ internal fun shouldRestoreOlderPageAnchor(
     userDragging: Boolean,
 ): Boolean = !userDragging && capturedDragGeneration == currentDragGeneration
 
+/** The triggering drag may still be finishing; only a *new* drag abandons its pending anchor. */
+internal fun shouldDiscardOlderPageAnchor(
+    capturedDragGeneration: Int,
+    currentDragGeneration: Int,
+): Boolean = capturedDragGeneration != currentDragGeneration
+
 /** Ignore incidental taps and tiny movements at the top of the transcript. */
 private val TOP_PULL_DISTANCE = 32.dp
 
@@ -128,7 +135,7 @@ internal fun shouldWaitForOlderPageAnchor(
     failed: Boolean,
     firstRowKey: String?,
     capturedFirstRowKey: String?,
-): Boolean = loadingOlder || (hasMore && !failed && firstRowKey == capturedFirstRowKey)
+): Boolean = firstRowKey == capturedFirstRowKey && (loadingOlder || (hasMore && !failed))
 
 internal sealed interface TranscriptRow {
     val key: String
@@ -305,17 +312,14 @@ private inline fun transcriptPositionLog(message: () -> String) {
     if (BuildConfig.DEBUG) Log.d(TRANSCRIPT_POSITION_TAG, message())
 }
 
-/** Count completed, distinct upward-history pulls; layout changes and flings do not count. */
-internal fun nextTopPullCount(
-    previous: Int,
+/** One completed, deliberate pull toward history requests a page. */
+internal fun shouldLoadOlderAfterPull(
+    startedAtTop: Boolean,
     firstVisible: Int,
     pullDistancePx: Float,
     thresholdPx: Float,
     canPage: Boolean,
-): Int = when {
-    !canPage || firstVisible > LOAD_OLDER_THRESHOLD || pullDistancePx < thresholdPx -> previous
-    else -> (previous + 1).coerceAtMost(2)
-}
+): Boolean = startedAtTop && canPage && firstVisible <= LOAD_OLDER_THRESHOLD && pullDistancePx >= thresholdPx
 
 /**
  * The conversation itself.
@@ -598,15 +602,29 @@ internal fun ChatTranscript(
             previousScrollCoordinate = currentCoordinate
         }
     }
+    SideEffect {
+        val anchor = olderPageAnchor
+        if (anchor != null && !shouldDiscardOlderPageAnchor(anchor.dragGeneration, dragGeneration) &&
+            rows.firstOrNull()?.key != anchor.firstRowKey
+        ) {
+            val newIndex = rows.indexOfFirst { it.anchorSeq == anchor.seq }
+            if (newIndex >= 0) {
+                // Schedule the new coordinate for the very remeasure that inserts the page.
+                // Otherwise the stable index-0 paging row anchors the first frame to older content.
+                listState.requestScrollToItem(newIndex + if (hasMore) 1 else 0, anchor.offset)
+            }
+        }
+    }
     LaunchedEffect(rows, hasMore, loadingOlder, loadOlderFailed, sessionId, dragGeneration, userDragging) {
         val anchor = olderPageAnchor ?: return@LaunchedEffect
-        if (!shouldRestoreOlderPageAnchor(anchor.dragGeneration, dragGeneration, userDragging)) {
+        if (shouldDiscardOlderPageAnchor(anchor.dragGeneration, dragGeneration)) {
             olderPageAnchor = null
             return@LaunchedEffect
         }
-        // Keep the anchor throughout the request. Clearing it on drag release (before the page
-        // arrives) lets LazyColumn land on an arbitrary, earlier row after the prepend.
-        if (shouldWaitForOlderPageAnchor(loadingOlder, hasMore, loadOlderFailed,
+        // The pointer-up callback can start the request before LazyColumn dispatches Drag.Stop.
+        // Do not discard the anchor while that SAME drag is still marked active: the prepend
+        // otherwise leaves the stable paging sentinel at index 0 and jumps to the previous page.
+        if (userDragging || shouldWaitForOlderPageAnchor(loadingOlder, hasMore, loadOlderFailed,
                 rows.firstOrNull()?.key, anchor.firstRowKey)) return@LaunchedEffect
         val newIndex = rows.indexOfFirst { it.anchorSeq == anchor.seq }
         if (newIndex >= 0 && shouldRestoreOlderPageAnchor(anchor.dragGeneration, dragGeneration, userDragging)) {
@@ -684,14 +702,19 @@ internal fun ChatTranscript(
         }
     }
 
-    // Only two separate, deliberate pulls toward older history request a page. Watching the list's
-    // index or isScrollInProgress also responds to layout changes and flings, and can fetch again
-    // immediately after a prepend without a second gesture.
-    var topPullCount by remember(sessionId) { mutableIntStateOf(0) }
+    // A single, deliberate pull at the top requests older history. Do not infer a gesture from
+    // the list index: layout shifts and flings can also move it to the top.
     val canPage = hasMore && !loading && !loadingOlder && !loadOlderFailed
     val pullThresholdPx = with(LocalDensity.current) { TOP_PULL_DISTANCE.toPx() }
-    LaunchedEffect(sessionId, loadingOlder) {
-        if (loadingOlder) topPullCount = 0
+    val requestOlderPage = {
+        val visible = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index > 0 }
+        olderPageAnchor = visible?.let { item ->
+            rows.getOrNull(item.index - 1)?.let { row ->
+                OlderPageAnchor(row.anchorSeq, olderPageAnchorScrollOffset(item.offset),
+                    rows.firstOrNull()?.key, dragGeneration)
+            }
+        }
+        onLoadOlder()
     }
 
     if (loading) {
@@ -706,32 +729,18 @@ internal fun ChatTranscript(
                 .pointerInput(sessionId, canPage, pullThresholdPx, rows) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        // The swipe that merely reaches the top is not the separate pull to load.
+                        val startedAtTop = !listState.canScrollBackward
                         var pullDistance = 0f
-                        var atTop = false
                         do {
                             val change = awaitPointerEvent(PointerEventPass.Initial).changes
                                 .firstOrNull { it.id == down.id } ?: break
                             pullDistance = (pullDistance + change.positionChange().y).coerceAtLeast(0f)
-                            if (listState.firstVisibleItemIndex <= LOAD_OLDER_THRESHOLD) atTop = true
                         } while (change.pressed)
-                        if (!atTop || listState.firstVisibleItemIndex > LOAD_OLDER_THRESHOLD) {
-                            topPullCount = 0
-                        } else {
-                            topPullCount = nextTopPullCount(
-                                topPullCount, listState.firstVisibleItemIndex,
-                                pullDistance, pullThresholdPx, canPage,
-                            )
-                            if (topPullCount == 2) {
-                                topPullCount = 0
-                                val anchor = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index > 0 }
-                                if (anchor != null) {
-                                    olderPageAnchor = rows.getOrNull(anchor.index - 1)?.let { row ->
-                                        OlderPageAnchor(row.anchorSeq, olderPageAnchorScrollOffset(anchor.offset),
-                                            rows.firstOrNull()?.key, dragGeneration)
-                                    }
-                                }
-                                onLoadOlder()
-                            }
+                        if (shouldLoadOlderAfterPull(
+                                startedAtTop, listState.firstVisibleItemIndex, pullDistance, pullThresholdPx, canPage,
+                            )) {
+                            requestOlderPage()
                         }
                     }
                 },
@@ -751,7 +760,7 @@ internal fun ChatTranscript(
                     loading = loadingOlder,
                     failed = loadOlderFailed,
                     offerManual = true,
-                    onRetry = onLoadOlder,
+                    onRetry = requestOlderPage,
                 )
             }
         }
