@@ -87,6 +87,31 @@ class RemoteStreamMuxLivenessTest {
     }
 
     @Test
+    fun `completed logical event streams still observe later carrier closure`() = runBlocking {
+        for (terminal in listOf(
+            """{"type":"end","streamId":"1"}""",
+            """{"type":"error","streamId":"1","error":{"code":"failed","message":"events stopped"}}""",
+        )) {
+            lateinit var channel: FakeChannel
+            val mux = RemoteStreamMux { sink -> FakeChannel(sink).also { channel = it } }
+            mux.start()
+            mux.awaitOpen()
+            val events = mux.open("\$events")
+            channel.emitMessage(terminal)
+            if (terminal.contains("\"type\":\"end\"")) assertEquals(null, events.receive())
+            else assertFalse((receiveFailure(events) as RemoteStreamException).carrier)
+
+            val waiter = async { mux.awaitStreamCarrierTermination(events) }
+            delay(10)
+            assertFalse("the logical end is not a carrier close", waiter.isCompleted)
+            val cause = WebSocketClosedException(1001, "host restart")
+            channel.emitClosed(cause)
+            withTimeout(1_000) { waiter.await() }
+            assertTrue(mux.failure === cause)
+        }
+    }
+
+    @Test
     fun `job roster opens the generation mux with named request payload`() = runBlocking {
         lateinit var channel: FakeChannel
         val mux = RemoteStreamMux(channelFactory = { sink -> FakeChannel(sink).also { channel = it } })
@@ -228,6 +253,37 @@ class RemoteStreamMuxLivenessTest {
         runCatching { stream.receive() }.exceptionOrNull()
 
     @Test
+    fun `unparseable carrier frame closes physical socket as well as logical streams`() = runBlocking {
+        for (invalid in listOf("{not-json", """{"type":"future","streamId":"1"}""")) {
+            lateinit var channel: FakeChannel
+            val mux = RemoteStreamMux { sink -> FakeChannel(sink).also { channel = it } }
+            mux.start()
+            mux.awaitOpen()
+            val stream = mux.open("session/follow")
+            channel.emitMessage(invalid)
+
+            assertTrue(mux.isClosed)
+            assertEquals(1, channel.closedCount)
+            assertTrue((receiveFailure(stream) as RemoteStreamException).carrier)
+            mux.close()
+            assertEquals(1, channel.closedCount)
+        }
+    }
+
+    @Test
+    fun `channel factory exception closes mux and wakes handshake waiters`() = runBlocking {
+        val cause = IllegalStateException("cannot create WebSocket")
+        val mux = RemoteStreamMux { _ -> throw cause }
+        val waiting = async { runCatching { withTimeout(1_000) { mux.awaitOpen() } }.exceptionOrNull() }
+        assertTrue(runCatching { mux.start() }.exceptionOrNull() === cause)
+        val wakeup = waiting.await()
+        assertTrue(wakeup is IllegalStateException)
+        assertEquals(cause.message, wakeup?.message)
+        assertTrue(mux.isClosed)
+        assertTrue(mux.awaitClosed() === cause)
+    }
+
+    @Test
     fun `start after close never creates a WebSocket`() {
         val created = AtomicInteger()
         val mux = RemoteStreamMux { sink ->
@@ -291,6 +347,28 @@ class RemoteStreamMuxLivenessTest {
         assertFalse(failure.carrier)
         assertEquals("consumer_fell_behind", failure.error.code)
         assertEquals(listOf("session/follow"), overflowedEndpoints.toList())
+        mux.close()
+    }
+
+    @Test
+    fun `consumer callback cancellation does not turn into a second overflow terminal`() = runBlocking {
+        lateinit var channel: FakeChannel
+        lateinit var stream: RemoteStream
+        val mux = RemoteStreamMux(
+            streamSignalBufferCapacity = 1,
+            onConsumerFellBehind = { _, _ -> stream.cancel() },
+            channelFactory = { sink -> FakeChannel(sink).also { channel = it } },
+        )
+        mux.start()
+        mux.awaitOpen()
+        stream = mux.open("session/follow")
+        channel.emitMessage("""{"streamId":"1","type":"item","value":1}""")
+        channel.emitMessage("""{"streamId":"1","type":"item","value":2}""")
+
+        assertEquals("1", stream.receive().toString())
+        assertEquals(null, stream.receive())
+        assertEquals(1, channel.sent.count { it.contains("\"type\":\"cancel\"") })
+        assertFalse(mux.isClosed)
         mux.close()
     }
 

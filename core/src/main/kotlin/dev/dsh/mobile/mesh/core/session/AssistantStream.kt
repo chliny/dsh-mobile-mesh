@@ -8,7 +8,6 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
 /** One raw model chunk paired with the wall-clock time the host observed it. */
@@ -38,6 +37,7 @@ object AssistantStream {
     private const val REASONING = "reasoning-chunks"
     private const val TOOL_CALL = "tool-call-chunks"
     private const val CHUNK = "chunk"
+    private const val MAX_SAFE_TIME = 9_007_199_254_740_991L
 
     /** Expand [stream] (the wire `stream` array) into its timed chunks, in order. */
     fun expand(stream: JsonElement?): List<TimedChunk> {
@@ -45,7 +45,7 @@ object AssistantStream {
         val out = ArrayList<TimedChunk>()
         for (candidate in records) {
             val record = candidate as? JsonObject ?: return emptyList()
-            when (record["type"]?.jsonPrimitive?.contentOrNull) {
+            when ((record["type"] as? JsonPrimitive)?.contentOrNull) {
                 CHUNK -> {
                     val time = record["time"]?.time() ?: return emptyList()
                     val chunk = record["chunk"] as? JsonObject ?: return emptyList()
@@ -62,19 +62,19 @@ object AssistantStream {
     }
 
     private fun expandRun(record: JsonObject): List<TimedChunk>? {
-        val type = record["type"]?.jsonPrimitive?.contentOrNull ?: return null
+        val type = (record["type"] as? JsonPrimitive)?.contentOrNull ?: return null
         val members = (if (type == TOOL_CALL) record["args"] else record["texts"]) as? JsonArray ?: return null
-        val index = record["index"]?.jsonPrimitive?.intOrNull?.takeIf { it >= 0 } ?: return null
+        val index = (record["index"] as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 } ?: return null
         // One shorter than the member list by construction; a record that disagrees is malformed.
         val gaps = record["dt"] as? JsonArray ?: JsonArray(emptyList())
         if (members.isNotEmpty() && gaps.size != members.size - 1) return null
 
-        val toolCallId = record["id"]?.jsonPrimitive?.contentOrNull
+        val toolCallId = (record["id"] as? JsonPrimitive)?.contentOrNull
         if (type == TOOL_CALL && toolCallId == null) return null
         // Present only when every member carried the same name; its absence is meaningful rather
         // than a lookup failure, so it is neither defaulted nor required.
         val hasName = record.containsKey("name")
-        val toolName = record["name"]?.jsonPrimitive?.contentOrNull
+        val toolName = (record["name"] as? JsonPrimitive)?.contentOrNull
         if (hasName && toolName == null) return null
 
         val out = ArrayList<TimedChunk>(members.size)
@@ -82,7 +82,10 @@ object AssistantStream {
         for (k in members.indices) {
             // A gap may be negative: the host's wall clock can step backwards between two chunks
             // and the format records what happened rather than what is tidy.
-            if (k > 0) time += gaps[k - 1].time() ?: return null
+            if (k > 0) {
+                time += gaps[k - 1].time() ?: return null
+                if (time !in -MAX_SAFE_TIME..MAX_SAFE_TIME) return null
+            }
             val member = (members[k] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
             val chunk = when (type) {
                 TEXT -> buildJsonObject {
@@ -108,9 +111,12 @@ object AssistantStream {
         return out
     }
 
-    /** Read a wire time or gap; the host writes safe integers, but a float is not worth a crash. */
+    /** Read a wire time or gap; reject nonfinite and unsafe numbers instead of clamping them. */
     private fun JsonElement.time(): Long? {
-        val primitive = this as? JsonPrimitive ?: return null
-        return primitive.longOrNull ?: primitive.doubleOrNull?.toLong()
+        val primitive = (this as? JsonPrimitive)?.takeUnless { it.isString } ?: return null
+        val value = primitive.longOrNull ?: primitive.doubleOrNull
+            ?.takeIf { it.isFinite() && it >= -MAX_SAFE_TIME.toDouble() && it <= MAX_SAFE_TIME.toDouble() }
+            ?.toLong()
+        return value?.takeIf { it in -MAX_SAFE_TIME..MAX_SAFE_TIME }
     }
 }

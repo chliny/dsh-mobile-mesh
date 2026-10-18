@@ -166,6 +166,35 @@ class AssistantLiveStateTest {
     }
 
     @Test
+    fun `a baseline missing a chunk cannot show only the live suffix`() {
+        val baseline = decodeFromJsonElement<SessionAssistantStreamBaseline>(
+            WireJson.parseToJsonElement(
+                """{"revision":7,"activeAttempt":{"attemptId":"a9","startedAfterSeq":12,"turn":3,"step":1,"nextIndex":2,
+                    "stream":[{"type":"text-chunks","time0":1,"index":0,"dt":[],"texts":["prefix"]}]}}""",
+            ),
+        )
+        val state = AssistantLiveState()
+        state.seed(baseline)
+        assertFalse(state.active)
+        assertEquals(Change.NONE, state.accept(chunk(2, "suffix", attempt = "a9", revision = 8)))
+        assertTrue(state.transientEnvelopes().isEmpty())
+    }
+
+    @Test
+    fun `a malformed live chunk drops the entire preview before a later suffix`() {
+        val state = AssistantLiveState()
+        state.accept(start())
+        state.accept(chunk(0, "prefix"))
+        val malformed = SessionAssistantStreamFrame.Chunk(
+            attemptId = "a1", revision = 3, index = 1, time = 1001L, chunk = JsonPrimitive("not an object"),
+        )
+        assertEquals(Change.RESET, state.accept(malformed))
+        assertFalse(state.active)
+        assertEquals(Change.NONE, state.accept(chunk(2, "suffix")))
+        assertTrue(state.transientEnvelopes().isEmpty())
+    }
+
+    @Test
     fun `a baseline with no open attempt seeds nothing`() {
         val state = AssistantLiveState()
         state.accept(start())

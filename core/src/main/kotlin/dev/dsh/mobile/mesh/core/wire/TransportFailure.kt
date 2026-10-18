@@ -1,6 +1,7 @@
 package dev.dsh.mobile.mesh.core.wire
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
@@ -142,7 +143,8 @@ object TransportFailures {
 
     /** Read the marker back out of an error, or null when the error carries none. */
     fun of(error: RpcError): TransportFailure? {
-        val name = (error.details as? JsonObject)?.get(DETAILS_KEY)?.jsonPrimitive?.content ?: return null
+        val name = ((error.details as? JsonObject)?.get(DETAILS_KEY) as? JsonPrimitive)
+            ?.takeIf { it.isString }?.content ?: return null
         return TransportFailure.entries.firstOrNull { it.name == name }
     }
 

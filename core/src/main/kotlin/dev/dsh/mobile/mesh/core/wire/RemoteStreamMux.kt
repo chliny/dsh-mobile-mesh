@@ -101,7 +101,6 @@ class RemoteStreamMux(
         val endpoint: String,
     ) : RemoteStream {
         val signals: Channel<Signal> = Channel(streamSignalBufferCapacity)
-        val carrierTerminated = CompletableDeferred<Unit>()
         private val done = AtomicBoolean(false)
         private val uplinkEnded = AtomicBoolean(false)
         @Volatile private var terminal: Signal? = null
@@ -118,13 +117,9 @@ class RemoteStreamMux(
             }
         }
 
-        suspend fun awaitCarrierTermination() {
-            carrierTerminated.await()
-        }
-
         fun terminate(signal: Signal) {
             synchronized(lifecycleLock) {
-                if (signal is Signal.Failed && signal.carrier) carrierTerminated.complete(Unit)
+                if (terminal != null) return
                 done.set(true)
                 uplinkEnded.set(true)
                 terminal = signal
@@ -206,9 +201,11 @@ class RemoteStreamMux(
                 // more, so end the whole generation rather than dropping one message and
                 // continuing against a mux it no longer understands.
                 failAll(e)
+                close()
                 return
             } catch (e: IllegalArgumentException) {
                 failAll(e)
+                close()
                 return
             }
             // An item for a stream nobody is reading is ordinary: a cancel and an in-flight item
@@ -223,14 +220,17 @@ class RemoteStreamMux(
                         runCatching { onConsumerFellBehind(stream.endpoint, streamSignalBufferCapacity) }
                         // The local stream is abandoned, but the shared carrier stays alive. Tell
                         // the host to release any attachment/controller owned by this subscriber.
-                        streams.remove(message.streamId)
-                        if (closedCause == null) send(RemoteStreamClientMessage.Cancel(streamId = message.streamId))
-                        stream.terminate(
-                            Signal.Failed(
-                                RpcError("consumer_fell_behind", "remote stream consumer fell behind"),
-                                carrier = false,
-                            ),
-                        )
+                        // The diagnostic callback may cancel this stream itself. Only the owner
+                        // that actually removes the stream sends cancel and chooses its terminal.
+                        if (streams.remove(message.streamId, stream)) {
+                            if (closedCause == null) send(RemoteStreamClientMessage.Cancel(streamId = message.streamId))
+                            stream.terminate(
+                                Signal.Failed(
+                                    RpcError("consumer_fell_behind", "remote stream consumer fell behind"),
+                                    carrier = false,
+                                ),
+                            )
+                        }
                     }
                 }
                 is RemoteStreamServerMessage.Error -> {
@@ -267,7 +267,15 @@ class RemoteStreamMux(
         val created: WsChannel
         synchronized(lifecycleLock) {
             if (!started.compareAndSet(false, true) || closedCause != null || channelClosed.get()) return
-            created = channelFactory(sink)
+            created = try {
+                channelFactory(sink)
+            } catch (error: Throwable) {
+                // A factory failure occurs before a channel exists to close, but handshake and
+                // carrier waiters still need the same terminal signal as a failed start().
+                failAll(error)
+                channelClosed.set(true)
+                throw error
+            }
             // close() and start() share this transaction. Without it close could mark the channel
             // closed while it was still null, leaking a later-created WebSocket forever.
             channel = created
@@ -300,8 +308,10 @@ class RemoteStreamMux(
     suspend fun awaitClosed(): Throwable? = carrierTerminal.await()
 
     /** Observe a carrier termination without consuming the logical stream's ordered items. */
-    suspend fun awaitStreamCarrierTermination(stream: RemoteStream) {
-        (stream as? Stream)?.awaitCarrierTermination() ?: closed.await()
+    suspend fun awaitStreamCarrierTermination(@Suppress("UNUSED_PARAMETER") stream: RemoteStream) {
+        // A logical end/error removes the stream before the physical socket closes. Its own
+        // terminal signal cannot observe a later carrier failure; the mux close signal can.
+        closed.await()
     }
 
     /**

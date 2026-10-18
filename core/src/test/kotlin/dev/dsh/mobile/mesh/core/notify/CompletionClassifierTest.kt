@@ -105,6 +105,34 @@ class CompletionClassifierTest {
     }
 
     @Test
+    fun malformedStatusDoesNotInventAnIdleTransition() {
+        val started = listOf(JsonPrimitive("s1"), JsonPrimitive(true))
+        classifier.classifyNotification("api-session/status", started)
+        val malformed = listOf(
+            listOf(JsonPrimitive("s1")),
+            listOf(JsonPrimitive("s1"), JsonPrimitive("unknown")),
+            listOf(JsonPrimitive("s1"), JsonPrimitive("false")),
+            listOf(JsonPrimitive("s1"), buildJsonObject { put("value", false) }),
+        )
+        for (args in malformed) assertNull(classifier.classifyNotification("api-session/status", args))
+        assertTrue(classifier.classifyNotification("api-session/status", listOf(JsonPrimitive("s1"), JsonPrimitive(false))) is CompletionEvent.SessionIdle)
+    }
+
+    @Test
+    fun malformedCompletionAndQuestionPayloadsDoNotCrashClassifier() {
+        assertNull(classifier.classifyEvent("s1", event("turn/end", 1, buildJsonObject {
+            putJsonObject("reason") { put("kind", buildJsonObject { }) }
+        })))
+        assertNull(classifier.classifyEvent("s1", event("goal/change", 2, buildJsonObject {
+            putJsonObject("goal") { put("phase", buildJsonObject { }) }
+        })))
+        val question = classifier.classifyWaterfall("user-questions/request", "evt-2", "s1", buildJsonObject {
+            putJsonArray("questions") { add(JsonPrimitive("invalid")) }
+        }) as CompletionEvent.QuestionRequested
+        assertNull(question.firstQuestion)
+    }
+
+    @Test
     fun sessionIdleOnlyAfterRunning() {
         // Positional arguments now: the host forwards the Cordis listener's own argument list
         // rather than a named payload object.

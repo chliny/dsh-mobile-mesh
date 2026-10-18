@@ -390,12 +390,171 @@ class EventFoldTest {
     }
 
     @Test
+    fun `non-object known events do not abort subsequent durable messages`() {
+        val malformed = listOf(
+            "turn/start", "turn/end", "user/message", "assistant/chunk", "assistant/message",
+            "assistant/attempt", "tool/call", "tool/result", "workspace/changes",
+            "deliverables/presented", "todo/write", "plan/mode", "session/title",
+        ).mapIndexed { index, type ->
+            val seq = index.toLong() + 1
+            SessionEventEnvelope(type, seq, seq, kotlinx.serialization.json.JsonPrimitive("bad data"))
+        }
+        val valid = event("user/message", malformed.size.toLong() + 1, buildJsonObject {
+            put("id", "valid")
+            putJsonArray("content") { add(buildJsonObject { put("type", "text"); put("text", "still visible") }) }
+        })
+        val folded = EventFold("s1").fold(malformed + valid)
+        assertEquals(valid.seq, folded.lastSeq)
+        assertEquals("still visible", (folded.nodes.single() as UserMessageNode).blocks.single().text)
+
+        val incremental = EventFold.Incremental(ConversationSnapshot("s1"), "s1")
+        malformed.forEach { assertEquals(it.seq, incremental.apply(it)?.lastSeq) }
+        assertEquals("still visible", (incremental.apply(valid)?.nodes?.single() as UserMessageNode).blocks.single().text)
+    }
+
+    @Test
+    fun `nested malformed fields in known events do not abort later rows`() {
+        val malformed = listOf(
+            "turn/start" to buildJsonObject { put("turn", buildJsonObject { }) },
+            "user/message" to buildJsonObject { put("id", buildJsonObject { }); putJsonObject("source") { put("kind", buildJsonObject { }) } },
+            "developer/message" to buildJsonObject { putJsonObject("message") {
+                put("id", buildJsonObject { }); put("content", "context")
+            } },
+            "assistant/chunk" to buildJsonObject { put("turn", 1); put("step", 1); put("chunk", "invalid") },
+            "assistant/message" to buildJsonObject { put("turn", 1); put("step", 1); put("message", "invalid") },
+            "assistant/attempt" to buildJsonObject { put("turn", buildJsonObject { }); put("step", 1) },
+            "tool/call" to buildJsonObject { put("name", buildJsonObject { }); put("arguments", buildJsonObject { }) },
+            "tool/result" to buildJsonObject { put("turn", buildJsonObject { }); put("step", 1) },
+            "plan/mode" to buildJsonObject { put("active", buildJsonObject { }) },
+            "session/title" to buildJsonObject { put("title", buildJsonObject { }) },
+        ).mapIndexed { index, pair -> event(pair.first, index.toLong() + 1, pair.second) }
+        val valid = event("user/message", malformed.size.toLong() + 1, buildJsonObject { put("content", "visible") })
+        val snapshot = EventFold("s1").fold(malformed + valid)
+        assertEquals(valid.seq, snapshot.lastSeq)
+        assertTrue(snapshot.nodes.filterIsInstance<UserMessageNode>().any { it.blocks.singleOrNull()?.text == "visible" })
+    }
+
+    @Test
     fun incrementalSkipsDuplicates() {
         val fold = EventFold.Incremental(ConversationSnapshot("s1", lastSeq = 2), "s1")
         val first = fold.apply(event("turn/start", 3, buildJsonObject { put("turn", 7) }))
         val duplicate = fold.apply(event("turn/start", 3, buildJsonObject { put("turn", 7) }))
         assertTrue(first!!.nodes.any { it is TurnStartNode })
         assertEquals(null, duplicate)
+    }
+
+    @Test
+    fun `incremental snapshot preserves the initial durable cursor before a new event`() {
+        val initial = EventFold("s1").fold(listOf(
+            event("user/message", 12, buildJsonObject {
+                put("id", "m1")
+                putJsonArray("content") { add(buildJsonObject { put("type", "text"); put("text", "hello") }) }
+            }),
+        ))
+        val fold = EventFold.Incremental(initial, "s1")
+        assertEquals(12L, fold.snapshot().lastSeq)
+        assertEquals(initial.nodes, fold.snapshot().nodes)
+        assertEquals(null, fold.apply(event("turn/start", 12, buildJsonObject { put("turn", 1) })))
+    }
+
+    @Test
+    fun `invalid transient block indices do not crash or hide later valid chunks`() {
+        val badChunks = listOf(
+            buildJsonObject { put("type", "text-delta"); put("index", -1); put("text", "bad") },
+            buildJsonObject { put("type", "text-delta"); put("index", 100_000); put("text", "bad") },
+            buildJsonObject { put("type", "text-delta"); put("index", buildJsonObject { }); put("text", "bad") },
+        )
+        val transient = badChunks.mapIndexed { index, chunk -> event("assistant/chunk", index.toLong(), buildJsonObject {
+            put("turn", 1); put("step", 1); put("chunk", chunk)
+        }) } + event("assistant/chunk", 3, buildJsonObject {
+            put("turn", 1); put("step", 1)
+            putJsonObject("chunk") { put("type", "text-delta"); put("index", 0); put("text", "valid") }
+        })
+        val snapshot = EventFold("s1").fold(emptyList(), transient)
+        val message = snapshot.nodes.single() as AssistantMessageNode
+        assertEquals("valid", message.blocks.single().text)
+    }
+
+    @Test
+    fun `tool call deltas without repeated identity keep the first call id`() {
+        val transient = listOf(
+            buildJsonObject {
+                put("type", "tool-call-delta"); put("index", 0); put("id", "call-1")
+                put("name", "bash"); put("argumentsDelta", "{")
+            },
+            buildJsonObject { put("type", "tool-call-delta"); put("index", 0); put("argumentsDelta", "}") },
+        ).mapIndexed { index, chunk -> event("assistant/chunk", index.toLong(), buildJsonObject {
+            put("turn", 1); put("step", 1); put("chunk", chunk)
+        }) }
+        val message = EventFold("s1").fold(emptyList(), transient).nodes.single() as AssistantMessageNode
+        assertEquals("call-1", message.blocks.single().toolCallId)
+        assertEquals("bash", message.blocks.single().toolName)
+        assertEquals("{}", message.blocks.single().argumentsJson)
+    }
+
+    @Test
+    fun `malformed live block payload cannot abort rendering a valid suffix`() {
+        val malformed = listOf(
+            buildJsonObject { put("turn", buildJsonObject { }); put("step", 1); putJsonObject("chunk") { put("type", "text-delta"); put("text", "wrong turn") } },
+            buildJsonObject { put("turn", 1); put("step", 1); putJsonObject("chunk") { put("type", "text-delta"); put("index", 0); put("text", buildJsonObject { }) } },
+            buildJsonObject { put("turn", 1); put("step", 1); putJsonObject("chunk") { put("type", "block-end"); put("index", 0); put("block", "not an object") } },
+            buildJsonObject { put("turn", 1); put("step", 1); putJsonObject("chunk") { put("type", "text-delta"); put("index", 0); put("text", "valid") } },
+        )
+        val transient = malformed.mapIndexed { index, data -> event("assistant/chunk", index.toLong(), data) }
+        val snapshot = EventFold("s1").fold(emptyList(), transient)
+        val message = snapshot.nodes.single() as AssistantMessageNode
+        assertEquals(1, message.turn)
+        assertEquals("valid", message.blocks.single().text)
+    }
+
+    @Test
+    fun `invalid content block metadata does not hide a durable user message`() {
+        val payload = buildJsonObject {
+            put("id", "m1")
+            putJsonArray("content") {
+                add(buildJsonObject { put("type", buildJsonObject { }); put("text", "bad type") })
+                add(buildJsonObject { put("type", "text"); put("text", buildJsonObject { }) })
+                add(buildJsonObject { put("type", "tool-result"); put("isError", buildJsonObject { }) })
+                add(buildJsonObject { put("type", "file"); putJsonObject("attachment") { put("name", buildJsonObject { }) } })
+                add(buildJsonObject { put("type", "text"); put("text", "valid") })
+            }
+        }
+        val snapshot = EventFold("s1").fold(listOf(event("user/message", 1, payload)))
+        val message = snapshot.nodes.single() as UserMessageNode
+        assertTrue(message.blocks.any { it.kind == "text" && it.text == "valid" })
+    }
+
+    @Test
+    fun `malformed assembled block falls back to streamed text`() {
+        val transient = listOf(
+            buildJsonObject { put("type", "block-start"); put("index", 0); put("blockType", "text") },
+            buildJsonObject { put("type", "text-delta"); put("index", 0); put("text", "prefix") },
+            buildJsonObject { put("type", "block-end"); put("index", 0)
+                putJsonObject("block") { put("type", "text"); put("text", buildJsonObject { }) }
+            },
+        ).mapIndexed { index, chunk -> event("assistant/chunk", index.toLong(), buildJsonObject {
+            put("turn", 1); put("step", 1); put("chunk", chunk)
+        }) }
+        val message = EventFold("s1").fold(emptyList(), transient).nodes.single() as AssistantMessageNode
+        assertEquals("prefix", message.blocks.single().text)
+    }
+
+    @Test
+    fun `malformed retry metadata cannot hide later transcript nodes`() {
+        val events = listOf(
+            event("llm/retry", 1, buildJsonObject {
+                put("failure", buildJsonObject { put("status", buildJsonObject { }); put("code", "timeout") })
+                put("maxAttempts", buildJsonObject { })
+                put("retryId", buildJsonObject { })
+            }),
+            event("user/message", 2, buildJsonObject {
+                put("id", "m2")
+                putJsonArray("content") { add(buildJsonObject { put("type", "text"); put("text", "still here") }) }
+            }),
+        )
+        val nodes = EventFold("s1").fold(events).nodes
+        assertTrue(nodes.first() is RetryNode)
+        assertTrue(nodes.last() is UserMessageNode)
     }
 
     @Test
@@ -441,6 +600,43 @@ class EventFoldTest {
      * blocks at all — the user's own message would disappear from the transcript rather than render
      * imperfectly, which is the opposite of the fold's leniency contract everywhere else.
      */
+    @Test
+    fun `malformed tool result content entries do not abort later transcript`() {
+        val events = listOf(
+            event("tool/result", 1, buildJsonObject {
+                put("turn", 1); put("step", 1)
+                putJsonObject("message") {
+                    put("isError", buildJsonObject { })
+                    putJsonArray("content") {
+                        add(kotlinx.serialization.json.JsonPrimitive("unexpected primitive"))
+                        add(buildJsonObject { put("type", buildJsonObject { }); put("text", "still visible") })
+                    }
+                }
+            }),
+            event("user/message", 2, buildJsonObject {
+                put("id", "next")
+                putJsonArray("content") { add(buildJsonObject { put("type", "text"); put("text", "next") }) }
+            }),
+        )
+        val nodes = EventFold("s1").fold(events).nodes
+        assertEquals("", (nodes.first() as ToolResultNode).callId)
+        assertTrue(nodes.last() is UserMessageNode)
+    }
+
+    @Test
+    fun `malformed turn end reason does not abort later transcript`() {
+        val events = listOf(
+            event("turn/end", 1, buildJsonObject { put("turn", 1); put("reason", "invalid") }),
+            event("turn/end", 2, buildJsonObject {
+                put("turn", 2); putJsonObject("reason") { put("kind", buildJsonObject { }) }
+            }),
+            event("user/message", 3, buildJsonObject { put("id", "next") }),
+        )
+        val nodes = EventFold("s1").fold(events).nodes
+        assertEquals(2, nodes.filterIsInstance<TurnEndNode>().size)
+        assertTrue(nodes.last() is UserMessageNode)
+    }
+
     @Test
     fun extractsNestedToolResultContentForTerminalRendering() {
         val events = listOf(

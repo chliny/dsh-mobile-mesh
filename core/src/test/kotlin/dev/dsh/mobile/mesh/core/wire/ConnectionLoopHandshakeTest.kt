@@ -427,6 +427,31 @@ class ConnectionLoopHandshakeTest {
     }
 
     @Test
+    fun `carrier close after finite events stream triggers a new generation`() = runBlocking {
+        val recorder = Recorder()
+        val sinks = CopyOnWriteArrayList<WsChannelSink>()
+        val loop = loop(recorder, open = { sink ->
+            sinks.add(sink)
+            onSend = { _, text ->
+                if (text.contains("\"type\":\"open\"")) {
+                    val id = streamIdOf(text)
+                    sink.onMessage(item(id, readyFrame))
+                    sink.onMessage("{\"type\":\"end\",\"streamId\":\"$id\"}")
+                }
+            }
+            sink.onOpen()
+        })
+        try {
+            loop.start()
+            assertTrue(await { recorder.connected.size == 1 && sinks.isNotEmpty() })
+            sinks.first().onClosed(WebSocketClosedException(1001, "host restart"))
+            assertTrue("finite events stream must reconnect after carrier closes", await { recorder.connected.size >= 2 })
+        } finally {
+            loop.stop()
+        }
+    }
+
+    @Test
     fun `a non carrier events error does not reconnect while the mux remains open`() = runBlocking {
         val recorder = Recorder()
         val loop = loop(
