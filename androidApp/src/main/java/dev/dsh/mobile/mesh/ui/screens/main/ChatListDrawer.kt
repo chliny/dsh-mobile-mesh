@@ -198,6 +198,7 @@ internal fun sessionListEmptyState(
  */
 @Composable
 fun ChatListDrawer(
+    visiblePageByWorkspace: MutableMap<String, Int>,
     connectionPhase: ConnectionPhase,
     onClose: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -236,7 +237,6 @@ fun ChatListDrawer(
     var newWorkspaceOpen by remember { mutableStateOf(false) }
     val workspaceOverrides = remember { mutableStateMapOf<String, Boolean>() }
     val childCollapsed = remember { mutableStateMapOf<String, Boolean>() }
-    val visiblePageByWorkspace = remember { mutableStateMapOf<String, Int>() }
     var workspaceMovePending by remember { mutableStateOf(false) }
 
     LaunchedEffect(query) {

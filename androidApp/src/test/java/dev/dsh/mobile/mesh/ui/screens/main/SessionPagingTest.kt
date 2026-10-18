@@ -16,6 +16,19 @@ class SessionPagingTest {
     }
 
     @Test
+    fun `opening a session and returning keeps pages in the app root`() {
+        val appRoot = java.io.File("src/main/java/dev/dsh/mobile/mesh/ui/AppRoot.kt").readText()
+        val drawer = java.io.File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/ChatListDrawer.kt").readText()
+        val retainedState = appRoot.indexOf("val visiblePageByWorkspace = remember(activeHostKey)")
+        val pageSwitch = appRoot.indexOf("        when {")
+
+        assertTrue(retainedState >= 0 && retainedState < pageSwitch)
+        assertTrue(appRoot.contains("visiblePageByWorkspace = visiblePageByWorkspace,"))
+        assertTrue(drawer.contains("fun ChatListDrawer(\n    visiblePageByWorkspace: MutableMap<String, Int>,"))
+        assertTrue(!drawer.contains("val visiblePageByWorkspace = remember"))
+    }
+
+    @Test
     fun `loaded pages remain until workspace folds then reset for its subtree only`() {
         val workspaces = listOf(
             WorkspaceRow("parent", "/repo", "Parent", emptyList()),
