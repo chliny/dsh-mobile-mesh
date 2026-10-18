@@ -319,6 +319,8 @@
     <string name="time_months">%1$d เดือน</string>
     <string name="time_years">%1$d ปี</string>
     <string name="chatlist_open">เปิดรายการแชท</string>
+    <string name="chatlist_workspace_move_up">ย้ายเวิร์กสเปซขึ้น</string>
+    <string name="chatlist_workspace_move_down">ย้ายเวิร์กสเปซลง</string>
     <string name="chatlist_workspace_rename">เปลี่ยนชื่อเวิร์กสเปซ</string>
     <string name="chatlist_workspace_delete">นำเวิร์กสเปซออก</string>
     <string name="chatlist_workspace_delete_confirm">นำเวิร์กสเปซนี้ออกจาก Harness หรือไม่ โฟลเดอร์และบันทึกเซสชันจะไม่ถูกแตะต้อง</string>

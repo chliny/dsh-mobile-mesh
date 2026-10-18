@@ -321,6 +321,8 @@
     <string name="time_months">%1$d mois</string>
     <string name="time_years">%1$d an</string>
     <string name="chatlist_open">Ouvrir les discussions</string>
+    <string name="chatlist_workspace_move_up">Monter l’espace de travail</string>
+    <string name="chatlist_workspace_move_down">Descendre l’espace de travail</string>
     <string name="chatlist_workspace_rename">Renommer l’espace de travail</string>
     <string name="chatlist_workspace_delete">Retirer l’espace de travail</string>
     <string name="chatlist_workspace_delete_confirm">Retirer cet espace de travail du Harness ? Le dossier et ses journaux de session restent intacts.</string>

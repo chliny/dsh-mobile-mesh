@@ -103,6 +103,13 @@ private const val SORT_MANUAL = "manual"
 private const val SORT_UPDATED = "updated"
 internal const val SESSION_PAGE_SIZE = 5
 
+/** Anchor for moving one registry row by one position; null means append on the Host. */
+internal fun workspaceMoveAnchor(ids: List<String>, id: String, down: Boolean): String? {
+    val index = ids.indexOf(id)
+    if (index < 0 || (down && index == ids.lastIndex) || (!down && index == 0)) return null
+    return if (down) ids.getOrNull(index + 2) else ids[index - 1]
+}
+
 internal enum class SessionListEmptyState { LOADING, FAILED, EMPTY, NOT_EMPTY }
 
 internal fun sessionListEmptyState(
@@ -163,6 +170,7 @@ fun ChatListDrawer(
     val workspaceOverrides = remember { mutableStateMapOf<String, Boolean>() }
     val childCollapsed = remember { mutableStateMapOf<String, Boolean>() }
     val visiblePageByWorkspace = remember { mutableStateMapOf<String, Int>() }
+    var workspaceMovePending by remember { mutableStateOf(false) }
 
     LaunchedEffect(query) {
         delay(250)
@@ -200,6 +208,13 @@ fun ChatListDrawer(
         childrenByParent.values.flatten().mapTo(HashSet()) { it.sessionId }
     }
     val pinnedSet = pinnedIds.toSet()
+    val visibleRootIds = listable.mapTo(HashSet()) { it.sessionId }.apply {
+        removeAll(nestedIds)
+        removeAll(pinnedSet)
+    }
+    val visibleWorkspaceIds = workspaces.filter { workspace ->
+        workspace.sessionIds.any { it in visibleRootIds }
+    }.map(WorkspaceRow::workspaceId)
     val pinnedRoots = pinnedRootIds(pinnedIds, listable.mapTo(HashSet()) { it.sessionId }, nestedIds)
         .mapNotNull(sessionsById::get)
     // Every session between the open one and the root, so a subtree holding it opens by default.
@@ -396,6 +411,27 @@ fun ChatListDrawer(
                          },
                         store = store,
                         scope = scope,
+                        canMoveUp = !workspaceMovePending && visibleWorkspaceIds.indexOf(workspace.workspaceId) > 0,
+                        canMoveDown = !workspaceMovePending && visibleWorkspaceIds.indexOf(workspace.workspaceId) < visibleWorkspaceIds.lastIndex,
+                        onMove = { down ->
+                            if (!workspaceMovePending) {
+                                val ids = visibleWorkspaceIds
+                                val index = ids.indexOf(workspace.workspaceId)
+                                if (index >= 0 && (if (down) index < ids.lastIndex else index > 0)) {
+                                    workspaceMovePending = true
+                                    scope.launch {
+                                        try {
+                                            store.reorderWorkspace(
+                                                workspace.workspaceId,
+                                                workspaceMoveAnchor(ids, workspace.workspaceId, down),
+                                            )
+                                        } finally {
+                                            workspaceMovePending = false
+                                        }
+                                    }
+                                }
+                            }
+                        },
                         onNewSession = {
                             scope.launch {
                                 store.createSession(workspaceId = workspace.workspaceId)
@@ -631,6 +667,9 @@ private fun WorkspaceHeader(
     onToggle: () -> Unit,
     store: SessionStore,
     scope: CoroutineScope,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onMove: (down: Boolean) -> Unit,
     onNewSession: () -> Unit,
 ) {
     val colors = DsTheme.colors
@@ -682,6 +721,12 @@ private fun WorkspaceHeader(
         if (menuOpen) {
             WorkspaceMenu(
                 onDismiss = { menuOpen = false },
+                canMoveUp = canMoveUp,
+                canMoveDown = canMoveDown,
+                onMove = { down ->
+                    menuOpen = false
+                    onMove(down)
+                },
                 onNewSession = {
                     menuOpen = false
                     onNewSession()
@@ -726,12 +771,17 @@ private fun WorkspaceHeader(
 @Composable
 private fun WorkspaceMenu(
     onDismiss: () -> Unit,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onMove: (down: Boolean) -> Unit,
     onNewSession: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
     DsDialog(title = null, onDismiss = onDismiss) {
         SheetRow(title = stringResource(R.string.chatlist_workspace_new_session), onClick = onNewSession)
+        if (canMoveUp) SheetRow(title = stringResource(R.string.chatlist_workspace_move_up), onClick = { onMove(false) })
+        if (canMoveDown) SheetRow(title = stringResource(R.string.chatlist_workspace_move_down), onClick = { onMove(true) })
         SheetRow(title = stringResource(R.string.chatlist_workspace_rename), onClick = onRename)
         SheetRow(title = stringResource(R.string.chatlist_workspace_delete), onClick = onDelete)
     }

@@ -319,6 +319,8 @@
     <string name="time_months">%1$d माह</string>
     <string name="time_years">%1$d वर्ष</string>
     <string name="chatlist_open">चैट खोलें</string>
+    <string name="chatlist_workspace_move_up">वर्कस्पेस ऊपर ले जाएँ</string>
+    <string name="chatlist_workspace_move_down">वर्कस्पेस नीचे ले जाएँ</string>
     <string name="chatlist_workspace_rename">वर्कस्पेस का नाम बदलें</string>
     <string name="chatlist_workspace_delete">वर्कस्पेस हटाएँ</string>
     <string name="chatlist_workspace_delete_confirm">इस वर्कस्पेस को Harness से हटाएँ? फ़ोल्डर और उसके सेशन लॉग अछूते रहेंगे।</string>
