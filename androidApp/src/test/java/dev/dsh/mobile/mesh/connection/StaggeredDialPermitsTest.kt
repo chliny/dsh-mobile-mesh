@@ -15,6 +15,17 @@ class StaggeredDialPermitsTest {
         assertEquals(0, permits.inFlight)
     }
 
+    @Test fun `single dial comparison mode never admits a backup`() {
+        var now = 0L
+        val permits = StaggeredDialPermits(1_200, maxConcurrentDials = 1) { now }
+        assertEquals(1, permits.tryAcquire())
+        now = 1_200_000_000L
+        assertNull(permits.tryAcquire())
+        assertEquals(1, permits.inFlight)
+        permits.release()
+        assertEquals(0, permits.inFlight)
+    }
+
     @Test fun `stalled dial permits one delayed backup but no third socket`() {
         var now = 0L
         val permits = StaggeredDialPermits(1_200) { now }

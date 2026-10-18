@@ -255,6 +255,7 @@ class ConnectionManager @Inject constructor(
     @Volatile private var suspendedHost: HostConfig? = null
     private var suspendedTransportReady: (suspend (String) -> Unit)? = null
     @Volatile private var suspendedForBackground = false
+    private val backgroundSuspendInProgress = AtomicBoolean(false)
 
     init {
         // SSHJ only exposes a forwarder's terminal event by returning from listen(). Turn that into
@@ -275,6 +276,13 @@ class ConnectionManager @Inject constructor(
                     startService()
                 } else if (!settings.keepConnectedInBackground) {
                     stopService()
+                    if (shouldSuspendAfterRetentionDisabled(
+                            keepConnectedInBackground = settings.keepConnectedInBackground,
+                            appInForeground = appInForeground,
+                            hasDesiredHost = activeHost != null || suspendedHost != null,
+                            activeFileTransfer = activeFileTransferLeases.get() > 0,
+                            alreadySuspended = suspendedForBackground,
+                        )) suspendConnectionForBackground()
                 }
             }
         }
@@ -1587,30 +1595,35 @@ class ConnectionManager @Inject constructor(
                 authorizationPending = _state.value.authorizationPending != null,
                 loginUrl = _state.value.tailscaleLoginUrl,
             )) return
-        recoveryRetryJob?.cancel()
-        recoveryRetryJob = null
-        // Do not let a startup/recovery coroutine retain lifecycleMutex while Android suspends its
-        // network path. Tear carriers down, then restart the latest desired host on foreground.
-        val desiredHost = activeHost ?: suspendedHost
-        val desiredCallback = pendingTransportReady ?: suspendedTransportReady
-        Log.d(
-            "ConnectionManager",
-            "Background retention disabled; suspending active connection phase=${_state.value.phase} " +
-                "hasConnected=${_state.value.hasConnected} keepConnectedInBackground=$keepConnectedInBackground",
-        )
-        stopConnection()
-        suspendedHost = desiredHost
-        suspendedTransportReady = desiredCallback
-        suspendedForBackground = desiredHost != null
-        if (desiredHost != null) {
-            _state.value = _state.value.copy(
-                phase = ConnectionPhase.RECONNECTING,
-                host = desiredHost,
-                stage = ConnectStage.OpeningStreams,
-                hasConnected = true,
-                foregroundCheckPending = true,
-                recoveryOverlayVisible = true,
+        if (suspendedForBackground || !backgroundSuspendInProgress.compareAndSet(false, true)) return
+        try {
+            recoveryRetryJob?.cancel()
+            recoveryRetryJob = null
+            // Do not let a startup/recovery coroutine retain lifecycleMutex while Android suspends its
+            // network path. Tear carriers down, then restart the latest desired host on foreground.
+            val desiredHost = activeHost ?: suspendedHost
+            val desiredCallback = pendingTransportReady ?: suspendedTransportReady
+            Log.d(
+                "ConnectionManager",
+                "Background retention disabled; suspending active connection phase=${_state.value.phase} " +
+                    "hasConnected=${_state.value.hasConnected} keepConnectedInBackground=$keepConnectedInBackground",
             )
+            stopConnection()
+            suspendedHost = desiredHost
+            suspendedTransportReady = desiredCallback
+            suspendedForBackground = desiredHost != null
+            if (desiredHost != null) {
+                _state.value = _state.value.copy(
+                    phase = ConnectionPhase.RECONNECTING,
+                    host = desiredHost,
+                    stage = ConnectStage.OpeningStreams,
+                    hasConnected = true,
+                    foregroundCheckPending = true,
+                    recoveryOverlayVisible = true,
+                )
+            }
+        } finally {
+            backgroundSuspendInProgress.set(false)
         }
     }
 

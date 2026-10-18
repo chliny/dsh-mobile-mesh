@@ -2,6 +2,7 @@ package dev.dsh.mobile.mesh.connection
 
 import android.content.Context
 import android.util.Log
+import dev.dsh.mobile.mesh.BuildConfig
 import com.zerotier.sockets.ZeroTierEventListener
 import com.zerotier.sockets.ZeroTierNative
 import com.zerotier.sockets.ZeroTierNode
@@ -273,7 +274,9 @@ class ZeroTierConnector @Inject constructor(
         val startedAt = System.nanoTime()
         // Native connect blocks, so dials run on the connector executor. The registry bounds each
         // call and closes any socket that finishes after this readiness generation is retired.
-        val permits = StaggeredDialPermits(SECOND_DIAL_AFTER_MILLIS)
+        val maxConcurrentDials = BuildConfig.ZERO_TIER_MAX_CONCURRENT_DIALS
+        val permits = StaggeredDialPermits(SECOND_DIAL_AFTER_MILLIS, maxConcurrentDials)
+        Log.d(TAG, "recovery dial policy maxConcurrent=$maxConcurrentDials secondAfterMs=$SECOND_DIAL_AFTER_MILLIS")
         val pendingDials = BoundedConnectRegistry<ZeroTierSocket> { socket -> runCatching { socket.close() } }
         val dialed = SingleClaim<DialedTarget> { (socket, _) -> runCatching { socket.close() } }
         var completedWait = false

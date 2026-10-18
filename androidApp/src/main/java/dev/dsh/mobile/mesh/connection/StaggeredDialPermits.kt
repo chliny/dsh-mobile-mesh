@@ -6,8 +6,11 @@ package dev.dsh.mobile.mesh.connection
  */
 internal class StaggeredDialPermits(
     private val secondAfterMillis: Long,
+    private val maxConcurrentDials: Int = 2,
     private val nowNanos: () -> Long = System::nanoTime,
 ) {
+    init { require(maxConcurrentDials in 1..2) }
+
     private var firstStartedAt: Long? = null
     private var count = 0
 
@@ -19,7 +22,7 @@ internal class StaggeredDialPermits(
             return 1
         }
         val started = firstStartedAt ?: return null
-        if (count >= 2 || (now - started) < secondAfterMillis * 1_000_000L) return null
+        if (count >= maxConcurrentDials || (now - started) < secondAfterMillis * 1_000_000L) return null
         count = 2
         return 2
     }

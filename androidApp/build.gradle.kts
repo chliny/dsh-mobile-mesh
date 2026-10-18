@@ -26,7 +26,12 @@ val dshVersionName = System.getenv("DSH_VERSION_NAME")?.takeIf { it.isNotBlank()
 val dshVersionCode = dshVersionName.substringBefore('-').split('.').mapNotNull(String::toIntOrNull).let { parts ->
     parts.getOrElse(0) { 0 } * 10_000 + parts.getOrElse(1) { 0 } * 100 + parts.getOrElse(2) { 0 }
 }.coerceAtLeast(1)
-
+// Allows a controlled single-vs-hedged dial comparison in the debuggable APK only.
+val dshZeroTierDebugMaxConcurrentDials =
+    (project.findProperty("dsh.zerotier.debugMaxConcurrentDials") as? String)?.toIntOrNull() ?: 2
+require(dshZeroTierDebugMaxConcurrentDials in 1..2) {
+    "dsh.zerotier.debugMaxConcurrentDials must be 1 or 2"
+}
 val releaseKeystoreFile = System.getenv("DSH_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
 val releaseKeystorePassword = System.getenv("DSH_KEYSTORE_PASSWORD")
 val releaseKeyAlias = System.getenv("DSH_KEY_ALIAS")
@@ -56,8 +61,12 @@ android {
         externalNativeBuild { cmake { arguments += "-DTSNET_LIB_DIR=${layout.buildDirectory.dir("generated/tsnet-jniLibs").get().asFile.absolutePath}" } }
     }
     buildTypes {
-        debug { applicationIdSuffix = ".debug" }
+        debug {
+            applicationIdSuffix = ".debug"
+            buildConfigField("int", "ZERO_TIER_MAX_CONCURRENT_DIALS", dshZeroTierDebugMaxConcurrentDials.toString())
+        }
         release {
+            buildConfigField("int", "ZERO_TIER_MAX_CONCURRENT_DIALS", "2")
             signingConfig = if (hasReleaseSigning) {
                 signingConfigs.create("environmentRelease") {
                     storeFile = file(requireNotNull(releaseKeystoreFile))
