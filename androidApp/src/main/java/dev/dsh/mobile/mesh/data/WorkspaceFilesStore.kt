@@ -211,7 +211,8 @@ class WorkspaceFilesStore @Inject constructor(
 
     fun readText(workspaceKey: String, sessionId: String, path: String, offset: Int = 1, limit: Int = PREVIEW_PAGE_LINES) {
         val safePath = validWorkspaceFilePath(path) ?: return
-        readPreview(workspaceKey, sessionId, safePath, append = offset > 1, keepWholeText = isMarkdownPreviewPath(safePath)) { api ->
+        // An explicit source-line offset opens a new preview, not an append to the prior file.
+        readPreview(workspaceKey, sessionId, safePath, keepWholeText = isMarkdownPreviewPath(safePath)) { api ->
             when (val result = api.workspaceFilesRead(sessionId, safePath, offset = offset, limit = limit)) {
                 is RpcResult.Ok -> result
                 is RpcResult.Err -> {

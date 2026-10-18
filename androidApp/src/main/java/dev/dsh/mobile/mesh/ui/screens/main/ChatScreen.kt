@@ -101,6 +101,7 @@ internal fun ChatScreen(
     onOpenTerminal: () -> Unit = {},
     terminalAvailable: Boolean = false,
     onOpenFile: (String, String) -> Unit = { _, _ -> },
+    onOpenFileAtLine: (String, String, Int) -> Unit = { _, _, _ -> },
     onOpenChangedDiff: (Long, Int, String, String, Int, Int) -> Unit = { _, _, _, _, _, _ -> },
     onOpenSubagent: (String) -> Unit = {},
 ) {
@@ -503,6 +504,7 @@ internal fun ChatScreen(
                 disclosures = disclosureScope,
                 store = store,
                 onOpenFile = onOpenFile,
+                onOpenFileAtLine = onOpenFileAtLine,
                 onOpenChangedDiff = onOpenChangedDiff,
                 running = visibleConversation?.running == true,
                 cwd = currentSession?.cwd,
