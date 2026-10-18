@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -30,6 +31,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.JobStatus
 import dev.dsh.mobile.mesh.core.wire.dto.JobView
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
 import dev.dsh.mobile.mesh.ui.components.StateDot
+import dev.dsh.mobile.mesh.ui.components.formatDurationMs
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
@@ -51,6 +53,15 @@ internal fun JobsSheet(
     var selectedId by remember(sessionId) { mutableStateOf<String?>(null) }
     val selectedJob = jobs.firstOrNull { it.id == selectedId }
     val observableId = selectedJob?.takeIf(::canObserveJob)?.id
+    var nowMs by remember(sessionId) { mutableLongStateOf(System.currentTimeMillis()) }
+    val hasLiveJobs = jobs.any { it.status == JobStatus.RUNNING || it.status == JobStatus.STOPPING }
+    LaunchedEffect(sessionId, hasLiveJobs) {
+        if (!hasLiveJobs) return@LaunchedEffect
+        while (true) {
+            nowMs = System.currentTimeMillis()
+            kotlinx.coroutines.delay(1_000L)
+        }
+    }
     val currentObserve by rememberUpdatedState(onObserve)
     // `job/follow` is opened only while the selected row is visible. Closing the sheet or
     // changing rows stops the stream; `job/list` remains the server-owned roster.
@@ -91,7 +102,8 @@ internal fun JobsSheet(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                listOfNotNull(job.kind, job.progress ?: job.detail).joinToString(" · "),
+                                listOfNotNull(job.kind, job.progress ?: job.detail, formatDurationMs(jobElapsedMs(job, nowMs)))
+                                    .joinToString(" · "),
                                 style = DsType.caption11,
                                 color = colors.labelCaption,
                                 maxLines = 1,

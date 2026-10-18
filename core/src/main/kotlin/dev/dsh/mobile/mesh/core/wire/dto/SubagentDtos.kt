@@ -161,6 +161,24 @@ data class SubagentCatalog(
     @SerialName("parentAvailable") val parentAvailable: Boolean,
 )
 
+/** Server-folded active-turn timing for one descriptor-backed subagent Session. */
+@Serializable
+data class SubagentTimingProjection(
+    /** Milliseconds accumulated across completed turns after the child's own descriptor. */
+    @SerialName("settledMs") val settledMs: Long = 0,
+    /** Bounds of the currently open turn at this projection cut. */
+    @SerialName("active") val active: ActiveTurn? = null,
+    /** Whether the last closed turn completed normally; absent while active or before a turn. */
+    @SerialName("lastTurnCompleted") val lastTurnCompleted: Boolean? = null,
+) {
+    /** One Host-measured open turn interval in epoch milliseconds. */
+    @Serializable
+    data class ActiveTurn(
+        @SerialName("since") val since: Long,
+        @SerialName("through") val through: Long,
+    )
+}
+
 /** Durable parent/child address that selects subagent transport in the client. */
 @Serializable
 data class SubagentAddress(

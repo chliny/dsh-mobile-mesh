@@ -125,6 +125,10 @@ internal fun DetailsPanel(
     val agentPresets by store.agentPresets.collectAsState()
     val current = sessions.firstOrNull { it.sessionId == currentSessionId }
 
+    LaunchedEffect(currentSessionId) {
+        if (currentSessionId != null) store.refreshSessions()
+    }
+
     // This panel owns its own sheets rather than reaching back into ChatScreen's: it is reachable
     // on its own on a phone, where the chat surface is not even composed behind it.
     var sheet by remember { mutableStateOf<DetailsSheet?>(null) }
@@ -233,7 +237,7 @@ internal fun DetailsPanel(
                     }
                     JobsCard(jobs, store, scope, disclosures, jobKillRequestedLabel, jobKillFailedLabel, toast.second)
                     QueueCard(conv.queue, store, disclosures)
-                    SubagentsCard(subagents, disclosures, onOpen = onOpenSubagent)
+                    SubagentsCard(subagents, sessions, disclosures, onOpen = onOpenSubagent)
                     WorkflowCard(conv.nodes, disclosures)
                 }
 
@@ -672,8 +676,26 @@ private fun QueueCard(queue: List<QueueItem>, store: dev.dsh.mobile.mesh.data.Se
 }
 
 @Composable
-private fun SubagentsCard(subagents: List<SubagentListEntry>, disclosureScope: DisclosureScope, onOpen: (String) -> Unit) {
+private fun SubagentsCard(
+    subagents: List<SubagentListEntry>,
+    sessions: List<dev.dsh.mobile.mesh.data.SessionRow>,
+    disclosureScope: DisclosureScope,
+    onOpen: (String) -> Unit,
+) {
     val colors = DsTheme.colors
+    val sessionsById = remember(sessions) { sessions.associateBy { it.sessionId } }
+    var subagentNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val hasRunningTiming = subagents.any { entry ->
+        val row = subagentId(entry)?.let(sessionsById::get)
+        row?.subagentTiming?.active != null && subagentActivityRunning(entry, row.running)
+    }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(hasRunningTiming, lifecycle) {
+        if (!hasRunningTiming) return@LaunchedEffect
+        tickWhileVisible(lifecycle.startedStates()) {
+            subagentNow = System.currentTimeMillis()
+        }
+    }
     Card(
         id = "subagents",
         disclosureScope = disclosureScope,
@@ -690,13 +712,16 @@ private fun SubagentsCard(subagents: List<SubagentListEntry>, disclosureScope: D
         }
         subagents.forEach { entry ->
             val id = subagentId(entry)
+            val child = id?.let(sessionsById::get)
+            val running = subagentActivityRunning(entry, child?.running == true)
+            val duration = child?.subagentTiming?.let { subagentElapsedMs(it, running, subagentNow) }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(enabled = canOpenSubagentTranscript(entry)) { id?.let(onOpen) },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                StateDot(if (subagentRunning(entry)) StateDotState.Running else StateDotState.Idle)
+                StateDot(if (running) StateDotState.Running else StateDotState.Idle)
                 Spacer(Modifier.width(DsSpacing.small))
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -707,10 +732,10 @@ private fun SubagentsCard(subagents: List<SubagentListEntry>, disclosureScope: D
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        stringResource(
-                            if (subagentRunning(entry)) R.string.subagents_running
-                            else R.string.subagents_inactive,
-                        ),
+                        listOfNotNull(
+                            stringResource(if (running) R.string.subagents_running else R.string.subagents_inactive),
+                            duration?.let(::formatDurationMs),
+                        ).joinToString(" · "),
                         style = DsType.caption11,
                         color = colors.labelCaption,
                     )
