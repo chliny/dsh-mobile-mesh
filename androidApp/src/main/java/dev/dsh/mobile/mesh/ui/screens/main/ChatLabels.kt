@@ -36,6 +36,15 @@ internal fun jobStatusDot(status: JobStatus): StateDotState = when (status) {
     JobStatus.KILLED, JobStatus.FAILED -> StateDotState.Error
 }
 
+@StringRes
+internal fun jobStatusLabelRes(status: JobStatus): Int = when (status) {
+    JobStatus.RUNNING -> R.string.jobs_running
+    JobStatus.STOPPING -> R.string.jobs_kill_requested
+    JobStatus.COMPLETED -> R.string.jobs_completed
+    JobStatus.KILLED -> R.string.jobs_killed
+    JobStatus.FAILED -> R.string.jobs_failed
+}
+
 @Composable
 internal fun workflowStatusLabel(status: String?): String? = when (status) {
     "running" -> stringResource(R.string.workflow_running)
@@ -72,8 +81,9 @@ internal fun subagentLabel(entry: SubagentListEntry): String? = when (entry) {
 }
 
 internal fun canOpenSubagentTranscript(entry: SubagentListEntry): Boolean = when (entry) {
+    is SubagentListEntry.ChildOneShot, is SubagentListEntry.ChildContinuable -> true
     is SubagentListEntry.Projected -> entry.entry.mode == "one-shot" || entry.entry.mode == "continuable"
-    else -> subagentId(entry) != null
+    is SubagentListEntry.Diagnostic, is dev.dsh.mobile.mesh.core.wire.dto.UnknownSubagentListEntry -> false
 }
 
 internal fun subagentRunning(entry: SubagentListEntry): Boolean = when (entry) {
