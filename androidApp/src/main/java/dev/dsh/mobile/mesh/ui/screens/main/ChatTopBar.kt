@@ -59,7 +59,7 @@ internal enum class ChatTab { Chat, Trajectory }
  * The session chrome: a two-row bar plus the Chat / Trajectory tabs.
  *
  * The header carries the session title and connection controls; the tab strip carries the Chat /
- * Trajectory switch and the optional subagent indicator in one compact row.
+ * Trajectory switch and separate background-job and subagent indicators in one compact row.
  *
  * The title and the chips share row two rather than stacking, and the row disappears entirely when
  * it would be empty: four stacked rows of chrome over a white page ate a third of a phone screen
@@ -72,11 +72,13 @@ internal fun ChatTopBar(
     models: SessionModelsValue?,
     agentPresetLabel: String?,
     subagentCount: Int,
+    jobCount: Int,
     detailsOpen: Boolean,
     tab: ChatTab,
     onOpenDrawer: () -> Unit,
     onOpenPresets: () -> Unit,
     onOpenSubagents: () -> Unit,
+    onOpenJobs: () -> Unit,
     onOpenDetails: () -> Unit,
     onOpenFiles: () -> Unit,
     onOpenTerminal: () -> Unit,
@@ -146,8 +148,10 @@ internal fun ChatTopBar(
         ChatTabRow(
             tab = tab,
             subagentCount = subagentCount,
+            jobCount = jobCount,
             onTabChange = onTabChange,
             onOpenSubagents = onOpenSubagents,
+            onOpenJobs = onOpenJobs,
         )
     }
 }
@@ -249,6 +253,7 @@ private fun AgentLabel(label: String?, onClick: () -> Unit) {
 private fun MetaChip(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
+    contentDescription: String,
     onClick: () -> Unit,
 ) {
     val colors = DsTheme.colors
@@ -258,12 +263,12 @@ private fun MetaChip(
             .clip(DsShapes.pillFull)
             .background(colors.hoverSolid)
             .border(1.dp, colors.borderL2, DsShapes.pillFull)
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = DsSpacing.compact),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
     ) {
-        Icon(icon, contentDescription = null, tint = colors.labelTertiary, modifier = Modifier.size(14.dp))
+        Icon(icon, contentDescription = contentDescription, tint = colors.labelTertiary, modifier = Modifier.size(14.dp))
         Text(label, style = DsType.small13, color = colors.labelSecondary, maxLines = 1)
         Icon(
             Icons.Filled.KeyboardArrowDown,
@@ -284,8 +289,10 @@ private fun MetaChip(
 private fun ChatTabRow(
     tab: ChatTab,
     subagentCount: Int,
+    jobCount: Int,
     onTabChange: (ChatTab) -> Unit,
     onOpenSubagents: () -> Unit,
+    onOpenJobs: () -> Unit,
 ) {
     val colors = DsTheme.colors
     Row(
@@ -314,7 +321,17 @@ private fun ChatTabRow(
             MetaChip(
                 icon = Icons.Outlined.Groups,
                 label = "$subagentCount",
+                contentDescription = stringResource(R.string.subagents_title),
                 onClick = onOpenSubagents,
+            )
+        }
+        if (jobCount > 0) {
+            Spacer(Modifier.width(DsSpacing.small))
+            MetaChip(
+                icon = Icons.Outlined.Dashboard,
+                label = "$jobCount",
+                contentDescription = stringResource(R.string.jobs_title),
+                onClick = onOpenJobs,
             )
         }
     }

@@ -122,6 +122,8 @@ internal fun ChatScreen(
     val commands by store.commands.collectAsStateWithLifecycle()
     val commandsAvailable by store.commandsAvailable.collectAsStateWithLifecycle()
     val subagents by store.subagents.collectAsStateWithLifecycle()
+    val jobs by store.jobs.collectAsStateWithLifecycle()
+    val jobOutputById by store.jobOutputById.collectAsStateWithLifecycle()
     val sessionAddress by store.currentSessionAddress.collectAsStateWithLifecycle()
     val connectionError by store.connectionError.collectAsStateWithLifecycle()
     val loadingOlder by store.loadingOlder.collectAsStateWithLifecycle()
@@ -469,6 +471,7 @@ internal fun ChatScreen(
                 models = models,
                 agentPresetLabel = currentSession?.agentPreset?.let { agentPresetLabel(it, agentPresets) },
                 subagentCount = subagents.size,
+                jobCount = jobs.size,
                 detailsOpen = detailsOpen,
                 tab = tab,
                 onOpenDrawer = onOpenDrawer,
@@ -477,6 +480,7 @@ internal fun ChatScreen(
                     sheet = ChatSheet.Presets
                 },
                 onOpenSubagents = { sheet = ChatSheet.Subagents },
+                onOpenJobs = { sheet = ChatSheet.Jobs },
                 onOpenDetails = onOpenDetails,
                 onOpenFiles = onOpenFiles,
                 onOpenTerminal = onOpenTerminal,
@@ -787,6 +791,15 @@ internal fun ChatScreen(
             },
             onDismiss = { sheet = null },
         )
+        ChatSheet.Jobs -> currentSessionId?.let { sessionId ->
+            JobsSheet(
+                sessionId = sessionId,
+                jobs = jobs,
+                outputById = jobOutputById,
+                onObserve = store::setJobOutputFollowed,
+                onDismiss = { sheet = null },
+            )
+        }
         null -> Unit
     }
     permissionConfirmation?.let { value ->
@@ -801,7 +814,7 @@ internal fun ChatScreen(
 }
 
 /** Which sheet, if any, is open over the chat surface. */
-private enum class ChatSheet { Commands, Models, Permission, Presets, Subagents }
+private enum class ChatSheet { Commands, Models, Permission, Presets, Subagents, Jobs }
 
 /**
  * A picked document's display name and size, as its provider reports them.
