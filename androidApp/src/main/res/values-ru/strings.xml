@@ -327,6 +327,16 @@
     <string name="chatlist_workspace_new_session">Новый сеанс здесь</string>
     <string name="chatlist_needs_action">Требует вас</string>
     <string name="chatlist_sort_title">Порядок</string>
+    <string name="chatlist_view_options">Параметры отображения</string>
+    <string name="chatlist_group_title">Группировать по</string>
+    <string name="chatlist_group_workspace">По рабочим областям</string>
+    <string name="chatlist_group_tree">По дереву рабочих областей</string>
+    <string name="chatlist_group_flat">Один список</string>
+    <string name="chatlist_order_title">Сортировать по</string>
+    <string name="chatlist_filter_title">Фильтр сеансов</string>
+    <string name="chatlist_hide_archived">Скрыть архивные</string>
+    <string name="chatlist_show_archived">Все сеансы (включая архивные)</string>
+    <string name="chatlist_only_archived">Только архивные</string>
     <string name="chat_composer_send">Отправить сообщение</string>
     <string name="chat_composer_commands">Команды</string>
     <string name="chat_composer_mode">Режим отправки</string>

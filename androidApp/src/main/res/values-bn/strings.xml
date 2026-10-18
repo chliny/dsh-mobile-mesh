@@ -327,6 +327,16 @@
     <string name="chatlist_workspace_new_session">এখানে নতুন সেশন</string>
     <string name="chatlist_needs_action">আপনাকে দরকার</string>
     <string name="chatlist_sort_title">ক্রম</string>
+    <string name="chatlist_view_options">দেখার বিকল্প</string>
+    <string name="chatlist_group_title">দলবদ্ধ করুন</string>
+    <string name="chatlist_group_workspace">ওয়ার্কস্পেস অনুযায়ী</string>
+    <string name="chatlist_group_tree">ওয়ার্কস্পেস ট্রি অনুযায়ী</string>
+    <string name="chatlist_group_flat">একটি তালিকা</string>
+    <string name="chatlist_order_title">সাজান</string>
+    <string name="chatlist_filter_title">সেশন ফিল্টার করুন</string>
+    <string name="chatlist_hide_archived">আর্কাইভ লুকান</string>
+    <string name="chatlist_show_archived">সব সেশন (আর্কাইভসহ)</string>
+    <string name="chatlist_only_archived">শুধু আর্কাইভ</string>
     <string name="chat_composer_send">বার্তা পাঠান</string>
     <string name="chat_composer_commands">কমান্ড</string>
     <string name="chat_composer_mode">পাঠানোর ধরন</string>

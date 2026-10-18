@@ -327,6 +327,16 @@
     <string name="chatlist_workspace_new_session">جلسة جديدة هنا</string>
     <string name="chatlist_needs_action">بانتظارك</string>
     <string name="chatlist_sort_title">الترتيب</string>
+    <string name="chatlist_view_options">خيارات العرض</string>
+    <string name="chatlist_group_title">تجميع حسب</string>
+    <string name="chatlist_group_workspace">حسب مساحة العمل</string>
+    <string name="chatlist_group_tree">حسب شجرة مساحات العمل</string>
+    <string name="chatlist_group_flat">قائمة واحدة</string>
+    <string name="chatlist_order_title">ترتيب حسب</string>
+    <string name="chatlist_filter_title">تصفية الجلسات</string>
+    <string name="chatlist_hide_archived">إخفاء المؤرشفة</string>
+    <string name="chatlist_show_archived">كل الجلسات (مع المؤرشفة)</string>
+    <string name="chatlist_only_archived">المؤرشفة فقط</string>
     <string name="chat_composer_send">إرسال الرسالة</string>
     <string name="chat_composer_commands">الأوامر</string>
     <string name="chat_composer_mode">وضع الإرسال</string>

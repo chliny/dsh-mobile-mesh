@@ -327,6 +327,16 @@
     <string name="chatlist_workspace_new_session">یہاں نیا سیشن</string>
     <string name="chatlist_needs_action">آپ کی ضرورت ہے</string>
     <string name="chatlist_sort_title">ترتیب</string>
+    <string name="chatlist_view_options">دیکھنے کے اختیارات</string>
+    <string name="chatlist_group_title">گروپ بندی</string>
+    <string name="chatlist_group_workspace">ورک اسپیس کے لحاظ سے</string>
+    <string name="chatlist_group_tree">ورک اسپیس شجرے کے لحاظ سے</string>
+    <string name="chatlist_group_flat">ایک فہرست</string>
+    <string name="chatlist_order_title">ترتیب دیں</string>
+    <string name="chatlist_filter_title">سیشن فلٹر کریں</string>
+    <string name="chatlist_hide_archived">آرکائیو چھپائیں</string>
+    <string name="chatlist_show_archived">تمام سیشن (آرکائیو سمیت)</string>
+    <string name="chatlist_only_archived">صرف آرکائیو</string>
     <string name="chat_composer_send">پیغام بھیجیں</string>
     <string name="chat_composer_commands">کمانڈز</string>
     <string name="chat_composer_mode">بھیجنے کا انداز</string>

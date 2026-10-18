@@ -187,6 +187,16 @@
     <string name="chatlist_workspace_new_session">New session here</string>
     <string name="chatlist_needs_action">Needs you</string>
     <string name="chatlist_sort_title">Order</string>
+    <string name="chatlist_view_options">View options</string>
+    <string name="chatlist_group_title">Group by</string>
+    <string name="chatlist_group_workspace">By workspace</string>
+    <string name="chatlist_group_tree">By workspace tree</string>
+    <string name="chatlist_group_flat">Single list</string>
+    <string name="chatlist_order_title">Sort by</string>
+    <string name="chatlist_filter_title">Filter sessions</string>
+    <string name="chatlist_hide_archived">Hide archived</string>
+    <string name="chatlist_show_archived">All sessions (show archived)</string>
+    <string name="chatlist_only_archived">Archived only</string>
     <string name="chat_composer_hint">Message the agent</string>
     <string name="chat_composer_send">Send message</string>
     <string name="chat_composer_commands">Commands</string>

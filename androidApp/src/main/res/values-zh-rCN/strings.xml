@@ -362,6 +362,16 @@
     <string name="chatlist_workspace_new_session">在此新建会话</string>
     <string name="chatlist_needs_action">待处理</string>
     <string name="chatlist_sort_title">排序</string>
+    <string name="chatlist_view_options">视图选项</string>
+    <string name="chatlist_group_title">分组方式</string>
+    <string name="chatlist_group_workspace">按工作区</string>
+    <string name="chatlist_group_tree">按工作区树</string>
+    <string name="chatlist_group_flat">单列表</string>
+    <string name="chatlist_order_title">排序方式</string>
+    <string name="chatlist_filter_title">筛选会话</string>
+    <string name="chatlist_hide_archived">隐藏已归档</string>
+    <string name="chatlist_show_archived">全部会话（显示已归档）</string>
+    <string name="chatlist_only_archived">仅显示已归档</string>
     <string name="chat_composer_send">发送消息</string>
     <string name="chat_composer_commands">命令</string>
     <string name="chat_composer_mode">发送方式</string>

@@ -27,12 +27,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -103,6 +109,48 @@ private const val SORT_MANUAL = "manual"
 private const val SORT_UPDATED = "updated"
 internal const val SESSION_PAGE_SIZE = 5
 
+internal enum class SessionGrouping { WORKSPACE, WORKSPACE_TREE, FLAT }
+internal enum class ArchivedSessionFilter { HIDE, SHOW, ONLY }
+
+/** Keep the registry's manual order; recency is the only mode allowed to reorder rows. */
+internal fun orderedSessionRoots(rows: List<SessionRow>, byRecency: Boolean): List<SessionRow> =
+    if (byRecency) rows.sortedWith(compareByDescending<SessionRow> { it.updatedAt }.thenByDescending { it.sessionId })
+    else rows
+
+/**
+ * Depth-first workspace tree, siblings in registry order.
+ *
+ * A workspace's parent is its closest registered ancestor path, wherever it sits in the registry:
+ * rows arrive in manual order, so a child may well be listed before its parent. A collapsed parent
+ * hides its subtree, matching what the disclosure chevron states.
+ */
+internal fun workspaceTreeRows(
+    workspaces: List<WorkspaceRow>,
+    isExpanded: (String) -> Boolean = { true },
+): List<Pair<WorkspaceRow, Int>> {
+    fun normalized(path: String): String = path.replace('\\', '/').trimEnd('/')
+    val paths = workspaces.map { normalized(it.path) }
+    val parentByIndex = paths.indices.associateWith { index ->
+        val own = paths[index]
+        if (own.isEmpty()) return@associateWith null
+        paths.indices
+            .filter { candidate -> candidate != index && paths[candidate].isNotEmpty() && paths[candidate] != own }
+            .filter { candidate -> own.startsWith("${paths[candidate]}/") }
+            .maxByOrNull { candidate -> paths[candidate].length }
+    }
+    val children = paths.indices.groupBy { parentByIndex[it] }
+    val result = mutableListOf<Pair<WorkspaceRow, Int>>()
+    fun walk(parent: Int?, depth: Int) {
+        children[parent].orEmpty().forEach { index ->
+            val workspace = workspaces[index]
+            result += workspace to depth
+            if (isExpanded(workspace.workspaceId)) walk(index, depth + 1)
+        }
+    }
+    walk(null, 0)
+    return result
+}
+
 /** Anchor for moving one registry row by one position; null means append on the Host. */
 internal fun workspaceMoveAnchor(ids: List<String>, id: String, down: Boolean): String? {
     val index = ids.indexOf(id)
@@ -165,6 +213,8 @@ fun ChatListDrawer(
     val sessionSort by hostsStore.sessionSort.collectAsStateWithLifecycle(initialValue = SORT_MANUAL)
     val workspaceExpansion by hostsStore.workspaceExpansion.collectAsStateWithLifecycle(initialValue = emptyMap())
     val sortByRecency = sessionSort == SORT_UPDATED
+    var grouping by remember { mutableStateOf(SessionGrouping.WORKSPACE) }
+    var archivedFilter by remember { mutableStateOf(ArchivedSessionFilter.HIDE) }
     var newSessionOpen by remember { mutableStateOf(false) }
     var newWorkspaceOpen by remember { mutableStateOf(false) }
     val workspaceOverrides = remember { mutableStateMapOf<String, Boolean>() }
@@ -241,7 +291,7 @@ fun ChatListDrawer(
             out += row to depth
             val children = childrenByParent[row.sessionId].orEmpty()
             if (children.isEmpty() || !isChildExpanded(row.sessionId)) return
-            val ordered = if (sortByRecency) children.sortedByDescending(SessionRow::updatedAt) else children
+            val ordered = orderedSessionRoots(children, sortByRecency)
             ordered.forEach { walk(it, depth + 1) }
         }
         walk(root, 0)
@@ -303,10 +353,21 @@ fun ChatListDrawer(
                 onClick = { schedulesOpen = true },
                 tint = colors.labelTertiary,
             )
-            SortChip(sortByRecency) { next ->
-                scope.launch { hostsStore.setSessionSort(if (next) SORT_UPDATED else SORT_MANUAL) }
-            }
-            AddMenu(
+            ViewOptionsMenu(
+                grouping = grouping,
+                byRecency = sortByRecency,
+                archivedFilter = archivedFilter,
+                onGroupingPick = { grouping = it },
+                onSortPick = { next ->
+                    scope.launch { hostsStore.setSessionSort(if (next) SORT_UPDATED else SORT_MANUAL) }
+                },
+                onArchivedPick = {
+                    archivedFilter = it
+                    if (query.isNotBlank()) {
+                        query = ""
+                        searchOpen = false
+                    }
+                },
                 onNewSession = { newSessionOpen = true },
                 onNewWorkspace = { newWorkspaceOpen = true },
             )
@@ -365,7 +426,7 @@ fun ChatListDrawer(
             }
 
             var anyShown = false
-            if (pinnedRoots.isNotEmpty()) {
+            if (archivedFilter != ArchivedSessionFilter.ONLY && pinnedRoots.isNotEmpty()) {
                 anyShown = true
                 item(key = "pinned-header") { SectionHeader(stringResource(R.string.chatlist_pinned)) }
                 val pinnedRows = pinnedRoots.flatMap { subtree(it) }
@@ -380,26 +441,30 @@ fun ChatListDrawer(
                     )
                 }
             }
-            for (workspace in workspaces) {
-                val roots = workspace.sessionIds
-                    .mapNotNull { id -> listable.firstOrNull { it.sessionId == id } }
-                    .filterNot { it.sessionId in nestedIds || it.sessionId in pinnedSet }
-                    .let { if (sortByRecency) it.sortedByDescending(SessionRow::updatedAt) else it }
-                if (roots.isEmpty()) continue
+            val treeMode = grouping == SessionGrouping.WORKSPACE_TREE
+            val displayedWorkspaces = if (treeMode) {
+                workspaceTreeRows(workspaces, ::isExpanded)
+            } else workspaces.map { it to 0 }
+            fun rootsOf(workspace: WorkspaceRow) = workspace.sessionIds
+                .mapNotNull { id -> listable.firstOrNull { it.sessionId == id } }
+                .filterNot { it.sessionId in nestedIds || it.sessionId in pinnedSet }
+            for ((workspace, workspaceDepth) in displayedWorkspaces) {
+                if (grouping == SessionGrouping.FLAT || archivedFilter == ArchivedSessionFilter.ONLY) continue
+                val roots = rootsOf(workspace)
+                // Tree mode keeps empty parents visible so their disclosure can reveal descendants.
+                if (roots.isEmpty() && !treeMode) continue
                 anyShown = true
                 // Workspace expansion is persisted per workspace; session-child expansion remains
                 // a local UI choice and does not affect the workspace preference.
                 val isCollapsed = !isExpanded(workspace.workspaceId)
-                val orderedRoots = roots.sortedWith(
-                    compareByDescending<SessionRow> { it.updatedAt }
-                        .thenByDescending { it.sessionId },
-                )
+                val orderedRoots = orderedSessionRoots(roots, sortByRecency)
                 val page = (visiblePageByWorkspace[workspace.workspaceId] ?: 1).coerceAtLeast(1)
                 val pageRoots = orderedRoots.take(page * SESSION_PAGE_SIZE)
                 val hasMore = pageRoots.size < orderedRoots.size
                 item(key = "ws-${workspace.workspaceId}") {
                     WorkspaceHeader(
                         workspace = workspace,
+                        depth = workspaceDepth,
                         collapsed = isCollapsed,
                         // Sessions, not sessions-plus-their-subagents: a subagent count belongs on
                         // the row that spawned them, where it says something.
@@ -476,14 +541,13 @@ fun ChatListDrawer(
             // Sessions the harness never registered in a workspace, plus any subagent whose whole
             // ancestry is archived or blank — those have no row left to nest under.
             val ungrouped = listable.filter {
-                it.sessionId !in workspaceSessionIds && it.sessionId !in nestedIds && it.sessionId !in pinnedSet
+                (grouping == SessionGrouping.FLAT || it.sessionId !in workspaceSessionIds) &&
+                    it.sessionId !in nestedIds && it.sessionId !in pinnedSet
             }
-            if (ungrouped.isNotEmpty()) {
+            if (archivedFilter != ArchivedSessionFilter.ONLY && ungrouped.isNotEmpty()) {
                 anyShown = true
                 item(key = "sessions-header") { SectionHeader(stringResource(R.string.chatlist_sessions)) }
-                val flat = ungrouped
-                    .let { if (sortByRecency) it.sortedByDescending(SessionRow::updatedAt) else it }
-                    .flatMap { subtree(it) }
+                val flat = orderedSessionRoots(ungrouped, sortByRecency).flatMap { subtree(it) }
                 items(flat, key = { it.first.sessionId }) { (session, depth) ->
                     Box(Modifier.animateItem()) {
                         SessionRowItem(
@@ -503,10 +567,10 @@ fun ChatListDrawer(
                 }
             }
 
-            if (archivedSessions.isNotEmpty()) {
+            if (archivedFilter != ArchivedSessionFilter.HIDE && archivedSessions.isNotEmpty()) {
                 anyShown = true
                 item(key = "archived") {
-                    var archivedExpanded by remember { mutableStateOf(false) }
+                    var archivedExpanded by remember(archivedFilter) { mutableStateOf(true) }
                     DisclosureRow(
                         title = stringResource(R.string.chatlist_archived),
                         summary = archivedSessions.size.toString(),
@@ -592,58 +656,50 @@ fun ChatListDrawer(
 }
 
 @Composable
-private fun AddMenu(onNewSession: () -> Unit, onNewWorkspace: () -> Unit) {
+private fun ViewOptionsMenu(
+    grouping: SessionGrouping,
+    byRecency: Boolean,
+    archivedFilter: ArchivedSessionFilter,
+    onGroupingPick: (SessionGrouping) -> Unit,
+    onSortPick: (Boolean) -> Unit,
+    onArchivedPick: (ArchivedSessionFilter) -> Unit,
+    onNewSession: () -> Unit,
+    onNewWorkspace: () -> Unit,
+) {
     DsMenu(
         anchor = { onOpen ->
             DsIconButton(
-                icon = Icons.Filled.Add,
-                contentDescription = stringResource(R.string.chatlist_new_session),
+                icon = Icons.Filled.Tune,
+                contentDescription = stringResource(R.string.chatlist_view_options),
                 onClick = onOpen,
                 tint = DsTheme.colors.labelTertiary,
                 iconSize = 20.dp,
             )
         },
         items = listOf(
-            MenuItem(
-                text = stringResource(R.string.chatlist_new_session),
-                icon = Icons.Filled.ChatBubbleOutline,
-                onClick = onNewSession,
-            ),
-            MenuItem(
-                text = stringResource(R.string.chatlist_new_workspace),
-                icon = Icons.Filled.CreateNewFolder,
-                onClick = onNewWorkspace,
-            ),
-        ),
-    )
-}
-
-/**
- * The session-order control.
- *
- * It used to be a bare ⇅ icon whose only label was a content description, which told a sighted user
- * nothing: two arrows over a chat list could as easily mean sync, move, or reorder. Naming the
- * current order and offering the other one is the whole fix — and the strings for both modes were
- * already translated in all eleven locales, waiting for a control to use them.
- */
-@Composable
-private fun SortChip(byRecency: Boolean, onPick: (byRecency: Boolean) -> Unit) {
-    val colors = DsTheme.colors
-    val updated = stringResource(R.string.chatlist_sort_updated)
-    val manual = stringResource(R.string.chatlist_sort_manual)
-    DsMenu(
-        anchor = { onOpen ->
-            DsIconButton(
-                icon = Icons.Filled.SwapVert,
-                contentDescription = stringResource(R.string.chatlist_sort_title),
-                onClick = onOpen,
-                tint = colors.labelTertiary,
-                iconSize = 20.dp,
-            )
-        },
-        items = listOf(
-            MenuItem(text = manual, selected = !byRecency) { onPick(false) },
-            MenuItem(text = updated, selected = byRecency) { onPick(true) },
+            MenuItem(stringResource(R.string.chatlist_group_title), heading = true),
+            MenuItem(stringResource(R.string.chatlist_group_workspace), Icons.Filled.Folder,
+                selected = grouping == SessionGrouping.WORKSPACE) { onGroupingPick(SessionGrouping.WORKSPACE) },
+            MenuItem(stringResource(R.string.chatlist_group_tree), Icons.Filled.AccountTree,
+                selected = grouping == SessionGrouping.WORKSPACE_TREE) { onGroupingPick(SessionGrouping.WORKSPACE_TREE) },
+            MenuItem(stringResource(R.string.chatlist_group_flat), Icons.AutoMirrored.Filled.ViewList,
+                selected = grouping == SessionGrouping.FLAT) { onGroupingPick(SessionGrouping.FLAT) },
+            MenuItem(stringResource(R.string.chatlist_order_title), heading = true, dividerBefore = true),
+            MenuItem(stringResource(R.string.chatlist_sort_manual), Icons.Filled.SwapVert,
+                selected = !byRecency) { onSortPick(false) },
+            MenuItem(stringResource(R.string.chatlist_sort_updated), Icons.Filled.AccessTime,
+                selected = byRecency) { onSortPick(true) },
+            MenuItem(stringResource(R.string.chatlist_filter_title), heading = true, dividerBefore = true),
+            MenuItem(stringResource(R.string.chatlist_hide_archived), Icons.Filled.Archive,
+                selected = archivedFilter == ArchivedSessionFilter.HIDE) { onArchivedPick(ArchivedSessionFilter.HIDE) },
+            MenuItem(stringResource(R.string.chatlist_show_archived), Icons.Filled.Archive,
+                selected = archivedFilter == ArchivedSessionFilter.SHOW) { onArchivedPick(ArchivedSessionFilter.SHOW) },
+            MenuItem(stringResource(R.string.chatlist_only_archived), Icons.Filled.Archive,
+                selected = archivedFilter == ArchivedSessionFilter.ONLY) { onArchivedPick(ArchivedSessionFilter.ONLY) },
+            MenuItem(stringResource(R.string.chatlist_new_session), Icons.Filled.Add,
+                dividerBefore = true, onClick = onNewSession),
+            MenuItem(stringResource(R.string.chatlist_new_workspace), Icons.Filled.CreateNewFolder,
+                onClick = onNewWorkspace),
         ),
     )
 }
@@ -662,6 +718,7 @@ private fun SortChip(byRecency: Boolean, onPick: (byRecency: Boolean) -> Unit) {
 @Composable
 private fun WorkspaceHeader(
     workspace: WorkspaceRow,
+    depth: Int,
     collapsed: Boolean,
     sessionCount: Int,
     onToggle: () -> Unit,
@@ -689,7 +746,7 @@ private fun WorkspaceHeader(
                 .fillMaxWidth()
                 .clip(DsShapes.row)
                 .combinedClickable(onClick = onToggle, onLongClick = { menuOpen = true })
-                .padding(vertical = DsSpacing.xsmall),
+                .padding(start = (depth * 12).dp, top = DsSpacing.xsmall, bottom = DsSpacing.xsmall),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(

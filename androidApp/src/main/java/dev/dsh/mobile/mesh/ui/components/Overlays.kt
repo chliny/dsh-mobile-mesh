@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -198,7 +199,9 @@ data class MenuItem(
     val icon: ImageVector? = null,
     val selected: Boolean = false,
     val danger: Boolean = false,
-    val onClick: () -> Unit,
+    val heading: Boolean = false,
+    val dividerBefore: Boolean = false,
+    val onClick: () -> Unit = {},
 )
 
 /**
@@ -220,7 +223,15 @@ fun DsMenu(anchor: @Composable (onOpen: () -> Unit) -> Unit, items: List<MenuIte
             border = BorderStroke(1.dp, colors.borderL1),
         ) {
             items.forEach { item ->
-                DropdownMenuItem(
+                if (item.dividerBefore) HorizontalDivider(color = colors.borderL1)
+                if (item.heading) {
+                    Text(
+                        item.text,
+                        style = DsType.caption11,
+                        color = colors.labelTertiary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                } else DropdownMenuItem(
                     text = {
                         Text(
                             item.text,
