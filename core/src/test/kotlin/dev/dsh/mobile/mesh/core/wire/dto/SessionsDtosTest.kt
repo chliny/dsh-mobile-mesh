@@ -25,12 +25,19 @@ class SessionsDtosTest {
     fun `session list rows decode agent availability and projection provenance`() {
         val summary = decodeFromString<SessionSummary>(
             """{"agentAvailable":true,"sessionId":"s1","updatedAt":12,"running":false,"blank":true,
-                "projections":{"kind":"cached","asOfSeq":8,"values":{"sessionListMetadata":{"blank":true,"lastPromptAt":9}}}}""",
+                "projections":{"kind":"cached","asOfSeq":8,"values":{"sessionListMetadata":{"blank":true,"lastPromptAt":9},"subagentTiming":{"settledMs":4500,"active":{"since":10000,"through":12000},"lastTurnCompleted":false}}}}""",
         )
         assertTrue(summary.agentAvailable)
         assertEquals("cached", summary.projections!!.kind)
         assertEquals(8, summary.projections!!.asOfSeq)
         assertFalse(summary.projections!!.watermarkComparableToLive)
+        val timing = WireJson.decodeFromJsonElement(
+            SubagentTimingProjection.serializer(),
+            summary.projections!!.values.getValue("subagentTiming"),
+        )
+        assertEquals(4_500L, timing.settledMs)
+        assertEquals(10_000L, timing.active?.since)
+        assertEquals(12_000L, timing.active?.through)
 
         val cold = decodeFromString<SessionSummary>(
             """{"agentAvailable":false,"sessionId":"s2","updatedAt":4,"running":false,"blank":true,

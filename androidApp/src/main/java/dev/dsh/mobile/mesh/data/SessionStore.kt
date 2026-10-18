@@ -92,6 +92,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.SkillEntry
 import dev.dsh.mobile.mesh.core.wire.dto.SkillListRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentCatalogProjectionEntry
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentListEntry
+import dev.dsh.mobile.mesh.core.wire.dto.SubagentTimingProjection
 import dev.dsh.mobile.mesh.core.wire.dto.TokenUsageView
 import dev.dsh.mobile.mesh.core.wire.dto.USER_QUESTIONS_REQUEST_EVENT
 import dev.dsh.mobile.mesh.core.wire.dto.UnknownSubagentListEntry
@@ -172,6 +173,8 @@ data class SessionRow(
     val updatedAt: Long,
     val pendingInteraction: String?, // "approval" | "plan-review" | "question" | null
     val queuedCount: Int = 0,
+    /** Host-folded active-turn duration baseline for subagent catalog rows. */
+    val subagentTiming: SubagentTimingProjection? = null,
 )
 
 /** One renderable workspace row. */
@@ -1753,6 +1756,11 @@ class SessionStore @Inject constructor(
         onSessionAdded(item)
     }
 
+    private fun decodeSubagentTiming(item: SessionSummary): SubagentTimingProjection? =
+        item.projections?.values?.get("subagentTiming")?.let {
+            decodeOrNull(SubagentTimingProjection.serializer(), it)
+        }
+
     private fun onSessionAdded(item: SessionSummary) {
         synchronized(lock) {
             val existing = sessionRows[item.sessionId]
@@ -1765,6 +1773,7 @@ class SessionStore @Inject constructor(
                 cwd = item.cwd,
                 agentPreset = item.agentPreset,
                 agentAvailable = item.agentAvailable,
+                subagentTiming = decodeSubagentTiming(item) ?: existing?.subagentTiming,
             ) ?: SessionRow(
                 sessionId = item.sessionId,
                 title = title,
@@ -1777,6 +1786,7 @@ class SessionStore @Inject constructor(
                 agentAvailable = item.agentAvailable,
                 updatedAt = item.updatedAt,
                 pendingInteraction = null,
+                subagentTiming = decodeSubagentTiming(item),
             )
             if (existing == null) {
                 // New sessions appear at the front (most recent first).
@@ -1951,6 +1961,15 @@ class SessionStore @Inject constructor(
             if (key == "subagentCatalog" && connectionManager.supportsSubagentCatalogProjection) {
                 decodeSubagentCatalogProjection(value)?.let { entries ->
                     _subagents.value = entries.map { SubagentListEntry.Projected(it) }
+                }
+            }
+            if (key == "subagentTiming") {
+                val timing = decodeOrNull(SubagentTimingProjection.serializer(), value)
+                currentId?.let { sessionId ->
+                    sessionRows[sessionId]?.let { row ->
+                        sessionRows[sessionId] = row.copy(subagentTiming = timing)
+                        emitSessionsLocked()
+                    }
                 }
             }
         }
@@ -2135,6 +2154,7 @@ class SessionStore @Inject constructor(
                             agentPreset = item.agentPreset,
                             updatedAt = item.updatedAt,
                             pendingInteraction = null,
+                            subagentTiming = decodeSubagentTiming(item),
                         )
                     }
                     if (currentId != null) rebuildCurrentLocked()

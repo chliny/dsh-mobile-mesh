@@ -6,6 +6,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.JobStatus
 import dev.dsh.mobile.mesh.core.wire.dto.JobView
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentCatalogProjectionEntry
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentListEntry
+import dev.dsh.mobile.mesh.core.wire.dto.SubagentTimingProjection
 import dev.dsh.mobile.mesh.core.wire.dto.UnknownSubagentListEntry
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
@@ -44,6 +45,29 @@ class WorkCatalogNavigationTest {
         assertTrue(canOpenSubagentTranscript(SubagentListEntry.ChildContinuable("child-b", "inactive", false, label = "Helper")))
         assertTrue(canOpenSubagentTranscript(projected("one-shot")))
         assertTrue(canOpenSubagentTranscript(projected("continuable")))
+    }
+
+    @Test fun `job duration uses Host start and finish timestamps`() {
+        val job = job(JobStatus.COMPLETED).copy(startedAt = 1_000L, finishedAt = 8_500L)
+        assertEquals(7_500L, jobElapsedMs(job, nowMs = 99_000L))
+        assertEquals(10_000L, jobElapsedMs(job.copy(finishedAt = null), nowMs = 11_000L))
+        assertEquals(0L, jobElapsedMs(job.copy(startedAt = 12_000L, finishedAt = 8_500L), nowMs = 0L))
+    }
+
+    @Test fun `subagent duration uses Host folded intervals and local clock only while running`() {
+        val timing = SubagentTimingProjection(
+            settledMs = 5_000L,
+            active = SubagentTimingProjection.ActiveTurn(since = 10_000L, through = 14_000L),
+        )
+        assertEquals(9_000L, subagentElapsedMs(timing, running = false, nowMs = 99_000L))
+        assertEquals(12_000L, subagentElapsedMs(timing, running = true, nowMs = 17_000L))
+        assertEquals(5_000L, subagentElapsedMs(timing.copy(active = null), running = false, nowMs = 99_000L))
+    }
+
+    @Test fun `projected subagent activity comes from the matching Session summary`() {
+        assertTrue(subagentActivityRunning(projected("continuable"), sessionRunning = true))
+        assertFalse(subagentActivityRunning(projected("continuable"), sessionRunning = false))
+        assertTrue(subagentActivityRunning(SubagentListEntry.ChildOneShot("child-a", "active", false), sessionRunning = false))
     }
 
     @Test fun `background statuses use existing localized labels`() {

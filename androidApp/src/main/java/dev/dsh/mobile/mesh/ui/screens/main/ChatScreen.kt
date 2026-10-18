@@ -480,7 +480,10 @@ internal fun ChatScreen(
                     scope.launch { store.refreshAgentPresets() }
                     sheet = ChatSheet.Presets
                 },
-                onOpenSubagents = { sheet = ChatSheet.Subagents },
+                onOpenSubagents = {
+                    sheet = ChatSheet.Subagents
+                    scope.launch { store.refreshSessions() }
+                },
                 onOpenJobs = { sheet = ChatSheet.Jobs },
                 onOpenDetails = onOpenDetails,
                 onOpenFiles = onOpenFiles,
@@ -787,6 +790,7 @@ internal fun ChatScreen(
         )
         ChatSheet.Subagents -> SubagentsSheet(
             entries = subagents,
+            sessions = sessions,
             onOpenSubagent = { childId ->
                 onOpenSubagent(childId)
                 sheet = null
