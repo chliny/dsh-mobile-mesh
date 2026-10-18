@@ -50,6 +50,17 @@ class ChatNodeVisibilityTest {
     }
 
     @Test
+    fun `job lifecycle events do not flood transcript while unrelated events remain visible`() {
+        val nodes = listOf(
+            OtherNode(seq = 1, type = "job/registered", data = JsonNull),
+            OtherNode(seq = 2, type = "job/settled", data = JsonNull),
+            OtherNode(seq = 3, type = "job/new-event", data = JsonNull),
+            ToolCallNode(seq = 4, callId = "job-list", name = "job_list", arguments = "{}", turn = 1, step = 1),
+        )
+        assertEquals(listOf(3L, 4L), nodes.filter { it.rendersContent() }.map { it.seq })
+    }
+
+    @Test
     fun `an assistant message of nothing but tool references draws nothing`() {
         val node = AssistantMessageNode(
             seq = 7,
