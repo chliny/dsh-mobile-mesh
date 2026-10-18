@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -123,6 +124,9 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         // Unlike the saved semantic anchors, LazyListState is kept in memory while another
         // session is selected. Its holder stays above the page switch that removes MainScreen.
         val transcriptListStates = remember(activeHostKey) { TranscriptListStates() }
+        // Keep "load more" counts when a session opens and the list leaves composition. Folding
+        // a workspace resets its count; switching hosts starts a separate list.
+        val visiblePageByWorkspace = remember(activeHostKey) { mutableStateMapOf<String, Int>() }
         // Which transcript rows the reader has expanded is intent, not render state: opening a full
         // diff, a file preview or the terminal removes MainScreen entirely, and a row that reopened
         // collapsed would drop that intent on every visit.
@@ -275,6 +279,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 )
             }
             showSessionList -> ChatListDrawer(
+                visiblePageByWorkspace = visiblePageByWorkspace,
                 connectionPhase = connection.phase,
                 onClose = { showSessionList = false },
                 onOpenSettings = {
