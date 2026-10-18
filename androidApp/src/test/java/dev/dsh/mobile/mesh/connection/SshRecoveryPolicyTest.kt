@@ -16,10 +16,23 @@ class SshRecoveryPolicyTest {
     }
 
     @Test
-    fun `target port native connect has a short recovery budget and preserves initial budget`() {
-        assertEquals(30_000, zeroTierTargetConnectTimeoutMs(recovery = false))
+    fun `black holed target cannot hold a cold connection for thirty seconds`() {
+        assertEquals(15_000, zeroTierTargetConnectTimeoutMs(recovery = false))
+        assertEquals(20_000L, zeroTierReadinessTimeoutMs(reusedNode = false))
+        // Both staggered dials can finish before the outer wait expires.
+        assertTrue(zeroTierReadinessTimeoutMs(reusedNode = false) >
+            zeroTierTargetConnectTimeoutMs(recovery = false) + 1_200)
         assertEquals(5_000, zeroTierTargetConnectTimeoutMs(recovery = true))
         assertTrue(SSH_RECOVERY_HANDSHAKE_TIMEOUT_MS > zeroTierTargetConnectTimeoutMs(recovery = true))
+    }
+
+    @Test
+    fun `retained node after background suspension uses recovery budgets even with no active relay`() {
+        // MeshTransportManager.stop clears active, but ZeroTierConnector retains its native node.
+        assertEquals(8_000L, zeroTierReadinessTimeoutMs(reusedNode = true))
+        assertEquals(5_000, zeroTierTargetConnectTimeoutMs(recovery = true))
+        assertEquals(20_000L, zeroTierReadinessTimeoutMs(reusedNode = false))
+        assertEquals(15_000, zeroTierTargetConnectTimeoutMs(recovery = false))
     }
 
     @Test

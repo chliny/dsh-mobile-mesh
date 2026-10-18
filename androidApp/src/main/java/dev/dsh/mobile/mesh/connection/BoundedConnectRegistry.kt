@@ -47,8 +47,16 @@ internal class BoundedConnectRegistry<T>(private val closeResource: (T) -> Unit)
     }
 }
 
-internal const val ZERO_TIER_INITIAL_TARGET_CONNECT_TIMEOUT_MS = 30_000
+// Cold bootstrap gets time for node startup and one staggered second dial, but should not
+// pin the UI to a black-holed destination for the old 30-second native connect budget.
+internal const val ZERO_TIER_INITIAL_TARGET_CONNECT_TIMEOUT_MS = 15_000
 internal const val ZERO_TIER_RECOVERY_TARGET_CONNECT_TIMEOUT_MS = 5_000
+internal const val ZERO_TIER_INITIAL_READINESS_TIMEOUT_MS = 20_000L
+internal const val ZERO_TIER_REUSED_READINESS_TIMEOUT_MS = 8_000L
+
+/** A retained native node is a recovery even if the suspended manager has no active relay. */
+internal fun zeroTierReadinessTimeoutMs(reusedNode: Boolean): Long =
+    if (reusedNode) ZERO_TIER_REUSED_READINESS_TIMEOUT_MS else ZERO_TIER_INITIAL_READINESS_TIMEOUT_MS
 
 internal fun zeroTierTargetConnectTimeoutMs(recovery: Boolean): Int =
     if (recovery) ZERO_TIER_RECOVERY_TARGET_CONNECT_TIMEOUT_MS else ZERO_TIER_INITIAL_TARGET_CONNECT_TIMEOUT_MS
