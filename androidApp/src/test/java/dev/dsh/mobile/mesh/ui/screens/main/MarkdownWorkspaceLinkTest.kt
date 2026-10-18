@@ -31,6 +31,27 @@ class MarkdownWorkspaceLinkTest {
         assertEquals(emptyList<String>(), urls)
     }
 
+    @Test fun `line links dispatch the server-backed preview offset`() {
+        val opened = mutableListOf<Triple<String, String, Int>>()
+        val context = context { _, _ -> }.copy(onOpenFileAtLine = { path, title, line ->
+            opened += Triple(path, title, line)
+        })
+        listOf("src/Main.kt#L24", "src/Main.kt#L24-L30", "docs/notes.md#L1").forEach {
+            openMarkdownLink(context, it) {}
+        }
+        assertEquals(listOf(
+            Triple("src/Main.kt", "Main.kt", 24),
+            Triple("src/Main.kt", "Main.kt", 24),
+            Triple("docs/notes.md", "notes.md", 1),
+        ), opened)
+        assertNull(markdownFileLineTarget("src/Main.kt#L0"))
+        assertNull(markdownFileLineTarget("src/Main.kt#L30-L24"))
+        assertNull(markdownFileLineTarget("src/Main.kt#L2147483648"))
+        assertNull(markdownFileLineTarget("https://example.com/a#L24"))
+        assertEquals("docs/My Notes.md", markdownFileLineTarget("docs/My%20Notes.md#L7")?.path)
+        assertEquals("file#name?.txt", markdownFileLineTarget("file%23name%3F.txt#L2")?.path)
+    }
+
     @Test fun `web and other scheme links remain external`() {
         val opened = mutableListOf<Pair<String, String>>()
         val urls = mutableListOf<String>()

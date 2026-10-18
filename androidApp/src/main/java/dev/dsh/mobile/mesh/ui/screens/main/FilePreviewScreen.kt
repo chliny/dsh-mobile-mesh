@@ -66,8 +66,10 @@ internal fun resolveMarkdownFileTarget(markdownPath: String, target: String): St
     val link = markdownWorkspaceLinkPath(target) ?: return null
     if (link.startsWith("/") || link.matches(Regex("^[A-Za-z]:[/\\\\].*"))) return link
     val parent = markdownPath.substringBeforeLast('/', "")
-    return listOf(parent, link).filter { it.isNotBlank() }.joinToString("/")
+    return java.nio.file.Paths.get(parent, link).normalize().toString()
 }
+
+internal fun renderMarkdownPreview(path: String, line: Int?): Boolean = isMarkdownPath(path) && line == null
 
 internal fun isMarkdownPath(path: String): Boolean = when (path.substringAfterLast('.', "").lowercase()) {
     "md", "markdown", "mdown", "mkd", "rmd" -> true
@@ -76,10 +78,10 @@ internal fun isMarkdownPath(path: String): Boolean = when (path.substringAfterLa
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, title: String, onBack: () -> Unit, onOpenFile: (String, String) -> Unit) {
+fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, title: String, line: Int? = null, onBack: () -> Unit, onOpenFile: (String, String, Int?) -> Unit) {
     val store = rememberWorkspaceFilesStore()
     val state by store.state.collectAsStateWithLifecycle()
-    val previewListState = rememberLazyListState()
+    val previewListState = androidx.compose.runtime.key(path, line) { rememberLazyListState() }
     val context = LocalContext.current
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     val assets = context.applicationContext.assets
@@ -102,9 +104,9 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
     val textMate = loaded?.takeIf { it.first == highlightIdentity }?.second
     var refreshing by remember { mutableStateOf(false) }
     BackHandler(onBack = onBack)
-    LaunchedEffect(workspaceKey, sessionId, path) {
+    LaunchedEffect(workspaceKey, sessionId, path, line) {
         store.reset(workspaceKey)
-        store.readText(workspaceKey, sessionId, path)
+        store.readText(workspaceKey, sessionId, path, offset = line ?: 1)
     }
     LaunchedEffect(preview, workspaceKey, sessionId, path) {
         snapshotFlow {
@@ -135,7 +137,7 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
             isRefreshing = refreshing || preview is PreviewState.Loading,
             onRefresh = {
                 refreshing = true
-                store.readText(workspaceKey, sessionId, path)
+                store.readText(workspaceKey, sessionId, path, offset = line ?: 1)
                 refreshing = false
             },
             modifier = Modifier.fillMaxSize(),
@@ -146,7 +148,7 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
                     state = previewListState,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                 ) {
-                    if (isMarkdownPath(path)) {
+                    if (renderMarkdownPreview(path, line)) {
                         item {
                             MarkdownText(
                                 preview.value.text,
@@ -156,7 +158,7 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
                                 },
                                 onOpenLink = { target ->
                                     resolveMarkdownFileTarget(path, target)?.let { linkedPath ->
-                                        onOpenFile(linkedPath, linkedPath.substringAfterLast('/'))
+                                        onOpenFile(linkedPath, linkedPath.substringAfterLast('/'), markdownFileLineTarget(target)?.line)
                                     } ?: runCatching { uriHandler.openUri(target) }
                                 },
                             )

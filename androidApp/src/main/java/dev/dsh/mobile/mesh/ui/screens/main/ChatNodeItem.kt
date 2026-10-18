@@ -94,8 +94,15 @@ internal fun markdownWorkspaceLinkPath(target: String): String? {
     }
     // A Windows drive is a path; any other scheme belongs to the platform URI handler.
     if (link.matches(Regex("^[A-Za-z][A-Za-z0-9+.-]*:.*")) && !link.matches(Regex("^[A-Za-z]:[\\\\/].*"))) return null
-    val path = link.substringBefore('#').substringBefore('?')
-    return path.takeIf { it.isNotBlank() && it != "." }
+    val rawPath = link.substringBefore('#').substringBefore('?')
+    val path = runCatching {
+        java.net.URLDecoder.decode(rawPath.replace("+", "%2B"), java.nio.charset.StandardCharsets.UTF_8)
+    }.getOrNull()
+    return path?.takeIf {
+        it.isNotBlank() && it != "." && !it.startsWith("//") && !it.startsWith("\\\\") &&
+            it.none { char -> char.isISOControl() } &&
+            (!it.matches(Regex("^[A-Za-z][A-Za-z0-9+.-]*:.*")) || it.matches(Regex("^[A-Za-z]:[\\\\/].*")))
+    }
 }
 
 private fun markdownLinkHasExternalScheme(target: String): Boolean =
@@ -103,10 +110,26 @@ private fun markdownLinkHasExternalScheme(target: String): Boolean =
         (target.trim().matches(Regex("^[A-Za-z][A-Za-z0-9+.-]*:.*")) &&
             !target.trim().matches(Regex("^[A-Za-z]:[\\\\/].*")))
 
+internal data class FileLineTarget(val path: String, val line: Int?)
+
+/** Match the Web preview's 1-based #Lstart[-Lend] navigation without guessing a line from filenames. */
+internal fun markdownFileLineTarget(target: String): FileLineTarget? {
+    val fragment = target.substringAfter('#', missingDelimiterValue = "")
+    val match = Regex("L([1-9][0-9]*)(?:-L([1-9][0-9]*))?").matchEntire(fragment) ?: return null
+    val line = match.groupValues[1].toIntOrNull() ?: return null
+    val end = match.groupValues[2].takeIf(String::isNotEmpty)?.toIntOrNull() ?: line
+    if (end < line) return null
+    val path = markdownWorkspaceLinkPath(target) ?: return null
+    return FileLineTarget(path, line)
+}
+
 internal fun openMarkdownLink(context: ChatNodeContext, target: String, onOpenUri: (String) -> Unit) {
     val path = markdownWorkspaceLinkPath(target)
     if (path != null) {
-        context.onOpenFile?.invoke(path, basename(path))
+        if (target.substringAfter('#', "").startsWith('L') && markdownFileLineTarget(target) == null) return
+        val line = markdownFileLineTarget(target)?.line
+        if (line != null && context.onOpenFileAtLine != null) context.onOpenFileAtLine.invoke(path, basename(path), line)
+        else context.onOpenFile?.invoke(path, basename(path))
     } else if (!target.trim().startsWith('#') && markdownLinkHasExternalScheme(target)) {
         onOpenUri(target)
     }
@@ -131,6 +154,7 @@ internal data class ChatNodeContext(
     /** Host account home, used only to abbreviate a leftover home-rooted path as `~`. */
     val home: String? = null,
     val onOpenFile: ((String, String) -> Unit)? = null,
+    val onOpenFileAtLine: ((String, String, Int) -> Unit)? = null,
     val onOpenChangedDiff: ((Long, Int, String, String, Int, Int) -> Unit)? = null,
     val onOpenSubagent: (String) -> Unit,
     val onBranchFrom: (Long) -> Unit,

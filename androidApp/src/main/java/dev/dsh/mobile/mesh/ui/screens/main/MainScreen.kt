@@ -78,7 +78,7 @@ private sealed interface MainPage {
         val rootTitle: String? = null,
         val rootPath: String = ".",
     ) : MainPage
-    data class Preview(val path: String, val title: String, val returnPage: MainPage) : MainPage
+    data class Preview(val path: String, val title: String, val returnPage: MainPage, val line: Int? = null) : MainPage
     data class Diff(val seq: Long, val index: Int, val path: String, val title: String, val added: Int, val deleted: Int) : MainPage
 }
 
@@ -94,6 +94,7 @@ internal data class MainPageRoute(
     val index: Int = 0,
     val added: Int = 0,
     val deleted: Int = 0,
+    val line: Int? = null,
 ) : java.io.Serializable
 
 private fun MainPage.toRoute(): MainPageRoute = when (this) {
@@ -102,7 +103,7 @@ private fun MainPage.toRoute(): MainPageRoute = when (this) {
     is MainPage.Files -> MainPageRoute("files", path, rootTitle.orEmpty(), rootTitle = rootTitle, rootPath = rootPath)
     is MainPage.Preview -> {
         val files = returnPage as? MainPage.Files
-        MainPageRoute("preview", path, title, if (files == null) "chat" else "files", files?.path ?: ".", files?.rootTitle, files?.rootPath ?: ".")
+        MainPageRoute("preview", path, title, if (files == null) "chat" else "files", files?.path ?: ".", files?.rootTitle, files?.rootPath ?: ".", line = line)
     }
     is MainPage.Diff -> MainPageRoute("diff", path, title, seq = seq, index = index, added = added, deleted = deleted)
 }
@@ -119,6 +120,7 @@ private fun MainPageRoute.toPage(): MainPage = when (restoredKind()) {
         path,
         title,
         if (returnKind == "files") MainPage.Files(returnPath, rootTitle, rootPath) else MainPage.Chat,
+        line,
     )
     "diff" -> MainPage.Diff(seq, index, path, title, added, deleted)
     else -> MainPage.Chat
@@ -211,10 +213,11 @@ internal fun MainScreen(
                     sessionId = sid,
                     path = current.path,
                     title = current.title,
+                    line = current.line,
                     onBack = { navigate(current.returnPage) },
-                    onOpenFile = { linkedPath, linkedTitle ->
+                    onOpenFile = { linkedPath, linkedTitle, line ->
                         val safePath = safePreviewPath(linkedPath, sessions.firstOrNull { it.sessionId == sid }?.cwd)
-                        if (safePath != null) navigate(MainPage.Preview(safePath, linkedTitle, current))
+                        if (safePath != null) navigate(MainPage.Preview(safePath, linkedTitle, current, line))
                     },
                 )
                 is MainPage.Diff -> FullChangesDiffScreen(
@@ -323,6 +326,11 @@ internal fun MainScreen(
                 onOpenFile = { path, title ->
                     safePreviewPath(path, sessions.firstOrNull { it.sessionId == sessionId }?.cwd)?.let { safePath ->
                         navigate(MainPage.Preview(safePath, title, MainPage.Chat))
+                    }
+                },
+                onOpenFileAtLine = { path, title, line ->
+                    safePreviewPath(path, sessions.firstOrNull { it.sessionId == sessionId }?.cwd)?.let { safePath ->
+                        navigate(MainPage.Preview(safePath, title, MainPage.Chat, line))
                     }
                 },
                 onOpenChangedDiff = { seq, index, path, title, added, deleted ->
