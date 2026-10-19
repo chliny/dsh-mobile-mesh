@@ -49,12 +49,15 @@ sealed interface HostProbe {
     /** The probe is in flight. */
     data object Probing : HostProbe
 
-    /** It answered `host.describe`; [description] is what it said. */
-    data class Reachable(val description: HostDescription) : HostProbe
+    /** The protocol answered; the optional home subtitle may not have been requested. */
+    data class Reachable(val description: HostDescription?) : HostProbe
 
     /** No answer — switched off, asleep, or on another network. */
     data object Unreachable : HostProbe
 }
+
+internal fun hostProbeFromOutcome(outcome: ProbeOutcome?): HostProbe =
+    if (outcome is ProbeOutcome.Reachable) HostProbe.Reachable(outcome.description) else HostProbe.Unreachable
 
 /** How far the subnet sweep has got, so the UI can show more than a spinner. */
 data class ScanProgress(val probed: Int, val total: Int)
@@ -342,20 +345,14 @@ class ConnectViewModel @Inject constructor(
                         }
                         return@async
                     }
-                    val description = runCatching {
+                    val outcome = runCatching {
                         // A remembered host is named, not swept — worth waiting for.
-                        discoveryEngine.probe(host.host, host.port, ProbeTimeouts.Manual, config = host)
+                        discoveryEngine.probeOutcome(host.host, host.port, ProbeTimeouts.Manual, config = host)
                     }.getOrNull()
                     _state.update { current ->
-                        current.copy(
-                            recentStatus = current.recentStatus + (
-                                host.authority to (
-                                    description?.let { HostProbe.Reachable(it) } ?: HostProbe.Unreachable
-                                    )
-                                ),
-                        )
+                        current.copy(recentStatus = current.recentStatus + (host.authority to hostProbeFromOutcome(outcome)))
                     }
-                    if (description != null) {
+                    (outcome as? ProbeOutcome.Reachable)?.description?.let { description ->
                         hostsStore.cacheDescription(host.host, host.port, description)
                     }
                 }
@@ -407,8 +404,8 @@ class ConnectViewModel @Inject constructor(
                     connectTo(if (token == null) last else last.copy(launchToken = token))
                     return
                 }
-                val desc = discoveryEngine.probe(last.host, last.port, ProbeTimeouts.Manual, config = last)
-                if (desc != null) connectTo(last)
+                val outcome = discoveryEngine.probeOutcome(last.host, last.port, ProbeTimeouts.Manual, config = last)
+                if (outcome is ProbeOutcome.Reachable) connectTo(last)
                 return
             }
         }
@@ -430,14 +427,14 @@ class ConnectViewModel @Inject constructor(
         }
         // 3. Same-device loopback.
         if (settings.autoConnectLoopback) {
-            val desc = discoveryEngine.probe(LOOPBACK, DEFAULT_PORT)
-            if (desc != null) {
+            val outcome = discoveryEngine.probeOutcome(LOOPBACK, DEFAULT_PORT)
+            if (outcome is ProbeOutcome.Reachable) {
                 val config = hostsStore.rememberHost(
                     name = hostLabel(LOOPBACK),
                     host = LOOPBACK,
                     port = DEFAULT_PORT,
                     isLoopback = true,
-                    description = desc,
+                    description = outcome.description,
                     sshEnabled = false,
                 )
                 connectTo(config)

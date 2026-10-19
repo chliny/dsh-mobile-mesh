@@ -57,6 +57,13 @@ internal fun sameSubnet(target: String, localIps: List<String>): Boolean {
  * Worth knowing when reading a scan that finds nothing: the harness binds `127.0.0.1` by default
  * and refuses `--host 0.0.0.0` outright, so LAN serving is something its operator has to opt into.
  */
+/** Preserve the server's reachability verdict even when no home subtitle was requested. */
+internal fun discoveredHostFromOutcome(host: String, port: Int, outcome: ProbeOutcome): DiscoveredHost? = when (outcome) {
+    is ProbeOutcome.Reachable -> DiscoveredHost(host, port, outcome.description, trusted = true)
+    ProbeOutcome.TrustFence -> DiscoveredHost(host, port, description = null, trusted = false)
+    else -> null
+}
+
 @Singleton
 class DiscoveryEngine @Inject constructor(
     private val clientFactory: HarnessClientFactory,
@@ -84,24 +91,6 @@ class DiscoveryEngine @Inject constructor(
         val prefix = parts.take(3).joinToString(".")
         return (1..254).map { "$prefix.$it" }.filter { it != ip }
     }
-
-    /**
-     * Probe one authority; null when it is not a harness.
-     *
-     * [timeouts] defaults to the sweep budget, which is right for a candidate pulled out of a /24
-     * and wrong for a host someone named — pass [ProbeTimeouts.Manual] for those. (Until the
-     * transport learned to honour these, every probe silently used 30s, so a named host was
-     * accidentally patient and a sweep accidentally slow.)
-     */
-    suspend fun probe(
-        host: String,
-        port: Int,
-        timeouts: ProbeTimeouts = ProbeTimeouts.Sweep,
-        useTls: Boolean = false,
-        config: HostConfig? = null,
-    ): HostDescription? = (
-        probeOutcome(host, port, timeouts, useTls = useTls, config = config) as? ProbeOutcome.Reachable
-        )?.description
 
     /**
      * Probe one authority and keep the reason it failed.
@@ -260,11 +249,7 @@ class DiscoveryEngine @Inject constructor(
                 // is the most recoverable thing a sweep can turn up.
                 val outcome = runCatching { probeOutcome(ip, port) }
                     .getOrDefault(ProbeOutcome.Other("probe failed"))
-                val found = when (outcome) {
-                    is ProbeOutcome.Reachable -> DiscoveredHost(ip, port, outcome.description)
-                    ProbeOutcome.TrustFence -> DiscoveredHost(ip, port, description = null)
-                    else -> return@async
-                }
+                val found = discoveredHostFromOutcome(ip, port, outcome) ?: return@async
                 discovered.add(found)
                 onFound(found)
             }

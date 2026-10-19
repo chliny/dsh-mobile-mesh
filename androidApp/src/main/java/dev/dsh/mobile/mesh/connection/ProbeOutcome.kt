@@ -5,7 +5,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.HostDescription
 /**
  * What answered — or did not — at one `host:port`.
  *
- * [DiscoveryEngine.probe] used to return `HostDescription?`, which made a firewall, a loopback-only
+ * Discovery formerly returned `HostDescription?`, which made a firewall, a loopback-only
  * bind, a trust-fence rejection and a typo the same event. They need opposite instructions, so the
  * probe keeps the distinction and the connect screen spends it.
  */
