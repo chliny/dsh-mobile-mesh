@@ -21,8 +21,9 @@ class DsMenuContractTest {
         val source = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/ChatListDrawer.kt").readText()
 
         assertTrue(source.contains("anchor = { onOpen ->"))
-        assertTrue(source.contains("icon = Icons.Filled.Add,"))
-        assertTrue(source.contains("icon = Icons.Filled.SwapVert,"))
+        assertTrue(source.contains("icon = Icons.Filled.Tune,"))
         assertTrue(source.contains("onClick = onOpen,"))
+        assertTrue(source.contains("MenuItem(stringResource(R.string.chatlist_sort_manual), Icons.Filled.SwapVert,"))
+        assertTrue(source.contains("MenuItem(stringResource(R.string.chatlist_new_session), Icons.Filled.Add,"))
     }
 }

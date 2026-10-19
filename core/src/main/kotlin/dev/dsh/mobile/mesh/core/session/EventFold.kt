@@ -110,7 +110,9 @@ class EventFold(private val sessionId: String) {
                         if (node.interrupted) state.interruptedTurns.add(turn)
                     }
                 }
-                if (node is CompactionNode) {
+                // A projected checkpoint repeats the compaction ID but is a separate transcript
+                // marker, not the lifecycle row that later compaction events should update.
+                if (node is CompactionNode && node.kind != "checkpoint") {
                     compactionId(node.data)?.let { state.compactionNodeById[it] = index }
                 }
             }
