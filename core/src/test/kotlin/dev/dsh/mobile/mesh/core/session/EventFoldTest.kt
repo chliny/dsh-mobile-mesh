@@ -129,6 +129,25 @@ class EventFoldTest {
     }
 
     @Test
+    fun `incremental compaction end updates lifecycle without replacing checkpoint`() {
+        val start = event("compaction/start", 1, buildJsonObject { put("compactionId", "c1") })
+        val summary = event("compaction/summary", 2, buildJsonObject {
+            put("compactionId", "c1")
+            putJsonArray("summary") { add(buildJsonObject { put("type", "text"); put("text", "saved") }) }
+        })
+        val checkpoint = event("user/message", 3, buildJsonObject {
+            putJsonObject("source") { put("kind", "compact-checkpoint"); put("compactionId", "c1") }
+            putJsonArray("content") { add(buildJsonObject { put("type", "text"); put("text", "saved") }) }
+        })
+        val end = event("compaction/end", 4, buildJsonObject { put("compactionId", "c1") })
+        val initial = EventFold("s1").fold(listOf(start, summary, checkpoint))
+        val incremental = EventFold.Incremental(initial, "s1")
+        val updated = incremental.apply(end)!!
+        assertEquals(EventFold("s1").fold(listOf(start, summary, checkpoint, end)).nodes, updated.nodes)
+        assertEquals(1, updated.nodes.filterIsInstance<CompactionNode>().count { it.kind == "checkpoint" })
+    }
+
+    @Test
     fun `checkpoint projects one compaction marker and hides replacement user bubble`() {
         val events = listOf(
             event("compaction/start", 1, buildJsonObject { put("compactionId", "c1") }),
