@@ -106,9 +106,9 @@ data class ConnectionDraft(
  * Carries the whole probe answer rather than two fields of it: the sweep already paid for the round
  * trip, and the card wants the session count and the default model too.
  *
- * [description] is null when the harness was identified by its static manifest but its trust fence
- * refused `host.describe` from this address. That is a real find, not a miss — it is a harness with
- * a `--trusted-host` still to add — so it is listed and explained rather than dropped.
+ * [description] may be null even when the protocol probe succeeded, because the LAN sweep does
+ * not spend a second request for the home subtitle. [trusted] distinguishes that success from a
+ * trust-fence refusal; both are real finds, but only the former is immediately connectable.
  */
 data class DiscoveredHost(
     val host: String,
@@ -116,14 +116,13 @@ data class DiscoveredHost(
     val description: HostDescription?,
     /** True when the advertisement said the listener terminates TLS. */
     val useTls: Boolean = false,
+    /** Whether an `/api` call succeeded; the optional home description is independent. */
+    val trusted: Boolean = description != null,
 ) {
     val authority: String get() = "$host:$port"
 
     /** Origin to address this endpoint by. */
     val baseUrl: String get() = harnessBaseUrl(host, port, useTls)
-
-    /** Whether the harness accepted an `/api` call from this device. */
-    val trusted: Boolean get() = description != null
 }
 
 /** App-level persisted settings (DataStore). */

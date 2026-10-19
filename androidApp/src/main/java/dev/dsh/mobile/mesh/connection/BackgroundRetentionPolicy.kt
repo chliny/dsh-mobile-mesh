@@ -15,3 +15,32 @@ internal fun shouldSuspendAfterRetentionDisabled(
     alreadySuspended: Boolean,
 ): Boolean = !keepConnectedInBackground && !appInForeground && hasDesiredHost &&
     !activeFileTransfer && !alreadySuspended
+
+/** Stop requests must not outrun outstanding startForegroundService() acknowledgements. */
+internal class ForegroundServiceStartGate {
+    private var pendingStarts = 0
+    private var desiredRunning = false
+
+    @Synchronized fun requestStart() {
+        pendingStarts++
+        desiredRunning = true
+    }
+
+    /** Whether the manager may stop the service immediately. */
+    @Synchronized fun requestStop(): Boolean {
+        desiredRunning = false
+        return pendingStarts == 0
+    }
+
+    /** Whether the service should stop after calling startForeground() for this start. */
+    @Synchronized fun foregroundStarted(): Boolean {
+        if (pendingStarts > 0) pendingStarts--
+        return pendingStarts == 0 && !desiredRunning
+    }
+
+    /** Whether the manager should stop the service after a failed pending start. */
+    @Synchronized fun startFailed(): Boolean {
+        if (pendingStarts > 0) pendingStarts--
+        return pendingStarts == 0 && !desiredRunning
+    }
+}

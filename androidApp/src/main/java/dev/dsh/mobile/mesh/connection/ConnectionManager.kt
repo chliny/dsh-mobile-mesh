@@ -245,6 +245,7 @@ class ConnectionManager @Inject constructor(
     @Volatile private var appInForeground = false
     @Volatile private var backgroundedAtMs = 0L
     private val lifecycleTransitionLock = Any()
+    private val serviceStartGate = ForegroundServiceStartGate()
     @Volatile private var keepConnectedInBackground = false
     private val activeFileTransferLeases = AtomicInteger(0)
     @Volatile private var foregroundProbeJob: Job? = null
@@ -1793,11 +1794,22 @@ class ConnectionManager @Inject constructor(
 
     private fun startService() {
         val intent = Intent(context, ConnectionService::class.java)
-        ContextCompat.startForegroundService(context, intent)
+        serviceStartGate.requestStart()
+        try {
+            ContextCompat.startForegroundService(context, intent)
+        } catch (error: Throwable) {
+            if (serviceStartGate.startFailed()) context.stopService(intent)
+            throw error
+        }
     }
 
     private fun stopService() {
-        context.stopService(Intent(context, ConnectionService::class.java))
+        if (serviceStartGate.requestStop()) context.stopService(Intent(context, ConnectionService::class.java))
+    }
+
+    /** Called only after the service has satisfied Android's startForegroundService deadline. */
+    internal fun onForegroundServiceStarted() {
+        if (serviceStartGate.foregroundStarted()) context.stopService(Intent(context, ConnectionService::class.java))
     }
 
     private companion object {

@@ -28,6 +28,7 @@ class ConnectionService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification())
+        connectionManager.onForegroundServiceStarted()
         // The manager, not this pinning service, owns reconnect policy. A sticky restart can create
         // an unrequested dataSync FGS with no connection left to keep alive.
         return START_NOT_STICKY
