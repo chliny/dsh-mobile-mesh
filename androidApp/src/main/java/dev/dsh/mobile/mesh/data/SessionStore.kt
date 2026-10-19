@@ -2553,16 +2553,50 @@ class SessionStore @Inject constructor(
 
     /** Fetch a missing reading anchor from the authoritative session/page after follow opens. */
     suspend fun loadOlderForReadingPosition(sessionId: String) {
-        val ready = withTimeoutOrNull(10_000L) {
-            while (true) {
-                val (selected, cursor) = synchronized(lock) { currentId to followCursor }
-                if (selected != sessionId) return@withTimeoutOrNull false
-                if (cursor != null) break
-                delay(50)
-            }
-            true
-        } == true
-        if (ready && currentSessionId.value == sessionId && synchronized(lock) { currentHasMore }) loadOlder()
+        if (awaitFollowCursor(sessionId, 10_000L) == null) return
+        if (currentSessionId.value == sessionId && synchronized(lock) { currentHasMore }) loadOlder()
+    }
+
+    /**
+     * Wait for the follow opening that pins a backward page.
+     *
+     * Returns null when the selected session changed or the opening did not publish a cursor in
+     * time. A page can be pinned to exactly one opening, so there is nothing useful to send before
+     * this lands.
+     */
+    private suspend fun awaitFollowCursor(sessionId: String, timeoutMs: Long): Int? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (true) {
+            val (selected, cursor) = synchronized(lock) { currentId to followCursor }
+            if (selected != sessionId) return null
+            if (cursor != null) return cursor
+            if (System.currentTimeMillis() >= deadline) return null
+            delay(50)
+        }
+    }
+
+    /**
+     * Claim the current opening for one backward page.
+     *
+     * Returns null when there is nothing to pin a page to (no session, address, or opening cursor)
+     * or when another page already owns the loading slot. Sets the loading flag on success so the
+     * caller only has to release it.
+     */
+    private fun beginOlderPageLocked(): PageRequestContext? {
+        val sid = currentId ?: return null
+        val address = currentAddress ?: return null
+        val cursor = followCursor ?: return null
+        if (loadingOlderGeneration == historyPageGeneration) return null
+        val oldestSeq = currentEvents.firstOrNull()?.seq
+        val pageContext = PageRequestContext(
+            fence = HistoryPageFence(sid, historyPageGeneration, cursor, oldestSeq),
+            address = address,
+            oldestSeq = oldestSeq,
+            cursor = cursor,
+        )
+        loadingOlderGeneration = historyPageGeneration
+        _loadingOlder.value = true
+        return pageContext
     }
 
     /**
@@ -2571,25 +2605,31 @@ class SessionStore @Inject constructor(
      */
     suspend fun loadOlder() = withContext(Dispatchers.Default) {
         val api = apiOrNull() ?: return@withContext
-        val context = synchronized(lock) {
-            val sid = currentId ?: return@synchronized null
-            val address = currentAddress ?: return@synchronized null
-            val cursor = followCursor ?: return@synchronized null
-            if (loadingOlderGeneration == historyPageGeneration) return@synchronized null
-            val oldestSeq = currentEvents.firstOrNull()?.seq
-            val pageContext = PageRequestContext(
-                fence = HistoryPageFence(sid, historyPageGeneration, cursor, oldestSeq),
-                address = address,
-                oldestSeq = oldestSeq,
-                cursor = cursor,
-            )
-            loadingOlderGeneration = historyPageGeneration
-            _loadingOlder.value = true
-            pageContext
+        val requestedSession = synchronized(lock) { currentId } ?: return@withContext
+        var context = synchronized(lock) { beginOlderPageLocked() }
+        if (context == null) {
+            // Right after a switch the opening snapshot can still be in flight, so a deliberate
+            // pull would otherwise be dropped without any spinner or failure. Wait for the
+            // opening, then pin the page to it.
+            val waitForOpening = synchronized(lock) {
+                currentId == requestedSession && shouldWaitForFollowOpening(
+                    hasMore = currentHasMore,
+                    hasSession = currentId != null,
+                    hasAddress = currentAddress != null,
+                    hasCursor = followCursor != null,
+                    pageRequestInFlight = loadingOlderGeneration == historyPageGeneration,
+                )
+            }
+            if (!waitForOpening) return@withContext
+            log("session/page waiting ${FOLLOW_OPENING_WAIT_MS}ms for follow opening of $requestedSession")
+            awaitFollowCursor(requestedSession, FOLLOW_OPENING_WAIT_MS) ?: return@withContext
+            // The reader may have switched sessions while the opening was in flight; the pull
+            // belonged to the transcript it was made in.
+            context = synchronized(lock) {
+                if (currentId == requestedSession) beginOlderPageLocked() else null
+            }
         }
-        // A page is pinned to this exact follow opening and oldest loaded boundary. Before an
-        // opening snapshot lands there is nothing to pin to, so wait for another user request.
-        if (context == null) return@withContext
+        context ?: return@withContext
         try {
             val request = SessionPageRequest(
                 address = context.address,
