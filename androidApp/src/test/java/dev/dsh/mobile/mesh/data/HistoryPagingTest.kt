@@ -54,4 +54,65 @@ class HistoryPagingTest {
         assertFalse(shouldSchedulePageRebuild(pageSessionId = "session-1", currentSessionId = "session-2"))
         assertFalse(shouldSchedulePageRebuild(pageSessionId = null, currentSessionId = "session-1"))
     }
+
+    @Test
+    fun `a pull made before the opening snapshot waits for its cursor instead of doing nothing`() {
+        // Right after a switch the cached transcript can already show `hasMore` while the follow
+        // opening has not published the cursor a page is pinned to. That window is recoverable.
+        assertTrue(
+            shouldWaitForFollowOpening(
+                hasMore = true,
+                hasSession = true,
+                hasAddress = true,
+                hasCursor = false,
+                pageRequestInFlight = false,
+            ),
+        )
+        assertFalse(
+            shouldWaitForFollowOpening(
+                hasMore = true,
+                hasSession = true,
+                hasAddress = true,
+                hasCursor = true,
+                pageRequestInFlight = false,
+            ),
+        )
+        // Do not wait when there is nothing to page, or when a page already owns the slot.
+        assertFalse(
+            shouldWaitForFollowOpening(
+                hasMore = false,
+                hasSession = true,
+                hasAddress = true,
+                hasCursor = false,
+                pageRequestInFlight = false,
+            ),
+        )
+        assertFalse(
+            shouldWaitForFollowOpening(
+                hasMore = true,
+                hasSession = true,
+                hasAddress = true,
+                hasCursor = false,
+                pageRequestInFlight = true,
+            ),
+        )
+        assertFalse(
+            shouldWaitForFollowOpening(
+                hasMore = true,
+                hasSession = false,
+                hasAddress = true,
+                hasCursor = false,
+                pageRequestInFlight = false,
+            ),
+        )
+        assertFalse(
+            shouldWaitForFollowOpening(
+                hasMore = true,
+                hasSession = true,
+                hasAddress = false,
+                hasCursor = false,
+                pageRequestInFlight = false,
+            ),
+        )
+    }
 }

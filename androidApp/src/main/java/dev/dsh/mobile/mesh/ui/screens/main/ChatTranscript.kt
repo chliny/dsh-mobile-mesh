@@ -34,6 +34,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -319,14 +320,51 @@ private inline fun transcriptPositionLog(message: () -> String) {
     if (BuildConfig.DEBUG) Log.d(TRANSCRIPT_POSITION_TAG, message())
 }
 
-/** One completed, deliberate pull toward history requests a page. */
-internal fun shouldLoadOlderAfterPull(
-    startedAtTop: Boolean,
-    firstVisible: Int,
+/**
+ * Distance a drag has pulled toward older history *while the transcript is already at the top*.
+ *
+ * Scrolling that merely brings the transcript back to the top is navigation, so only travel made
+ * once the top is reached counts. Recomputing this on every move, instead of snapshotting "was at
+ * the top" on pointer-down, keeps a drag that reaches the top and keeps pulling working and does
+ * not lose the pull to a layout pass in between.
+ */
+internal fun nextTopPullDistance(previous: Float, deltaY: Float, atTop: Boolean): Float =
+    if (atTop) (previous + deltaY).coerceAtLeast(0f) else 0f
+
+/** One completed, deliberate pull spent at the top of a transcript with history left to fetch. */
+internal fun topPullRequestsOlderPage(
     pullDistancePx: Float,
     thresholdPx: Float,
+    firstVisible: Int,
     canPage: Boolean,
-): Boolean = startedAtTop && canPage && firstVisible <= LOAD_OLDER_THRESHOLD && pullDistancePx >= thresholdPx
+): Boolean = canPage && firstVisible <= LOAD_OLDER_THRESHOLD && pullDistancePx >= thresholdPx
+
+/**
+ * Whether a reader-driven pull may request a page.
+ *
+ * [OlderPageGate.failed] is deliberately not a blocker: the paging row already reports the failure,
+ * and the pull is itself the retry. Requiring a button tap after one failed page made the gesture
+ * look broken.
+ */
+internal data class OlderPageGate(
+    val hasMore: Boolean,
+    val loading: Boolean,
+    val loadingOlder: Boolean,
+    val failed: Boolean,
+) {
+    val allowsPull: Boolean get() = hasMore && !loading && !loadingOlder
+}
+
+/**
+ * Key material for the pull detector.
+ *
+ * The transcript rows and the paging flags are deliberately absent: a streamed row or a page
+ * settling mid-drag would change the key, cancel the `pointerInput` coroutine, and drop the gesture
+ * in flight — the exact bug this detector must not reintroduce. Latest values are read through
+ * [rememberUpdatedState] instead.
+ */
+internal fun transcriptPullDetectorKeys(sessionId: String?, pullThresholdPx: Float): List<Any?> =
+    listOf(sessionId, pullThresholdPx)
 
 /**
  * The conversation itself.
@@ -725,7 +763,12 @@ internal fun ChatTranscript(
 
     // A single, deliberate pull at the top requests older history. Do not infer a gesture from
     // the list index: layout shifts and flings can also move it to the top.
-    val canPage = hasMore && !loading && !loadingOlder && !loadOlderFailed
+    val canPage = OlderPageGate(
+        hasMore = hasMore,
+        loading = loading,
+        loadingOlder = loadingOlder,
+        failed = loadOlderFailed,
+    ).allowsPull
     val pullThresholdPx = with(LocalDensity.current) { TOP_PULL_DISTANCE.toPx() }
     val requestOlderPage = {
         val visible = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index > 0 }
@@ -737,6 +780,10 @@ internal fun ChatTranscript(
         }
         onLoadOlder()
     }
+    // Read through updated state so the gesture detector below can keep its single instance while
+    // the transcript streams and the paging flags change underneath it.
+    val canPageState = rememberUpdatedState(canPage)
+    val requestOlderPageState = rememberUpdatedState(requestOlderPage)
 
     if (loading) {
         TranscriptSkeleton(modifier)
@@ -747,22 +794,44 @@ internal fun ChatTranscript(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(sessionId, canPage, pullThresholdPx, rows) {
+                // Only the session and the pull threshold are keys. Keying on the row list or on
+                // `canPage` restarted this detector whenever a live turn streamed another row or a
+                // page finished: the drag in flight was cancelled, its distance lost, and the pull
+                // did nothing until the reader tapped the paging button. Latest values are read
+                // from snapshot state instead, so recomposition cannot kill a pull.
+                .pointerInput(*transcriptPullDetectorKeys(sessionId, pullThresholdPx).toTypedArray()) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                        // The swipe that merely reaches the top is not the separate pull to load.
-                        val startedAtTop = !listState.canScrollBackward
                         var pullDistance = 0f
-                        do {
+                        var released = false
+                        while (true) {
                             val change = awaitPointerEvent(PointerEventPass.Initial).changes
                                 .firstOrNull { it.id == down.id } ?: break
-                            pullDistance = (pullDistance + change.positionChange().y).coerceAtLeast(0f)
-                        } while (change.pressed)
-                        if (shouldLoadOlderAfterPull(
-                                startedAtTop, listState.firstVisibleItemIndex, pullDistance, pullThresholdPx, canPage,
-                            )) {
-                            requestOlderPage()
+                            pullDistance = nextTopPullDistance(
+                                previous = pullDistance,
+                                deltaY = change.positionChange().y,
+                                atTop = !listState.canScrollBackward,
+                            )
+                            if (!change.pressed) {
+                                released = true
+                                break
+                            }
                         }
+                        // A cancelled pointer never lifted: it must not page.
+                        if (!released) return@awaitEachGesture
+                        val canPageNow = canPageState.value
+                        val shouldPage = topPullRequestsOlderPage(
+                            pullDistancePx = pullDistance,
+                            thresholdPx = pullThresholdPx,
+                            firstVisible = listState.firstVisibleItemIndex,
+                            canPage = canPageNow,
+                        )
+                        transcriptPositionLog {
+                            "pull session=${transcriptSessionLogId(sessionId)} distance=$pullDistance " +
+                                "threshold=$pullThresholdPx first=${listState.firstVisibleItemIndex} " +
+                                "canPage=$canPageNow request=$shouldPage"
+                        }
+                        if (shouldPage) requestOlderPageState.value()
                     }
                 },
         ) {
@@ -829,13 +898,12 @@ internal fun ChatTranscript(
 /**
  * Head of the transcript while more history exists.
  *
- * The row is silent during normal automatic paging. Once the reader explicitly reaches the top
- * again, the same pull gesture requests another page without requiring a button tap. It speaks up
- * while fetching, and offers a retry when a page failed.
+ * The row is quiet during normal paging, but a deliberate pull at the top requests the next page
+ * without requiring a button tap. It speaks up while fetching and offers a retry when a page
+ * failed.
  *
- * [offerManual] is the third case: automatic paging has spent its budget on a session whose events
- * are mostly not messages, so the list may still be too short to scroll. Without a button there
- * would be nothing left to trigger a page, and the rest of the history would be unreachable.
+ * [offerManual] keeps the button available: a session whose events are mostly not messages can stay
+ * too short to scroll, and without a button there would be nothing left to trigger a page.
  */
 @Composable
 private fun LoadOlderRow(
@@ -846,22 +914,8 @@ private fun LoadOlderRow(
 ) {
     val colors = DsTheme.colors
     when {
-        failed -> DsButton(
-            text = stringResource(R.string.chat_load_older_retry),
-            onClick = onRetry,
-            variant = DsButtonVariant.Ghost,
-            size = DsButtonSize.Small,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        offerManual && !loading -> DsButton(
-            text = stringResource(R.string.chat_load_older),
-            onClick = onRetry,
-            variant = DsButtonVariant.Ghost,
-            size = DsButtonSize.Small,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
+        // A pull can retry a failed page, so activity wins over the retry button while the next
+        // page is in flight instead of leaving the failure on screen until it settles.
         loading -> Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.Center,
@@ -879,6 +933,22 @@ private fun LoadOlderRow(
                 color = colors.labelTertiary,
             )
         }
+
+        failed -> DsButton(
+            text = stringResource(R.string.chat_load_older_retry),
+            onClick = onRetry,
+            variant = DsButtonVariant.Ghost,
+            size = DsButtonSize.Small,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        offerManual -> DsButton(
+            text = stringResource(R.string.chat_load_older),
+            onClick = onRetry,
+            variant = DsButtonVariant.Ghost,
+            size = DsButtonSize.Small,
+            modifier = Modifier.fillMaxWidth(),
+        )
 
         else -> Spacer(Modifier.height(1.dp))
     }
