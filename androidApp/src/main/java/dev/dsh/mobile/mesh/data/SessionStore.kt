@@ -698,7 +698,7 @@ class SessionStore @Inject constructor(
     private val currentProjections = HashMap<String, ProjectionValue>()
     private var currentQueue = emptyList<QueueItem>()
     private val queueBySession = mutableMapOf<String, List<QueueItem>>()
-    private val inboxProjectionSeqBySession = mutableMapOf<String, Int>()
+    private val inboxProjectionWatermarks = InboxProjectionWatermarks()
 
     /**
      * Recently rendered conversations, kept by session id so a slow follow snapshot never blanks the
@@ -900,6 +900,7 @@ class SessionStore @Inject constructor(
             currentProjections.clear()
             currentQueue = emptyList()
             queueBySession.clear()
+            inboxProjectionWatermarks.reset()
             pendingQueueSubmissionBySession.clear()
             followCursor = null
             _sessions.value = emptyList()
@@ -931,6 +932,9 @@ class SessionStore @Inject constructor(
                 val hostId = sessionBaselineHostId(connectionManager.state.value.host?.id, connectionHostId)
                 if (hostId != null && sessionListBaselineHostId != hostId) connectionHostId = hostId
                 if (shouldCancelStaleSessionWork(generation.clientId, _sessionsCurrentGenerationId.value)) {
+                    // A replacement generation can describe a restored journal with lower seqs.
+                    // Its authoritative inbox baseline must not inherit the old carrier's watermark.
+                    synchronized(lock) { inboxProjectionWatermarks.reset() }
                     // The previous carrier may leave a unary request suspended indefinitely. Do not
                     // let that worker own the next generation's baseline or session-switch queue.
                     baselineWorkerJob?.cancel()
@@ -1374,9 +1378,7 @@ class SessionStore @Inject constructor(
                 )
             }
         synchronized(lock) {
-            val previousSeq = inboxProjectionSeqBySession[sessionId]
-            if (!shouldApplyInboxProjection(previousSeq, seq)) return
-            if (seq != null && (previousSeq == null || seq > previousSeq)) inboxProjectionSeqBySession[sessionId] = seq
+            if (!inboxProjectionWatermarks.accept(sessionId, seq)) return
             queueBySession[sessionId] = nextQueue
             reconcileQueuedPromptsLocked(sessionId, nextQueue)
             pendingQueueSubmissionBySession.remove(sessionId)

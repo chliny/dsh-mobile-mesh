@@ -24,7 +24,7 @@ internal class TerminalInventory(
         data object Unloaded : State
         data class Ready(val generation: Any?) : State
         data class Failed(val failure: Throwable, val generation: Any?) : State
-        class Loading(val deferred: CompletableDeferred<List<WebTerminalInfo>>) : State {
+        class Loading(val deferred: CompletableDeferred<List<WebTerminalInfo>>, val generation: Any?) : State {
             /** Confirmed mutations received while the list request is in flight. */
             val updates = mutableMapOf<String, WebTerminalInfo?>()
         }
@@ -34,7 +34,11 @@ internal class TerminalInventory(
     private sealed interface Acquired {
         data class Answer(val items: List<WebTerminalInfo>) : Acquired
         data class Refused(val failure: Throwable) : Acquired
-        data class Loading(val deferred: CompletableDeferred<List<WebTerminalInfo>>, val ownsRequest: Boolean) : Acquired
+        data class Loading(
+            val deferred: CompletableDeferred<List<WebTerminalInfo>>,
+            val generation: Any?,
+            val ownsRequest: Boolean,
+        ) : Acquired
     }
 
     private val lock = Any()
@@ -55,7 +59,7 @@ internal class TerminalInventory(
             is Acquired.Answer -> acquired.items
             is Acquired.Refused -> throw acquired.failure
             is Acquired.Loading -> {
-                if (acquired.ownsRequest) settle(acquired.deferred)
+                if (acquired.ownsRequest) settle(acquired.deferred, acquired.generation)
                 acquired.deferred.await()
             }
         }
@@ -69,20 +73,22 @@ internal class TerminalInventory(
     private fun acquire(refresh: Boolean): Acquired = synchronized(lock) {
         val generation = currentGeneration()
         when (val current = state) {
-            is State.Loading -> if (refresh) renew() else Acquired.Loading(current.deferred, ownsRequest = false)
+            is State.Loading ->
+                if (refresh || current.generation !== generation) renew(generation)
+                else Acquired.Loading(current.deferred, generation, ownsRequest = false)
             is State.Ready ->
-                if (!refresh && current.generation === generation) Acquired.Answer(items) else renew()
+                if (!refresh && current.generation === generation) Acquired.Answer(items) else renew(generation)
             is State.Failed ->
-                if (!refresh && current.generation === generation) Acquired.Refused(current.failure) else renew()
-            State.Unloaded -> renew()
+                if (!refresh && current.generation === generation) Acquired.Refused(current.failure) else renew(generation)
+            State.Unloaded -> renew(generation)
         }
     }
 
     /** Start a list request, replacing whatever settled state preceded it. */
-    private fun renew(): Acquired.Loading {
+    private fun renew(generation: Any?): Acquired.Loading {
         val deferred = CompletableDeferred<List<WebTerminalInfo>>()
-        state = State.Loading(deferred)
-        return Acquired.Loading(deferred, ownsRequest = true)
+        state = State.Loading(deferred, generation)
+        return Acquired.Loading(deferred, generation, ownsRequest = true)
     }
 
     private fun mutate(id: String, info: WebTerminalInfo?) {
@@ -92,8 +98,7 @@ internal class TerminalInventory(
         }
     }
 
-    private suspend fun settle(deferred: CompletableDeferred<List<WebTerminalInfo>>) {
-        val generation = currentGeneration()
+    private suspend fun settle(deferred: CompletableDeferred<List<WebTerminalInfo>>, generation: Any?) {
         val outcome = try {
             when (val result = load()) {
                 is RpcResult.Ok -> Result.success(result.value)
@@ -111,7 +116,9 @@ internal class TerminalInventory(
         var refusal: Throwable? = null
         val published = synchronized(lock) {
             val loading = state as? State.Loading
-            if (loading?.deferred !== deferred) return@synchronized false
+            // An old RPC may finish after handover even when no new read replaced its Loading
+            // state. Never publish those rows under the new Host's connection.
+            if (loading == null || loading.deferred !== deferred || loading.generation !== currentGeneration()) return@synchronized false
             outcome.fold(
                 onSuccess = { loaded ->
                     // Answer with the same rows the cache published, including mutations that

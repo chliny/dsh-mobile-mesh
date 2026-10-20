@@ -46,6 +46,15 @@ class UserQuestionSelectionTest {
         assertEquals(second, visibleQuestion(claims, null, "second"))
     }
 
+    @Test fun `foreground timed question outranks older continued question`() {
+        val foreground = PendingQuestions("session", "event-f", emptyList(), "call-f", foreground = true)
+        val view = UserQuestionsProjectionView(active = listOf(
+            PendingUserQuestion("call-c", emptyList(), "continued"),
+        ))
+        assertEquals(foreground, visibleQuestion(mapOf("session" to foreground), view, "session"))
+        assertEquals(QuestionRoute.Foreground, questionRoute(visibleQuestion(mapOf("session" to foreground), view, "session"), view))
+    }
+
     @Test fun `projection cannot duplicate foreground call`() {
         val view = UserQuestionsProjectionView(active = listOf(
             PendingUserQuestion("foreground", emptyList(), "continued"),

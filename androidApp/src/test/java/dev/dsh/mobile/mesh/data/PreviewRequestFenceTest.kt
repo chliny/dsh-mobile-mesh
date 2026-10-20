@@ -8,7 +8,7 @@ import org.junit.Test
 class PreviewRequestFenceTest {
     @Test
     fun `late preview result and completion cannot overwrite a newer request`() {
-        val fence = PreviewRequestFence()
+        val fence = RequestGenerationFence()
         val first = fence.next()
         val second = fence.next()
         var visible = "loading second"
@@ -21,7 +21,7 @@ class PreviewRequestFenceTest {
 
     @Test
     fun `reset invalidates in-flight preview even when workspace key is reused`() {
-        val fence = PreviewRequestFence()
+        val fence = RequestGenerationFence()
         val pending = fence.next()
         fence.next()
         var changed = false

@@ -42,9 +42,12 @@ import dev.dsh.mobile.mesh.ui.rememberTerminalInventoryStore
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
@@ -54,6 +57,21 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+
+/** A host's terminal environment is only valid for the connection that answered it. */
+internal fun sameTerminalGeneration(requested: Any?, current: Any?): Boolean = requested === current
+
+/** Subscribe before the initial RPC: connectedGenerations is non-replaying. */
+internal suspend fun <T> observeTerminalGenerations(
+    generations: Flow<T>,
+    initial: suspend () -> Unit,
+    refresh: suspend () -> Unit,
+) = coroutineScope {
+    launch(start = CoroutineStart.UNDISPATCHED) {
+        generations.collectLatest { refresh() }
+    }
+    initial()
+}
 
 /** The first successful list or explicit request claims the initial PTY slot, exactly once. */
 internal class InitialTerminalCreation {
@@ -152,8 +170,11 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
     }
     LaunchedEffect(sessionId) {
         suspend fun updateFromHost(refreshRemote: Boolean) {
+            val requestedGeneration = manager.generation
             modernAttachment = null
-            when (val env = manager.connectedApi?.terminalEnvironment(sessionId)) {
+            val environment = manager.connectedApi?.terminalEnvironment(sessionId)
+            if (!sameTerminalGeneration(requestedGeneration, manager.generation)) return
+            when (val env = environment) {
                 is RpcResult.Ok -> {
                     maxDimensions = env.value.maxCols to env.value.maxRows
                     maxInputBytes = env.value.maxInputBytes
@@ -163,10 +184,13 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
             }
             refresh(refreshRemote)
         }
-        // The first read may answer from the shared Session cache; a new connection generation
-        // replaces it with the Host's current list once per generation.
-        updateFromHost(refreshRemote = false)
-        manager.connectedGenerations.collect { updateFromHost(refreshRemote = true) }
+        // The first RPC may suspend indefinitely. Subscribe to non-replaying generation events
+        // first, so a reconnect can refresh the screen without waiting for the old Host.
+        observeTerminalGenerations(
+            manager.connectedGenerations,
+            initial = { updateFromHost(refreshRemote = false) },
+            refresh = { updateFromHost(refreshRemote = true) },
+        )
     }
     LaunchedEffect(selected, webReady, screen, manager.generation, modernAttachment) {
         val id = selected ?: return@LaunchedEffect
