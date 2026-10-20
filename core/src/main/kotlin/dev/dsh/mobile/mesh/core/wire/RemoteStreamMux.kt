@@ -5,6 +5,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.RemoteStreamClientMessage
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteStreamClientMessageSerializer
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteStreamServerMessage
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteStreamServerMessageSerializer
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -384,8 +385,21 @@ class RemoteStreamMux(
 
     private fun send(message: RemoteStreamClientMessage): Boolean {
         val text = WireJson.encodeToString(RemoteStreamClientMessageSerializer, message)
-        val sent = channel?.send(text) ?: false
-        if (sent) outboundMessages.increment()
+        val sent = try {
+            channel?.send(text) ?: false
+        } catch (failure: Throwable) {
+            failAll(failure)
+            close()
+            return false
+        }
+        if (sent) {
+            outboundMessages.increment()
+        } else {
+            // OkHttp can reject an outgoing frame before it delivers onClosed (notably when its
+            // send queue is full). Waiting for that callback would strand every other subscriber.
+            failAll(IOException("remote stream carrier rejected outgoing frame"))
+            close()
+        }
         return sent
     }
 

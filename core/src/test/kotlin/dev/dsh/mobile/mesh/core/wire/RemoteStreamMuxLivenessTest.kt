@@ -22,10 +22,11 @@ class RemoteStreamMuxLivenessTest {
         WsChannel("http://stub/api/remote.mux", OkHttpClient(), sink) {
         val sent = CopyOnWriteArrayList<String>()
         var closedCount = 0
+        @Volatile var sendSucceeds = true
         override fun start() = sink.onOpen()
         override fun send(text: String): Boolean {
             sent += text
-            return true
+            return sendSucceeds
         }
         override fun close() { closedCount++ }
         fun emitClosed(cause: Throwable?) = sink.onClosed(cause)
@@ -55,6 +56,32 @@ class RemoteStreamMuxLivenessTest {
         assertTrue(mux.awaitClosed() is MuxClosedException)
         mux.close()
         assertEquals(1, channel.closedCount)
+    }
+
+    @Test
+    fun `rejected send closes carrier and fails existing logical streams`() = runBlocking {
+        for (operation in listOf("open", "item", "end")) {
+            lateinit var channel: FakeChannel
+            val mux = RemoteStreamMux { sink -> FakeChannel(sink).also { channel = it } }
+            mux.start()
+            mux.awaitOpen()
+            val events = mux.open("\$events")
+            val uplink = if (operation == "open") null else mux.open("session/control")
+            channel.sendSucceeds = false
+            val error = runCatching {
+                when (operation) {
+                    "open" -> mux.open("session/follow")
+                    "item" -> uplink!!.send(JsonPrimitive("payload"))
+                    else -> uplink!!.endUplink()
+                }
+            }.exceptionOrNull()
+            assertTrue("$operation did not report carrier failure", error is RemoteStreamException && error.carrier)
+            assertTrue("$operation left mux open", mux.isClosed)
+            assertEquals(1, channel.closedCount)
+            val prior = withTimeout(1_000) { receiveFailure(events) } as RemoteStreamException
+            assertTrue(prior.carrier)
+            assertTrue(mux.awaitClosed() != null)
+        }
     }
 
     @Test
