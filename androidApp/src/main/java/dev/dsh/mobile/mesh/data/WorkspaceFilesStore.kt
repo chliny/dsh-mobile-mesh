@@ -39,6 +39,15 @@ internal fun normalizeWorkspaceFilesRequestPath(path: String): String =
 
 internal fun validWorkspaceFilePath(path: String): String? = path.takeIf { it.isNotEmpty() }
 
+internal data class DirectoryListRequest(val workspaceKey: String, val sessionId: String, val path: String)
+
+/** An explicit refresh must replace even an identical in-flight list request. */
+internal fun shouldReuseDirectoryList(
+    existing: DirectoryListRequest?,
+    requested: DirectoryListRequest,
+    reload: Boolean,
+): Boolean = !reload && existing == requested
+
 /** Decode the server's candidate rows without letting one malformed row cancel the companion search. */
 internal fun decodeFileReferenceRows(value: JsonElement): List<WorkspaceDirectoryEntry> {
     val entries = ((value as? JsonArray) ?: (value as? JsonObject)?.get("items") as? JsonArray).orEmpty()
@@ -119,8 +128,8 @@ internal fun WorkspaceFilesState.withPreviewError(error: RpcError, append: Boole
     if (append && preview is PreviewState.Text) copy(previewPageError = error.message)
     else copy(preview = PreviewState.Failed(error.code, error.message), previewPageError = null)
 
-/** Serializes preview publication with replacement requests, including non-cooperative replies. */
-internal class PreviewRequestFence {
+/** Serializes publication with replacement requests, including non-cooperative replies. */
+internal class RequestGenerationFence {
     private var generation = 0L
 
     @Synchronized fun next(): Long = ++generation
@@ -153,11 +162,13 @@ class WorkspaceFilesStore @Inject constructor(
     private var treeJob: Job? = null
     private var treeRequest: TreeRequest? = null
     private var previewJob: Job? = null
-    private val previewFence = PreviewRequestFence()
+    private val previewFence = RequestGenerationFence()
+    private val directoryFence = RequestGenerationFence()
     private var referenceSearchJob: Job? = null
     private var requestSerial = 0L
 
     fun reset(workspaceKey: String?) {
+        directoryFence.next()
         treeJob?.cancel()
         treeJob = null
         treeRequest = null
@@ -210,16 +221,16 @@ class WorkspaceFilesStore @Inject constructor(
         if (_state.value.workspaceKey != workspaceKey) reset(workspaceKey)
         if (!reload && _state.value.levels[safePath] is DirectoryLevel.Ready) return
         val api = connectionManager.connectedApi ?: return
-        val existing = treeRequest
-        if (existing?.workspaceKey == workspaceKey && existing.sessionId == sessionId && existing.path == safePath) return
+        val requestKey = DirectoryListRequest(workspaceKey, sessionId, safePath)
+        if (shouldReuseDirectoryList(treeRequest?.key, requestKey, reload)) return
         treeJob?.cancel()
-        val request = TreeRequest(workspaceKey, sessionId, safePath, ++requestSerial)
+        val request = TreeRequest(requestKey, directoryFence.next())
         treeRequest = request
         _state.value = _state.value.copy(levels = _state.value.levels + (safePath to DirectoryLevel.Loading))
         treeJob = scope.launch {
             try {
                 when (val result = api.workspaceFilesList(sessionId, safePath)) {
-                    is RpcResult.Ok -> {
+                    is RpcResult.Ok -> directoryFence.runIfCurrent(request.serial) {
                         val ready = DirectoryLevel.Ready(result.value)
                         synchronized(cacheLock) {
                             listingCache.getOrPut(workspaceKey) { mutableMapOf() }[safePath] = ready
@@ -227,8 +238,10 @@ class WorkspaceFilesStore @Inject constructor(
                         }
                         updateIfCurrent(request) { copy(levels = levels + (safePath to ready)) }
                     }
-                    is RpcResult.Err -> updateIfCurrent(request) {
-                        copy(levels = levels + (safePath to DirectoryLevel.Failed(result.error.code, result.error.message)))
+                    is RpcResult.Err -> directoryFence.runIfCurrent(request.serial) {
+                        updateIfCurrent(request) {
+                            copy(levels = levels + (safePath to DirectoryLevel.Failed(result.error.code, result.error.message)))
+                        }
                     }
                 }
             } finally {
@@ -367,15 +380,10 @@ class WorkspaceFilesStore @Inject constructor(
         else -> error("Unsupported workspace preview type: ${value!!::class}")
     }
 
-    private data class TreeRequest(
-        val workspaceKey: String,
-        val sessionId: String,
-        val path: String,
-        val serial: Long,
-    )
+    private data class TreeRequest(val key: DirectoryListRequest, val serial: Long)
 
     private fun updateIfCurrent(request: TreeRequest, transform: WorkspaceFilesState.() -> WorkspaceFilesState) {
-        if (_state.value.workspaceKey == request.workspaceKey && treeRequest?.serial == request.serial) {
+        if (_state.value.workspaceKey == request.key.workspaceKey && treeRequest?.serial == request.serial) {
             _state.value = transform(_state.value)
         }
     }

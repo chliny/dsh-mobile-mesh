@@ -16,6 +16,16 @@ class InboxProjectionOrderPolicyTest {
     }
 
     @Test
+    fun `host switch or new generation accepts authoritative lower inbox baseline`() {
+        val watermark = InboxProjectionWatermarks()
+        assertTrue(watermark.accept("s", 100))
+        assertFalse(watermark.accept("s", 20))
+        watermark.reset()
+        assertTrue(watermark.accept("s", 20))
+        assertFalse(watermark.accept("s", 19))
+    }
+
+    @Test
     fun `initial and legacy unwatermarked queue snapshots remain accepted`() {
         assertTrue(shouldApplyInboxProjection(previousSeq = null, incomingSeq = 12))
         assertTrue(shouldApplyInboxProjection(previousSeq = null, incomingSeq = null))

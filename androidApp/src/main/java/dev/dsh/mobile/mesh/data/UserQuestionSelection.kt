@@ -19,7 +19,10 @@ internal fun visibleQuestion(
     if (sessionId == null) return null
     val pending = pendingBySession[sessionId]
     val foreground = pending?.takeIf { it.foreground }
-    val continued = continuedQuestion(view, foreground?.callId)
+    // The foreground claim has a countdown and can expire; continued questions remain answerable
+    // later. Never let an older server projection hide the time-sensitive foreground request.
+    if (foreground != null) return foreground
+    val continued = continuedQuestion(view, null)
     return if (continued != null) PendingQuestions(
         sessionId = sessionId,
         rpcId = continued.callId,

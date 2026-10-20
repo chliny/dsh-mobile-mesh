@@ -127,6 +127,49 @@ class TerminalInventoryTest {
         assertEquals(2, calls)
     }
 
+    @Test fun `ordinary read replaces old host list still in flight`() = runTest {
+        var generation: Any? = Any()
+        val nextGeneration = Any()
+        var calls = 0
+        val oldReply = CompletableDeferred<Unit>()
+        val inventory = TerminalInventory({ generation }, {
+            calls++
+            if (calls == 1) {
+                oldReply.await()
+                RpcResult.Ok(listOf(terminal("old-host")))
+            } else RpcResult.Ok(listOf(terminal("new-host")))
+        })
+        val oldReader = async { inventory.read() }
+        runCurrent()
+        generation = nextGeneration
+        val newReader = async { inventory.read() }
+        runCurrent()
+        assertEquals(2, calls)
+        assertEquals(listOf("new-host"), newReader.await().map { it.id })
+        oldReply.complete(Unit)
+        assertEquals(listOf("new-host"), oldReader.await().map { it.id })
+        assertEquals(listOf("new-host"), inventory.read().map { it.id })
+    }
+
+    @Test fun `old host reply without another reader reloads current generation`() = runTest {
+        var generation: Any? = Any()
+        var calls = 0
+        val oldReply = CompletableDeferred<Unit>()
+        val inventory = TerminalInventory({ generation }, {
+            calls++
+            if (calls == 1) {
+                oldReply.await()
+                RpcResult.Ok(listOf(terminal("old-host")))
+            } else RpcResult.Ok(listOf(terminal("new-host")))
+        })
+        val oldReader = async { inventory.read() }
+        runCurrent()
+        generation = Any()
+        oldReply.complete(Unit)
+        assertEquals(listOf("new-host"), oldReader.await().map { it.id })
+        assertEquals(2, calls)
+    }
+
     @Test fun `confirmed creation and closure amend the cached list`() = runTest {
         var calls = 0
         val inventory = TerminalInventory({ "gen-1" }, { calls++; RpcResult.Ok(listOf(terminal("a"))) })
