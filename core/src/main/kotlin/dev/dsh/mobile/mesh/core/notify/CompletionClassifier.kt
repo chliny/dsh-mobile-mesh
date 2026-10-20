@@ -74,12 +74,16 @@ class CompletionClassifier {
             "turn/end" -> {
                 val kind = ((data?.get("reason") as? JsonObject)?.get("kind") as? JsonPrimitive)?.contentOrNull
                 val turn = (data?.get("turn") as? JsonPrimitive)?.intOrNull ?: 0
-                when (kind) {
+                val completion = when (kind) {
                     "completed" -> CompletionEvent.TurnComplete(sessionId, event.seq, turn)
                     // Both forms represent a stopped task in the session transcript.
                     "aborted", "interrupted" -> CompletionEvent.TurnInterrupted(sessionId, event.seq, turn)
                     else -> null
                 }
+                // The durable event already supplies the precise notification. The later status
+                // transition must not replace it with a generic idle notification.
+                if (completion != null) running.remove(sessionId)
+                completion
             }
 
             "goal/change" -> {

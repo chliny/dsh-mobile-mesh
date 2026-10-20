@@ -133,6 +133,24 @@ class CompletionClassifierTest {
     }
 
     @Test
+    fun `durable turn completion suppresses later generic idle fallback`() {
+        val stopped = listOf(JsonPrimitive("s1"), JsonPrimitive(false))
+        classifier.markSessionRunning("s1")
+        val result = classifier.classifyEvent("s1", event("turn/end", 5, buildJsonObject {
+            put("turn", 2)
+            putJsonObject("reason") { put("kind", "completed") }
+        }))
+        assertTrue(result is CompletionEvent.TurnComplete)
+        assertNull(classifier.classifyNotification("api-session/status", stopped))
+
+        classifier.markSessionRunning("s1")
+        assertNull(classifier.classifyEvent("s1", event("turn/end", 6, buildJsonObject {
+            putJsonObject("reason") { put("kind", "error") }
+        })))
+        assertTrue(classifier.classifyNotification("api-session/status", stopped) is CompletionEvent.SessionIdle)
+    }
+
+    @Test
     fun sessionIdleOnlyAfterRunning() {
         // Positional arguments now: the host forwards the Cordis listener's own argument list
         // rather than a named payload object.
