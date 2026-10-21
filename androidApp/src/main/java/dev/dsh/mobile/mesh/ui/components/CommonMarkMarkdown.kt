@@ -54,7 +54,12 @@ private val commonMarkExtensions = listOf(
     StrikethroughExtension.create(),
 )
 private val commonMarkParser = Parser.builder().extensions(commonMarkExtensions).build()
-private val commonMarkHtmlRenderer = HtmlRenderer.builder().extensions(commonMarkExtensions).build()
+// Soft breaks must be visible in tight list items and table cells too, not only in paragraphs
+// (which happen to use pre-wrap in the WebView stylesheet).
+private val commonMarkHtmlRenderer = HtmlRenderer.builder()
+    .extensions(commonMarkExtensions)
+    .softbreak("<br />")
+    .build()
 
 private const val MAX_CACHEABLE_MARKDOWN_CHARS = 64 * 1024
 

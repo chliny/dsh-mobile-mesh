@@ -68,10 +68,19 @@ class MarkdownRenderingTest {
         val parts = renderMarkdownPartsForTest(message, DsThemeTokens.light, "Copy", false) { error("No assets expected") }
         val html = (parts.single() as MarkdownPart.Html).html
 
-        assertTrue(html.contains("First plain line\nSecond plain line with <strong>bold</strong>\nThird plain line"))
+        assertTrue(html.contains("First plain line<br />Second plain line with <strong>bold</strong><br />Third plain line"))
         assertTrue(html.contains("p { margin: 0 0 1em; white-space: pre-wrap; }"))
         assertTrue(html.contains("html, body { margin: 0; padding: 0; background: transparent;"))
         assertFalse(html.contains("background: #FFFFFF;"))
+    }
+
+    @Test
+    fun `soft line breaks render inside tight lists and nested blockquotes`() {
+        val html = renderCommonMarkFragment("- first line\n  second **bold** line\n- next item\n\n> quoted line\n> continuation")
+
+        assertTrue(html.contains("<li>first line<br />second <strong>bold</strong> line</li>"))
+        assertTrue(html.contains("quoted line<br />continuation"))
+        assertFalse(html.contains("first line\nsecond"))
     }
 
     @Test
@@ -106,7 +115,7 @@ class MarkdownRenderingTest {
         val html = renderCommonMarkFragment("> quote\ncontinued\n\n- parent\n  - child\n  - second child")
 
         assertTrue(html.contains("<blockquote>"))
-        assertTrue(html.contains("quote\ncontinued"))
+        assertTrue(html.contains("quote<br />continued"))
         assertTrue(html.contains("<ul>"))
         assertTrue(html.contains("child"))
         assertTrue(html.contains("</ul>"))
