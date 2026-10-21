@@ -20,6 +20,7 @@
 #include <stdlib.h>
 
 #include "NodeService.hpp"
+#include "TcpConnectionContext.hpp"
 
 #include "Events.hpp"
 #include "InetAddress.hpp"
@@ -709,6 +710,9 @@ void NodeService::phyOnTcpData(PhySocket* sock, void** uptr, void* data, unsigne
         if (! len) {
             return;   // sanity check, should never happen
         }
+        if (! ensureTcpConnectionContext(uptr, [this, sock]() { _phy.close(sock); })) {
+            return;
+        }
         TcpConnection* tc = reinterpret_cast<TcpConnection*>(*uptr);
         tc->lastReceive = OSUtils::now();
         switch (tc->type) {
@@ -819,6 +823,9 @@ void NodeService::phyOnTcpData(PhySocket* sock, void** uptr, void* data, unsigne
 
 void NodeService::phyOnTcpWritable(PhySocket* sock, void** uptr)
 {
+    if (! ensureTcpConnectionContext(uptr, [this, sock]() { _phy.close(sock); })) {
+        return;
+    }
     TcpConnection* tc = reinterpret_cast<TcpConnection*>(*uptr);
     bool closeit = false;
     {
