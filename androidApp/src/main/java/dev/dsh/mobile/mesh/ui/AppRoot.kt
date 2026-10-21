@@ -23,6 +23,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -88,6 +90,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
     val connectUiState by connectViewModel.state.collectAsStateWithLifecycle()
     val sessionStore = rememberSessionStore()
     val navigationState = rememberAppNavigationState()
+    val context = LocalContext.current
     val sessionRoute by navigationState.sessionRoute.collectAsStateWithLifecycle()
     val themePreference = remember(settings.themePreference) {
         runCatching { ThemePreference.valueOf(settings.themePreference.uppercase()) }
@@ -148,9 +151,17 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         // The native login URL is the authoritative signal for showing authorization. A fast
         // state emission must not leave the user on the connection form with a valid URL pending.
         val showTailscaleLogin = connectUiState.tailscaleLoginUrl?.isNotBlank() == true
-        LaunchedEffect(sessionRoute, connection.hasConnected) {
+        LaunchedEffect(sessionRoute, connection.host?.id, connection.hasConnected) {
             val route = sessionRoute ?: return@LaunchedEffect
-            if (!connection.hasConnected) return@LaunchedEffect
+            when (notificationRouteDecision(route.hostId, connection.host?.id, connection.hasConnected)) {
+                NotificationRouteDecision.WAIT -> return@LaunchedEffect
+                NotificationRouteDecision.DIFFERENT_CONNECTION -> {
+                    navigationState.consume(route)
+                    Toast.makeText(context, R.string.notif_session_connection_changed, Toast.LENGTH_LONG).show()
+                    return@LaunchedEffect
+                }
+                NotificationRouteDecision.OPEN -> Unit
+            }
             sessionStore.openSession(route.sessionId)
             showSettings = false
             showConnectPage = false

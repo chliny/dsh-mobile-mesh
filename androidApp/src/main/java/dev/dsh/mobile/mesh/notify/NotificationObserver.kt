@@ -163,8 +163,9 @@ class NotificationObserver @Inject constructor(
 
         if (isDuplicate(event.dedupKey)) return
 
+        val hostId = connectionManager.state.value.host?.id ?: return
         val id = notificationId(event.sessionId, spec.channel)
-        notifications.postSession(spec.channel, id, spec.title, "", event.sessionId)
+        notifications.postSession(spec.channel, id, spec.title, "", event.sessionId, hostId)
     }
 
     private data class Spec(

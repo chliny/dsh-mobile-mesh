@@ -54,13 +54,18 @@ class DshNotifications @Inject constructor(
         title: String,
         text: String,
         sessionId: String?,
+        hostId: String?,
     ) {
         if (!canPost()) return
         val open = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            if (sessionId != null) {
+            if (sessionId != null && hostId != null) {
+                // PendingIntent identity ignores extras: include the origin in the URI too so a
+                // notification from another connection cannot inherit an updated host extra.
                 data = android.net.Uri.parse("dshmobile://host/current/session/$sessionId")
+                    .buildUpon().appendQueryParameter("connection", hostId).build()
                 putExtra(EXTRA_SESSION_ID, sessionId)
+                putExtra(EXTRA_HOST_ID, hostId)
             }
         }
         val pending = PendingIntent.getActivity(
@@ -84,5 +89,6 @@ class DshNotifications @Inject constructor(
         const val CHANNEL_ACTION = "needs_action"
         const val CHANNEL_CONNECTION = "connection"
         const val EXTRA_SESSION_ID = "dsh_session_id"
+        const val EXTRA_HOST_ID = "dsh_host_id"
     }
 }

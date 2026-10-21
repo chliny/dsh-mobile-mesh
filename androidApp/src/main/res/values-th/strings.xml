@@ -278,6 +278,7 @@
     <string name="notif_review_requested">ขอตรวจสอบแล้ว — %1$s</string>
     <string name="notif_question">Harness ถามว่า: %1$s</string>
     <string name="notif_session_idle">เซสชันสิ้นสุด — %1$s</string>
+    <string name="notif_session_connection_changed">การแจ้งเตือนนี้เป็นของการเชื่อมต่ออื่น กลับไปที่การเชื่อมต่อนั้นเพื่อเปิดเซสชัน</string>
     <string name="notif_open">เปิด</string>
     <string name="trajectory_title">เส้นทาง</string>
     <string name="trajectory_timeline">ไทม์ไลน์</string>
