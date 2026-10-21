@@ -313,6 +313,7 @@
     <string name="notif_review_requested">已请求审阅 — %1$s</string>
     <string name="notif_question">Harness 提问：%1$s</string>
     <string name="notif_session_idle">会话已结束 — %1$s</string>
+    <string name="notif_session_connection_changed">此通知属于另一个连接。切换回该连接后即可打开会话。</string>
     <string name="notif_open">打开</string>
     <string name="trajectory_title">轨迹</string>
     <string name="trajectory_timeline">时间线</string>

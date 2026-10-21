@@ -278,6 +278,7 @@
     <string name="notif_review_requested">تم طلب مراجعة — %1$s</string>
     <string name="notif_question">يسأل Harness: %1$s</string>
     <string name="notif_session_idle">انتهت الجلسة — %1$s</string>
+    <string name="notif_session_connection_changed">هذا الإشعار يخص اتصالًا آخر. عُد إلى ذلك الاتصال لفتح الجلسة.</string>
     <string name="notif_open">فتح</string>
     <string name="trajectory_title">المسار</string>
     <string name="trajectory_timeline">الخط الزمني</string>

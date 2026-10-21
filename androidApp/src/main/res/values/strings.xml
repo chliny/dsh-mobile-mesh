@@ -483,6 +483,7 @@
     <string name="notif_review_requested">Review requested — %1$s</string>
     <string name="notif_question">The harness asks: %1$s</string>
     <string name="notif_session_idle">Session finished — %1$s</string>
+    <string name="notif_session_connection_changed">This notification is for another connection. Switch back to it to open the session.</string>
     <string name="notif_open">Open</string>
     <string name="trajectory_title">Trajectory</string>
     <string name="trajectory_timeline">Timeline</string>

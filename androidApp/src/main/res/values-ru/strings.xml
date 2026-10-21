@@ -278,6 +278,7 @@
     <string name="notif_review_requested">Запрошено рассмотрение — %1$s</string>
     <string name="notif_question">Harness спрашивает: %1$s</string>
     <string name="notif_session_idle">Сеанс завершён — %1$s</string>
+    <string name="notif_session_connection_changed">Это уведомление относится к другому подключению. Вернитесь к нему, чтобы открыть сеанс.</string>
     <string name="notif_open">Открыть</string>
     <string name="trajectory_title">Траектория</string>
     <string name="trajectory_timeline">Хронология</string>

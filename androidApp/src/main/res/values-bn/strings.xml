@@ -278,6 +278,7 @@
     <string name="notif_review_requested">পর্যালোচনা চাওয়া হয়েছে — %1$s</string>
     <string name="notif_question">Harness জিজ্ঞেস করছে: %1$s</string>
     <string name="notif_session_idle">সেশন শেষ — %1$s</string>
+    <string name="notif_session_connection_changed">এই বিজ্ঞপ্তিটি অন্য সংযোগের। সেশন খুলতে সেই সংযোগে ফিরে যান।</string>
     <string name="notif_open">খুলুন</string>
     <string name="trajectory_title">ট্র্যাজেক্টরি</string>
     <string name="trajectory_timeline">টাইমলাইন</string>

@@ -17,16 +17,56 @@ class AppNavigationStateTest {
     @Test
     fun `each cold or new intent request can be consumed once`() {
         val state = AppNavigationState()
-        state.requestSession("cold")
+        state.requestSession("cold", "host-a")
         val cold = state.sessionRoute.value!!
         assertEquals("cold", cold.sessionId)
+        assertEquals("host-a", cold.hostId)
         state.consume(cold)
         assertNull(state.sessionRoute.value)
 
-        state.requestSession("warm")
+        state.requestSession("warm", "host-b")
         val warm = state.sessionRoute.value!!
         assertEquals("warm", warm.sessionId)
+        assertEquals("host-b", warm.hostId)
         assertTrue(warm.requestId > cold.requestId)
+    }
+
+    @Test
+    fun `notification from another connection is rejected instead of opening missing session`() {
+        val state = AppNavigationState()
+        state.requestSession("session-on-a", "host-a")
+        val route = state.sessionRoute.value!!
+        assertEquals(
+            NotificationRouteDecision.DIFFERENT_CONNECTION,
+            notificationRouteDecision(route.hostId, "host-b", hasConnected = true),
+        )
+        state.consume(route)
+        assertNull(state.sessionRoute.value)
+        // Old notifications without an origin must not be routed onto an arbitrary host.
+        assertEquals(
+            NotificationRouteDecision.DIFFERENT_CONNECTION,
+            notificationRouteDecision(null, "host-b", hasConnected = true),
+        )
+    }
+
+    @Test
+    fun `notification waits for its own connection to reconnect`() {
+        assertEquals(
+            NotificationRouteDecision.WAIT,
+            notificationRouteDecision("host-a", null, hasConnected = false),
+        )
+        assertEquals(
+            NotificationRouteDecision.WAIT,
+            notificationRouteDecision("host-a", "host-a", hasConnected = false),
+        )
+        assertEquals(
+            NotificationRouteDecision.OPEN,
+            notificationRouteDecision("host-a", "host-a", hasConnected = true),
+        )
+        assertEquals(
+            NotificationRouteDecision.DIFFERENT_CONNECTION,
+            notificationRouteDecision("host-a", "host-b", hasConnected = false),
+        )
     }
 
     @Test

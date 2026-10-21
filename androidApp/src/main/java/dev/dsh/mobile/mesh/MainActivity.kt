@@ -86,7 +86,8 @@ class MainActivity : AppCompatActivity() {
             intent?.getStringExtra(DshNotifications.EXTRA_SESSION_ID),
             intent?.dataString,
         ) ?: return
-        navigationState.requestSession(sessionId)
+        navigationState.requestSession(sessionId, intent?.getStringExtra(DshNotifications.EXTRA_HOST_ID))
+        intent?.removeExtra(DshNotifications.EXTRA_HOST_ID)
         intent?.removeExtra(DshNotifications.EXTRA_SESSION_ID)
         intent?.data = null
     }

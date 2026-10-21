@@ -7,7 +7,20 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
-internal data class SessionRouteRequest(val sessionId: String, val requestId: Long)
+internal data class SessionRouteRequest(val sessionId: String, val hostId: String?, val requestId: Long)
+
+internal enum class NotificationRouteDecision { WAIT, OPEN, DIFFERENT_CONNECTION }
+
+internal fun notificationRouteDecision(
+    originHostId: String?,
+    activeHostId: String?,
+    hasConnected: Boolean,
+): NotificationRouteDecision = when {
+    activeHostId == null -> NotificationRouteDecision.WAIT
+    originHostId == null || originHostId != activeHostId -> NotificationRouteDecision.DIFFERENT_CONNECTION
+    hasConnected -> NotificationRouteDecision.OPEN
+    else -> NotificationRouteDecision.WAIT
+}
 
 /** Process-scoped handoff between Activity intents, Compose routing, and notification visibility. */
 @Singleton
@@ -21,9 +34,11 @@ class AppNavigationState @Inject constructor() {
 
     @Volatile private var activityStarted = false
 
-    fun requestSession(sessionId: String) {
+    fun requestSession(sessionId: String, hostId: String?) {
         val clean = sessionId.trim()
-        if (clean.isNotEmpty()) _sessionRoute.value = SessionRouteRequest(clean, nextRequestId.incrementAndGet())
+        if (clean.isNotEmpty()) {
+            _sessionRoute.value = SessionRouteRequest(clean, hostId?.trim()?.takeIf { it.isNotEmpty() }, nextRequestId.incrementAndGet())
+        }
     }
 
     internal fun consume(request: SessionRouteRequest) {

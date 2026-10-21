@@ -278,6 +278,7 @@
     <string name="notif_review_requested">Revisão solicitada — %1$s</string>
     <string name="notif_question">O Harness pergunta: %1$s</string>
     <string name="notif_session_idle">Sessão encerrada — %1$s</string>
+    <string name="notif_session_connection_changed">Esta notificação é de outra conexão. Volte a essa conexão para abrir a sessão.</string>
     <string name="notif_open">Abrir</string>
     <string name="trajectory_title">Trajetória</string>
     <string name="trajectory_timeline">Linha do tempo</string>
