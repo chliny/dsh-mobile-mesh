@@ -2056,6 +2056,7 @@ class SessionStore @Inject constructor(
             queueSubmissionPending = queueSubmissionPending,
             turnStartedAtMillis = turnStartedAt,
             hasMore = currentHasMore,
+            oldestEventSeq = events.firstOrNull()?.seq,
             queue = currentQueue,
             projections = currentProjections.mapValues { it.value.value },
         )

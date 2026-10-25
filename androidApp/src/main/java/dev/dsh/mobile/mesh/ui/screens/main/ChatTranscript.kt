@@ -437,14 +437,6 @@ internal fun ChatTranscript(
     }
     val nodes = projection.nodes
     val parts = projection.parts
-    DisposableEffect(sessionId, listState, readingPositions) {
-        onDispose {
-            val saved = sessionId?.let(readingPositions::get)
-            transcriptPositionLog {
-                "leave session=${transcriptSessionLogId(sessionId)} saved=${saved?.let { "seq=${it.seq},offset=${it.offset},bottom=${it.atBottom}" } ?: "none"} ${transcriptLayoutLog(listState)}"
-            }
-        }
-    }
     val disclosureScope = context.disclosures
     // A history page can complete a turn whose initial-window fragment was previously flat.
     // Preserve those visible rows before LazyColumn measures the prepend, rather than collapsing
@@ -472,6 +464,7 @@ internal fun ChatTranscript(
         }
     }
     val hasMore = conversation?.hasMore == true
+    val oldestEventSeq = conversation?.oldestEventSeq
     val turnStartedAtMillis = conversation?.turnStartedAtMillis
     val deepDiving = deepDivingVisible(conversation?.running == true, turnStartedAtMillis)
     val showEmpty = nodes.isEmpty() && !deepDiving
@@ -492,6 +485,7 @@ internal fun ChatTranscript(
     }
     var wasNearBottom by remember(sessionId) { mutableStateOf(tailIntent) }
     var restoredSession by remember { mutableStateOf<String?>(null) }
+    var restoreTarget by remember(sessionId) { mutableStateOf<TranscriptReadingPosition?>(null) }
     var olderPageAnchor by remember(sessionId) { mutableStateOf<OlderPageAnchor?>(null) }
     val userDragging by listState.interactionSource.collectIsDraggedAsState()
     var dragGeneration by remember(sessionId) { mutableIntStateOf(0) }
@@ -501,10 +495,38 @@ internal fun ChatTranscript(
         }
     }
     val bottomTolerancePx = with(LocalDensity.current) { 48.dp.roundToPx() }
-    LaunchedEffect(listState, sessionId, itemCount, restoredSession, bottomTolerancePx) {
+    val exitRows by rememberUpdatedState(rows)
+    val exitHasMore by rememberUpdatedState(hasMore)
+    val exitReady by rememberUpdatedState(restoredSession == sessionId && restoreTarget == null)
+    DisposableEffect(sessionId, listState, readingPositions) {
+        onDispose {
+            val saved = sessionId?.let(readingPositions::get)
+            // A fast fling followed immediately by the session-list button can remove this page
+            // before snapshotFlow records its final viewport. Capture the actual laid-out row at
+            // the navigation boundary, not the tail that a later follow window may display.
+            if (sessionId != null && exitReady) {
+                val info = listState.layoutInfo
+                val position = info.visibleItemsInfo.firstNotNullOfOrNull { item ->
+                    readingPositionForVisibleRow(exitRows, exitHasMore, item.index, item.key,
+                        listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset,
+                        info.visibleItemsInfo.lastOrNull()?.let { last ->
+                            transcriptNearBottom(info.totalItemsCount, last.index,
+                                last.offset + last.size, info.viewportEndOffset, bottomTolerancePx)
+                        } == true)
+                }
+                if (position != null && (saved == null || readingPositionIndex(exitRows, saved) >= 0)) {
+                    readingPositions.put(sessionId, position)
+                }
+            }
+            transcriptPositionLog {
+                "leave session=${transcriptSessionLogId(sessionId)} saved=${sessionId?.let(readingPositions::get)?.let { "seq=${it.seq},offset=${it.offset},bottom=${it.atBottom}" } ?: "none"} ${transcriptLayoutLog(listState)}"
+            }
+        }
+    }
+    LaunchedEffect(listState, sessionId, itemCount, restoredSession, restoreTarget, bottomTolerancePx) {
         // Do not let an empty/stale layout from before the initial anchor restore reset its
         // tail-follow state. Only a visible row in the restored transcript is meaningful.
-        if (restoredSession != sessionId) return@LaunchedEffect
+        if (restoredSession != sessionId || restoreTarget != null) return@LaunchedEffect
         var previousViewportHeight: Int? = null
         var previousCanScrollForward: Boolean? = null
         var previousScrollCoordinate: Pair<Int, Int>? = null
@@ -590,7 +612,6 @@ internal fun ChatTranscript(
     // appearing and disappearing changed the count too, which moved the view for no reason at all.
     val newestRowKey = nodes.lastOrNull()?.let(::transcriptNodeRowKey)
     var lastSession by remember { mutableStateOf<String?>(null) }
-    var restoreTarget by remember(sessionId) { mutableStateOf<TranscriptReadingPosition?>(null) }
     // Observe only a laid-out row belonging to this session, and only after the initial restore.
     // In particular, an empty/loading snapshot must not replace a saved reading anchor.
     LaunchedEffect(listState, sessionId, rows, hasMore, restoredSession, restoreTarget) {
@@ -631,6 +652,9 @@ internal fun ChatTranscript(
             if (sample == null) return@collect
             val position = sample.position
             if (restoreTarget != null && sample.userDragging) restoreTarget = null
+            // The retained LazyListState can temporarily be clamped to the short opening page.
+            // That measured tail is not the reader's intent and must not replace the old anchor.
+            if (restoreTarget != null) return@collect
             val currentCoordinate = sample.firstVisibleIndex to sample.firstVisibleOffset
             tailIntent = nextTranscriptTailIntent(
                 currentIntent = tailIntent,
@@ -718,6 +742,13 @@ internal fun ChatTranscript(
                 listState.scrollToItem(index + if (hasMore) 1 else 0, saved!!.offset)
                 tailIntent = false
                 wasNearBottom = false
+            } else if (shouldWaitForReadingAnchor(saved, rows, hasMore)) {
+                // Opening a file unmounts this page. A newer follow window may not contain the
+                // historical row yet: keep the saved coordinate until authoritative pages arrive.
+                // Jumping to the tail here would also overwrite that anchor in the observer.
+                restoreTarget = saved
+                tailIntent = false
+                wasNearBottom = false
             } else {
                 scrollTranscriptToEnd(listState, itemCount - 1)
                 tailIntent = true
@@ -728,21 +759,24 @@ internal fun ChatTranscript(
             lastSession = sessionId
             restoredSession = sessionId
             transcriptPositionLog {
-                "restore-done session=${transcriptSessionLogId(sessionId)} path=${if (shouldRestoreTranscriptToBottom(saved)) "tail" else if (index >= 0) "anchor" else "fallback-tail"} " +
+                "restore-done session=${transcriptSessionLogId(sessionId)} path=${if (shouldRestoreTranscriptToBottom(saved)) "tail" else if (index >= 0) "anchor" else if (restoreTarget != null) "await-anchor" else "fallback-tail"} " +
                     "rowTail=${transcriptRowsLog(rows)} ${transcriptLayoutLog(listState)}"
             }
         } else if (wasNearBottom) scrollTranscriptToEnd(listState, itemCount - 1)
     }
 
     // The opening follow snapshot can replace a cached, deeper window with only its newest page.
-    // Ask the authoritative session/page endpoint for one older page, then return to the original
-    // anchor if that page includes it. The bound prevents mostly-invisible logs from being folded
-    // without limit; a reader may still use the ordinary paging row to travel further back.
+    // A returning reader can be farther back than the opening follow window. Fetch only the
+    // authoritative pages needed to reach that row, never substituting a tail position while it
+    // is missing. The oldest row must advance before another page request is permitted.
     val restoreScope = rememberCoroutineScope()
-    var restorePageAttempted by remember(sessionId) { mutableStateOf(false) }
-    LaunchedEffect(sessionId, rows, hasMore, loadingOlder, restoredSession, restorePageAttempted, restoreTarget, userDragging) {
-        if (sessionId == null || restoredSession != sessionId) return@LaunchedEffect
+    var restorePageOldestSeq by remember(sessionId) { mutableStateOf<Long?>(null) }
+    LaunchedEffect(sessionId, rows, hasMore, oldestEventSeq, loadingOlder, restoredSession, restorePageOldestSeq, restoreTarget, userDragging) {
+        if (sessionId == null) return@LaunchedEffect
         val saved = readingPositions.get(sessionId) ?: return@LaunchedEffect
+        // An opening page can contain only non-rendered journal events. Fetch history without
+        // declaring the session restored until a readable message has actually arrived.
+        if (restoredSession != sessionId && rows.isNotEmpty()) return@LaunchedEffect
         val target = restoreTarget
         if (target != null) {
             val index = readingPositionIndex(rows, target)
@@ -750,13 +784,25 @@ internal fun ChatTranscript(
                 // A user scroll while the request was in flight supersedes the old anchor.
                 if (!userDragging && readingPositions.get(sessionId) == target) {
                     listState.scrollToItem(index + if (hasMore) 1 else 0, target.offset)
+                    tailIntent = false
                     wasNearBottom = false
                 }
                 restoreTarget = null
-            } else if (saved != target) restoreTarget = null
-        } else if (shouldFetchReadingAnchorPage(rows, saved, hasMore, loadingOlder, restorePageAttempted)) {
-            restorePageAttempted = true
+            } else if (saved != target) {
+                restoreTarget = null
+            } else if (shouldFetchReadingAnchorAfterPage(rows, target, hasMore, loadingOlder, restorePageOldestSeq, oldestEventSeq)) {
+                restorePageOldestSeq = oldestEventSeq
+                restoreScope.launch { onRestoreOlder(sessionId) }
+            } else if (!hasMore && !loadingOlder) {
+                // The saved message no longer exists on the server.
+                restoreTarget = null
+                scrollTranscriptToEnd(listState, itemCount - 1)
+                tailIntent = true
+                wasNearBottom = true
+            }
+        } else if (shouldFetchReadingAnchorAfterPage(rows, saved, hasMore, loadingOlder, restorePageOldestSeq, oldestEventSeq)) {
             restoreTarget = saved
+            restorePageOldestSeq = oldestEventSeq
             restoreScope.launch { onRestoreOlder(sessionId) }
         }
     }

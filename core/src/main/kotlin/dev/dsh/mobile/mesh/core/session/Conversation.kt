@@ -148,6 +148,8 @@ data class ConversationSnapshot(
     val turnStartedAtMillis: Long? = null,
     val blank: Boolean = true,
     val hasMore: Boolean = false,
+    /** Oldest authoritative journal event, including rows hidden from the transcript. */
+    val oldestEventSeq: Long? = null,
     val lastSeq: Long = -1,
     val gap: Boolean = false,
 ) {
