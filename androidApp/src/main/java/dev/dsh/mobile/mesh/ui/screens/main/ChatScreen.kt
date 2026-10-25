@@ -187,13 +187,16 @@ internal fun ChatScreen(
     val workspaceKey = currentSessionId?.let { sid ->
         workspaces.firstOrNull { sid in it.sessionIds }?.workspaceId
     } ?: currentSessionId?.let { "session:$it" }
-    val mentionQuery = mentionQueryForDraft(draft)
+    // The caret can sit before or after unrelated text, so the composer owns the active @ query.
+    var mentionQuery by remember(currentSessionId) { mutableStateOf<String?>(null) }
     val currentReferences = fileState.takeIf {
         it.workspaceKey == workspaceKey && it.referenceSessionId == currentSessionId && it.referenceQuery == mentionQuery
     }
     val fileCandidates = currentReferences?.fileReferences.orEmpty()
     val sessionCandidates = currentReferences?.sessionReferences.orEmpty()
-    fun queryFileReferences(query: String) {
+    fun queryFileReferences(query: String?) {
+        mentionQuery = query
+        if (query == null) return
         val key = workspaceKey ?: return
         val sid = currentSessionId ?: return
         workspaceFiles.searchReferences(key, sid, query)
