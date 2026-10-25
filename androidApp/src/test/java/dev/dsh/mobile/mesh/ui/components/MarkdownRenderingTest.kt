@@ -69,9 +69,39 @@ class MarkdownRenderingTest {
         val html = (parts.single() as MarkdownPart.Html).html
 
         assertTrue(html.contains("First plain line<br />Second plain line with <strong>bold</strong><br />Third plain line"))
-        assertTrue(html.contains("p { margin: 0 0 1em; white-space: pre-wrap; }"))
+        assertTrue(html.contains("p { margin: 0 0 1em; white-space: normal; }"))
         assertTrue(html.contains("html, body { margin: 0; padding: 0; background: transparent;"))
         assertFalse(html.contains("background: #FFFFFF;"))
+    }
+
+    @Test
+    fun `hard breaks do not render twice when followed by renderer whitespace`() {
+        val html = (renderMarkdownPartsForTest(
+            "first **bold**  \nsecond", DsThemeTokens.light, "Copy", false,
+        ) { error("No assets expected") }.single() as MarkdownPart.Html).html
+
+        assertTrue(html.contains("<strong>bold</strong><br />\nsecond"))
+        assertTrue(html.contains("p { margin: 0 0 1em; white-space: normal; }"))
+        assertFalse(html.contains("white-space: pre-wrap"))
+    }
+
+    @Test
+    fun `separate formatted paragraphs share one webview so their gap remains visible`() {
+        val parts = renderMarkdownPartsForTest(
+            "first **bold**\n\nsecond paragraph", DsThemeTokens.light, "Copy", false,
+        ) { error("No assets expected") }
+
+        val html = (parts.single() as MarkdownPart.Html).html
+        assertTrue(html.contains("<p>first <strong>bold</strong></p>\n<p>second paragraph</p>"))
+        assertTrue(html.contains("p { margin: 0 0 1em; white-space: normal; }"))
+    }
+
+    @Test
+    fun `strong delimiter compatibility does not consume a line break`() {
+        val html = renderCommonMarkFragment("**first\n**second")
+
+        assertTrue(html.contains("first<br />"))
+        assertTrue(html.contains("second"))
     }
 
     @Test
