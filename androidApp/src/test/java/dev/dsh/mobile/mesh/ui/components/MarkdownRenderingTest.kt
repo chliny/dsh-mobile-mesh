@@ -23,6 +23,13 @@ class MarkdownRenderingTest {
     }
 
     @Test
+    fun `new markdown document never reserves stale height from the previous message`() {
+        // A recycled view may still report a long previous page while its short replacement loads.
+        assertEquals(1, markdownWebViewMeasuredHeight(contentHeightCssPx = 800, scale = 2f, documentReady = false))
+        assertEquals(40, markdownWebViewMeasuredHeight(contentHeightCssPx = 20, scale = 2f, documentReady = true))
+    }
+
+    @Test
     fun `markdown loading preview is immediate and bounded`() {
         val short = "**render after parsing**"
         val long = "x".repeat(MARKDOWN_LOADING_PREVIEW_LIMIT + 12)
