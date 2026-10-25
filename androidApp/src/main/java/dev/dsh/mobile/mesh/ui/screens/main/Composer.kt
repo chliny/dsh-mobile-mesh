@@ -61,6 +61,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
@@ -208,9 +210,12 @@ internal fun Composer(
     val currentDraft by rememberUpdatedState(draft)
     val currentOnDraftChange by rememberUpdatedState(onDraftChange)
     val currentOnSend by rememberUpdatedState(onSend)
-    // Derive popup visibility from the live draft: drafts can be restored or prefilled without
-    // passing through TextField.onValueChange (session restore, command sheet selection, queue insert).
-    val commandPickerOpen = draft.startsWith("/") && !draft.contains(' ')
+    // Keep the caret across edits: a slash can occur anywhere, even before existing text.
+    var input by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
+    if (input.text != draft) input = TextFieldValue(draft, TextRange(draft.length))
+    var slashPickerState by remember { mutableStateOf(SlashPickerState()) }
+    val activeSlash = slashTrigger(draft, input.selection.end)
+    val commandPickerOpen = slashPickerState.visible(activeSlash)
     var filePickerOpen by remember { mutableStateOf(false) }
     val mentionQuery = mentionQueryForDraft(draft).orEmpty()
     val mentionActive = mentionQueryForDraft(draft) != null
@@ -220,7 +225,7 @@ internal fun Composer(
     }
     val matchingFiles = remember(fileCandidates) { matchingMentionFiles(fileCandidates) }
     val matchingSessions = sessionCandidates.take((8 - matchingFiles.size).coerceAtLeast(0))
-    val commandQuery = draft.removePrefix("/").takeIf { draft.startsWith("/") && !draft.contains(' ') }.orEmpty()
+    val commandQuery = activeSlash?.query.orEmpty()
     val matchingCommands = remember(commands, skills, permissionsCatalogPresent, modelsCatalogPresent, commandQuery) {
         val nativeNames = buildSet {
             if (enabled) add("file")
@@ -245,10 +250,12 @@ internal fun Composer(
             verticalArrangement = Arrangement.spacedBy(DsSpacing.small),
         ) {
             TextField(
-                value = draft,
-                onValueChange = {
-                    onDraftChange(it)
-                    val token = it.substringAfterLast(" ").substringAfterLast("\n")
+                value = input,
+                onValueChange = { updated ->
+                    slashPickerState = slashPickerState.onEdit(input.text, updated.text)
+                    input = updated
+                    if (updated.text != draft) onDraftChange(updated.text)
+                    val token = updated.text.substringAfterLast(" ").substringAfterLast("\n")
                     filePickerOpen = token.startsWith("@")
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -312,6 +319,16 @@ internal fun Composer(
                         .background(colors.bgModulePlatform)
                         .border(1.dp, colors.borderL2, DsShapes.block),
                 ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = stringResource(R.string.common_cancel),
+                            tint = colors.labelSecondary,
+                            modifier = Modifier.clickable {
+                                activeSlash?.let { slashPickerState = slashPickerState.dismiss(it) }
+                            }.padding(8.dp).size(18.dp),
+                        )
+                    }
                     if (matchingCommands.isEmpty()) {
                         Text(stringResource(R.string.chat_commands_no_match), style = DsType.caption11, color = colors.labelTertiary,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
@@ -324,12 +341,17 @@ internal fun Composer(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    if (draftPrefix == "/file") {
-                                        onAddFiles()
-                                    } else if (draftPrefix == "/model" || draftPrefix == "/permission") {
-                                        onNativeCommand(draftPrefix.removePrefix("/"))
-                                    } else {
-                                        onDraftChange(draftPrefix)
+                                    activeSlash?.let { trigger ->
+                                        slashPickerState = slashPickerState.dismiss(trigger)
+                                        if (draftPrefix == "/file") {
+                                            onAddFiles()
+                                        } else if (draftPrefix == "/model" || draftPrefix == "/permission") {
+                                            onNativeCommand(draftPrefix.removePrefix("/"))
+                                        } else {
+                                            val replacement = replaceSlashTrigger(draft, trigger, draftPrefix)
+                                            input = TextFieldValue(replacement, TextRange(trigger.start + draftPrefix.length))
+                                            onDraftChange(replacement)
+                                        }
                                     }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
