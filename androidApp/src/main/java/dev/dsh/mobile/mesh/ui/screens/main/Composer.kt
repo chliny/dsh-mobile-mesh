@@ -150,10 +150,7 @@ internal sealed interface FileUploadState {
  *
  * The model selector sits below the input beside the permission control, matching the web composer.
  */
-internal fun mentionQueryForDraft(draft: String): String? {
-    val token = draft.substringAfterLast(" ").substringAfterLast("\n")
-    return token.takeIf { it.startsWith("@") }?.removePrefix("@")
-}
+internal fun mentionQueryForDraft(draft: String): String? = mentionTrigger(draft, draft.length)?.query
 
 /**
  * Keep the host's file-reference result intact; filtering and ranking belong to the server.
@@ -168,7 +165,7 @@ internal fun matchingMentionFiles(
 
 /** Insert exactly the canonical mention returned by the server, never reconstruct its URI. */
 internal fun insertSessionMention(draft: String, candidate: dev.dsh.mobile.mesh.core.wire.dto.SessionReferenceCandidate): String =
-    draft.substringBeforeLast('@') + candidate.mention + " "
+    mentionTrigger(draft, draft.length)?.let { replaceMentionTrigger(draft, it, candidate.mention, complete = true) } ?: draft
 
 @Composable
 internal fun Composer(
@@ -196,7 +193,7 @@ internal fun Composer(
     fileCandidates: List<WorkspaceDirectoryEntry> = emptyList(),
     sessionCandidates: List<dev.dsh.mobile.mesh.core.wire.dto.SessionReferenceCandidate> = emptyList(),
     referenceSessionId: String? = null,
-    onFileQueryChange: (String) -> Unit = {},
+    onFileQueryChange: (String?) -> Unit = {},
     onSend: (String, List<PendingAttachment>) -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
@@ -215,13 +212,14 @@ internal fun Composer(
     if (input.text != draft) input = TextFieldValue(draft, TextRange(draft.length))
     var slashPickerState by remember { mutableStateOf(SlashPickerState()) }
     val activeSlash = slashTrigger(draft, input.selection.end)
-    val commandPickerOpen = slashPickerState.visible(activeSlash)
-    var filePickerOpen by remember { mutableStateOf(false) }
-    val mentionQuery = mentionQueryForDraft(draft).orEmpty()
-    val mentionActive = mentionQueryForDraft(draft) != null
-    LaunchedEffect(mentionActive, mentionQuery, referenceSessionId) {
-        filePickerOpen = mentionActive
-        if (mentionActive) onFileQueryChange(mentionQuery)
+    var mentionPickerState by remember { mutableStateOf(MentionPickerState()) }
+    val activeMention = mentionTrigger(draft, input.selection.end)
+    // A path separator inside an @ reference is not a fresh slash command.
+    val commandPickerOpen = activeMention == null && slashPickerState.visible(activeSlash)
+    val mentionQuery = activeMention?.query
+    val mentionActive = mentionPickerState.visible(activeMention)
+    LaunchedEffect(mentionQuery, activeMention?.start, mentionActive, referenceSessionId) {
+        onFileQueryChange(mentionQuery.takeIf { mentionActive })
     }
     val matchingFiles = remember(fileCandidates) { matchingMentionFiles(fileCandidates) }
     val matchingSessions = sessionCandidates.take((8 - matchingFiles.size).coerceAtLeast(0))
@@ -253,10 +251,9 @@ internal fun Composer(
                 value = input,
                 onValueChange = { updated ->
                     slashPickerState = slashPickerState.onEdit(input.text, updated.text)
+                    mentionPickerState = mentionPickerState.onEdit(input.text, updated.text)
                     input = updated
                     if (updated.text != draft) onDraftChange(updated.text)
-                    val token = updated.text.substringAfterLast(" ").substringAfterLast("\n")
-                    filePickerOpen = token.startsWith("@")
                 },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,
@@ -283,17 +280,34 @@ internal fun Composer(
                 ),
             )
 
-            AnimatedVisibility(visible = mentionActive && filePickerOpen && (matchingFiles.isNotEmpty() || matchingSessions.isNotEmpty())) {
+            AnimatedVisibility(visible = mentionActive && (matchingFiles.isNotEmpty() || matchingSessions.isNotEmpty())) {
                 Column(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(DsShapes.block)
                         .background(colors.bgModulePlatform).border(1.dp, colors.borderL2, DsShapes.block),
                 ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = stringResource(R.string.common_cancel),
+                            tint = colors.labelSecondary,
+                            modifier = Modifier.clickable {
+                                activeMention?.let { mentionPickerState = mentionPickerState.dismiss(it) }
+                            }.padding(8.dp).size(18.dp),
+                        )
+                    }
                     matchingFiles.forEach { file ->
                         Text(
                             text = "@${file.name}", style = DsType.std14, color = colors.labelPrimary,
                             modifier = Modifier.fillMaxWidth().clickable {
-                                onDraftChange(draft.substringBeforeLast('@') + "@${file.name} ")
-                                filePickerOpen = false
+                                activeMention?.let { trigger ->
+                                    val mention = fileMention(file, trigger.quoted)
+                                    if (mention != null) {
+                                        val replacement = replaceMentionTrigger(draft, trigger, mention, complete = file.type != "directory")
+                                        input = TextFieldValue(replacement, TextRange(trigger.start + mention.length))
+                                        if (file.type != "directory") mentionPickerState = mentionPickerState.dismiss(trigger)
+                                        onDraftChange(replacement)
+                                    }
+                                }
                             }.padding(horizontal = 12.dp, vertical = 8.dp),
                         )
                     }
@@ -302,8 +316,12 @@ internal fun Composer(
                             text = "@${candidate.displayTitle ?: candidate.label}",
                             style = DsType.std14, color = colors.labelPrimary,
                             modifier = Modifier.fillMaxWidth().clickable {
-                                onDraftChange(insertSessionMention(draft, candidate))
-                                filePickerOpen = false
+                                activeMention?.let { trigger ->
+                                    val replacement = replaceMentionTrigger(draft, trigger, candidate.mention, complete = true)
+                                    input = TextFieldValue(replacement, TextRange(trigger.start + candidate.mention.length))
+                                    mentionPickerState = mentionPickerState.dismiss(trigger)
+                                    onDraftChange(replacement)
+                                }
                             }.padding(horizontal = 12.dp, vertical = 8.dp),
                         )
                     }

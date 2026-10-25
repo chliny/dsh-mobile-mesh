@@ -18,7 +18,8 @@ class SessionMentionInsertionTest {
     @Test fun `switching sessions reissues the current mention query`() {
         val composer = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/Composer.kt").readText()
         val chat = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/ChatScreen.kt").readText()
-        assertTrue(composer.contains("LaunchedEffect(mentionActive, mentionQuery, referenceSessionId)"))
+        assertTrue(composer.contains("LaunchedEffect(mentionQuery, activeMention?.start, mentionActive, referenceSessionId)"))
+        assertTrue(chat.contains("var mentionQuery by remember(currentSessionId)"))
         assertTrue(chat.contains("referenceSessionId = currentSessionId"))
     }
 }
