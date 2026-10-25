@@ -16,7 +16,9 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
@@ -218,7 +220,10 @@ internal fun CommonMarkMarkdown(
     if (content == null) {
         MarkdownLoadingPreview(text, modifier)
     } else {
-        androidx.compose.foundation.layout.Column(modifier = modifier.fillMaxWidth()) {
+        androidx.compose.foundation.layout.Column(
+            modifier = modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             content.parts.forEach { part ->
                 when (part) {
                     is MarkdownPart.Html -> AndroidView(
@@ -313,7 +318,7 @@ internal fun renderCommonMarkFragment(markdown: String): String =
 
 /** Be forgiving of a space before a closing strong delimiter, common in generated CJK prose. */
 private fun normalizeStrongDelimiterWhitespace(markdown: String): String =
-    markdown.replace(Regex("(?<!\\\\)\\*\\*([^*\\n]+?)\\s+\\*\\*"), "<strong>$1</strong>")
+    markdown.replace(Regex("(?<!\\\\)\\*\\*([^*\\n]+?)[ \\t]+\\*\\*"), "<strong>$1</strong>")
 
 internal data class MarkdownCodeBlock(val code: String, val language: String?)
 internal sealed interface MarkdownPart {
@@ -345,6 +350,13 @@ private fun renderMarkdownParts(
     openAsset: (String) -> java.io.InputStream,
 ): List<MarkdownPart> {
     val parts = mutableListOf<MarkdownPart>()
+    val htmlFragment = StringBuilder()
+    fun flushHtml() {
+        if (htmlFragment.isNotEmpty()) {
+            parts += MarkdownPart.Html(wrapMarkdownHtml(htmlFragment.toString(), colors))
+            htmlFragment.clear()
+        }
+    }
     var codeIndex = 0
     var node = document.firstChild
     while (node != null) {
@@ -356,6 +368,7 @@ private fun renderMarkdownParts(
             else -> null
         }
         if (directCode != null) {
+            flushHtml()
             parts += MarkdownPart.Code(directCode)
             codeIndex++
         } else {
@@ -367,10 +380,11 @@ private fun renderMarkdownParts(
                 )
                 codeIndex += nestedBlocks.size
             }
-            parts += MarkdownPart.Html(wrapMarkdownHtml(fragment, colors))
+            htmlFragment.append(fragment)
         }
         node = node.next
     }
+    flushHtml()
     return parts
 }
 
@@ -540,7 +554,7 @@ private fun wrapMarkdownHtml(fragment: String, colors: DsColors): String {
           * { box-sizing: border-box; }
           html, body { margin: 0; padding: 0; background: transparent; color: $text; }
           body { font-family: sans-serif; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
-          p { margin: 0 0 1em; white-space: pre-wrap; }
+          p { margin: 0 0 1em; white-space: normal; }
           p:last-child, ul:last-child, ol:last-child, blockquote:last-child, pre:last-child, table:last-child { margin-bottom: 0; }
           h1, h2, h3, h4, h5, h6 { color: $text; line-height: 1.25; margin: 1em 0 .45em; }
           h1 { font-size: 1.8em; } h2 { font-size: 1.55em; } h3 { font-size: 1.3em; }
