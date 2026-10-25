@@ -236,7 +236,8 @@ internal fun CommonMarkMarkdown(
                             webView.render(part.html)
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        onReset = { webView -> webView.prepareForReuse() },
+                        // Reusing a WebView in LazyColumn can measure the next message with the
+                        // previous document's height and leave a blank band while it loads.
                         onRelease = { webView -> webView.release() },
                     )
                     is MarkdownPart.Code -> MarkdownCodeBlockCard(
@@ -592,6 +593,10 @@ private class CommonMarkWebState {
 internal fun markdownWebViewContentHeight(contentHeightCssPx: Int, scale: Float): Int =
     ceil(contentHeightCssPx * scale).toInt().coerceAtLeast(1)
 
+/** A new document must never inherit the intrinsic height of the previous HTML page. */
+internal fun markdownWebViewMeasuredHeight(contentHeightCssPx: Int, scale: Float, documentReady: Boolean): Int =
+    if (documentReady) markdownWebViewContentHeight(contentHeightCssPx, scale) else 1
+
 internal fun canPostMarkdownVisualStateCallback(released: Boolean): Boolean = !released
 
 private class CommonMarkWebView(
@@ -600,13 +605,6 @@ private class CommonMarkWebView(
 ) : WebView(context) {
     fun bind(state: CommonMarkWebState) {
         this.state = state
-    }
-
-    fun prepareForReuse() {
-        stopLoading()
-        loadedHtml = null
-        onOpenLink = {}
-        onCopyCode = {}
     }
 
     private var released = false
@@ -627,6 +625,7 @@ private class CommonMarkWebView(
         set(value) { state.onCopyCode = value }
 
     private var loadedHtml: String? = null
+    private var documentReady = false
 
     init {
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -663,6 +662,7 @@ private class CommonMarkWebView(
                         view.postVisualStateCallback(System.nanoTime(), object : WebView.VisualStateCallback() {
                             override fun onComplete(requestId: Long) {
                                 if (!canPostMarkdownVisualStateCallback(released)) return
+                                documentReady = true
                                 view.requestLayout()
                                 view.invalidate()
                             }
@@ -676,6 +676,8 @@ private class CommonMarkWebView(
     fun render(html: String) {
         if (loadedHtml == html) return
         loadedHtml = html
+        documentReady = false
+        requestLayout()
         loadDataWithBaseURL(MARKDOWN_BASE_URL, html, "text/html", "UTF-8", null)
     }
 
@@ -697,7 +699,7 @@ private class CommonMarkWebView(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
-        val height = markdownWebViewContentHeight(contentHeight, scale)
+        val height = markdownWebViewMeasuredHeight(contentHeight, scale, documentReady)
         setMeasuredDimension(resolveSize(measuredWidth, widthMeasureSpec), resolveSize(height, heightMeasureSpec))
     }
 }
