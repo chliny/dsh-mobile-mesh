@@ -55,6 +55,59 @@ class TranscriptReadingPositionsTest {
     }
 
     @Test
+    fun `returning from a file waits for a missing historical row instead of jumping to the end`() {
+        val saved = TranscriptReadingPosition(seq = 42, offset = 75)
+        val firstPage = listOf(row(100), row(110))
+        assertTrue(shouldWaitForReadingAnchor(saved, firstPage, hasMore = true))
+        assertFalse(shouldRestoreTranscriptToBottom(saved))
+        assertFalse(shouldRecordReadingPosition(firstPage, saved, userScrolling = false, currentAtBottom = false))
+        assertTrue(shouldFetchReadingAnchorAfterPage(firstPage, saved, hasMore = true,
+            loadingOlder = false, lastRequestedOldestSeq = null, oldestEventSeq = 100))
+        assertFalse(shouldFetchReadingAnchorAfterPage(firstPage, saved, hasMore = true,
+            loadingOlder = false, lastRequestedOldestSeq = 100, oldestEventSeq = 100))
+        val secondPage = listOf(row(70), row(100), row(110))
+        assertTrue(shouldFetchReadingAnchorAfterPage(secondPage, saved, hasMore = true,
+            loadingOlder = false, lastRequestedOldestSeq = 100, oldestEventSeq = 70))
+        val restored = listOf(row(42), row(70), row(100), row(110))
+        assertEquals(0, readingPositionIndex(restored, saved))
+        assertFalse(shouldWaitForReadingAnchor(saved, restored, hasMore = true))
+        assertFalse(shouldFetchReadingAnchorAfterPage(restored, saved, hasMore = true,
+            loadingOlder = false, lastRequestedOldestSeq = 70, oldestEventSeq = 42))
+        assertEquals(75, saved.offset)
+        val source = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/ChatTranscript.kt").readText()
+        assertTrue(source.contains("else if (shouldWaitForReadingAnchor(saved, rows, hasMore))"))
+        assertTrue(source.contains("if (restoredSession != sessionId || restoreTarget != null) return@LaunchedEffect"))
+        assertTrue(source.contains("if (restoreTarget != null) return@collect"))
+    }
+
+    @Test
+    fun `leaving for session list captures the actual visible message and pixel offset`() {
+        val rows = listOf(row(10), row(42), row(100))
+        val visible = readingPositionForVisibleRow(rows, hasMore = true,
+            itemIndex = 2, itemKey = rows[1].key, firstVisibleIndex = 2,
+            firstVisibleOffset = 63, atBottom = false)
+        assertEquals(TranscriptReadingPosition(42, 63), visible)
+        assertEquals(1, readingPositionIndex(rows, visible!!))
+        assertNull(readingPositionForVisibleRow(rows, hasMore = true,
+            itemIndex = 2, itemKey = "stale-layout-key", firstVisibleIndex = 2,
+            firstVisibleOffset = 63, atBottom = false))
+        val source = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/ChatTranscript.kt").readText()
+        assertTrue(source.contains("readingPositionForVisibleRow(exitRows, exitHasMore"))
+        assertTrue(source.contains("readingPositions.put(sessionId, position)"))
+    }
+
+    @Test
+    fun `structural only pages advance the server cursor without advancing visible rows`() {
+        val saved = TranscriptReadingPosition(42, 75)
+        val unchangedRows = listOf(row(100), row(110))
+        assertFalse(shouldFetchReadingAnchorAfterPage(unchangedRows, saved, true, false, 95, 95))
+        assertTrue(shouldFetchReadingAnchorAfterPage(unchangedRows, saved, true, false, 95, 80))
+        assertFalse(shouldFetchReadingAnchorAfterPage(unchangedRows, saved, true, true, 95, 80))
+        assertTrue(shouldFetchReadingAnchorAfterPage(emptyList(), saved, true, false, null, 95))
+        assertFalse(canRestoreReadingPosition(emptyList()))
+    }
+
+    @Test
     fun `a session saved at bottom returns to tail not first visible node in current turn`() {
         val rows = listOf(row(10), row(20), row(30))
         // At the tail, the viewport can begin on an earlier node of this same long turn.
@@ -193,8 +246,8 @@ class TranscriptReadingPositionsTest {
     @Test
     fun `a cancelled initial scroll never marks the session restored`() {
         val source = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/ChatTranscript.kt").readText()
-        val effect = source.substringAfter("LaunchedEffect(newestSeq, sessionId) {")
-            .substringBefore("// The opening follow snapshot")
+        val effect = source.substringAfter("LaunchedEffect(newestRowKey, sessionId) {")
+            .substringBefore("// A returning reader can be farther back")
         val savedScroll = effect.indexOf("listState.scrollToItem(index")
         val tailScroll = effect.indexOf("scrollTranscriptToEnd(listState")
         val committed = effect.indexOf("lastSession = sessionId")

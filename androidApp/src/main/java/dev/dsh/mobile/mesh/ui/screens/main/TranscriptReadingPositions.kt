@@ -13,6 +13,20 @@ internal data class TranscriptReadingPosition(
     val atBottom: Boolean = false,
 )
 
+internal fun readingPositionForVisibleRow(
+    rows: List<TranscriptRow>,
+    hasMore: Boolean,
+    itemIndex: Int,
+    itemKey: Any,
+    firstVisibleIndex: Int,
+    firstVisibleOffset: Int,
+    atBottom: Boolean,
+): TranscriptReadingPosition? {
+    val row = rows.getOrNull(itemIndex - if (hasMore) 1 else 0) ?: return null
+    if (row.key != itemKey) return null // Ignore a layout from a previous follow window.
+    return readingPositionOf(row, if (itemIndex == firstVisibleIndex) firstVisibleOffset else 0, atBottom)
+}
+
 internal fun readingPositionOf(
     row: TranscriptRow,
     offset: Int,
@@ -103,6 +117,24 @@ internal val transcriptReadingPositionsSaver = listSaver<TranscriptReadingPositi
 
 /** Whether a returning session should restore its semantic tail rather than its first visible row. */
 internal fun shouldRestoreTranscriptToBottom(position: TranscriptReadingPosition?): Boolean = position?.atBottom == true
+
+/** Do not turn a missing historical anchor into a tail visit while server pages are loading. */
+internal fun shouldWaitForReadingAnchor(
+    position: TranscriptReadingPosition?,
+    rows: List<TranscriptRow>,
+    hasMore: Boolean,
+): Boolean = position != null && !position.atBottom && hasMore && readingPositionIndex(rows, position) < 0
+
+/** A page may be requested once per oldest row; a new page permits the next request. */
+internal fun shouldFetchReadingAnchorAfterPage(
+    rows: List<TranscriptRow>,
+    saved: TranscriptReadingPosition?,
+    hasMore: Boolean,
+    loadingOlder: Boolean,
+    lastRequestedOldestSeq: Long?,
+    oldestEventSeq: Long?,
+): Boolean = oldestEventSeq != null && saved != null && !saved.atBottom && hasMore &&
+    !loadingOlder && oldestEventSeq != lastRequestedOldestSeq && readingPositionIndex(rows, saved) < 0
 
 /** A paging sentinel or waiting indicator is not a readable anchor for session restoration. */
 internal fun canRestoreReadingPosition(rows: List<TranscriptRow>): Boolean = rows.isNotEmpty()
