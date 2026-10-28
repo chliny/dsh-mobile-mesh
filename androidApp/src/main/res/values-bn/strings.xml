@@ -36,6 +36,8 @@
     <string name="connect_button">সংযুক্ত হোন</string>
     <string name="connect_transport_direct">সরাসরি</string>
     <string name="connect_transport_zerotier">ZeroTier</string>
+    <string name="zero_tier_node_unavailable">ZeroTier নোড অনলাইনে আসেনি; ইন্টারনেট সংযোগ পরীক্ষা করুন।</string>
+    <string name="zero_tier_target_unreachable">ZeroTier নোড অনলাইনে আছে, কিন্তু দূরবর্তী সার্ভারে পৌঁছানো যাচ্ছে না; নেটওয়ার্ক ও সার্ভার পরীক্ষা করুন।</string>
     <string name="connect_transport_tailscale">Tailscale</string>
     <string name="connect_zerotier_network_id">ZeroTier নেটওয়ার্ক ID</string>
     <string name="connect_tailscale_hostname">Tailscale ডিভাইসের নাম (ঐচ্ছিক)</string>

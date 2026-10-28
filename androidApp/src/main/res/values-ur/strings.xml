@@ -36,6 +36,8 @@
     <string name="connect_button">منسلک ہوں</string>
     <string name="connect_transport_direct">براہ راست</string>
     <string name="connect_transport_zerotier">ZeroTier</string>
+    <string name="zero_tier_node_unavailable">ZeroTier نوڈ آن لائن نہیں ہو سکا؛ انٹرنیٹ کنکشن چیک کریں۔</string>
+    <string name="zero_tier_target_unreachable">ZeroTier نوڈ آن لائن ہے، لیکن ریموٹ سرور تک رسائی نہیں ہو رہی؛ نیٹ ورک اور سرور چیک کریں۔</string>
     <string name="connect_transport_tailscale">Tailscale</string>
     <string name="connect_zerotier_network_id">ZeroTier نیٹ ورک ID</string>
     <string name="connect_tailscale_hostname">Tailscale ڈیوائس نام (اختیاری)</string>

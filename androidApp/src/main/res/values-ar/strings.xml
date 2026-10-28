@@ -36,6 +36,8 @@
     <string name="connect_button">اتصال</string>
     <string name="connect_transport_direct">مباشر</string>
     <string name="connect_transport_zerotier">ZeroTier</string>
+    <string name="zero_tier_node_unavailable">لم تتصل عقدة ZeroTier بالشبكة؛ تحقق من الاتصال بالإنترنت.</string>
+    <string name="zero_tier_target_unreachable">عقدة ZeroTier متصلة بالشبكة، لكن يتعذر الوصول إلى الخادم البعيد؛ تحقق من الشبكة والخادم.</string>
     <string name="connect_transport_tailscale">Tailscale</string>
     <string name="connect_zerotier_network_id">معرّف شبكة ZeroTier</string>
     <string name="connect_tailscale_hostname">اسم جهاز Tailscale (اختياري)</string>

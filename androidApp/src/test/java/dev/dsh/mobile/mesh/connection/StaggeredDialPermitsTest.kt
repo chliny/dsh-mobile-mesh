@@ -54,6 +54,40 @@ class StaggeredDialPermitsTest {
         assertNull(permits.tryAcquire())
     }
 
+    @Test fun `expired recovery native dials occupy slots until the blocking calls finish`() {
+        var now = 0L
+        val native = NativeDialPermits(maxConcurrentDials = 2)
+        val previous = RecoveryDialPermits(1_200, 2, native) { now }
+        assertEquals(1, previous.tryAcquire())
+        now = 1_200_000_000L
+        assertEquals(2, previous.tryAcquire())
+
+        // The previous readiness wait times out; its detached native calls are still running.
+        val next = RecoveryDialPermits(1_200, 2, native) { now }
+        assertNull(next.tryAcquire())
+        assertEquals(0, next.inFlight)
+        assertEquals(2, next.nativeInFlight)
+        previous.release()
+        assertEquals(1, next.tryAcquire())
+        assertNull(next.tryAcquire())
+        assertEquals(2, next.nativeInFlight)
+        previous.release()
+        next.release()
+        assertEquals(0, next.nativeInFlight)
+    }
+
+    @Test fun `single dial mode bounds native connects across recovery waits`() {
+        val native = NativeDialPermits(maxConcurrentDials = 1)
+        val previous = RecoveryDialPermits(1_200, 1, native)
+        val next = RecoveryDialPermits(1_200, 1, native)
+        assertEquals(1, previous.tryAcquire())
+        assertNull(next.tryAcquire())
+        previous.release()
+        assertEquals(1, next.tryAcquire())
+        next.release()
+        assertEquals(0, native.inFlight)
+    }
+
     @Test fun `quick failure resets delay for next attempt`() {
         var now = 0L
         val permits = StaggeredDialPermits(1_200) { now }

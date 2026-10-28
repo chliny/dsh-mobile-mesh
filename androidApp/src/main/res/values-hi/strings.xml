@@ -36,6 +36,8 @@
     <string name="connect_button">कनेक्ट करें</string>
     <string name="connect_transport_direct">सीधा</string>
     <string name="connect_transport_zerotier">ZeroTier</string>
+    <string name="zero_tier_node_unavailable">ZeroTier नोड ऑनलाइन नहीं हो पाया; इंटरनेट कनेक्शन जाँचें।</string>
+    <string name="zero_tier_target_unreachable">ZeroTier नोड ऑनलाइन है, लेकिन रिमोट सर्वर तक पहुँचा नहीं जा सकता; नेटवर्क और सर्वर जाँचें।</string>
     <string name="connect_transport_tailscale">Tailscale</string>
     <string name="connect_zerotier_network_id">ZeroTier नेटवर्क ID</string>
     <string name="connect_tailscale_hostname">Tailscale डिवाइस नाम (वैकल्पिक)</string>
