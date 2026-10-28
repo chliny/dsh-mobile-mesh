@@ -36,6 +36,8 @@
     <string name="connect_button">Conectar</string>
     <string name="connect_transport_direct">Direto</string>
     <string name="connect_transport_zerotier">ZeroTier</string>
+    <string name="zero_tier_node_unavailable">O nó ZeroTier não ficou online; verifique o acesso à internet.</string>
+    <string name="zero_tier_target_unreachable">O nó ZeroTier está online, mas o servidor remoto está inacessível; verifique a rede e o servidor.</string>
     <string name="connect_transport_tailscale">Tailscale</string>
     <string name="connect_zerotier_network_id">ID da rede ZeroTier</string>
     <string name="connect_tailscale_hostname">Nome do dispositivo Tailscale (opcional)</string>

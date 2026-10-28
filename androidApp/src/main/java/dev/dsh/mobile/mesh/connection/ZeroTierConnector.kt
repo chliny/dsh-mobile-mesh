@@ -3,6 +3,7 @@ package dev.dsh.mobile.mesh.connection
 import android.content.Context
 import android.util.Log
 import dev.dsh.mobile.mesh.BuildConfig
+import dev.dsh.mobile.mesh.R
 import com.zerotier.sockets.ZeroTierEventListener
 import com.zerotier.sockets.ZeroTierNative
 import com.zerotier.sockets.ZeroTierNode
@@ -44,6 +45,7 @@ class ZeroTierConnector @Inject constructor(
     private val planets: ZeroTierPlanetStore,
 ) : MeshConnector {
     private val executor = Executors.newCachedThreadPool()
+    private val nativeDialPermits = NativeDialPermits(BuildConfig.ZERO_TIER_MAX_CONCURRENT_DIALS)
     private val lock = Any()
     private var node: ZeroTierNode? = null
     private var relay: ZeroTierRelay? = null
@@ -146,7 +148,10 @@ class ZeroTierConnector @Inject constructor(
             detail = "signal=$readySignal online=${isServiceOnline()}",
         )
         check(readySignal != ZERO_TIER_TIMEOUT_SIGNAL) {
-            "ZeroTier node did not come online; check internet access"
+            context.getString(
+                if (isServiceOnline()) R.string.zero_tier_target_unreachable
+                else R.string.zero_tier_node_unavailable,
+            )
         }
         val joinStart = timing.start("join")
         var joined = false
@@ -231,7 +236,10 @@ class ZeroTierConnector @Inject constructor(
             detail = "signal=$readySignal online=${isServiceOnline()}",
         )
         check(readySignal != ZERO_TIER_TIMEOUT_SIGNAL) {
-            "ZeroTier node did not come online; check internet access"
+            context.getString(
+                if (isServiceOnline()) R.string.zero_tier_target_unreachable
+                else R.string.zero_tier_node_unavailable,
+            )
         }
         val addressStart = timing.start("await-address")
         awaitAddress(current, networkId, state)
@@ -275,7 +283,7 @@ class ZeroTierConnector @Inject constructor(
         // Native connect blocks, so dials run on the connector executor. The registry bounds each
         // call and closes any socket that finishes after this readiness generation is retired.
         val maxConcurrentDials = BuildConfig.ZERO_TIER_MAX_CONCURRENT_DIALS
-        val permits = StaggeredDialPermits(SECOND_DIAL_AFTER_MILLIS, maxConcurrentDials)
+        val permits = RecoveryDialPermits(SECOND_DIAL_AFTER_MILLIS, maxConcurrentDials, nativeDialPermits)
         Log.d(TAG, "recovery dial policy maxConcurrent=$maxConcurrentDials secondAfterMs=$SECOND_DIAL_AFTER_MILLIS")
         val pendingDials = BoundedConnectRegistry<ZeroTierSocket> { socket -> runCatching { socket.close() } }
         val dialed = SingleClaim<DialedTarget> { (socket, _) -> runCatching { socket.close() } }
@@ -301,7 +309,7 @@ class ZeroTierConnector @Inject constructor(
                                         pendingDials,
                                     )
                                     if (connection != null) {
-                                        Log.d(TAG, "remote-dial winner slot=$slot elapsedMs=${elapsedMsSince(startedAt)}")
+                                        Log.d(TAG, "remote-dial candidate slot=$slot elapsedMs=${elapsedMsSince(startedAt)}")
                                         dialed.publish(connection)
                                         onConnected()
                                     }
@@ -322,7 +330,8 @@ class ZeroTierConnector @Inject constructor(
                         TAG,
                         "sample $note elapsedMs=${elapsedMsSince(startedAt)} online=${isServiceOnline()}" +
                             " transportReady=${transportReady(networkId)} address=${hasAddress(networkId)}" +
-                            " dialInFlight=${inFlight > 0} concurrent=$inFlight",
+                            " dialInFlight=${inFlight > 0} concurrent=$inFlight" +
+                            " nativeConcurrent=${permits.nativeInFlight}",
                     )
                 },
             )

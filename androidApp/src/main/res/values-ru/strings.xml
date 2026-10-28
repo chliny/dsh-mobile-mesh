@@ -36,6 +36,8 @@
     <string name="connect_button">Подключиться</string>
     <string name="connect_transport_direct">Напрямую</string>
     <string name="connect_transport_zerotier">ZeroTier</string>
+    <string name="zero_tier_node_unavailable">Узел ZeroTier не вышел в сеть; проверьте подключение к интернету.</string>
+    <string name="zero_tier_target_unreachable">Узел ZeroTier в сети, но удалённый сервер недоступен; проверьте сеть и сервер.</string>
     <string name="connect_transport_tailscale">Tailscale</string>
     <string name="connect_zerotier_network_id">Идентификатор сети ZeroTier</string>
     <string name="connect_tailscale_hostname">Имя устройства Tailscale (необязательно)</string>

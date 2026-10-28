@@ -35,3 +35,48 @@ internal class StaggeredDialPermits(
 
     @get:Synchronized val inFlight: Int get() = count
 }
+
+/** Counts native connects across recovery generations, including timed-out waits' late dials. */
+internal class NativeDialPermits(private val maxConcurrentDials: Int) {
+    init { require(maxConcurrentDials in 1..2) }
+
+    private var count = 0
+
+    @Synchronized fun tryAcquire(): Boolean {
+        if (count >= maxConcurrentDials) return false
+        count++
+        return true
+    }
+
+    @Synchronized fun release() {
+        check(count > 0) { "release without a native dial" }
+        count--
+    }
+
+    @get:Synchronized val inFlight: Int get() = count
+}
+
+/** Preserve per-wait stagger while respecting the connector-wide native socket budget. */
+internal class RecoveryDialPermits(
+    secondAfterMillis: Long,
+    maxConcurrentDials: Int,
+    private val native: NativeDialPermits,
+    nowNanos: () -> Long = System::nanoTime,
+) {
+    private val staggered = StaggeredDialPermits(secondAfterMillis, maxConcurrentDials, nowNanos)
+
+    fun tryAcquire(): Int? {
+        val slot = staggered.tryAcquire() ?: return null
+        if (native.tryAcquire()) return slot
+        staggered.release()
+        return null
+    }
+
+    fun release() {
+        staggered.release()
+        native.release()
+    }
+
+    val inFlight: Int get() = staggered.inFlight
+    val nativeInFlight: Int get() = native.inFlight
+}

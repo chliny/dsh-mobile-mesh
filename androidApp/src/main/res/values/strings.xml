@@ -67,6 +67,8 @@
     <string name="connect_delete_message">This will remove the saved connection and its SSH credentials from this device.</string>
     <string name="connect_transport_direct">Direct</string>
     <string name="connect_transport_zerotier">ZeroTier</string>
+    <string name="zero_tier_node_unavailable">ZeroTier node did not come online; check internet access.</string>
+    <string name="zero_tier_target_unreachable">ZeroTier node is online, but the remote server is unreachable; check the network and server.</string>
     <string name="connect_transport_tailscale">Tailscale</string>
     <string name="connect_zerotier_network_id">ZeroTier network ID</string>
     <string name="connect_zerotier_planet_import" translatable="false">Import custom planet</string>

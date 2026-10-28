@@ -36,6 +36,8 @@
     <string name="connect_button">เชื่อมต่อ</string>
     <string name="connect_transport_direct">โดยตรง</string>
     <string name="connect_transport_zerotier">ZeroTier</string>
+    <string name="zero_tier_node_unavailable">โหนด ZeroTier ไม่สามารถออนไลน์ได้ โปรดตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</string>
+    <string name="zero_tier_target_unreachable">โหนด ZeroTier ออนไลน์แล้ว แต่ไม่สามารถเข้าถึงเซิร์ฟเวอร์ปลายทางได้ โปรดตรวจสอบเครือข่ายและเซิร์ฟเวอร์</string>
     <string name="connect_transport_tailscale">Tailscale</string>
     <string name="connect_zerotier_network_id">รหัสเครือข่าย ZeroTier</string>
     <string name="connect_tailscale_hostname">ชื่ออุปกรณ์ Tailscale (ไม่บังคับ)</string>

@@ -55,6 +55,8 @@
     <string name="connect_delete_message">这将从此设备删除已保存的连接及其 SSH 凭据。</string>
     <string name="connect_transport_direct">直接连接</string>
     <string name="connect_transport_zerotier">ZeroTier</string>
+    <string name="zero_tier_node_unavailable">ZeroTier 节点未能上线；请检查互联网连接。</string>
+    <string name="zero_tier_target_unreachable">ZeroTier 节点已上线，但无法连接远程服务器；请检查网络和服务器。</string>
     <string name="connect_transport_tailscale">Tailscale</string>
     <string name="connect_zerotier_network_id">ZeroTier 网络 ID</string>
     <string name="connect_tailscale_hostname">Tailscale 设备名称（可选）</string>
