@@ -15,10 +15,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -35,7 +33,6 @@ class HostsStore @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private object Keys {
-        val HOSTS = stringPreferencesKey("hosts_json")
         val AUTO_LAST = booleanPreferencesKey("auto_last")
         val AUTO_LAN = booleanPreferencesKey("auto_lan")
         val AUTO_LOOPBACK = booleanPreferencesKey("auto_loopback")
@@ -51,10 +48,10 @@ class HostsStore @Inject constructor(
         val UPDATE_CHECK = booleanPreferencesKey("update_check")
         val DISMISSED_UPDATE = stringPreferencesKey("dismissed_update")
         val CONNECTION_DRAFT = stringPreferencesKey("connection_draft_json")
-        val ACTIVE_CONNECTION_ID = stringPreferencesKey("active_connection_id")
+        val ACTIVE_CONNECTION_ID = RememberedHostsStorage.ACTIVE_CONNECTION_ID
     }
 
-    private val hostsSerializer = ListSerializer(HostConfig.serializer())
+    private val rememberedHosts = RememberedHostsStorage(dataStore)
     private val workspaceExpansionSerializer = MapSerializer(String.serializer(), Boolean.serializer())
     private val settingUpdates = SettingUpdateSerialiser()
 
@@ -90,40 +87,18 @@ class HostsStore @Inject constructor(
         dataStore.edit { it.remove(Keys.CONNECTION_DRAFT) }
     }
 
-    val hosts: Flow<List<HostConfig>> = dataStore.data.map { prefs ->
-        val raw = prefs[Keys.HOSTS] ?: return@map emptyList()
-        runCatching {
-            WireJson.decodeFromString(hostsSerializer, raw).sortedByDescending { it.lastConnectedAt }
-        }.getOrDefault(emptyList())
-    }
+    val hosts: Flow<List<HostConfig>> = rememberedHosts.hosts
 
     val settings: Flow<AppSettings> = dataStore.data.map(::settingsFrom)
 
     suspend fun settingsOnce(): AppSettings = settings.first()
 
-    suspend fun upsertHost(config: HostConfig) {
-        val current = hosts.first().toMutableList()
-        val existing = current.firstOrNull { it.id == config.id || it.connectionIdentity() == config.connectionIdentity() }
-        val merged = mergeRememberedHost(existing, config)
-        current.removeAll { it.id == config.id || it.connectionIdentity() == config.connectionIdentity() }
-        current.add(0, merged)
-        persist(current)
-    }
+    suspend fun upsertHost(config: HostConfig) = rememberedHosts.upsertHost(config)
 
-    suspend fun touchHost(host: String, port: Int) {
-        val current = hosts.first().map {
-            if (it.host == host && it.port == port) it.copy(lastConnectedAt = System.currentTimeMillis()) else it
-        }
-        persist(current)
-    }
+    suspend fun touchHost(host: String, port: Int) = rememberedHosts.touchHost(host, port)
 
     /** Replace the process-startup token only for its associated saved connection. */
-    suspend fun saveLaunchToken(hostId: String, token: String) {
-        val current = hosts.first().map {
-            if (it.id == hostId) it.copy(launchToken = token) else it
-        }
-        persist(current)
-    }
+    suspend fun saveLaunchToken(hostId: String, token: String) = rememberedHosts.saveLaunchToken(hostId, token)
 
     /**
      * Remember (or refresh) one endpoint.
@@ -151,79 +126,33 @@ class HostsStore @Inject constructor(
         sshUsername: String? = null,
         sshAuthentication: SshAuthentication = SshAuthentication.PASSWORD,
         sshDshHost: String = "127.0.0.1",
-    ): HostConfig {
-        val incomingIdentity = ConnectionIdentity(host.trim().lowercase(), port, sshEnabled, meshTransport?.storedValue ?: "direct")
-        val existing = hosts.first().firstOrNull { it.connectionIdentity() == incomingIdentity }
-        val config = HostConfig(
-            id = existing?.id ?: UUID.randomUUID().toString(),
-            name = name.trim().ifEmpty { existing?.name ?: host },
-            host = host,
-            port = port,
-            isLoopback = isLoopback,
-            lastConnectedAt = System.currentTimeMillis(),
-            lastHome = description?.home ?: existing?.lastHome,
-            lastProtocol = existing?.lastProtocol,
-            useTls = useTls,
-            meshTransport = meshTransport,
-            zeroTierNetworkId = zeroTierNetworkId?.takeIf { meshTransport == MeshTransport.ZERO_TIER },
-            zeroTierPlanetId = retainedZeroTierPlanetId(
-                meshTransport,
-                zeroTierPlanetId,
-                existing?.zeroTierPlanetId,
-            ),
-            zeroTierPlanetBase64 = (zeroTierPlanetBase64 ?: existing?.zeroTierPlanetBase64)
-                ?.takeIf { meshTransport == MeshTransport.ZERO_TIER },
-            tailscaleHostname = tailscaleHostname?.takeIf { meshTransport == MeshTransport.TAILSCALE },
-            sshEnabled = sshEnabled,
-            sshPort = sshPort,
-            sshUsername = sshUsername,
-            sshAuthentication = sshAuthentication,
-            sshDshHost = sshDshHost,
-            launchToken = existing?.launchToken.orEmpty(),
-        )
-        upsertHost(config)
-        return config
-    }
+    ): HostConfig = rememberedHosts.rememberHost(
+        name = name,
+        host = host,
+        port = port,
+        isLoopback = isLoopback,
+        useTls = useTls,
+        description = description,
+        meshTransport = meshTransport,
+        zeroTierNetworkId = zeroTierNetworkId,
+        zeroTierPlanetId = zeroTierPlanetId,
+        zeroTierPlanetBase64 = zeroTierPlanetBase64,
+        tailscaleHostname = tailscaleHostname,
+        sshEnabled = sshEnabled,
+        sshPort = sshPort,
+        sshUsername = sshUsername,
+        sshAuthentication = sshAuthentication,
+        sshDshHost = sshDshHost,
+    )
 
     /** Fold a fresh host description into the remembered entry without touching its recency. */
-    suspend fun cacheDescription(host: String, port: Int, description: HostDescription) {
-        val current = hosts.first()
-        if (current.none { it.host == host && it.port == port }) return
-        persist(
-            current.map {
-                if (it.host == host && it.port == port) {
-                    it.copy(lastHome = description.home)
-                } else {
-                    it
-                }
-            },
-        )
-    }
+    suspend fun cacheDescription(host: String, port: Int, description: HostDescription) =
+        rememberedHosts.cacheDescription(host, port, description)
 
-    suspend fun importHosts(imported: List<HostConfig>, replaceExistingIds: Set<String>): Map<String, String> {
-        if (imported.isEmpty()) return emptyMap()
-        val current = hosts.first().toMutableList()
-        val idMapping = linkedMapOf<String, String>()
-        imported.distinctBy(HostConfig::connectionIdentity).forEach { config ->
-            val existing = current.firstOrNull { it.connectionIdentity() == config.connectionIdentity() }
-            if (existing != null && existing.id !in replaceExistingIds) {
-                return@forEach
-            }
-            val importedConfig = if (existing != null) config.copy(id = existing.id) else config
-            current.removeAll { it.id == importedConfig.id }
-            current.add(mergeRememberedHost(existing, importedConfig))
-            idMapping[config.id] = importedConfig.id
-        }
-        persist(current)
-        return idMapping
-    }
+    suspend fun importHosts(imported: List<HostConfig>, replaceExistingIds: Set<String>): Map<String, String> =
+        rememberedHosts.importHosts(imported, replaceExistingIds)
 
-    suspend fun removeHost(id: String) {
-        persist(hosts.first().filterNot { it.id == id })
-        dataStore.edit { prefs ->
-            if (prefs[Keys.ACTIVE_CONNECTION_ID] == id) prefs.remove(Keys.ACTIVE_CONNECTION_ID)
-        }
-    }
+    suspend fun removeHost(id: String) = rememberedHosts.removeHost(id)
 
     suspend fun activeConnectionId(): String? = dataStore.data.first()[Keys.ACTIVE_CONNECTION_ID]
 
@@ -297,9 +226,5 @@ class HostsStore @Inject constructor(
             updateCheckEnabled = prefs[Keys.UPDATE_CHECK] ?: true,
             dismissedUpdate = prefs[Keys.DISMISSED_UPDATE],
         )
-    }
-
-    private suspend fun persist(list: List<HostConfig>) {
-        dataStore.edit { it[Keys.HOSTS] = WireJson.encodeToString(hostsSerializer, list) }
     }
 }

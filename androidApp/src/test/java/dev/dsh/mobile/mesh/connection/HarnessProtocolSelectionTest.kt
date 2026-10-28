@@ -182,6 +182,76 @@ class HarnessProtocolSelectionTest {
         })
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun `list and projection share one discovery timeout budget`() = kotlinx.coroutines.test.runTest {
+        val selection = HarnessProtocolSelection(HarnessProtocol.PARENT_CATALOG)
+        var projectionStarted = false
+        assertEquals(HarnessProtocol.PARENT_CATALOG, selection.detect(
+            probe = { delay(6_000); RpcResult.Ok(list("""{"items":[]}""")) },
+            probeProjection = {
+                projectionStarted = true
+                delay(6_000)
+                RpcResult.Ok(kotlinx.serialization.json.JsonNull)
+            },
+        ))
+        assertEquals(true, projectionStarted)
+        assertEquals(8_000L, testScheduler.currentTime)
+        assertEquals(true, selection.supports(HarnessCapability.SUBAGENT_PROJECTION))
+    }
+
+    @Test fun `failed background discovery leaves unknown version retryable`() = runBlocking {
+        val selection = HarnessProtocolSelection()
+        assertEquals(HarnessProtocol.UNDETERMINED, selection.detectOptional(
+            probe = { RpcResult.Ok(list("""{"items":[]}""")) },
+            probeProjection = { RpcResult.Err(RpcError("session/not-found", "session unavailable")) },
+        ))
+        assertNull(selection.supports(HarnessCapability.SUBAGENT_PROJECTION))
+        assertEquals(HarnessProtocol.PARENT_CATALOG, selection.detectOptional(
+            probe = { RpcResult.Ok(list("""{"items":[{"sessionId":"s1","agentAvailable":true}]}""")) },
+            probeProjection = { error("must not run") },
+        ))
+    }
+
+    @Test fun `background discovery propagates caller cancellation rather than using cache`() = runBlocking {
+        val selection = HarnessProtocolSelection(HarnessProtocol.PARENT_CATALOG)
+        assertThrows(kotlinx.coroutines.CancellationException::class.java) {
+            runBlocking {
+                selection.detectOptional(
+                    probe = { throw kotlinx.coroutines.CancellationException("connection retired") },
+                    probeProjection = { error("must not run") },
+                )
+            }
+        }
+        assertNull(selection.selected)
+    }
+
+    @Test fun `network error results preserve either remembered API generation`() = runBlocking {
+        for (protocol in listOf(HarnessProtocol.PARENT_CATALOG, HarnessProtocol.LEGACY_SUBAGENTS)) {
+            for (failure in listOf(TransportFailure.TIMEOUT, TransportFailure.UNREACHABLE, TransportFailure.PEER_CLOSED)) {
+                val selection = HarnessProtocolSelection(protocol)
+                assertEquals(protocol, selection.detect {
+                    RpcResult.Err(RpcError("transport", "network failed", TransportFailures.details(failure)))
+                })
+            }
+        }
+    }
+
+    @Test fun `recovery retries interrupted optional probes even with a settled API version`() = runBlocking {
+        val selection = HarnessProtocolSelection()
+        val protocol = selection.detect {
+            RpcResult.Ok(list("""{"items":[{"sessionId":"s1","agentAvailable":true}]}"""))
+        }
+        assertEquals(HarnessProtocol.PARENT_CATALOG, protocol)
+        assertEquals(true, needsDeferredCapabilityProbe(protocol, selection))
+        selection.observeProjectionKeys(mapOf("userQuestions" to kotlinx.serialization.json.JsonNull))
+        // The connection may recover here, before the terminal read finishes. A known protocol
+        // alone must not suppress discovery on the replacement generation.
+        assertEquals(true, needsDeferredCapabilityProbe(protocol, selection))
+        selection.probeBooleanCapability(HarnessCapability.TERMINAL) { RpcResult.Ok(emptyList<Any>()) }
+        assertEquals(false, needsDeferredCapabilityProbe(protocol, selection))
+        assertEquals(true, terminalCapabilityForConnection(selection, null, null))
+    }
+
     @Test fun `terminal capability probe only accepts existing route and caches result`() = runBlocking {
         val modern = HarnessProtocolSelection()
         var calls = 0
