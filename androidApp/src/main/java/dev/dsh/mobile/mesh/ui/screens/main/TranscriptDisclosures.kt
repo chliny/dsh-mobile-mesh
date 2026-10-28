@@ -121,6 +121,7 @@ internal fun rememberDisclosure(scope: DisclosureScope, key: String): Disclosure
  */
 internal object DisclosureKeys {
     fun changes(seq: Long) = "changes:$seq"
+    fun changedFile(seq: Long, index: Int) = "changes:$seq:file:$index"
     fun toolCall(callId: String) = "tool-call:$callId"
     fun todo(callId: String) = "todo:$callId"
     fun todoUnchanged(callId: String) = "todo-unchanged:$callId"

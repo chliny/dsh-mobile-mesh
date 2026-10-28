@@ -93,22 +93,24 @@ internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
             onToggle = expanded.onToggle,
         ) {
             summary?.files?.forEachIndexed { index, file ->
-                ChangedFileRow(store, sessionId, node.seq, index, file.path, file.display, file.added, file.deleted, context.onOpenFile, onOpenDiff = { context.onOpenChangedDiff?.invoke(node.seq, index, file.path, file.display, file.added, file.deleted) })
+                ChangedFileRow(store, sessionId, node.seq, index, file.path, file.display, file.added, file.deleted, context.onOpenFile, onOpenDiff = { context.onOpenChangedDiff?.invoke(node.seq, index, file.path, file.display, file.added, file.deleted) }, disclosure = context.disclosure(DisclosureKeys.changedFile(node.seq, index)))
             }
         }
     }
 }
 
 @Composable
-internal fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessionId: String, seq: Long, index: Int, path: String, display: String, added: Int, deleted: Int, onOpenFile: ((String, String) -> Unit)?, onOpenDiff: (() -> Unit)? = null, full: Boolean = false) {
+internal fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessionId: String, seq: Long, index: Int, path: String, display: String, added: Int, deleted: Int, onOpenFile: ((String, String) -> Unit)?, onOpenDiff: (() -> Unit)? = null, full: Boolean = false, disclosure: DisclosureBinding? = null) {
+    // The full-diff page has no file header; transcript files start closed independently of the parent.
+    val expanded = full || disclosure?.expanded == true
     // Same reasoning as the summary above, and the full-diff page reads this same entry: the reader
     // opens a diff here and comes back to it here, so one answer serves both.
     val cached = store.changesDiffNow(sessionId, seq, index)
     var diff by remember(sessionId, seq, index) { mutableStateOf(cached) }
     var error by remember(sessionId, seq, index) { mutableStateOf<dev.dsh.mobile.mesh.core.wire.RpcError?>(null) }
     var loading by remember(sessionId, seq, index) { mutableStateOf(cached == null) }
-    LaunchedEffect(sessionId, seq, index) {
-        if (diff != null) return@LaunchedEffect
+    LaunchedEffect(sessionId, seq, index, expanded) {
+        if (!expanded || diff != null) return@LaunchedEffect
         loading = true
         when (val result = store.loadChangesDiff(sessionId, seq, index)) {
             is RpcResult.Ok -> diff = result.value
@@ -122,8 +124,8 @@ internal fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessio
     val darkMode = isSystemInDarkTheme()
     val themeAsset = if (darkMode) "textmate-dark.json" else "textmate-light.json"
     val highlightIdentity = Triple(path, themeAsset, diff)
-    val loaded by produceState<Pair<Triple<String, String, ChangesDiff?>, TextMateCodeHighlighter?>?>(null, path, themeAsset, diff) {
-        value = highlightIdentity to if (diff is ChangesDiff.Text && grammarAsset != null) withContext(Dispatchers.Default) {
+    val loaded by produceState<Pair<Triple<String, String, ChangesDiff?>, TextMateCodeHighlighter?>?>(null, path, themeAsset, diff, expanded) {
+        value = highlightIdentity to if (expanded && diff is ChangesDiff.Text && grammarAsset != null) withContext(Dispatchers.Default) {
             runCatching { TextMateCodeHighlighter(assets.open(grammarAsset), assets.open(themeAsset)) { scope ->
                 textMateGrammarAssetForScope(scope)?.let(assets::open)
             } }
@@ -133,13 +135,19 @@ internal fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessio
     }
     val textMate = loaded?.takeIf { it.first == highlightIdentity }?.second
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        if (!full) Row(Modifier.fillMaxWidth().clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(path, display) }) {
-            Icon(Icons.Outlined.Description, contentDescription = null, tint = DsTheme.colors.labelSecondary)
+        if (!full) Row(Modifier.fillMaxWidth().clickable { disclosure?.onToggle?.invoke() }) {
+            Text(if (expanded) "▾" else "▸", style = DsType.small13, color = DsTheme.colors.labelTertiary)
+            Icon(
+                Icons.Outlined.Description,
+                contentDescription = display,
+                modifier = Modifier.padding(start = 4.dp).clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(path, display) },
+                tint = DsTheme.colors.labelSecondary,
+            )
             Text(display, modifier = Modifier.weight(1f).padding(start = 8.dp), style = DsType.small13, color = DsTheme.colors.labelPrimary)
             Text("+$added -$deleted", style = DsType.caption11, color = DsTheme.colors.labelTertiary)
             if (onOpenDiff != null) Text("完整差异 ↗", modifier = Modifier.padding(start = 8.dp).clickable(onClick = onOpenDiff), style = DsType.caption11, color = DsTheme.colors.labelSecondary)
         }
-        when (val value = diff) {
+        if (expanded) when (val value = diff) {
             is ChangesDiff.Text -> {
                 val plan = remember(value, full) { buildDiffHighlightPlan(value.hunks, if (full) Int.MAX_VALUE else 12) }
                 plan.lines.forEach { line ->
