@@ -34,6 +34,38 @@ class TranscriptDisclosuresTest {
     }
 
     @Test
+    fun `changed files start collapsed and open independently without closing their parent`() {
+        val scope = DisclosureScope(TranscriptDisclosures(), "session-1")
+        val parent = DisclosureKeys.changes(42)
+        val first = DisclosureKeys.changedFile(42, 0)
+        val second = DisclosureKeys.changedFile(42, 1)
+        val otherEvent = DisclosureKeys.changedFile(43, 0)
+
+        scope.binding(parent).onToggle()
+        assertFalse(scope.binding(first).expanded)
+        assertFalse(scope.binding(second).expanded)
+        scope.binding(first).onToggle()
+        assertTrue(scope.binding(first).expanded)
+        assertFalse(scope.binding(second).expanded)
+        assertFalse(scope.binding(otherEvent).expanded)
+        assertTrue(scope.binding(parent).expanded)
+        assertTrue(scope.binding(first).expanded) // Returning from the full-diff screen.
+        scope.binding(first).onToggle()
+        assertFalse(scope.binding(first).expanded)
+    }
+
+    @Test
+    fun `changed file preview loads only when opened and retains navigation actions`() {
+        val source = File(screenDir, "ChangesRow.kt").readText()
+        assertTrue(source.contains("disclosure = context.disclosure(DisclosureKeys.changedFile(node.seq, index))"))
+        assertTrue(source.contains("if (!expanded || diff != null) return@LaunchedEffect"))
+        assertTrue(source.contains("if (expanded) when (val value = diff)"))
+        assertTrue(source.contains("onOpenFile?.invoke(path, display)"))
+        assertTrue(source.contains("onClick = onOpenDiff"))
+        assertTrue(source.contains("val expanded = full || disclosure?.expanded == true"))
+    }
+
+    @Test
     fun `a closed row stays closed for the composition that replaces it`() {
         val scope = DisclosureScope(TranscriptDisclosures(), "session-1")
         val key = DisclosureKeys.changes(42)

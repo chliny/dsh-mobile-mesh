@@ -127,7 +127,7 @@ class ChangesPayloadCacheTest {
         assertTrue(row.contains("store.changesDiffNow(sessionId, seq, index)"))
         // And with content in hand it must not spend the round trip again.
         assertTrue(row.contains("if (summary != null) return@LaunchedEffect"))
-        assertTrue(row.contains("if (diff != null) return@LaunchedEffect"))
+        assertTrue(row.contains("if (!expanded || diff != null) return@LaunchedEffect"))
     }
 
     @Test
