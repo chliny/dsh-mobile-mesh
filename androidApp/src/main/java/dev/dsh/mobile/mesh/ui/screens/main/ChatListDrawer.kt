@@ -129,6 +129,10 @@ internal fun resetCollapsedWorkspacePages(
 internal enum class SessionGrouping { WORKSPACE, WORKSPACE_TREE, FLAT }
 internal enum class ArchivedSessionFilter { HIDE, SHOW, ONLY }
 
+/** A registered workspace has a header even when no visible session belongs to it yet. */
+internal fun showWorkspaceHeader(grouping: SessionGrouping, archivedFilter: ArchivedSessionFilter): Boolean =
+    grouping != SessionGrouping.FLAT && archivedFilter != ArchivedSessionFilter.ONLY
+
 /** Keep the registry's manual order; recency is the only mode allowed to reorder rows. */
 internal fun orderedSessionRoots(rows: List<SessionRow>, byRecency: Boolean): List<SessionRow> =
     if (byRecency) rows.sortedWith(compareByDescending<SessionRow> { it.updatedAt }.thenByDescending { it.sessionId })
@@ -275,13 +279,9 @@ fun ChatListDrawer(
         childrenByParent.values.flatten().mapTo(HashSet()) { it.sessionId }
     }
     val pinnedSet = pinnedIds.toSet()
-    val visibleRootIds = listable.mapTo(HashSet()) { it.sessionId }.apply {
-        removeAll(nestedIds)
-        removeAll(pinnedSet)
-    }
-    val visibleWorkspaceIds = workspaces.filter { workspace ->
-        workspace.sessionIds.any { it in visibleRootIds }
-    }.map(WorkspaceRow::workspaceId)
+    // Empty workspaces remain actionable in the list (notably their New session shortcut).
+    // Their order must also be movable before the first session is created.
+    val visibleWorkspaceIds = workspaces.map(WorkspaceRow::workspaceId)
     val pinnedRoots = pinnedRootIds(pinnedIds, listable.mapTo(HashSet()) { it.sessionId }, nestedIds)
         .mapNotNull(sessionsById::get)
     // Every session between the open one and the root, so a subtree holding it opens by default.
@@ -466,10 +466,10 @@ fun ChatListDrawer(
                 .mapNotNull { id -> listable.firstOrNull { it.sessionId == id } }
                 .filterNot { it.sessionId in nestedIds || it.sessionId in pinnedSet }
             for ((workspace, workspaceDepth) in displayedWorkspaces) {
-                if (grouping == SessionGrouping.FLAT || archivedFilter == ArchivedSessionFilter.ONLY) continue
+                if (!showWorkspaceHeader(grouping, archivedFilter)) continue
                 val roots = rootsOf(workspace)
-                // Tree mode keeps empty parents visible so their disclosure can reveal descendants.
-                if (roots.isEmpty() && !treeMode) continue
+                // A workspace is a registry row even before it owns a visible session. Keep its
+                // collapsed header and New session action available in every grouped view.
                 anyShown = true
                 // Workspace expansion is persisted per workspace; session-child expansion remains
                 // a local UI choice and does not affect the workspace preference.
