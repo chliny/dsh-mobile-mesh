@@ -2,9 +2,12 @@ package dev.dsh.mobile.mesh.core.wire
 
 import dev.dsh.mobile.mesh.core.wire.dto.SessionCreateRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionCreateValue
+import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceCreateRequest
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -17,6 +20,21 @@ class SessionCreateProtocolTest {
         assertFalse(payload.contains("sessionId"))
         assertFalse(payload.contains("agentPreset"))
         assertEquals("workspace-a", json.decodeFromString<SessionCreateRequest>(payload).workspaceId)
+    }
+
+    @Test fun `workspace creation sends the selected host path`() {
+        assertEquals("""{"path":"/work/new"}""", json.encodeToString(WorkspaceCreateRequest("/work/new")))
+    }
+
+    @Test fun `workspace session creation sends id without cwd and home creation sends neither`() {
+        val selected = json.parseToJsonElement(json.encodeToString(SessionCreateRequest(workspaceId = "workspace-a")))
+            .jsonObject
+        assertEquals("workspace-a", selected["workspaceId"]?.jsonPrimitive?.content)
+        assertFalse("cwd" in selected)
+
+        val home = json.parseToJsonElement(json.encodeToString(SessionCreateRequest())).jsonObject
+        assertFalse("workspaceId" in home)
+        assertFalse("cwd" in home)
     }
 
     @Test fun `host may select different session identity and omit preset`() {
