@@ -42,6 +42,24 @@ class SessionListViewOptionsTest {
     }
 
     @Test
+    fun `empty workspace retains its collapsed header in grouped session lists`() {
+        val emptyWorkspace = WorkspaceRow("new", "/work/new", "new", emptyList())
+        for (grouping in listOf(SessionGrouping.WORKSPACE, SessionGrouping.WORKSPACE_TREE)) {
+            assertEquals(true, showWorkspaceHeader(grouping, ArchivedSessionFilter.HIDE))
+            assertEquals(true, showWorkspaceHeader(grouping, ArchivedSessionFilter.SHOW))
+            assertEquals(listOf(emptyWorkspace), listOf(emptyWorkspace).filter {
+                showWorkspaceHeader(grouping, ArchivedSessionFilter.HIDE)
+            })
+        }
+        assertEquals(false, showWorkspaceHeader(SessionGrouping.FLAT, ArchivedSessionFilter.HIDE))
+        assertEquals(false, showWorkspaceHeader(SessionGrouping.WORKSPACE, ArchivedSessionFilter.ONLY))
+        val drawer = java.io.File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/ChatListDrawer.kt").readText()
+        val workspaceLoop = drawer.substringAfter("for ((workspace, workspaceDepth) in displayedWorkspaces)")
+            .substringBefore("// Sessions the harness never registered")
+        assertEquals(false, workspaceLoop.contains("if (roots.isEmpty()"))
+    }
+
+    @Test
     fun `collapsed workspace hides its descendants`() {
         val rows = listOf("/work", "/work/app", "/work/app/src")
             .mapIndexed { index, path -> WorkspaceRow(index.toString(), path, path, emptyList()) }
