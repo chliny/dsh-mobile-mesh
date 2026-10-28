@@ -1232,7 +1232,11 @@ private fun NewWorkspaceDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit
                     SheetRow(
                         title = entry.name,
                         subtitle = entry.path,
-                        onClick = { selectedPath = entry.path; load(entry.path) },
+                        onClick = {
+                            selectedPath = entry.path
+                            search = ""
+                            load(entry.path)
+                        },
                     )
                 }
             }
