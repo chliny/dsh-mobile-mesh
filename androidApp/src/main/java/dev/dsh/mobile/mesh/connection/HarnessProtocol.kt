@@ -35,6 +35,12 @@ internal fun terminalCapabilityForConnection(
 ): Boolean = selection.supports(HarnessCapability.TERMINAL)
     ?: (knownSessionId != null && probedSupported == true)
 
+/** Recovery reuses settled capabilities, but must retry reads interrupted after first publication. */
+internal fun needsDeferredCapabilityProbe(protocol: HarnessProtocol, selection: HarnessProtocolSelection): Boolean =
+    protocol == HarnessProtocol.UNDETERMINED ||
+        selection.supports(HarnessCapability.USER_QUESTIONS) != true ||
+        selection.supports(HarnessCapability.TERMINAL) == null
+
 /** One connection intent's observed protocol; automatic retries reuse its settled result. */
 internal class HarnessProtocolSelection(private val previous: HarnessProtocol? = null) {
     private val lock = Mutex()
@@ -86,8 +92,11 @@ internal class HarnessProtocolSelection(private val previous: HarnessProtocol? =
         // transiently unavailable session/list must not permanently suppress a later safe retry.
         selected?.takeUnless { it == HarnessProtocol.UNDETERMINED }?.let { return@withLock it }
         val next = try {
-            val result = withTimeoutOrNull(probeTimeoutMs) { probe() }
-            classifyProbeResult(result, probeProjection, probeTimeoutMs)
+            // One budget for the whole discovery, not a fresh budget for each route. An empty
+            // session list used to allow list + projection to block publication for up to 16s.
+            withTimeoutOrNull(probeTimeoutMs) {
+                classifyProbeResult(probe(), probeProjection)
+            } ?: HarnessProtocol.UNDETERMINED
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (probeFailure: ProtocolProbeException) {
@@ -105,17 +114,23 @@ internal class HarnessProtocolSelection(private val previous: HarnessProtocol? =
         resolved
     }
 
-    private suspend fun classifyProbeResult(
-        result: RpcResult<JsonElement>?,
+    /** Background discovery must not fail an already-published connection. */
+    suspend fun detectOptional(
+        probe: suspend () -> RpcResult<JsonElement>,
         probeProjection: suspend () -> RpcResult<*>,
-        probeTimeoutMs: Long,
+    ): HarnessProtocol = try {
+        detect(probe, probeProjection)
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (_: ProtocolProbeException) {
+        selected ?: HarnessProtocol.UNDETERMINED
+    }
+
+    private suspend fun classifyProbeResult(
+        result: RpcResult<JsonElement>,
+        probeProjection: suspend () -> RpcResult<*>,
     ): HarnessProtocol = when (result) {
-            null -> HarnessProtocol.UNDETERMINED
-            is RpcResult.Ok -> classifySessionList(result.value) ?: run {
-                val projection = withTimeoutOrNull(probeTimeoutMs) { probeProjection() }
-                    ?: return@run HarnessProtocol.UNDETERMINED
-                classifyProjectionRoute(projection)
-            }
+            is RpcResult.Ok -> classifySessionList(result.value) ?: classifyProjectionRoute(probeProjection())
             is RpcResult.Err -> {
                 if (TransportFailures.of(result.error) == TransportFailure.TIMEOUT ||
                     TransportFailures.of(result.error) == TransportFailure.OTHER && result.error.message.contains("timeout", ignoreCase = true)

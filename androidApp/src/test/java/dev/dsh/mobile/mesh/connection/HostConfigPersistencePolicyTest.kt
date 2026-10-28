@@ -57,6 +57,40 @@ class HostConfigPersistencePolicyTest {
             HarnessProtocolSelection(restored.lastProtocol).let { it.detect { error("probe timeout") } })
     }
 
+    @Test
+    fun `editing a connection target cannot inherit another endpoints API`() {
+        val existing = host("first", "token").copy(lastProtocol = HarnessProtocol.PARENT_CATALOG)
+        val editedTargets = listOf(
+            existing.copy(host = "other.example", lastProtocol = null),
+            existing.copy(port = 443, lastProtocol = null),
+            existing.copy(useTls = true, lastProtocol = null),
+            existing.copy(meshTransport = MeshTransport.TAILSCALE, lastProtocol = null),
+            existing.copy(zeroTierNetworkId = "fedcba9876543210", lastProtocol = null),
+            existing.copy(zeroTierPlanetId = "other-planet", lastProtocol = null),
+            existing.copy(sshEnabled = true, lastProtocol = null),
+        )
+        for (edited in editedTargets) {
+            org.junit.Assert.assertNull(mergeRememberedHost(existing, edited).lastProtocol)
+        }
+        val ssh = existing.copy(sshEnabled = true, sshUsername = "first")
+        for (edited in listOf(
+            ssh.copy(sshPort = 2222, lastProtocol = null),
+            ssh.copy(sshUsername = "second", lastProtocol = null),
+            ssh.copy(sshDshHost = "other.internal", lastProtocol = null),
+        )) {
+            org.junit.Assert.assertNull(mergeRememberedHost(ssh, edited).lastProtocol)
+        }
+    }
+
+    @Test
+    fun `renaming a connection preserves its own API cache`() {
+        val existing = host("first", "token").copy(lastProtocol = HarnessProtocol.PARENT_CATALOG)
+        val renamed = existing.copy(name = "renamed", host = " FIRST.EXAMPLE ", lastProtocol = null)
+        assertEquals(HarnessProtocol.PARENT_CATALOG, mergeRememberedHost(existing, renamed).lastProtocol)
+        val other = host("second", "other-token")
+        org.junit.Assert.assertNull(mergeRememberedHost(other, other.copy(name = "selected")).lastProtocol)
+    }
+
     private fun host(id: String, token: String) = HostConfig(
         id = id,
         name = id,

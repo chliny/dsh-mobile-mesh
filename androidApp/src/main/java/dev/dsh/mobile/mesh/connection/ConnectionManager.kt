@@ -34,6 +34,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -496,11 +497,15 @@ class ConnectionManager @Inject constructor(
         config: HostConfig,
         afterTransportReady: suspend (baseUrl: String) -> Unit = {},
     ) {
+        // Callers may still hold the HostConfig from before the last successful probe.
+        // Start each new intent with the latest persisted result for this exact endpoint.
+        val remembered = hostsStore.hosts.first().firstOrNull { it.id == config.id && sameHarnessEndpoint(it, config) }
+        val currentConfig = config.copy(lastProtocol = remembered?.lastProtocol ?: config.lastProtocol)
         activeProtocol = null
         activeUserQuestionsCapability = null
         _terminalAvailable.value = false
-        val target = lifecycle.request(ConnectionIntent(config, afterTransportReady))
-        suspendedHost = config
+        val target = lifecycle.request(ConnectionIntent(currentConfig, afterTransportReady))
+        suspendedHost = currentConfig
         suspendedTransportReady = afterTransportReady
         suspendedForBackground = !lifecycle.mayRun()
         if (lifecycle.mayRun()) replaceOperation(target, reconnect = false)
@@ -757,51 +762,9 @@ class ConnectionManager @Inject constructor(
             if (selectedProtocol != HarnessProtocol.UNDETERMINED) {
                 hostsStore.upsertHost(config.copy(lastProtocol = selectedProtocol))
             }
-            // `terminal/list` takes a caller-controlled session ID and is a safe no-create probe.
-            // Unknown/transient errors leave the entry hidden; a subsequent generation retries.
-            // Optional capability discovery must not hold a recovered mux behind another slow
-            // session/list call. Reconnect reuses the intent's previously observed capabilities.
-            val knownSessionId = if (reconnect && previouslyConnected) null else
-                observedSessionId ?: try {
-                    kotlinx.coroutines.withTimeoutOrNull(2_000L) { nextApi.sessionListProbe() }
-                        ?.let { (it as? RpcResult.Ok)?.value }
-                        ?.let(::sessionIdForCapabilityProbe)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    null
-                }
-            // This read cannot create or activate a Session. A registered projection is definitive
-            // evidence of the optional Remote, but a missing projection never means unsupported.
-            if (knownSessionId != null && selection.supports(HarnessCapability.USER_QUESTIONS) != true) {
-                try {
-                    kotlinx.coroutines.withTimeoutOrNull(HARNESS_PROTOCOL_PROBE_TIMEOUT_MS) {
-                        when (val result = nextApi.sessionProjections(
-                            dev.dsh.mobile.mesh.core.wire.dto.SessionProjectionsRequest(knownSessionId),
-                        )) {
-                            is RpcResult.Ok -> result.value?.let { selection.observeProjectionKeys(it.values) }
-                            is RpcResult.Err -> Unit
-                        }
-                    }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    // This optional read is inconclusive when a provider is absent or the host is busy.
-                }
-            }
-            val terminalProbeResult = try {
-                if (knownSessionId == null || selection.supports(HarnessCapability.TERMINAL) != null) null else
-                    kotlinx.coroutines.withTimeoutOrNull(HARNESS_PROTOCOL_PROBE_TIMEOUT_MS) {
-                        selection.probeBooleanCapability(HarnessCapability.TERMINAL) {
-                            nextApi.terminalList(knownSessionId)
-                        }
-                    }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: Exception) {
-                null
-            }
-            val terminalSupported = terminalCapabilityForConnection(selection, knownSessionId, terminalProbeResult)
+            // Publish cached capability observations immediately. Optional read-only discovery
+            // belongs below publication; two slow providers must not add another 16s to startup.
+            val terminalSupported = terminalCapabilityForConnection(selection, null, null)
             Log.d("ConnectionManager", "Harness API generation detected: $selectedProtocol; capability results=${selection.capabilities}")
             Log.d("ConnectionManager", "Session API protocol selected: $selectedProtocol")
             synchronized(publicationLock) {
@@ -815,25 +778,34 @@ class ConnectionManager @Inject constructor(
                 val token = loopFence.next()
                 loop = ConnectionLoop(muxFactory(config, baseUrl, transportLatencyMs), sinksFor(token), LoopConfig()).also { it.start() }
             }
-            if (selectedProtocol == HarnessProtocol.UNDETERMINED || knownSessionId == null) {
-                scope.launch {
-                    // The startup probe can race a slow Host/session-list response. Retry once
-                    // after the authoritative baseline has had time to complete; never block the
-                    // mux publication or turn a transient failure into a negative capability.
-                    delay(2_500L)
+            scope.launch {
+                try {
+                    // An old generation's in-flight read can settle between publication and this
+                    // job. Replay that result even when no further network discovery is necessary.
+                    if (!needsDeferredCapabilityProbe(selectedProtocol, selection)) {
+                        if (api === nextApi && lifecycle.accepts(target.token)) {
+                            activeUserQuestionsCapability = selection.supports(HarnessCapability.USER_QUESTIONS)
+                            _terminalAvailable.value = selection.supports(HarnessCapability.TERMINAL) == true
+                        }
+                        return@launch
+                    }
+                    // Retry inconclusive discovery after the baseline has had time to complete.
+                    // A conclusive startup list already supplies a safe session ID for optional reads.
+                    if (observedSessionId == null || selectedProtocol == HarnessProtocol.UNDETERMINED) delay(2_500L)
                     if (api !== nextApi || !lifecycle.accepts(target.token)) return@launch
-                    val retryResult = try {
+                    val retryResult = if (observedSessionId != null && selectedProtocol != HarnessProtocol.UNDETERMINED) null else try {
                         withTimeoutOrNull(HARNESS_PROTOCOL_PROBE_TIMEOUT_MS) { nextApi.sessionListProbe() }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
                         null
-                    } ?: return@launch
+                    }
                     val retryValue = (retryResult as? RpcResult.Ok<*>)?.value
                         as? kotlinx.serialization.json.JsonElement
-                    val retrySessionId = retryValue?.let(::sessionIdForCapabilityProbe)
-                    if (retryValue != null && selection.selected == HarnessProtocol.UNDETERMINED) {
-                        val retriedProtocol = selection.detect(
+                    val retrySessionId = observedSessionId ?: retryValue?.let(::sessionIdForCapabilityProbe)
+                    if (api !== nextApi || !lifecycle.accepts(target.token)) return@launch
+                    if (retryResult != null && retryValue != null && selection.selected == HarnessProtocol.UNDETERMINED) {
+                        val retriedProtocol = selection.detectOptional(
                             probe = { retryResult },
                             probeProjection = {
                                 nextApi.sessionProjections(dev.dsh.mobile.mesh.core.wire.dto.SessionProjectionsRequest("__dsh_mobile_protocol_probe__"))
@@ -872,12 +844,22 @@ class ConnectionManager @Inject constructor(
                             Log.d("ConnectionManager", "Deferred Harness capability probe results=${selection.capabilities}")
                         }
                     }
+                    // Replay observations even when no session ID was available for a new read:
+                    // an older generation may have completed a capability probe during our retry.
+                    if (api === nextApi && lifecycle.accepts(target.token)) {
+                        activeUserQuestionsCapability = selection.supports(HarnessCapability.USER_QUESTIONS)
+                        _terminalAvailable.value = terminalCapabilityForConnection(selection, null, null)
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Log.w("ConnectionManager", "Optional Harness discovery failed; retaining published connection", error)
                 }
             }
             timing?.phase("publish", publishStartedAt ?: System.nanoTime(), "ok")
-            hostsStore.upsertHost(config.copy(lastProtocol = selectedProtocol.takeUnless {
-                it == HarnessProtocol.UNDETERMINED
-            }))
+            // Protocol writes above are authoritative; this recency refresh must not overwrite a
+            // newer deferred result with the intent's older snapshot.
+            hostsStore.upsertHost(config.copy(lastProtocol = null))
             hostsStore.setActiveConnectionId(config.id)
         } catch (error: CancellationException) {
             cleanupResources()
