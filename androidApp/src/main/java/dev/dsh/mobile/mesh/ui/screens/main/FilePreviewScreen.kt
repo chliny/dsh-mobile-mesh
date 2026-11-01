@@ -52,23 +52,28 @@ import dev.dsh.mobile.mesh.ui.theme.DsType
 internal fun svgDataUrl(bytes: ByteArray): String =
     "data:image/svg+xml;base64,${java.util.Base64.getEncoder().encodeToString(bytes)}"
 
-internal fun markdownSvgWorkspacePath(markdownPath: String, source: String): String? {
-    val cleanSource = markdownImagePath(source)?.replace("\\", "/") ?: return null
-    if (cleanSource.startsWith("http://", ignoreCase = true) || cleanSource.startsWith("https://", ignoreCase = true) ||
-        cleanSource.startsWith("data:", ignoreCase = true)) return null
-    if (!cleanSource.endsWith(".svg", ignoreCase = true)) return null
-    if (cleanSource.startsWith('/') || cleanSource.matches(Regex("^[A-Za-z]:/.*"))) return cleanSource
-    val parent = markdownPath.replace("\\", "/").substringBeforeLast('/', "")
-    return listOf(parent, cleanSource).filter { it.isNotEmpty() }.joinToString("/")
-}
-
-private suspend fun resolveMarkdownImage(source: String, markdownPath: String, store: dev.dsh.mobile.mesh.data.WorkspaceFilesStore, sessionId: String): String? {
+internal suspend fun resolveMarkdownImage(source: String, baseDirectory: String?, store: dev.dsh.mobile.mesh.data.WorkspaceFilesStore, sessionId: String): String? {
     val cleanSource = markdownImagePath(source) ?: return null
     if (cleanSource.startsWith("http://", ignoreCase = true) || cleanSource.startsWith("https://", ignoreCase = true) ||
         cleanSource.startsWith("data:", ignoreCase = true)) return cleanSource
-    val imagePath = markdownSvgWorkspacePath(markdownPath, cleanSource) ?: return null
-    val bytes = store.readSvgBytes(sessionId, imagePath) ?: return null
-    return svgDataUrl(bytes)
+    val path = markdownWorkspaceLinkPath(cleanSource)?.replace("\\", "/") ?: return null
+    val imagePath = if (path.startsWith('/') || path.matches(Regex("^[A-Za-z]:/.*"))) path
+        else if (!baseDirectory.isNullOrBlank()) "$baseDirectory/$path" else path
+    // The workspace file API returns bytes but no MIME type. WebView needs an image MIME for data URLs.
+    val mime = when (path.substringAfterLast('.', "").lowercase()) {
+        "svg" -> "image/svg+xml"
+        "png" -> "image/png"
+        "jpg", "jpeg" -> "image/jpeg"
+        "gif" -> "image/gif"
+        "webp" -> "image/webp"
+        "bmp" -> "image/bmp"
+        "avif" -> "image/avif"
+        "ico" -> "image/x-icon"
+        else -> return null
+    }
+    val bytes = store.readImageBytes(sessionId, imagePath) ?: return null
+    return if (mime == "image/svg+xml") svgDataUrl(bytes)
+        else "data:$mime;base64,${java.util.Base64.getEncoder().encodeToString(bytes)}"
 }
 
 internal fun resolveMarkdownFileTarget(markdownPath: String, target: String): String? {
@@ -100,6 +105,11 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
     val preview = state.preview
     val firstChunk = (preview as? PreviewState.Text)?.chunks?.firstOrNull()
     val version = (preview as? PreviewState.Text)?.value?.version
+    val imageResolver: suspend (String) -> String? = remember(store, sessionId, path, version) {
+        val directory = path.replace("\\", "/").substringBeforeLast('/', "")
+        val resolve: suspend (String) -> String? = { source -> resolveMarkdownImage(source, directory, store, sessionId) }
+        resolve
+    }
     val highlightIdentity = listOf(workspaceKey, sessionId, path, themeAsset, version, firstChunk)
     val loaded by produceState<Pair<List<String?>, TextMateCodeHighlighter?>?>(null, workspaceKey, sessionId, path, themeAsset, version, firstChunk) {
         value = highlightIdentity to if (firstChunk != null && grammarAsset != null) withContext(Dispatchers.Default) {
@@ -162,9 +172,7 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
                             MarkdownText(
                                 preview.value.text,
                                 modifier = Modifier.fillMaxWidth(),
-                                imageResolver = { source ->
-                                    resolveMarkdownImage(source, path, store, sessionId)
-                                },
+                                imageResolver = imageResolver,
                                 onOpenLink = { target ->
                                     resolveMarkdownFileTarget(path, target)?.let { linkedPath ->
                                         onOpenFile(linkedPath, linkedPath.substringAfterLast('/'), markdownFileLineTarget(target)?.line)

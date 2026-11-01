@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,6 +79,8 @@ import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.components.ThinkingRow
 import dev.dsh.mobile.mesh.ui.components.ToolCard
 import dev.dsh.mobile.mesh.ui.components.UserBubble
+import dev.dsh.mobile.mesh.ui.rememberConnectionManager
+import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
 import dev.dsh.mobile.mesh.ui.theme.DsShapes
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
@@ -455,6 +458,11 @@ private fun WaitingForModel(context: ChatNodeContext) {
 
 @Composable
 private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContext) {
+    val workspaceFiles = rememberWorkspaceFilesStore()
+    val connectionPhase by rememberConnectionManager().state.collectAsStateWithLifecycle()
+    val imageResolver: suspend (String) -> String? = remember(workspaceFiles, context.sessionId, context.cwd, connectionPhase.phase) {
+        { source -> context.sessionId?.let { resolveMarkdownImage(source, context.cwd, workspaceFiles, it) } }
+    }
     val colors = DsTheme.colors
     val uriHandler = LocalUriHandler.current
     val onOpenLink: (String) -> Unit = { target -> openMarkdownLink(context, target, uriHandler::openUri) }
@@ -474,7 +482,7 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
     ) {
         node.blocks.forEachIndexed { index, block ->
             when (block.kind) {
-                "text" -> MarkdownText(block.text.orEmpty(), onOpenLink = onOpenLink)
+                "text" -> MarkdownText(block.text.orEmpty(), imageResolver = imageResolver, onOpenLink = onOpenLink)
                 // A streaming assistant message keeps re-rendering its blocks, so a reasoning block that has been
                 // opened has to be able to stay open across those renders as well as across a trip
                 // away from the transcript.

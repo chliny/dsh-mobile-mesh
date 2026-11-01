@@ -47,16 +47,6 @@ class FilePreviewScreenTest {
     }
 
     @Test
-    fun `svg image paths distinguish absolute from document-relative references`() {
-        assertEquals("guide/assets/logo.svg", markdownSvgWorkspacePath("guide/README.md", "assets/logo.svg"))
-        assertEquals("/workspace/shared.svg", markdownSvgWorkspacePath("guide/README.md", "/workspace/shared.svg"))
-        assertEquals("C:/work/shared.svg", markdownSvgWorkspacePath("guide/README.md", "C:\\work\\shared.svg"))
-        assertEquals(null, markdownSvgWorkspacePath("guide/README.md", "assets/photo.png"))
-        assertEquals(null, markdownSvgWorkspacePath("guide/README.md", "https://example.com/logo.svg"))
-        assertEquals(null, markdownSvgWorkspacePath("guide/README.md", "HTTPS://example.com/logo.svg?signature=abc"))
-    }
-
-    @Test
     fun `non markdown files use syntax highlighting`() {
         assertFalse(isMarkdownPath("src/Main.kt"))
         assertFalse(isMarkdownPath("config.json"))

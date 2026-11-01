@@ -59,6 +59,8 @@ internal fun decodeFileReferenceRows(value: JsonElement): List<WorkspaceDirector
     }
 }
 
+private const val MAX_MARKDOWN_IMAGE_BYTES = 2 * 1024 * 1024
+
 private fun isMarkdownPreviewPath(path: String): Boolean =
     path.substringAfterLast('.', "").lowercase() in setOf("md", "markdown", "mdown", "mkd", "rmd")
 
@@ -250,14 +252,16 @@ class WorkspaceFilesStore @Inject constructor(
         }
     }
 
-    /** SVG images need exact bytes, not an over-limit workspace text page. */
-    suspend fun readSvgBytes(sessionId: String, path: String): ByteArray? {
+    /** Bound image reads before encoding their bytes into a WebView data URL. */
+    suspend fun readImageBytes(sessionId: String, path: String): ByteArray? {
         val safePath = validWorkspaceFilePath(path) ?: return null
         val api = connectionManager.connectedApi ?: return null
-        return when (val result = api.workspaceFilesReadAll(
-            sessionId, safePath, legacyReadAll = connectionManager.harnessProtocol == HarnessProtocol.LEGACY_SUBAGENTS,
-        )) {
-            is RpcResult.Ok -> result.value.bytesData()
+        // The legacy readAll endpoint has no byte-range cap; never fetch an unbounded image.
+        if (connectionManager.harnessProtocol == HarnessProtocol.LEGACY_SUBAGENTS) return null
+        return when (val result = api.workspaceFilesReadBytes(sessionId, safePath, length = MAX_MARKDOWN_IMAGE_BYTES)) {
+            is RpcResult.Ok -> result.value.data.takeIf {
+                result.value.offset == 0 && result.value.eof && it.size <= MAX_MARKDOWN_IMAGE_BYTES
+            }
             is RpcResult.Err -> null
         }
     }

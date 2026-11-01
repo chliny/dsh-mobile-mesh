@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -25,8 +26,18 @@ import androidx.compose.ui.viewinterop.AndroidView
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.ui.theme.DsColors
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
 import org.commonmark.ext.gfm.tables.TablesExtension
 import org.commonmark.ext.task.list.items.TaskListItemsExtension
@@ -64,6 +75,49 @@ private val commonMarkHtmlRenderer = HtmlRenderer.builder()
     .build()
 
 private const val MAX_CACHEABLE_MARKDOWN_CHARS = 64 * 1024
+private const val MAX_MARKDOWN_IMAGES_PER_DOCUMENT = 8
+private const val MAX_MARKDOWN_IMAGE_DOCUMENT_CHARS = 16_000_000
+
+/** Shares in-flight image reads across streaming revisions and cancels them when the message leaves composition. */
+private class MarkdownImageResolutionCache(
+    private val scope: CoroutineScope,
+    private val resolver: suspend (String) -> String?,
+) {
+    private val mutex = Mutex()
+    private val images = LinkedHashMap<String, String>(MAX_MARKDOWN_IMAGES_PER_DOCUMENT, 0.75f, true)
+    private val pending = mutableMapOf<String, Deferred<String?>>()
+    private var cachedChars = 0
+
+    suspend fun resolve(source: String): String? {
+        val request = mutex.withLock {
+            images[source]?.let { return it }
+            pending.getOrPut(source) {
+                scope.async(Dispatchers.IO) {
+                    try {
+                        val resolved = try { withTimeoutOrNull(5_000) { resolver(source) } }
+                            catch (cancelled: CancellationException) { throw cancelled }
+                            catch (_: Exception) { null }
+                        mutex.withLock {
+                            if (!resolved.isNullOrBlank() && resolved.length <= 3_000_000) {
+                                images[source] = resolved
+                                cachedChars += resolved.length
+                                while (images.size > MAX_MARKDOWN_IMAGES_PER_DOCUMENT || cachedChars > MAX_MARKDOWN_IMAGE_DOCUMENT_CHARS) {
+                                    val oldest = images.entries.iterator()
+                                    cachedChars -= oldest.next().value.length
+                                    oldest.remove()
+                                }
+                            }
+                        }
+                        resolved
+                    } finally {
+                        withContext(NonCancellable) { mutex.withLock { pending.remove(source) } }
+                    }
+                }
+            }
+        }
+        return request.await()
+    }
+}
 
 internal data class MarkdownRenderCacheKey(
     val markdown: String,
@@ -180,6 +234,10 @@ internal fun CommonMarkMarkdown(
     val darkMode = isSystemInDarkTheme()
     val copyLabel = stringResource(R.string.common_copy)
     val webState = remember { CommonMarkWebState() }
+    val imageScope = rememberCoroutineScope()
+    val imageCache = remember(imageResolver, imageScope) {
+        imageResolver?.let { MarkdownImageResolutionCache(imageScope, it) }
+    }
     webState.onOpenLink = onOpenLink
     // A no-resolver document has image destinations determined by its source text; other renderings
     // include the resolver's actual output in the key after those images have been resolved.
@@ -194,7 +252,7 @@ internal fun CommonMarkMarkdown(
         } else {
             value = withContext(Dispatchers.Default) {
                 val document = commonMarkParser.parse(normalizeStrongDelimiterWhitespace(text))
-                val imageDestinations = rewriteDestinations(document, imageResolver)
+                val imageDestinations = rewriteDestinations(document, imageCache)
                 val resolvedImages = if (imageResolver == null) emptyList() else imageDestinations
                 val cacheKey = if (text.length <= MAX_CACHEABLE_MARKDOWN_CHARS) {
                     MarkdownRenderCacheKey(text, colors, darkMode, copyLabel, resolvedImages)
@@ -256,15 +314,31 @@ internal fun CommonMarkMarkdown(
 
 private suspend fun rewriteDestinations(
     root: Node,
-    imageResolver: (suspend (String) -> String?)?,
+    imageCache: MarkdownImageResolutionCache?,
 ): List<String> {
     val imageDestinations = mutableListOf<String>()
+    val distinctLocalImages = mutableSetOf<String>()
+    var resolvedChars = 0
     suspend fun visit(node: Node) {
+        currentCoroutineContext().ensureActive()
         when (node) {
             is Image -> {
                 val original = node.destination
-                val resolved = imageResolver?.let { resolver -> runCatching { resolver(original) }.getOrNull() }
-                if (!resolved.isNullOrBlank()) node.destination = resolved
+                val local = !original.startsWith("http://", ignoreCase = true) &&
+                    !original.startsWith("https://", ignoreCase = true) &&
+                    !original.startsWith("data:", ignoreCase = true)
+                val allowed = !local || original in distinctLocalImages ||
+                    distinctLocalImages.size < MAX_MARKDOWN_IMAGES_PER_DOCUMENT
+                if (local && allowed) distinctLocalImages += original
+                val resolved = if (imageCache != null && allowed && resolvedChars < MAX_MARKDOWN_IMAGE_DOCUMENT_CHARS) {
+                    try { imageCache.resolve(original) } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) { null }
+                } else null
+                if (!resolved.isNullOrBlank() && resolvedChars + resolved.length <= MAX_MARKDOWN_IMAGE_DOCUMENT_CHARS) {
+                    node.destination = resolved
+                    resolvedChars += resolved.length
+                }
                 imageDestinations += node.destination
             }
             is Link -> {
