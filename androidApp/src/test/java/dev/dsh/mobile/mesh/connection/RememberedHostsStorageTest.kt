@@ -136,7 +136,8 @@ class RememberedHostsStorageTest {
     fun `confirmed protocol replacement and weak refresh keep existing merge policy`() = withStorage { store, _ ->
         val original = host("first").copy(lastProtocol = HarnessProtocol.PARENT_CATALOG)
         store.upsertHost(original)
-        store.upsertHost(original.copy(lastProtocol = HarnessProtocol.LEGACY_SUBAGENTS))
+        store.cacheProtocol(original, HarnessProtocol.LEGACY_SUBAGENTS)
+        store.upsertHost(original)
         store.upsertHost(original.copy(lastProtocol = null))
         store.upsertHost(original.copy(lastProtocol = HarnessProtocol.UNDETERMINED))
         assertEquals(HarnessProtocol.LEGACY_SUBAGENTS, store.hosts.first().single().lastProtocol)
@@ -161,6 +162,37 @@ class RememberedHostsStorageTest {
         assertEquals(original.id, changed.id)
         assertNull(changed.lastProtocol)
         assertNull(store.hosts.first().single().lastProtocol)
+    }
+
+    @Test
+    fun `switching targets retains each confirmed API across restart and failed probes`() = withStorage { store, dataStore ->
+        val first = host("first").copy(lastProtocol = HarnessProtocol.PARENT_CATALOG)
+        // Existing installations have only lastProtocol inside hosts_json, not an endpoint map.
+        dataStore.edit {
+            it[stringPreferencesKey("hosts_json")] = dev.dsh.mobile.mesh.core.wire.WireJson.encodeToString(
+                kotlinx.serialization.builtins.ListSerializer(HostConfig.serializer()), listOf(first),
+            )
+        }
+        val second = first.copy(host = "second.example", lastProtocol = null)
+        store.upsertHost(second)
+        assertNull(store.hosts.first().single().lastProtocol)
+        store.cacheProtocol(second, HarnessProtocol.LEGACY_SUBAGENTS)
+
+        // A fresh store sees the same durable data after a process restart. Changing the saved
+        // target back must restore its own API even when the new discovery request times out.
+        val reopened = RememberedHostsStorage(dataStore)
+        reopened.upsertHost(first.copy(lastProtocol = null))
+        val restoredFirst = reopened.hosts.first().single()
+        assertEquals(HarnessProtocol.PARENT_CATALOG, reopened.protocolFor(restoredFirst))
+        assertEquals(HarnessProtocol.PARENT_CATALOG, HarnessProtocolSelection(restoredFirst.lastProtocol).detect(
+            probe = { kotlinx.coroutines.delay(500); error("probe must time out") },
+            probeProjection = { error("projection must not run") },
+            probeTimeoutMs = 20,
+        ))
+        reopened.upsertHost(second)
+        val restoredSecond = reopened.hosts.first().single()
+        assertEquals(HarnessProtocol.LEGACY_SUBAGENTS, reopened.protocolFor(restoredSecond))
+        assertEquals(HarnessProtocol.LEGACY_SUBAGENTS, restoredSecond.lastProtocol)
     }
 
     /** Hold one writer before its real transaction, then commit a protocol update ahead of it. */

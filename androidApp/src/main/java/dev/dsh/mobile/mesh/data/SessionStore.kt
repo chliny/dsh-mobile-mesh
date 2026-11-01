@@ -139,6 +139,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.withLock
@@ -387,13 +388,11 @@ class SessionStore @Inject constructor(
     private var baselineActiveWorkerId: Long? = null
     private var baselineWorkerJob: Job? = null
     private var selectedSessionReopened: Pair<String, String>? = null
-    /** Serialize session selection so rapid taps cannot interleave follow/metadata replacement. */
-    private val sessionSwitchMutex = Mutex()
-    /** Latest-wins queue: rapid drawer taps must not backlog one network switch per tap. */
+    /** Latest request owns both address resolution and the serialized session switch. */
     private val sessionSwitchStateLock = Any()
-    private var pendingSessionId: String? = null
-    private var pendingSessionAddress: SessionAddress? = null
     private var sessionSwitchJob: Job? = null
+    /** The carrier already captured by this request; its delayed ready event must not cancel it. */
+    private var sessionSwitchGeneration: dev.dsh.mobile.mesh.core.wire.HostGeneration? = null
     private var currentAddress: SessionAddress? = null
 
     private val _currentSessionAddress = MutableStateFlow<SessionAddress?>(null)
@@ -857,7 +856,10 @@ class SessionStore @Inject constructor(
 
     // ------------------------------------------------------------------ connection lifecycle
     /** Clear the visible session mirror before a user-selected host starts connecting. */
-    fun prepareForConnection(hostId: String) {
+    fun prepareForConnection(hostId: String) = synchronized(sessionSwitchStateLock) {
+        sessionSwitchJob?.cancel()
+        sessionSwitchJob = null
+        sessionSwitchGeneration = null
         followJob?.cancel()
         modsBandJob?.cancel()
         _modsBand.value = null
@@ -891,6 +893,8 @@ class SessionStore @Inject constructor(
             conversationCache.clear()
             changesPayloads.clear()
             currentId = null
+            currentAddress = null
+            _currentSessionAddress.value = null
             historyPageGeneration++
             loadingOlderGeneration = null
             _loadingOlder.value = false
@@ -925,6 +929,24 @@ class SessionStore @Inject constructor(
 
     private fun observeConnection() {
         scope.launch {
+            connectionManager.harnessProtocolChanges.collect { protocol ->
+                if (protocol == null || protocol == dev.dsh.mobile.mesh.connection.HarnessProtocol.UNDETERMINED) return@collect
+                // Modern catalog state comes directly from the selected session's projection
+                // streams. Only legacy hosts need a separate catalog read after identification.
+                if (_connectionError.value == "Subagent API cannot be identified until the host has a session") {
+                    clearConnectionError()
+                }
+                if (connectionManager.connectedApi != null) {
+                    if (protocol == dev.dsh.mobile.mesh.connection.HarnessProtocol.LEGACY_SUBAGENTS && currentSessionId.value != null) {
+                        scope.launch { refreshSubagents() }
+                    }
+                    if (protocol == dev.dsh.mobile.mesh.connection.HarnessProtocol.PARENT_CATALOG) {
+                        scope.launch { refreshPermissionOptions() }
+                    }
+                }
+            }
+        }
+        scope.launch {
             connectionManager.connectedGenerations.collect { generation ->
                 // The connected generation is authoritative for the active host. clientId changes
                 // across mux retries and is not a host ID; deriving baseline ownership from it
@@ -934,7 +956,13 @@ class SessionStore @Inject constructor(
                 if (shouldCancelStaleSessionWork(generation.clientId, _sessionsCurrentGenerationId.value)) {
                     // A replacement generation can describe a restored journal with lower seqs.
                     // Its authoritative inbox baseline must not inherit the old carrier's watermark.
-                    synchronized(lock) { inboxProjectionWatermarks.reset() }
+                    synchronized(lock) {
+                        inboxProjectionWatermarks.reset()
+                        // Projection watermarks belong to a server generation. In particular, a
+                        // restored Host may restart at a lower sequence than the retired carrier.
+                        currentProjections.remove("subagentCatalog")
+                        _subagents.value = emptyList()
+                    }
                     // The previous carrier may leave a unary request suspended indefinitely. Do not
                     // let that worker own the next generation's baseline or session-switch queue.
                     baselineWorkerJob?.cancel()
@@ -945,10 +973,16 @@ class SessionStore @Inject constructor(
                         baselineActiveWorkerId = null
                     }
                     synchronized(sessionSwitchStateLock) {
-                        sessionSwitchJob?.cancel()
-                        sessionSwitchJob = null
-                        pendingSessionId = null
-                        pendingSessionAddress = null
+                        // A user can tap the new generation before this SharedFlow item is
+                        // consumed. That request already belongs to this carrier, not the retired
+                        // one; keep it instead of reopening the previously selected session.
+                        val pendingForGeneration = sessionSwitchJob?.isActive == true &&
+                            sessionSwitchGeneration === generation
+                        if (!pendingForGeneration) {
+                            sessionSwitchJob?.cancel()
+                            sessionSwitchJob = null
+                            sessionSwitchGeneration = null
+                        }
                     }
                     _sessionsCurrentGenerationId.value = generation.clientId
                     _sessionsBaselineLoaded.value = false
@@ -960,14 +994,22 @@ class SessionStore @Inject constructor(
                 recoverConnectedSession(
                     scope = scope,
                     reopen = {
-                        val selectedSessionId = currentSessionId.value
-                        if (shouldReopenSessionForGeneration(
-                                selectedSessionId,
-                                generation.clientId,
-                                selectedSessionReopened,
-                            )) {
-                            selectedSessionReopened = generation.clientId to selectedSessionId!!
-                            reopenSelectedSessionAfterReconnect()
+                        synchronized(sessionSwitchStateLock) {
+                            // The ready event may be consumed after a user already selected B on
+                            // this generation. Never cancel B or re-open the old selection A.
+                            val pendingForGeneration = sessionSwitchJob?.isActive == true &&
+                                sessionSwitchGeneration === generation
+                            if (!pendingForGeneration && connectionManager.generation === generation) {
+                                val selectedSessionId = currentSessionId.value
+                                if (shouldReopenSessionForGeneration(
+                                        selectedSessionId,
+                                        generation.clientId,
+                                        selectedSessionReopened,
+                                    )) {
+                                    selectedSessionReopened = generation.clientId to selectedSessionId!!
+                                    reopenSelectedSessionAfterReconnect()
+                                }
+                            }
                         }
                     },
                     refreshCatalog = {
@@ -1004,6 +1046,10 @@ class SessionStore @Inject constructor(
                     // Cancel generation-bound stream collectors immediately. A dead mux may not
                     // deliver another frame until OkHttp's carrier timeout, leaving stale collectors
                     // and loading state looking like a frozen page.
+                    synchronized(sessionSwitchStateLock) {
+                        sessionSwitchJob?.cancel()
+                        sessionSwitchJob = null
+                    }
                     followJob?.cancel()
                     modsBandJob?.cancel()
                     _modsBand.value = null
@@ -1029,7 +1075,7 @@ class SessionStore @Inject constructor(
         }
     }
 
-    private suspend fun reopenSelectedSessionAfterReconnect() {
+    private fun reopenSelectedSessionAfterReconnect() {
         val sessionId = currentSessionId.value ?: return
         val address = synchronized(lock) {
             currentAddress ?: sessionAddressFor(sessionId, sessionRows[sessionId]?.origin)
@@ -1991,7 +2037,9 @@ class SessionStore @Inject constructor(
         val existing = currentProjections[key]
         if (existing == null || seq >= existing.seq) {
             currentProjections[key] = ProjectionValue(seq, value)
-            if (key == "subagentCatalog" && connectionManager.supportsSubagentCatalogProjection) {
+            // The presence of the server's catalog projection is itself authoritative, even if
+            // protocol discovery is still pending or a remembered legacy version is being rechecked.
+            if (key == "subagentCatalog") {
                 decodeSubagentCatalogProjection(value)?.let { entries ->
                     _subagents.value = entries.map { SubagentListEntry.Projected(it) }
                 }
@@ -2245,144 +2293,166 @@ class SessionStore @Inject constructor(
     private fun applyWorkspaceValue(value: WorkspaceValue) = upsertWorkspace(value.workspace)
 
     private suspend fun resolveSessionAddress(sessionId: String): SessionAddress? {
+        val request = currentCoroutineContext()
+        val generation = connectionManager.generation
         val row = synchronized(lock) { sessionRows[sessionId] }
         if (row?.origin != "subagent") return sessionAddressFor(sessionId, row?.origin)
         val parentId = row.parentSessionId ?: run {
-            setConnectionError("Subagent parent session is unavailable")
+            synchronized(sessionSwitchStateLock) {
+                request.ensureActive()
+                if (sessionSwitchJob === request[Job] && connectionManager.generation === generation) {
+                    setConnectionError("Subagent parent session is unavailable")
+                }
+            }
             return null
         }
         val api = apiOrNull() ?: return null
         val mode = subagentModeFromParent(api, parentId, sessionId) ?: run {
-            setConnectionError("Subagent mode is unavailable")
+            synchronized(sessionSwitchStateLock) {
+                request.ensureActive()
+                if (sessionSwitchJob === request[Job] && connectionManager.generation === generation && apiOrNull() === api) {
+                    setConnectionError("Subagent mode is unavailable")
+                }
+            }
             return null
         }
         return sessionAddressFor(sessionId, row.origin, parentId, mode)
     }
 
     suspend fun openSession(sessionId: String) {
-        val address = resolveSessionAddress(sessionId) ?: return
-        openSessionAtAddress(sessionId, address)
+        requestSessionOpen(sessionId) { resolveSessionAddress(sessionId) }
     }
 
     /** Open a child through its direct parent, matching the Web session-controller API. */
     suspend fun openSubagentSession(parentSessionId: String, childSessionId: String) {
-        val api = apiOrNull() ?: return
-        val mode = subagentModeFromParent(api, parentSessionId, childSessionId) ?: return
-        openSessionAtAddress(
-            childSessionId,
+        requestSessionOpen(childSessionId) {
+            val api = apiOrNull() ?: return@requestSessionOpen null
+            val mode = subagentModeFromParent(api, parentSessionId, childSessionId)
+                ?: return@requestSessionOpen null
             SessionAddress.Subagent(
                 parentSessionId = parentSessionId,
                 childSessionId = childSessionId,
                 mode = mode,
-            ),
-        )
+            )
+        }
     }
 
-    private suspend fun openSessionAtAddress(sessionId: String, address: SessionAddress) {
+    private fun openSessionAtAddress(sessionId: String, address: SessionAddress) {
+        requestSessionOpen(sessionId) { address }
+    }
+
+    private fun requestSessionOpen(sessionId: String, resolve: suspend () -> SessionAddress?) {
         synchronized(sessionSwitchStateLock) {
-            pendingSessionId = sessionId
-            pendingSessionAddress = address
-            if (sessionSwitchJob?.isActive == true) return
+            // Ownership starts at the click, not when an asynchronous address lookup finishes.
+            // Cancellation also covers the protocol wait and any parent-catalog RPC.
+            sessionSwitchJob?.cancel()
+            val generation = connectionManager.generation
+            val api = apiOrNull()
+            sessionSwitchGeneration = generation
             sessionSwitchJob = scope.launch {
-                while (true) {
-                    val next = synchronized(sessionSwitchStateLock) {
-                        val id = pendingSessionId
-                        val nextAddress = pendingSessionAddress
-                        pendingSessionId = null
-                        pendingSessionAddress = null
-                        if (id == null || nextAddress == null) {
-                            sessionSwitchJob = null
-                            return@launch
-                        }
-                        id to nextAddress
-                    }
-                    openSessionOnce(next.first, next.second)
-                }
+                val address = resolve() ?: return@launch
+                currentCoroutineContext().ensureActive()
+                openSessionOnce(sessionId, address, currentCoroutineContext()[Job]!!, generation, api)
             }
         }
     }
 
-    private suspend fun openSessionOnce(sessionId: String, address: SessionAddress) = sessionSwitchMutex.withLock {
-        withContext(Dispatchers.Default) {
+    private suspend fun openSessionOnce(
+        sessionId: String,
+        address: SessionAddress,
+        request: Job,
+        generation: dev.dsh.mobile.mesh.core.wire.HostGeneration?,
+        expectedApi: DshApiClient?,
+    ) = withContext(Dispatchers.Default) {
+        // Validate and install the selection/follow under the same lock used to replace requests.
+        // A newer click cannot slip between a stale request's final check and its UI publication.
+        synchronized(sessionSwitchStateLock) {
+            if (sessionSwitchJob !== request || !request.isActive ||
+                connectionManager.generation !== generation || apiOrNull() !== expectedApi
+            ) return@withContext
             val cached = synchronized(lock) { conversationCache[sessionId] }
-            val api = apiOrNull()
-        if (api == null) {
+            val api = expectedApi
+            if (api == null) {
+                synchronized(lock) {
+                    historyPageGeneration++
+                    loadingOlderGeneration = null
+                    _loadingOlder.value = false
+                    _loadOlderFailed.value = false
+                    followCursor = null
+                    currentId = sessionId
+                    currentAddress = address
+                    _currentSessionAddress.value = address
+                    currentQueue = queueBySession[sessionId] ?: cached?.queue ?: emptyList()
+                    publishSelectedConversation(
+                        _currentSessionId, _currentConversation, sessionId,
+                        cached?.copy(queue = currentQueue),
+                    )
+                }
+                return@withContext
+            }
+            _loadOlderFailed.value = false
             synchronized(lock) {
+                val same = currentId == sessionId
+                // Fence history pages from the previous selection/follow opening as well as queued folds.
                 historyPageGeneration++
                 loadingOlderGeneration = null
                 _loadingOlder.value = false
-                _loadOlderFailed.value = false
                 followCursor = null
                 currentId = sessionId
                 currentAddress = address
                 _currentSessionAddress.value = address
-                currentQueue = queueBySession[sessionId] ?: cached?.queue ?: emptyList()
-                publishSelectedConversation(
-                    _currentSessionId, _currentConversation, sessionId,
-                    cached?.copy(queue = currentQueue),
-                )
-            }
-            return@withContext
-        }
-        _loadOlderFailed.value = false
-        synchronized(lock) {
-            val same = currentId == sessionId
-            // Fence history pages from the previous selection/follow opening as well as queued folds.
-            historyPageGeneration++
-            loadingOlderGeneration = null
-            _loadingOlder.value = false
-            followCursor = null
-            currentId = sessionId
-            currentAddress = address
-            _currentSessionAddress.value = address
-            if (!same) {
-                // Keep the old fold only until the replacement snapshot is available. Most importantly,
-                // publish the per-session cache before clearing live state: a slow follow open must not
-                // turn a previously rendered conversation into the blank initial hero.
-                val cachedSnapshot = conversationCache[sessionId]
-                currentEvents.clear()
-                currentHasMore = cachedSnapshot?.hasMore ?: false
-                currentBlank = cachedSnapshot?.blank ?: (sessionRows[sessionId]?.blank ?: true)
-                currentProjections.clear()
-                cachedSnapshot?.projections?.forEach { (key, value) ->
-                    currentProjections[key] = ProjectionValue(cachedSnapshot.lastSeq.toInt(), value)
+                if (!same) {
+                    // Keep the old fold only until the replacement snapshot is available. Most importantly,
+                    // publish the per-session cache before clearing live state: a slow follow open must not
+                    // turn a previously rendered conversation into the blank initial hero.
+                    val cachedSnapshot = conversationCache[sessionId]
+                    currentEvents.clear()
+                    currentHasMore = cachedSnapshot?.hasMore ?: false
+                    currentBlank = cachedSnapshot?.blank ?: (sessionRows[sessionId]?.blank ?: true)
+                    currentProjections.clear()
+                    cachedSnapshot?.projections?.forEach { (key, value) ->
+                        // A transcript cache does not retain the catalog's actual projection watermark.
+                        // Let follow/control install it instead of inventing a sequence from lastSeq.
+                        if (key != "subagentCatalog") {
+                            currentProjections[key] = ProjectionValue(cachedSnapshot.lastSeq.toInt(), value)
+                        }
+                    }
+                    currentQueue = queueBySession[sessionId] ?: cachedSnapshot?.queue ?: emptyList()
+                    liveAssistant.clear()
+                    _jobs.value = emptyList()
+                    _skills.value = emptyList()
+                    // Keep the host-scoped model catalog while switching sessions. Clearing it makes the
+                    // composer show an endless loading state until a second catalog RPC completes.
+                    if (modelCatalogCache == null) _models.value = null
+                    _subagents.value = emptyList()
+                    _subagentConversation.value = null
+                    _subagentMode.value = null
+                    _commands.value = emptyList()
+                    _pendingPermission.value = null
+                    // The drawer closes on selection. Publish this session's cache first, never the
+                    // previous session's fold or a transient null while the follow stream opens.
+                    publishSelectedConversation(
+                        _currentSessionId, _currentConversation, sessionId,
+                        cachedSnapshot?.copy(queue = currentQueue),
+                    )
+                } else {
+                    _currentSessionId.value = sessionId
                 }
-                currentQueue = queueBySession[sessionId] ?: cachedSnapshot?.queue ?: emptyList()
-                liveAssistant.clear()
-                _jobs.value = emptyList()
-                _skills.value = emptyList()
-                // Keep the host-scoped model catalog while switching sessions. Clearing it makes the
-                // composer show an endless loading state until a second catalog RPC completes.
-                if (modelCatalogCache == null) _models.value = null
-                _subagents.value = emptyList()
-                _subagentConversation.value = null
-                _subagentMode.value = null
-                _commands.value = emptyList()
-                _pendingPermission.value = null
-                // The drawer closes on selection. Publish this session's cache first, never the
-                // previous session's fold or a transient null while the follow stream opens.
-                publishSelectedConversation(
-                    _currentSessionId, _currentConversation, sessionId,
-                    cachedSnapshot?.copy(queue = currentQueue),
-                )
-            } else {
-                _currentSessionId.value = sessionId
             }
-        }
-        startFollow(sessionId, address)
-        startJobList(sessionId)
-        scope.launch { refreshProjections(sessionId) }
-        // Keep initial/late-created stores covered; generation and open paths coalesce this request.
-        if (connectionManager.supportsPermissionPresetsCatalog) scope.launch { refreshPermissionOptions() }
-        // A red/orange carrier has no usable API generation. Preserve the user's chosen session
-        // locally and let the connection baseline reopen it once green, rather than launching
-        // several unary RPCs to the relay that recovery is actively closing.
-        if (apiOrNull() != null) launchSessionMetadataRefresh(scope) {
-            loadSkills(sessionId)
-            loadModels(sessionId)
-            refreshSubagents()
-            refreshCommands()
-        }
+            startFollow(sessionId, address)
+            startJobList(sessionId)
+            scope.launch { refreshProjections(sessionId) }
+            // Keep initial/late-created stores covered; generation and open paths coalesce this request.
+            if (connectionManager.supportsPermissionPresetsCatalog) scope.launch { refreshPermissionOptions() }
+            // A red/orange carrier has no usable API generation. Preserve the user's chosen session
+            // locally and let the connection baseline reopen it once green, rather than launching
+            // several unary RPCs to the relay that recovery is actively closing.
+            if (apiOrNull() != null) launchSessionMetadataRefresh(scope) {
+                loadSkills(sessionId)
+                loadModels(sessionId)
+                refreshSubagents()
+                refreshCommands()
+            }
         }
     }
 
@@ -3337,7 +3407,11 @@ class SessionStore @Inject constructor(
                     if (currentId != targetSessionId) return
                     val watermark = baseline.asOfSeq
                     if (baseline.watermarkComparableToLive && watermark != null) {
-                        baseline.values.forEach { (key, value) -> mergeProjectionLocked(key, watermark, value) }
+                        // The modern subagent catalog is driven solely by follow/control, not by
+                        // this separate unary snapshot, which may finish after a newer stream frame.
+                        baseline.values.forEach { (key, value) ->
+                            if (key != "subagentCatalog") mergeProjectionLocked(key, watermark, value)
+                        }
                         baseline.values["inbox"]?.let { applyInboxProjection(targetSessionId, it, watermark) }
                         rebuildCurrentLocked()
                     }
@@ -3361,33 +3435,59 @@ class SessionStore @Inject constructor(
         parentSessionId: String,
         childSessionId: String,
     ): String? {
+        val request = currentCoroutineContext()
+        val generation = connectionManager.generation
         if (connectionManager.subagentCatalogProtocolUndetermined) {
-            setConnectionError("Subagent API cannot be identified until the host has a session")
-            return null
-        }
-        if (subagentCatalogSource(connectionManager.supportsSubagentCatalogProjection) == SubagentCatalogSource.PROJECTION) {
-            return when (val result = api.sessionProjections(SessionProjectionsRequest(parentSessionId))) {
-                is RpcResult.Ok -> {
-                    val projection = result.value?.values?.get("subagentCatalog") ?: run {
-                        setConnectionError("Subagent catalog projection is unavailable")
-                        return null
-                    }
-                    decodeSubagentCatalogProjection(projection)
-                        ?.firstOrNull { it.id == childSessionId }
-                        ?.mode?.takeIf { it == "one-shot" || it == "continuable" }
+            // An explicit open can race background discovery; allow the in-flight retry to finish
+            // rather than immediately claiming that a host with sessions has none.
+            withTimeoutOrNull(12_000L) {
+                connectionManager.harnessProtocolChanges.first {
+                    it != dev.dsh.mobile.mesh.connection.HarnessProtocol.UNDETERMINED
                 }
+            }
+            synchronized(sessionSwitchStateLock) {
+                request.ensureActive()
+                if (sessionSwitchJob !== request[Job] || connectionManager.generation !== generation || apiOrNull() !== api) return null
+                if (connectionManager.subagentCatalogProtocolUndetermined) {
+                    setConnectionError("Subagent API cannot be identified until the host has a session")
+                    return null
+                }
+            }
+        }
+        request.ensureActive()
+        if (subagentCatalogSource(connectionManager.supportsSubagentCatalogProjection) == SubagentCatalogSource.PROJECTION) {
+            val result = api.sessionProjections(SessionProjectionsRequest(parentSessionId))
+            return synchronized(sessionSwitchStateLock) {
+                request.ensureActive()
+                if (sessionSwitchJob !== request[Job] || connectionManager.generation !== generation || apiOrNull() !== api) return null
+                when (result) {
+                    is RpcResult.Ok -> {
+                        val projection = result.value?.values?.get("subagentCatalog") ?: run {
+                            setConnectionError("Subagent catalog projection is unavailable")
+                            return null
+                        }
+                        decodeSubagentCatalogProjection(projection)
+                            ?.firstOrNull { it.id == childSessionId }
+                            ?.mode?.takeIf { it == "one-shot" || it == "continuable" }
+                    }
+                    is RpcResult.Err -> {
+                        setConnectionError(result.error.message)
+                        null
+                    }
+                }
+            }
+        }
+        val result = api.subagentList(parentSessionId)
+        return synchronized(sessionSwitchStateLock) {
+            request.ensureActive()
+            if (sessionSwitchJob !== request[Job] || connectionManager.generation !== generation || apiOrNull() !== api) return null
+            when (result) {
+                is RpcResult.Ok -> result.value.entries.firstOrNull { subagentEntryId(it) == childSessionId }
+                    ?.let(::subagentEntryMode)
                 is RpcResult.Err -> {
                     setConnectionError(result.error.message)
                     null
                 }
-            }
-        }
-        return when (val result = api.subagentList(parentSessionId)) {
-            is RpcResult.Ok -> result.value.entries.firstOrNull { subagentEntryId(it) == childSessionId }
-                ?.let(::subagentEntryMode)
-            is RpcResult.Err -> {
-                setConnectionError(result.error.message)
-                null
             }
         }
     }
@@ -3396,32 +3496,33 @@ class SessionStore @Inject constructor(
         val sid = currentSessionId.value ?: return
         val api = apiOrNull() ?: return
         if (connectionManager.subagentCatalogProtocolUndetermined) {
-            // An empty session list cannot establish whether the host provides the parent catalog.
-            // Do not guess and call the removed list route on an otherwise modern host.
-            setConnectionError("Subagent API cannot be identified until the host has a session")
+            // Discovery may still be retrying on a weak connection. Do not show a misleading
+            // error for an automatic refresh; the protocol observer retries once it is known.
             return
         }
-        if (subagentCatalogSource(connectionManager.supportsSubagentCatalogProjection) == SubagentCatalogSource.PROJECTION) {
-            when (val result = api.sessionProjections(SessionProjectionsRequest(sid))) {
-                is RpcResult.Ok -> {
-                    val projection = result.value?.values?.get("subagentCatalog") ?: run {
-                        setConnectionError("Subagent catalog projection is unavailable")
-                        return
-                    }
-                    val entries = decodeSubagentCatalogProjection(projection) ?: return
-                    synchronized(lock) {
-                        if (currentId == sid) _subagents.value = entries.map { SubagentListEntry.Projected(it) }
-                    }
-                }
-                is RpcResult.Err -> setConnectionError(result.error.message)
-            }
-            return
+        // Modern hosts supply the selected session's catalog through follow/control. A separate
+        // unary snapshot would introduce a second writer that can arrive after a newer stream frame.
+        if (subagentCatalogSource(connectionManager.supportsSubagentCatalogProjection) == SubagentCatalogSource.PROJECTION) return
+        val generation = connectionManager.generation ?: return
+        val selection = synchronized(lock) {
+            if (currentId != sid) return
+            historyPageGeneration
         }
         when (val r = api.subagentList(sid)) {
             is RpcResult.Ok -> synchronized(lock) {
-                if (currentId == sid) _subagents.value = r.value.entries
+                if (currentId == sid && historyPageGeneration == selection &&
+                    connectionManager.generation === generation &&
+                    !connectionManager.supportsSubagentCatalogProjection &&
+                    currentProjections["subagentCatalog"] == null
+                ) _subagents.value = r.value.entries
             }
-            is RpcResult.Err -> setConnectionError(r.error.message)
+            is RpcResult.Err -> synchronized(lock) {
+                if (currentId == sid && historyPageGeneration == selection &&
+                    connectionManager.generation === generation &&
+                    !connectionManager.supportsSubagentCatalogProjection &&
+                    currentProjections["subagentCatalog"] == null
+                ) setConnectionError(r.error.message)
+            }
         }
     }
 

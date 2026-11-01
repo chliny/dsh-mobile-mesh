@@ -146,6 +146,8 @@ dependencies {
     implementation(libs.commonmark.ext.task.list.items)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("org.mockito:mockito-core:5.14.2")
     testImplementation(project(":mock-harness"))
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

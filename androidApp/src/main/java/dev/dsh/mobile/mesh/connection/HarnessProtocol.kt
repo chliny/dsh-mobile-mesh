@@ -46,6 +46,9 @@ internal class HarnessProtocolSelection(private val previous: HarnessProtocol? =
     private val lock = Mutex()
     @Volatile var selected: HarnessProtocol? = null
         private set
+    /** A fallback from storage is usable immediately but must be rechecked after the network recovers. */
+    @Volatile var confirmed: Boolean = false
+        private set
     private val mutableCapabilities = mutableMapOf<HarnessCapability, Boolean>()
     val capabilities: Map<HarnessCapability, Boolean> get() = synchronized(mutableCapabilities) { mutableCapabilities.toMap() }
 
@@ -90,7 +93,7 @@ internal class HarnessProtocolSelection(private val previous: HarnessProtocol? =
     ): HarnessProtocol = lock.withLock {
         // An inconclusive probe is not a settled protocol result. In particular, an empty or
         // transiently unavailable session/list must not permanently suppress a later safe retry.
-        selected?.takeUnless { it == HarnessProtocol.UNDETERMINED }?.let { return@withLock it }
+        if (confirmed) return@withLock selected!!
         val next = try {
             // One budget for the whole discovery, not a fresh budget for each route. An empty
             // session list used to allow list + projection to block publication for up to 16s.
@@ -100,7 +103,8 @@ internal class HarnessProtocolSelection(private val previous: HarnessProtocol? =
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (probeFailure: ProtocolProbeException) {
-            previous?.takeUnless { it == HarnessProtocol.UNDETERMINED } ?: throw probeFailure
+            if (previous == null || previous == HarnessProtocol.UNDETERMINED) throw probeFailure
+            HarnessProtocol.UNDETERMINED
         } catch (_: Throwable) {
             HarnessProtocol.UNDETERMINED
         }
@@ -111,6 +115,8 @@ internal class HarnessProtocolSelection(private val previous: HarnessProtocol? =
         if (resolved != HarnessProtocol.UNDETERMINED) {
             record(HarnessCapability.SUBAGENT_PROJECTION, resolved == HarnessProtocol.PARENT_CATALOG)
         }
+        // Publish confirmation last: other coroutines may immediately reuse selected/capabilities.
+        confirmed = next != HarnessProtocol.UNDETERMINED
         resolved
     }
 

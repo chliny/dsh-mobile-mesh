@@ -28,6 +28,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.SessionAssistantStreamFrame
 import dev.dsh.mobile.mesh.core.wire.decodeFromJsonElement
 import dev.dsh.mobile.mesh.core.wire.newPromptRequestId
 import dev.dsh.mobile.mesh.mockharness.MockHarness
+import dev.dsh.mobile.mesh.mockharness.RpcErrorData
 import dev.dsh.mobile.mesh.core.session.AssistantLiveState
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.EventFold
@@ -55,6 +56,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The real client against the rewritten mock harness, over a real socket.
@@ -208,6 +210,46 @@ class ProtocolEndToEndTest {
         when (val result = client().sessionList()) {
             is RpcResult.Ok -> assertEquals("s1", result.value.items.single().sessionId)
             is RpcResult.Err -> error("session/list failed: ${result.error.code} ${result.error.message}")
+        }
+    }
+
+    @Test
+    fun `protocol detection retries a transient session list failure over HTTP`() = runBlocking {
+        val api = client()
+        for (previous in listOf(null, HarnessProtocol.LEGACY_SUBAGENTS)) {
+            val selection = HarnessProtocolSelection(previous)
+            val failedRequests = AtomicInteger()
+            harness.onFail("session/list") {
+                failedRequests.incrementAndGet()
+                RpcErrorData("temporarily-unavailable", "session list temporarily unavailable")
+            }
+
+            assertEquals(
+                previous ?: HarnessProtocol.UNDETERMINED,
+                selection.detectOptional(
+                    probe = { api.sessionListProbe() },
+                    probeProjection = { api.sessionProjections(dev.dsh.mobile.mesh.core.wire.dto.SessionProjectionsRequest("__dsh_mobile_protocol_probe__")) },
+                ),
+            )
+            assertEquals(1, failedRequests.get())
+
+            val recoveredRequests = AtomicInteger()
+            harness.remote("session", "list", setOf("_request")) {
+                recoveredRequests.incrementAndGet()
+                buildJsonObject {
+                    putJsonArray("items") {
+                        addJsonObject {
+                            put("sessionId", "s1")
+                            put("updatedAt", 5L)
+                            put("running", false)
+                            put("blank", false)
+                            put("agentAvailable", true)
+                        }
+                    }
+                }
+            }
+            assertEquals(HarnessProtocol.PARENT_CATALOG, selection.detect { api.sessionListProbe() })
+            assertEquals(1, recoveredRequests.get())
         }
     }
 

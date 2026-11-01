@@ -95,6 +95,11 @@ class HostsStore @Inject constructor(
 
     suspend fun upsertHost(config: HostConfig) = rememberedHosts.upsertHost(config)
 
+    suspend fun protocolFor(config: HostConfig): HarnessProtocol? = rememberedHosts.protocolFor(config)
+
+    suspend fun cacheProtocol(config: HostConfig, protocol: HarnessProtocol) =
+        rememberedHosts.cacheProtocol(config, protocol)
+
     suspend fun touchHost(host: String, port: Int) = rememberedHosts.touchHost(host, port)
 
     /** Replace the process-startup token only for its associated saved connection. */

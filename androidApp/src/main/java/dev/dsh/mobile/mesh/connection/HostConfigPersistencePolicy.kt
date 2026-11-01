@@ -1,15 +1,25 @@
 package dev.dsh.mobile.mesh.connection
 
 /** A saved row can be edited to point at a different server; its row ID alone is not a cache key. */
+internal fun HostConfig.harnessEndpointKey(): String = kotlinx.serialization.json.buildJsonArray {
+    add(kotlinx.serialization.json.JsonPrimitive(host.trim().lowercase()))
+    add(kotlinx.serialization.json.JsonPrimitive(port))
+    add(kotlinx.serialization.json.JsonPrimitive(useTls))
+    add(kotlinx.serialization.json.JsonPrimitive(meshTransport?.storedValue ?: "direct"))
+    if (meshTransport == MeshTransport.ZERO_TIER) {
+        add(zeroTierNetworkId?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
+        add(zeroTierPlanetId?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
+    }
+    add(kotlinx.serialization.json.JsonPrimitive(sshEnabled))
+    if (sshEnabled) {
+        add(kotlinx.serialization.json.JsonPrimitive(sshPort))
+        add(sshUsername?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
+        add(kotlinx.serialization.json.JsonPrimitive(sshDshHost))
+    }
+}.toString()
+
 internal fun sameHarnessEndpoint(first: HostConfig, second: HostConfig): Boolean =
-    first.host.trim().equals(second.host.trim(), ignoreCase = true) &&
-        first.port == second.port && first.useTls == second.useTls &&
-        first.meshTransport == second.meshTransport &&
-        (first.meshTransport != MeshTransport.ZERO_TIER ||
-            (first.zeroTierNetworkId == second.zeroTierNetworkId && first.zeroTierPlanetId == second.zeroTierPlanetId)) &&
-        first.sshEnabled == second.sshEnabled &&
-        (!first.sshEnabled || (first.sshPort == second.sshPort &&
-            first.sshUsername == second.sshUsername && first.sshDshHost == second.sshDshHost))
+    first.harnessEndpointKey() == second.harnessEndpointKey()
 
 /**
  * Preserve pairing tokens across stale blank updates, and confirmed API results across inconclusive
