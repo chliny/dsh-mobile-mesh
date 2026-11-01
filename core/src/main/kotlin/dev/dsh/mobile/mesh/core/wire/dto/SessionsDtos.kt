@@ -30,7 +30,7 @@ data class SessionSummary(
     @SerialName("origin") val origin: String? = null,
     /** Session working directory (header.cwd passthrough); absent when unrecorded. */
     @SerialName("cwd") val cwd: String? = null,
-    /** Agent preset this session's agent was composed from; absent when unset. */
+    /** Legacy row field; current Hosts publish the selected preset in projections.values.agentPreset. */
     @SerialName("agentPreset") val agentPreset: String? = null,
     /** Persistence format status on newer Hosts; absent on legacy Hosts. */
     @SerialName("formatStatus") val formatStatus: String? = null,

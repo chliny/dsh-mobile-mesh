@@ -7,7 +7,6 @@ import androidx.compose.ui.res.stringResource
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.AgentPresetEntry
 import dev.dsh.mobile.mesh.core.wire.dto.AgentPresetListValue
-import dev.dsh.mobile.mesh.core.wire.dto.AgentPresetTrust
 import dev.dsh.mobile.mesh.core.wire.dto.GoalPhase
 import dev.dsh.mobile.mesh.core.wire.dto.JobStatus
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentListEntry
@@ -99,24 +98,24 @@ internal fun subagentRunning(entry: SubagentListEntry): Boolean = when (entry) {
 /**
  * Localized copy for the four presets the harness ships.
  *
- * The host does *not* localize these. It reads `name`/`description` straight out of each preset's
- * `preset.yml`, and those files are written in Chinese — so `agentPreset.list` answers `标准模式`
- * whatever language the client is in. The harness's own web UI covers this by overriding the
- * built-ins with its own translations, and this is the same table for the same four ids.
- *
- * Legacy Hosts expose trust directly; newer registry responses omit it, so only an explicit system
- * row gets the built-in name override. Unknown trust preserves the server's own display name.
+ * Current Host rosters leave a shipped preset's name unset; an explicitly named row owns its
+ * own copy and must not be translated even when it reuses a shipped id. The old `code` id remains
+ * supported alongside the current Web `ptc` id.
  */
 private fun builtInPresetStrings(id: String): Pair<Int, Int>? = when (id) {
     "standard" -> R.string.preset_standard_name to R.string.preset_standard_desc
+    "ptc" -> R.string.preset_code_name to R.string.preset_code_desc
     "code" -> R.string.preset_code_name to R.string.preset_code_desc
     "minimal" -> R.string.preset_minimal_name to R.string.preset_minimal_desc
     "cordis" -> R.string.preset_cordis_name to R.string.preset_cordis_desc
     else -> null
 }
 
+internal fun AgentPresetEntry.isShippedPreset(): Boolean =
+    name == null && builtInPresetStrings(id) != null
+
 private fun builtInPresetStrings(entry: AgentPresetEntry): Pair<Int, Int>? =
-    if (entry.trust == AgentPresetTrust.SYSTEM) builtInPresetStrings(entry.id) else null
+    if (entry.isShippedPreset()) builtInPresetStrings(entry.id) else null
 
 /**
  * What to call the preset a session is pinned to, given only its id.

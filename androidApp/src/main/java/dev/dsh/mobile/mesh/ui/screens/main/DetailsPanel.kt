@@ -51,7 +51,6 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.ChatNode
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
 import dev.dsh.mobile.mesh.core.session.QueueItem
-import dev.dsh.mobile.mesh.core.session.PlanModeNode
 import dev.dsh.mobile.mesh.core.session.WorkflowNode
 import dev.dsh.mobile.mesh.core.wire.dto.ContextBreakdownView
 import dev.dsh.mobile.mesh.core.wire.dto.ContextPressureView
@@ -75,7 +74,6 @@ import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.core.wire.dto.AgentPresetListValue
 import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
 import dev.dsh.mobile.mesh.ui.components.StateDotState
-import dev.dsh.mobile.mesh.ui.components.ToggleRow
 import dev.dsh.mobile.mesh.ui.components.formatDurationMs
 import dev.dsh.mobile.mesh.ui.components.formatTokens
 import dev.dsh.mobile.mesh.ui.components.rememberDsToast
@@ -85,8 +83,6 @@ import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 
 /**
@@ -124,6 +120,10 @@ internal fun DetailsPanel(
     val models by store.models.collectAsState()
     val agentPresets by store.agentPresets.collectAsState()
     val current = sessions.firstOrNull { it.sessionId == currentSessionId }
+    // A followed projection is newer than the (possibly cached) session/list hint.
+    val currentPreset = ((conversation?.takeIf { it.sessionId == currentSessionId }
+        ?.projections?.get("agentPreset")) as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
+        ?: current?.agentPreset
 
     LaunchedEffect(currentSessionId) {
         if (currentSessionId != null) store.refreshSessions()
@@ -172,6 +172,7 @@ internal fun DetailsPanel(
 
                 SessionCard(
                     session = current,
+                    currentPreset = currentPreset,
                     models = models,
                     presets = agentPresets,
                     disclosureScope = disclosures,
@@ -232,9 +233,6 @@ internal fun DetailsPanel(
                 } else {
                     ContextCard(breakdown, pressure, usage, stats, disclosures)
                     GoalCard(conv, store, disclosures)
-                    PlanCard(conv, disclosures) { next ->
-                        scope.launch { store.runCommand(if (next) "/plan" else "/plan off") }
-                    }
                     JobsCard(jobs, store, scope, disclosures, jobKillRequestedLabel, jobKillFailedLabel, toast.second)
                     QueueCard(conv.queue, store, disclosures)
                     SubagentsCard(subagents, sessions, disclosures, onOpen = onOpenSubagent)
@@ -251,7 +249,7 @@ internal fun DetailsPanel(
         DetailsSheet.Models -> ModelsSheet(models = models, store = store, onDismiss = { sheet = null })
         DetailsSheet.Presets -> PresetsSheet(
             presets = agentPresets,
-            currentPreset = current?.agentPreset,
+            currentPreset = currentPreset,
             sessionBlank = current?.blank ?: false,
             store = store,
             onDismiss = { sheet = null },
@@ -325,6 +323,7 @@ private fun Card(
 @Composable
 private fun SessionCard(
     session: SessionRow?,
+    currentPreset: String?,
     models: SessionModelsValue?,
     presets: AgentPresetListValue?,
     disclosureScope: DisclosureScope,
@@ -345,18 +344,21 @@ private fun SessionCard(
         initiallyExpanded = true,
     ) {
         session.cwd?.let { Text(it, style = DsType.caption11, color = colors.labelCaption) }
-        // The model and the preset are the two things about a session people most often come here
-        // to check, and until now this panel could show only one of them and could change neither.
-        // Both pills carry an onClick, which is also what makes them look pressable.
         Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
             models?.let { value ->
                 val group = value.groups.firstOrNull { it.id == value.current.provider }
                 val name = group?.models?.firstOrNull { it.id == value.current.model }?.name
                 DsPill(text = name ?: value.current.model, onClick = onOpenModels)
             }
-            session.agentPreset?.let {
-                DsPill(text = agentPresetLabel(it, presets), onClick = onOpenPresets)
-            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.presets_title), style = DsType.caption11, color = colors.labelSecondary)
+            Spacer(Modifier.width(DsSpacing.small))
+            DsPill(
+                text = currentPreset?.let { agentPresetLabel(it, presets) }
+                    ?: stringResource(R.string.presets_current),
+                onClick = onOpenPresets,
+            )
         }
         if (session.running) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -492,37 +494,6 @@ private fun GoalCard(conversation: ConversationSnapshot, store: dev.dsh.mobile.m
             )
         }
         GoalBar(goal, store)
-    }
-}
-
-/**
- * Plan mode, as a switch.
- *
- * The card used to put the current state in its title and the *opposite* state on a pill below it,
- * so it read as contradicting itself — and both the pill and the title moved together, leaving
- * nothing to say which one was the button. A switch states one thing and offers one action.
- *
- * [onTogglePlan] is handed the state to move to, because the two directions are different commands:
- * bare `/plan` only ever enters plan mode, and leaving needs `/plan off`. Sending `/plan` for both,
- * as this did, meant the control could turn plan mode on and never off again.
- */
-@Composable
-private fun PlanCard(conversation: ConversationSnapshot, disclosureScope: DisclosureScope, onTogglePlan: (active: Boolean) -> Unit) {
-    val active = parsePlanActive(conversation) ?: return
-    Card(
-        id = "plan",
-        disclosureScope = disclosureScope,
-        title = stringResource(R.string.plan_mode_title),
-        summary = stringResource(if (active) R.string.plan_mode_state_on else R.string.plan_mode_state_off),
-        // Open by default: unlike the other cards this one is a control, and a control you have to
-        // expand before you can reach is most of the way back to not having it.
-        initiallyExpanded = true,
-    ) {
-        ToggleRow(
-            label = stringResource(R.string.plan_mode_hint),
-            checked = active,
-            onChange = { onTogglePlan(!active) },
-        )
     }
 }
 
@@ -812,19 +783,6 @@ private fun HostCard(hostInfo: HostDescription?, disclosureScope: DisclosureScop
 // ---------------------------------------------------------------------------
 // Parsing helpers local to the panel
 // ---------------------------------------------------------------------------
-
-/** Plan mode: the projection when present, otherwise the last `plan/mode` event seen. */
-private fun parsePlanActive(conversation: ConversationSnapshot): Boolean? {
-    val fromProjection = conversation.projections["plan"]?.let { element ->
-        runCatching {
-            val obj = element as? JsonObject ?: return@runCatching null
-            obj["active"]?.jsonPrimitive?.booleanOrNull
-                ?: obj["active"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
-        }.getOrNull()
-    }
-    return fromProjection
-        ?: conversation.nodes.filterIsInstance<PlanModeNode>().lastOrNull()?.active
-}
 
 internal enum class WorkflowStatus { Running, Completed, Failed }
 

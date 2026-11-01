@@ -397,6 +397,7 @@
     <string name="connect_found_untrusted">Não confiável</string>
     <string name="connect_found_untrusted_hint">Há um harness em execução aqui, mas ele recusa solicitações deste dispositivo. Reinicie-o com --trusted-host para este telefone.</string>
     <string name="plan_mode_title">Modo de plano</string>
+    <string name="chat_composer_plan">Plano</string>
     <string name="plan_mode_state_on">Ativado</string>
     <string name="plan_mode_state_off">Desativado</string>
     <string name="plan_mode_hint">Pesquisar e propor um plano antes de editar qualquer coisa.</string>

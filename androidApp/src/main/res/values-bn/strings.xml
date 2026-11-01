@@ -397,6 +397,7 @@
     <string name="connect_found_untrusted">বিশ্বস্ত নয়</string>
     <string name="connect_found_untrusted_hint">এখানে একটি হারনেস চলছে, কিন্তু এটি এই ডিভাইসের অনুরোধ প্রত্যাখ্যান করে। এই ফোনের জন্য --trusted-host সহ এটি পুনরায় চালু করুন।</string>
     <string name="plan_mode_title">প্ল্যান মোড</string>
+    <string name="chat_composer_plan">পরিকল্পনা</string>
     <string name="plan_mode_state_on">চালু</string>
     <string name="plan_mode_state_off">বন্ধ</string>
     <string name="plan_mode_hint">কিছু সম্পাদনা করার আগে গবেষণা করে একটি পরিকল্পনা প্রস্তাব করুন।</string>

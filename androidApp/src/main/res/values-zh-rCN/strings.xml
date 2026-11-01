@@ -462,6 +462,7 @@
     <string name="connect_found_untrusted">未受信任</string>
     <string name="connect_found_untrusted_hint">此处有 Harness 正在运行，但它拒绝来自本设备的请求。请使用面向本手机的 --trusted-host 重新启动。</string>
     <string name="plan_mode_title">计划模式</string>
+    <string name="chat_composer_plan">计划</string>
     <string name="plan_mode_state_on">开启</string>
     <string name="plan_mode_state_off">关闭</string>
     <string name="plan_mode_hint">先调研并提出方案，然后再进行任何修改。</string>

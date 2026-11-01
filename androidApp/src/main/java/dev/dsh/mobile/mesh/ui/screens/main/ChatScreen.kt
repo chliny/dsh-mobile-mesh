@@ -44,6 +44,8 @@ import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionAnswer
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionAnswerItem
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionOption
 import dev.dsh.mobile.mesh.core.wire.RpcResult
+import dev.dsh.mobile.mesh.core.wire.decodeFromJsonElement
+import dev.dsh.mobile.mesh.core.wire.dto.PlanStateView
 import dev.dsh.mobile.mesh.core.wire.dto.CommandSubmitAttachment
 import dev.dsh.mobile.mesh.core.wire.dto.ImageLimitsView
 import dev.dsh.mobile.mesh.data.CommandOutcome
@@ -145,6 +147,9 @@ internal fun ChatScreen(
     // Flow emissions can arrive in different frames after a switch. Never pass the old
     // conversation (including its nodes, gap and trajectory) to the newly selected session.
     val visibleConversation = conversationForSelectedSession(conversation, currentSessionId)
+    val visiblePlan = visibleConversation?.projections?.get("plan")?.let { value ->
+        runCatching { decodeFromJsonElement(PlanStateView.serializer(), value) }.getOrNull()
+    }
     val currentSession = sessions.firstOrNull { it.sessionId == currentSessionId }
     val childAddress = sessionAddress as? dev.dsh.mobile.mesh.core.wire.dto.SessionAddress.Subagent
     val subagentReadOnly = childAddress?.mode == "one-shot"
@@ -748,6 +753,11 @@ internal fun ChatScreen(
             mode = mode,
             running = visibleConversation?.running == true,
             canAttach = currentSessionId != null,
+            plan = visiblePlan,
+            canChangePlan = currentSessionId != null && !subagentReadOnly && connectionPhase == ConnectionPhase.CONNECTED,
+            onTogglePlan = { active ->
+                scope.launch { report(store.runCommand(if (active) "/plan" else "/plan off")) }
+            },
             onModeChange = { mode = it },
             onAttach = { imagePicker.launch("image/*") },
             onAttachFile = { launchFilePicker() },

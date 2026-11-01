@@ -397,6 +397,7 @@
     <string name="connect_found_untrusted">No autorizado</string>
     <string name="connect_found_untrusted_hint">Aquí se está ejecutando un harness, pero rechaza las solicitudes de este dispositivo. Reinícialo con --trusted-host para este teléfono.</string>
     <string name="plan_mode_title">Modo plan</string>
+    <string name="chat_composer_plan">Plan</string>
     <string name="plan_mode_state_on">Activado</string>
     <string name="plan_mode_state_off">Desactivado</string>
     <string name="plan_mode_hint">Investigar y proponer un plan antes de editar nada.</string>

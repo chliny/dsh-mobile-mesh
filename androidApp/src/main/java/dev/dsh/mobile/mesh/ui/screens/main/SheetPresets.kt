@@ -23,7 +23,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.AgentPresetListValue
-import dev.dsh.mobile.mesh.core.wire.dto.AgentPresetTrust
 import dev.dsh.mobile.mesh.data.SessionStore
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
 import dev.dsh.mobile.mesh.ui.components.DsPill
@@ -96,11 +95,7 @@ internal fun PresetsSheet(
                             Spacer(Modifier.width(DsSpacing.small))
                             DsPill(
                                 text = stringResource(
-                                    when (entry.trust) {
-                                        AgentPresetTrust.SYSTEM -> R.string.presets_system
-                                        AgentPresetTrust.USER -> R.string.presets_user
-                                        AgentPresetTrust.UNKNOWN, null -> R.string.presets_user
-                                    },
+                                    if (entry.isShippedPreset()) R.string.presets_system else R.string.presets_user,
                                 ),
                             )
                             if (entry.isDefault) {

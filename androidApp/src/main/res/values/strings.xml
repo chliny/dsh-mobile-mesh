@@ -524,6 +524,7 @@
     <string name="connect_found_untrusted">Not trusted</string>
     <string name="connect_found_untrusted_hint">A harness is running here, but it refuses requests from this device. Restart it with --trusted-host for this phone.</string>
     <string name="plan_mode_title">Plan mode</string>
+    <string name="chat_composer_plan">Plan</string>
     <string name="plan_mode_state_on">On</string>
     <string name="plan_mode_state_off">Off</string>
     <string name="plan_mode_hint">Research and propose a plan before editing anything.</string>

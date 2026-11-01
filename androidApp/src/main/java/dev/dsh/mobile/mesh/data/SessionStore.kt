@@ -1838,6 +1838,10 @@ class SessionStore @Inject constructor(
             decodeOrNull(SubagentTimingProjection.serializer(), it)
         }
 
+    /** Current Hosts publish the selected preset in the list projection; older ones use the row field. */
+    private fun sessionAgentPreset(item: SessionSummary): String? =
+        (item.projections?.values?.get("agentPreset") as? JsonPrimitive)?.contentOrNull ?: item.agentPreset
+
     private fun onSessionAdded(item: SessionSummary) {
         synchronized(lock) {
             val existing = sessionRows[item.sessionId]
@@ -1848,7 +1852,7 @@ class SessionStore @Inject constructor(
                 parentSessionId = item.parentSessionId,
                 origin = item.origin,
                 cwd = item.cwd,
-                agentPreset = item.agentPreset,
+                agentPreset = sessionAgentPreset(item),
                 agentAvailable = item.agentAvailable,
                 subagentTiming = decodeSubagentTiming(item) ?: existing?.subagentTiming,
             ) ?: SessionRow(
@@ -1859,7 +1863,7 @@ class SessionStore @Inject constructor(
                 parentSessionId = item.parentSessionId,
                 origin = item.origin,
                 cwd = item.cwd,
-                agentPreset = item.agentPreset,
+                agentPreset = sessionAgentPreset(item),
                 agentAvailable = item.agentAvailable,
                 updatedAt = item.updatedAt,
                 pendingInteraction = null,
@@ -2244,7 +2248,7 @@ class SessionStore @Inject constructor(
                             parentSessionId = item.parentSessionId,
                             origin = item.origin,
                             cwd = item.cwd,
-                            agentPreset = item.agentPreset,
+                            agentPreset = sessionAgentPreset(item),
                             updatedAt = item.updatedAt,
                             pendingInteraction = null,
                             subagentTiming = decodeSubagentTiming(item),

@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.CommandDescriptor
 import dev.dsh.mobile.mesh.core.wire.dto.SkillEntry
+import dev.dsh.mobile.mesh.core.wire.dto.PlanStateView
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
 import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.SectionHeader
@@ -59,6 +61,9 @@ internal fun CommandSheet(
     mode: String,
     running: Boolean,
     canAttach: Boolean,
+    plan: PlanStateView?,
+    canChangePlan: Boolean,
+    onTogglePlan: (Boolean) -> Unit,
     onModeChange: (String) -> Unit,
     onAttach: () -> Unit,
     onAttachFile: () -> Unit,
@@ -111,6 +116,30 @@ internal fun CommandSheet(
                 onAttachFile()
             },
         )
+
+        // Plan is a session projection, not a prompt queue/steer mode. A missing projection means
+        // this agent preset does not provide plan mode (for example, the minimal preset).
+        plan?.let { state ->
+            val selected = if (state.pending) !state.active else state.active
+            SheetRow(
+                leading = {
+                    Icon(
+                        Icons.Outlined.Description,
+                        contentDescription = null,
+                        tint = colors.labelSecondary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                },
+                title = stringResource(R.string.chat_composer_plan),
+                subtitle = stringResource(R.string.plan_mode_hint),
+                trailing = stringResource(if (selected) R.string.plan_mode_state_on else R.string.plan_mode_state_off),
+                enabled = canChangePlan,
+                onClick = {
+                    onDismiss()
+                    onTogglePlan(!selected)
+                },
+            )
+        }
 
         // Send mode ---------------------------------------------------------
         SectionHeader(stringResource(R.string.chat_composer_mode))

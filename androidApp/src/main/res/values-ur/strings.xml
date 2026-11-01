@@ -397,6 +397,7 @@
     <string name="connect_found_untrusted">قابلِ اعتماد نہیں</string>
     <string name="connect_found_untrusted_hint">یہاں ایک ہارنیس چل رہا ہے، لیکن یہ اس ڈیوائس کی درخواستیں مسترد کرتا ہے۔ اس فون کے لیے ‎--trusted-host‎ کے ساتھ اسے دوبارہ شروع کریں۔</string>
     <string name="plan_mode_title">پلان موڈ</string>
+    <string name="chat_composer_plan">منصوبہ</string>
     <string name="plan_mode_state_on">آن</string>
     <string name="plan_mode_state_off">آف</string>
     <string name="plan_mode_hint">کچھ بھی ترمیم کرنے سے پہلے تحقیق کر کے منصوبہ پیش کریں۔</string>

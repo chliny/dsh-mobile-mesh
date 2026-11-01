@@ -397,6 +397,7 @@
     <string name="connect_found_untrusted">ไม่ได้รับความเชื่อถือ</string>
     <string name="connect_found_untrusted_hint">มี Harness ทำงานอยู่ที่นี่ แต่ปฏิเสธคำขอจากอุปกรณ์นี้ โปรดเริ่ม Harness ใหม่พร้อม --trusted-host สำหรับโทรศัพท์เครื่องนี้</string>
     <string name="plan_mode_title">โหมดวางแผน</string>
+    <string name="chat_composer_plan">แผน</string>
     <string name="plan_mode_state_on">เปิด</string>
     <string name="plan_mode_state_off">ปิด</string>
     <string name="plan_mode_hint">ค้นคว้าและเสนอแผนก่อนแก้ไขสิ่งใด</string>

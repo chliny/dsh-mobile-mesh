@@ -397,6 +397,7 @@
     <string name="connect_found_untrusted">Не доверенный</string>
     <string name="connect_found_untrusted_hint">Здесь работает harness, но он отклоняет запросы с этого устройства. Перезапустите его с --trusted-host для этого телефона.</string>
     <string name="plan_mode_title">Режим плана</string>
+    <string name="chat_composer_plan">План</string>
     <string name="plan_mode_state_on">Вкл.</string>
     <string name="plan_mode_state_off">Выкл.</string>
     <string name="plan_mode_hint">Изучить задачу и предложить план до внесения правок.</string>

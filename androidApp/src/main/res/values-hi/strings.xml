@@ -397,6 +397,7 @@
     <string name="connect_found_untrusted">विश्वसनीय नहीं</string>
     <string name="connect_found_untrusted_hint">यहाँ एक हार्नेस चल रहा है, लेकिन यह इस डिवाइस के अनुरोध अस्वीकार करता है। इस फ़ोन के लिए --trusted-host के साथ इसे पुनः प्रारंभ करें।</string>
     <string name="plan_mode_title">प्लान मोड</string>
+    <string name="chat_composer_plan">योजना</string>
     <string name="plan_mode_state_on">चालू</string>
     <string name="plan_mode_state_off">बंद</string>
     <string name="plan_mode_hint">कुछ भी संपादित करने से पहले शोध करके योजना प्रस्तावित करें।</string>
