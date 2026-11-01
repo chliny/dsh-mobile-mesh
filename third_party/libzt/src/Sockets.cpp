@@ -424,7 +424,8 @@ int zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms)
     // Convert to standard address structure
 
     addrlen = sizeof(ss);
-    zts_util_ipstr_to_saddr(ipstr, port, (struct zts_sockaddr*)&ss, &addrlen);
+    const int address_result = zts_util_ipstr_to_saddr(ipstr, port, (struct zts_sockaddr*)&ss, &addrlen);
+    if (address_result != ZTS_ERR_OK) return address_result;
     sa = (struct zts_sockaddr*)&ss;
 
     if (addrlen > 0 && sa != NULL) {
@@ -432,13 +433,17 @@ int zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms)
         // blocking lwip_connect has taken 44 seconds despite a 5-second zts_connect budget: the
         // old loop only counted sleeps between calls, not the time spent inside each call.
         if (explicit_timeout) {
+            errno = 0;
             const int original_flags = zts_bsd_fcntl(fd, ZTS_F_GETFL, 0);
             if (original_flags < 0) return original_flags;
             const bool restore_blocking = !(original_flags & ZTS_O_NONBLOCK);
-            if (restore_blocking && zts_bsd_fcntl(fd, ZTS_F_SETFL, original_flags | ZTS_O_NONBLOCK) < 0) {
-                return ZTS_ERR_SOCKET;
+            if (restore_blocking) {
+                errno = 0;
+                const int set_result = zts_bsd_fcntl(fd, ZTS_F_SETFL, original_flags | ZTS_O_NONBLOCK);
+                if (set_result < 0) return set_result;
             }
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+            errno = 0;
             err = zts_bsd_connect(fd, sa, addrlen);
             if (err < 0 && (errno == EINPROGRESS || errno == EALREADY || errno == EWOULDBLOCK)) {
                 for (;;) {
@@ -449,24 +454,32 @@ int zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms)
                         break;
                     }
                     struct zts_pollfd pollfd = { fd, ZTS_POLLOUT, 0 };
+                    errno = 0;
                     const int ready = zts_bsd_poll(&pollfd, 1, static_cast<int>(remaining));
                     if (ready == 0) {
                         errno = ETIMEDOUT;
                         break;
                     }
                     if (ready < 0) {
-                        if (errno == EINTR) continue;
+                        if (ready == ZTS_ERR_SOCKET && errno == EINTR) continue;
+                        err = ready;
                         break;
                     }
                     int socket_error = 0;
                     zts_socklen_t error_len = sizeof(socket_error);
-                    if (zts_bsd_getsockopt(fd, ZTS_SOL_SOCKET, ZTS_SO_ERROR, &socket_error, &error_len) < 0) break;
+                    errno = 0;
+                    const int option_result = zts_bsd_getsockopt(fd, ZTS_SOL_SOCKET, ZTS_SO_ERROR, &socket_error, &error_len);
+                    if (option_result < 0) {
+                        err = option_result;
+                        break;
+                    }
                     if (socket_error != 0) {
                         errno = socket_error;
                         break;
                     }
                     if (!(pollfd.revents & ZTS_POLLOUT)) {
-                        errno = ECONNREFUSED;
+                        // No SO_ERROR was supplied; do not invent ECONNREFUSED for this poll state.
+                        errno = 0;
                         break;
                     }
                     err = 0;
@@ -475,23 +488,33 @@ int zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms)
             }
             const int saved_errno = errno;
             if (restore_blocking) {
+                errno = 0;
                 const int restored = zts_bsd_fcntl(fd, ZTS_F_SETFL, original_flags);
                 if (restored < 0) return restored;
             }
             errno = saved_errno;
             return err;
         }
-        if (zts_get_blocking(fd)) {
+        errno = 0;
+        const int blocking = zts_get_blocking(fd);
+        if (blocking < 0) return blocking;
+        if (blocking) {
             do {
+                errno = 0;
                 err = zts_bsd_connect(fd, sa, addrlen);
                 // A successful TCP handshake is already usable. Sleeping before returning adds
                 // 250ms to every connection, including foreground recovery's readiness dial.
                 if (err >= 0) {
                     return err;
                 }
+                // errno is thread-local; the global zts_errno can be overwritten by another
+                // connection, and sleeping must not replace the failure we report to JNI.
+                const int connect_errno = errno;
+                if (err != ZTS_ERR_SOCKET || connect_errno == 0 || n_tries <= 1) break;
                 zts_util_delay(connect_delay);
+                errno = connect_errno;
                 n_tries--;
-            } while ((err < 0) && (zts_errno != 0) && (n_tries > 0));
+            } while (n_tries > 0);
         }
         return err;
     }

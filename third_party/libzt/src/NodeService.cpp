@@ -18,6 +18,7 @@
  */
 
 #include <stdlib.h>
+#include <algorithm>
 
 #include "NodeService.hpp"
 #include "TcpConnectionContext.hpp"
@@ -214,6 +215,10 @@ NodeService::~NodeService()
 NodeService::ReasonForTermination NodeService::run()
 {
     _run = true;
+    {
+        Mutex::Lock diagnosticsLock(_peerDiagnosticsMutex);
+        _peerDiagnosticsAvailable = false;
+    }
     try {
         // Create home path (if necessary)
         // By default, _homePath is empty and nothing is written to storage
@@ -251,6 +256,7 @@ NodeService::ReasonForTermination NodeService::run()
             cb.eventCallback = SnodeEventCallback;
             cb.pathCheckFunction = SnodePathCheckFunction;
             cb.pathLookupFunction = SnodePathLookupFunction;
+            Mutex::Lock diagnosticLock(_diagnosticNodeMutex);
             _node = new Node(this, (void*)0, &cb, OSUtils::now());
         }
 
@@ -513,6 +519,9 @@ NodeService::ReasonForTermination NodeService::run()
         _fatalErrorMessage = "unexpected exception in main thread: unknown exception";
     }
 
+    // Match join's lock order: node lifetime first, then network state. This prevents a join
+    // from creating a tap while shutdown clears networks and destroys the node.
+    Mutex::Lock diagnosticLock(_diagnosticNodeMutex);
     {
         Mutex::Lock _l(_nets_m);
         for (std::map<uint64_t, NetworkState>::iterator n(_nets.begin()); n != _nets.end(); ++n) {
@@ -923,7 +932,13 @@ void NodeService::nodeEventCallback(enum ZT_Event event, const void* metaData)
     ZTS_UNUSED_ARG(metaData);
 
     int event_code = 0;
-    _nodeIsOnline = (event == ZT_EVENT_ONLINE) ? true : false;
+    // Non-state events such as TRACE and USER_MESSAGE do not imply an offline node.
+    if (event == ZT_EVENT_ONLINE) {
+        _nodeIsOnline.store(true);
+    } else if (event == ZT_EVENT_OFFLINE || event == ZT_EVENT_DOWN ||
+               event == ZT_EVENT_FATAL_ERROR_IDENTITY_COLLISION) {
+        _nodeIsOnline.store(false);
+    }
     _nodeId = _node ? _node->address() : 0x0;
 
     switch (event) {
@@ -1061,11 +1076,27 @@ void NodeService::sendEventToUser(unsigned int zt_event_code, const void* obj, u
         case ZTS_EVENT_PEER_UNREACHABLE:
         case ZTS_EVENT_PEER_PATH_DISCOVERED:
         case ZTS_EVENT_PEER_PATH_DEAD: {
-            pr = new zts_peer_info_t();
-            ZT_Peer* peer = (ZT_Peer*)obj;
-            memcpy(pr, peer, sizeof(zts_peer_info_t));
-            for (unsigned int j = 0; j < peer->pathCount; j++) {
-                native_ss_to_zts_ss(&(pr->paths[j].address), &(peer->paths[j].address));
+            pr = new zts_peer_info_t(); // Value-initialized: unsupported path fields remain zero/null.
+            const ZT_Peer* peer = static_cast<const ZT_Peer*>(obj);
+            pr->peer_id = peer->address;
+            pr->ver_major = peer->versionMajor;
+            pr->ver_minor = peer->versionMinor;
+            pr->ver_rev = peer->versionRev;
+            pr->latency = peer->latency;
+            pr->role = static_cast<zts_peer_role_t>(peer->role);
+            pr->path_count = std::min(peer->pathCount, static_cast<unsigned int>(
+                std::min(ZT_MAX_PEER_NETWORK_PATHS, ZTS_MAX_PEER_NETWORK_PATHS)));
+            for (unsigned int j = 0; j < pr->path_count; ++j) {
+                const ZT_PeerPhysicalPath& src = peer->paths[j];
+                zts_path_t& dst = pr->paths[j];
+                native_ss_to_zts_ss(&dst.address, &src.address);
+                dst.last_tx = src.lastSend;
+                dst.last_rx = src.lastReceive;
+                dst.trusted_path_id = src.trustedPathId;
+                dst.expired = src.expired;
+                dst.preferred = src.preferred;
+                // The core only initializes link metrics and ifname for bonded peers; the public
+                // path's char* also has no owned storage. Leave both unavailable, not dangling.
             }
             objptr = (void*)pr;
             break;
@@ -1143,6 +1174,8 @@ void NodeService::generateSyntheticEvents()
     // Force the ordering of callback messages, these messages are
     // only useful if the node and stack are both up and running
     if (! _node->online() || ! zts_lwip_is_up()) {
+        Mutex::Lock diagnosticsLock(_peerDiagnosticsMutex);
+        _peerDiagnosticsAvailable = false;
         return;
     }
     // Generate messages to be dequeued by the callback message thread
@@ -1183,9 +1216,39 @@ void NodeService::generateSyntheticEvents()
         }
         netState.tap->_networkStatus = mostRecentStatus;
     }
+    // Reuse the existing core query on the service thread. JNI readers never call peers().
+    // This remains subject to the same core snapshot thread-safety as synthetic peer events.
+    const auto sampleAt = std::chrono::steady_clock::now();
+    bool sampleDiagnostics;
+    {
+        Mutex::Lock diagnosticsLock(_peerDiagnosticsMutex);
+        sampleDiagnostics = !_peerDiagnosticsAvailable ||
+            sampleAt - _peerDiagnosticsSampledAt >= std::chrono::seconds(5);
+    }
+    int64_t diagnosticValues[6] = { 0, 0, 0, 0, -1, -1 };
+    const int64_t now = sampleDiagnostics ? OSUtils::now() : 0;
     ZT_PeerList* pl = _node->peers();
     if (pl) {
         for (unsigned long i = 0; i < pl->peerCount; ++i) {
+            const ZT_Peer& peer = pl->peers[i];
+            if (sampleDiagnostics && peer.role == ZT_PEER_ROLE_LEAF) {
+                ++diagnosticValues[0];
+                const unsigned int paths = std::min(peer.pathCount, static_cast<unsigned int>(ZT_MAX_PEER_NETWORK_PATHS));
+                if (paths) ++diagnosticValues[1];
+                diagnosticValues[2] += paths;
+                for (unsigned int j = 0; j < paths; ++j) {
+                    const ZT_PeerPhysicalPath& path = peer.paths[j];
+                    if (path.preferred) ++diagnosticValues[3];
+                    if (path.lastReceive && now >= 0 && path.lastReceive <= static_cast<uint64_t>(now)) {
+                        const int64_t age = now - static_cast<int64_t>(path.lastReceive);
+                        if (diagnosticValues[4] < 0 || age < diagnosticValues[4]) diagnosticValues[4] = age;
+                    }
+                    if (path.lastSend && now >= 0 && path.lastSend <= static_cast<uint64_t>(now)) {
+                        const int64_t age = now - static_cast<int64_t>(path.lastSend);
+                        if (diagnosticValues[5] < 0 || age < diagnosticValues[5]) diagnosticValues[5] = age;
+                    }
+                }
+            }
             if (! peerCache.count(pl->peers[i].address)) {
                 // New peer, add status
                 if (pl->peers[i].pathCount > 0) {
@@ -1213,6 +1276,16 @@ void NodeService::generateSyntheticEvents()
             peerCache[pl->peers[i].address] = pl->peers[i].pathCount;
         }
     }
+    if (sampleDiagnostics) {
+        Mutex::Lock diagnosticsLock(_peerDiagnosticsMutex);
+        if (pl) {
+            std::copy(diagnosticValues, diagnosticValues + 6, _peerDiagnostics);
+            _peerDiagnosticsSampledAt = sampleAt;
+            _peerDiagnosticsAvailable = true;
+        } else {
+            _peerDiagnosticsAvailable = false;
+        }
+    }
     _node->freeQueryResult((void*)pl);
 }
 
@@ -1220,6 +1293,10 @@ int NodeService::join(uint64_t net_id)
 {
     if (! net_id) {
         return ZTS_ERR_ARG;
+    }
+    Mutex::Lock nodeLock(_diagnosticNodeMutex);
+    if (! _node) {
+        return ZTS_ERR_SERVICE;
     }
     _node->join(net_id, NULL, NULL);
     return ZTS_ERR_OK;
@@ -1229,6 +1306,10 @@ int NodeService::leave(uint64_t net_id)
 {
     if (! net_id) {
         return ZTS_ERR_ARG;
+    }
+    Mutex::Lock nodeLock(_diagnosticNodeMutex);
+    if (! _node) {
+        return ZTS_ERR_SERVICE;
     }
     _node->leave(net_id, NULL, NULL);
     return ZTS_ERR_OK;
@@ -1288,6 +1369,26 @@ int NodeService::multicastSubCount(uint64_t net_id) const
 int NodeService::pathCount(uint64_t peer_id) const
 {
     return ZTS_ERR_NO_RESULT;   // TODO
+}
+
+int NodeService::peerPathDiagnostics(uint64_t peer_id, int64_t* values, unsigned int count) const
+{
+    if (!values || count < 7 || peer_id != 0) return ZTS_ERR_ARG;
+    Mutex::Lock diagnosticsLock(_peerDiagnosticsMutex);
+    if (!_peerDiagnosticsAvailable) return ZTS_ERR_NO_RESULT;
+    std::copy(_peerDiagnostics, _peerDiagnostics + 6, values);
+    const int64_t sampleAge = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - _peerDiagnosticsSampledAt).count();
+    values[6] = sampleAge >= 0 ? sampleAge : -1;
+    // Advance observed path ages using monotonic time, not wall clock changes after sampling.
+    for (unsigned int i = 4; i < 6; ++i) {
+        if (values[i] >= 0 && values[6] >= 0 && values[i] <= INT64_MAX - values[6]) {
+            values[i] += values[6];
+        } else {
+            values[i] = -1;
+        }
+    }
+    return ZTS_ERR_OK;
 }
 
 int NodeService::getAddrAtIdx(uint64_t net_id, unsigned int idx, char* dst, unsigned int len)

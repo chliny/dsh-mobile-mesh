@@ -30,6 +30,8 @@
 #include "ZeroTierSockets.h"
 #include "version.h"
 
+#include <atomic>
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -152,6 +154,13 @@ class NodeService {
 
     Phy<NodeService*> _phy;
     Node* _node;
+    // Protects join/leave against node initialization and teardown.
+    mutable Mutex _diagnosticNodeMutex;
+    // Only anonymous values cross from the service thread to diagnostic callers.
+    mutable Mutex _peerDiagnosticsMutex;
+    int64_t _peerDiagnostics[6] = { 0, 0, 0, 0, -1, -1 };
+    std::chrono::steady_clock::time_point _peerDiagnosticsSampledAt;
+    bool _peerDiagnosticsAvailable = false;
 
     uint64_t _nodeId;
     unsigned int _primaryPort;
@@ -267,7 +276,7 @@ class NodeService {
     int _rootsDataLen = 0;
 
     /** Whether the node has successfully come online */
-    bool _nodeIsOnline;
+    std::atomic<bool> _nodeIsOnline;
 
     /** Whether we allow the NodeService to generate events for the user */
     bool _eventsEnabled;
@@ -344,6 +353,9 @@ class NodeService {
 
     /** Return number of known physical paths to the peer. Service must be locked. */
     int pathCount(uint64_t peer_id) const;
+
+    /** Aggregate path metadata without exporting peer identity or physical addresses. */
+    int peerPathDiagnostics(uint64_t peer_id, int64_t* values, unsigned int count) const;
 
     int getAddrAtIdx(uint64_t net_id, unsigned int idx, char* dst, unsigned int len);
 

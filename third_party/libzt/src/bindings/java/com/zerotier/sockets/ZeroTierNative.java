@@ -444,6 +444,14 @@ public class ZeroTierNative {
     public static native int zts_net_join(long net_id);
     public static native int zts_net_leave(long net_id);
     public static native int zts_net_transport_is_ready(/*const*/ long net_id);
+    /**
+     * Privacy-preserving cached aggregate of known leaf peers (only peerId == 0 is supported).
+     * Returns null when unavailable; otherwise [peers, peersWithPaths, paths, preferredPaths,
+     * newestReceiveAgeMs, newestSendAgeMs, snapshotAgeMs]. An unknown age is -1. This snapshot
+     * neither maps a target IP to a peer nor proves it is reachable. It may block: call infrequently
+     * off-thread. Snapshot age uses a monotonic clock, which may exclude device suspend time.
+     */
+    public static native long[] zts_peer_path_diagnostics(long peerId);
     public static native long zts_net_get_mac(long net_id);
     public static native String zts_net_get_mac_str(long net_id);
     public static native int zts_net_get_broadcast(long net_id);

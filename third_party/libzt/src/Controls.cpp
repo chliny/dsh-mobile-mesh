@@ -428,6 +428,12 @@ int zts_core_query_path_count(uint64_t peer_id)
     ACQUIRE_SERVICE(ZTS_ERR_SERVICE);
     return zts_service->pathCount(peer_id);
 }
+int zts_peer_path_diagnostics(uint64_t peer_id, int64_t* values, unsigned int count)
+{
+    ACQUIRE_SERVICE(ZTS_ERR_SERVICE);
+    return zts_service->peerPathDiagnostics(peer_id, values, count);
+}
+
 int zts_core_query_path(uint64_t peer_id, unsigned int idx, char* path, unsigned int len)
 {
     ACQUIRE_SERVICE(ZTS_ERR_SERVICE);

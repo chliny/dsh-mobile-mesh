@@ -23,6 +23,29 @@ import java.net.*;
  * @author  ZeroTier, Inc.
  */
 public class ZeroTierSocket {
+    private static final java.util.logging.Logger LOGGER =
+        java.util.logging.Logger.getLogger(ZeroTierSocket.class.getName());
+
+    // High 32 bits: unmodified libzt result. Low 32 bits: calling-thread socket errno, or 0
+    // when unavailable/not applicable. The original ZeroTierNative JNI entry point is unchanged.
+    private static native long connectWithError(int fd, String address, int port, int timeoutMs);
+
+    private static void connectChecked(int fd, String address, int port, int timeoutMs) throws IOException
+    {
+        long outcome = connectWithError(fd, address, port, timeoutMs);
+        int result = (int)(outcome >> 32);
+        int socketErrno = (int)outcome;
+        if (result < 0) {
+            String detail = "libztResult=" + result + " errno=" +
+                (result == ZeroTierNative.ZTS_ERR_SOCKET && socketErrno > 0 ? Integer.toString(socketErrno) : "unavailable");
+            // Log the category as well as the number: libzt result values and POSIX errno values
+            // overlap, and callers must not interpret a service error as a socket errno.
+            LOGGER.warning("ZeroTier connect failed " + detail);
+            int code = result == ZeroTierNative.ZTS_ERR_SOCKET && socketErrno > 0 ? socketErrno : result;
+            throw new IOException("Error while connecting to remote host (" + code + ") " + detail);
+        }
+    }
+
     // File descriptor from lower native layer
     private int _zfd = -1;
     private int _family = -1;
@@ -83,10 +106,7 @@ public class ZeroTierSocket {
 
         _zfd = ZeroTierNative.zts_bsd_socket(_family, _type, _protocol);
         setNativeFileDescriptor(_zfd);
-        int err;
-        if ((err = ZeroTierNative.zts_connect(_zfd, remoteAddr, remotePort, 0)) < 0) {
-            throw new IOException("Error while connecting to remote host (" + err + ")");
-        }
+        connectChecked(_zfd, remoteAddr, remotePort, 0);
         _isConnected = true;
     }
 
@@ -146,10 +166,7 @@ public class ZeroTierSocket {
         if ((remoteAddr instanceof Inet6Address) && _family != ZeroTierNative.ZTS_AF_INET6) {
             throw new IOException("Invalid address type. Socket is of type AF_INET6");
         }
-        int err;
-        if ((err = ZeroTierNative.zts_connect(_zfd, remoteAddr.getHostAddress(), remotePort, timeoutMs)) < 0) {
-            throw new IOException("Error while connecting to remote host (" + err + ")");
-        }
+        connectChecked(_zfd, remoteAddr.getHostAddress(), remotePort, timeoutMs);
         _isConnected = true;
     }
 

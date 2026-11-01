@@ -46,6 +46,8 @@ class ZeroTierConnector @Inject constructor(
 ) : MeshConnector {
     private val executor = Executors.newCachedThreadPool()
     private val nativeDialPermits = NativeDialPermits(BuildConfig.ZERO_TIER_MAX_CONCURRENT_DIALS)
+    private val peerDiagnosticsInFlight = AtomicBoolean(false)
+    private val lastPeerDiagnosticsNanos = AtomicLong(0L)
     private val lock = Any()
     private var node: ZeroTierNode? = null
     private var relay: ZeroTierRelay? = null
@@ -129,6 +131,9 @@ class ZeroTierConnector @Inject constructor(
             Triple(pair.first, pair.second, generation.next())
         }
         timing.phase("node-select", selectStart, "ok", detail = "reused=$reused")
+        // A new node cannot reach a network target before joining that network and obtaining an
+        // address. Retained nodes with an address pass through immediately, preserving recovery.
+        ensureNetworkAddress(current, state, networkId, token, timing, zeroTierReadinessTimeoutMs(reusedNode = reused))
         val readyStart = timing.start("await-transport-ready")
         // Background suspension clears MeshTransportManager.active but retains the process-global
         // native node. A subsequent start is therefore recovery, not a cold bootstrap.
@@ -153,23 +158,6 @@ class ZeroTierConnector @Inject constructor(
                 else R.string.zero_tier_node_unavailable,
             )
         }
-        val joinStart = timing.start("join")
-        var joined = false
-        synchronized(lock) {
-            coroutineContext.ensureActive()
-            generation.checkCurrent(token)
-            joined = !hasAddress(networkId)
-            if (joined) checkResult(current.join(networkId), "join ZeroTier network")
-        }
-        timing.phase("join", joinStart, "ok", detail = "joined=$joined")
-        val addressStart = timing.start("await-address")
-        awaitAddress(current, networkId, state)
-        timing.phase(
-            "await-address",
-            addressStart,
-            "ok",
-            detail = "transportReady=${transportReady(networkId)}",
-        )
         val relayStart = timing.start("relay-open")
         val opened = synchronized(lock) {
             coroutineContext.ensureActive()
@@ -219,6 +207,8 @@ class ZeroTierConnector @Inject constructor(
             )
         }
         timing.phase("node-select", selectStart, "ok", detail = "reused=true")
+        // Renewal can also resume a previously pending authorization, where no address exists yet.
+        ensureNetworkAddress(current, state, networkId, token, timing, zeroTierReadinessTimeoutMs(reusedNode = true))
         val readyStart = timing.start("await-transport-ready")
         val targetConnectTimeoutMs = zeroTierTargetConnectTimeoutMs(recovery = true)
         val (readySignal, dialedTarget) = awaitTransportReady(
@@ -241,14 +231,6 @@ class ZeroTierConnector @Inject constructor(
                 else R.string.zero_tier_node_unavailable,
             )
         }
-        val addressStart = timing.start("await-address")
-        awaitAddress(current, networkId, state)
-        timing.phase(
-            "await-address",
-            addressStart,
-            "ok",
-            detail = "transportReady=${transportReady(networkId)}",
-        )
         val relayStart = timing.start("relay-open")
         val opened = synchronized(lock) {
             coroutineContext.ensureActive()
@@ -259,6 +241,56 @@ class ZeroTierConnector @Inject constructor(
         }
         timing.phase("relay-open", relayStart, "ok", detail = "port=${opened.port}")
         opened
+    }
+
+    /** Join and acquire a local address before probing the remote target. */
+    private suspend fun ensureNetworkAddress(
+        current: ZeroTierNode,
+        state: ZeroTierReadiness,
+        networkId: Long,
+        token: Long,
+        timing: ZeroTierTiming,
+        nodeInitTimeoutMs: Long,
+    ) {
+        val joinStart = timing.start("join")
+        // NodeService::join synchronizes with construction/destruction and returns ERR_SERVICE
+        // until the node is initialized. Retry only that transient state, without requiring ONLINE:
+        // cached network configuration and peer paths can work when upstream is unavailable.
+        val joined = withTimeoutOrNull(nodeInitTimeoutMs) {
+            var didJoin = false
+            var pending = true
+            while (pending) {
+                val result = synchronized(lock) {
+                    coroutineContext.ensureActive()
+                    generation.checkCurrent(token)
+                    if (hasAddress(networkId)) null else current.join(networkId)
+                }
+                when (result) {
+                    null -> pending = false
+                    ZeroTierNative.ZTS_ERR_SERVICE -> kotlinx.coroutines.delay(50)
+                    else -> {
+                        checkResult(result, "join ZeroTier network")
+                        didJoin = true
+                        pending = false
+                    }
+                }
+            }
+            didJoin
+        }
+        timing.phase("join", joinStart, if (joined == null) "timeout" else "ok", detail = "joined=$joined")
+        check(joined != null) { context.getString(R.string.zero_tier_node_unavailable) }
+        val addressStart = timing.start("await-address")
+        awaitAddress(current, networkId, state)
+        timing.phase(
+            "await-address",
+            addressStart,
+            "ok",
+            detail = "transportReady=${transportReady(networkId)}",
+        )
+        synchronized(lock) {
+            coroutineContext.ensureActive()
+            generation.checkCurrent(token)
+        }
     }
 
     /**
@@ -325,6 +357,7 @@ class ZeroTierConnector @Inject constructor(
                 retryIntervalMillis = DIAL_RETRY_INTERVAL_MILLIS,
                 requireTargetDial = target != null,
                 onSample = { note ->
+                    schedulePeerDiagnostics()
                     val inFlight = permits.inFlight
                     Log.d(
                         TAG,
@@ -343,6 +376,37 @@ class ZeroTierConnector @Inject constructor(
             // socket that finishes after cancellation is closed by the registry before publication.
             if (!completedWait) dialed.claim()?.first?.let { runCatching { it.close() } }
             pendingDials.close()
+        }
+    }
+
+    /** Sample all known leaf peers, not necessarily the target; never block the recovery gate. */
+    private fun schedulePeerDiagnostics() {
+        val now = System.nanoTime()
+        val last = lastPeerDiagnosticsNanos.get()
+        if (last != 0L && now - last < TimeUnit.SECONDS.toNanos(10)) return
+        if (!peerDiagnosticsInFlight.compareAndSet(false, true)) return
+        lastPeerDiagnosticsNanos.set(now)
+        try {
+            executor.execute {
+                try {
+                    val snapshot = ZeroTierNative.zts_peer_path_diagnostics(0L)
+                    if (snapshot != null && snapshot.size == 7) {
+                        Log.d(TAG, "peer-diagnostics scope=all-leaf peers=${snapshot[0]}" +
+                            " directPeers=${snapshot[1]} paths=${snapshot[2]} preferredPaths=${snapshot[3]}" +
+                            " latestReceiveAgeMs=${snapshot[4]} latestSendAgeMs=${snapshot[5]}" +
+                            " snapshotAgeMs=${snapshot[6]}")
+                    } else {
+                        Log.d(TAG, "peer-diagnostics scope=all-leaf result=unavailable")
+                    }
+                } catch (error: Throwable) {
+                    Log.d(TAG, "peer-diagnostics scope=all-leaf result=error type=${error.javaClass.simpleName}")
+                } finally {
+                    peerDiagnosticsInFlight.set(false)
+                }
+            }
+        } catch (error: RuntimeException) {
+            peerDiagnosticsInFlight.set(false)
+            Log.d(TAG, "peer-diagnostics scope=all-leaf result=schedule-failed type=${error.javaClass.simpleName}")
         }
     }
 
@@ -365,14 +429,23 @@ class ZeroTierConnector @Inject constructor(
             val nativeStartedAt = System.nanoTime()
             val failure = runCatching { socket.connect(address, remotePort, remainingMs) }.exceptionOrNull()
             val nativeConnectMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - nativeStartedAt)
+            // Retain the historical field for existing log consumers; the explicit fields below
+            // distinguish a libzt API result from a socket errno.
             val nativeError = failure?.message?.let { message ->
                 Regex("\\((-?\\d+)\\)").find(message)?.groupValues?.get(1)
+            }
+            val nativeResult = failure?.message?.let { message ->
+                Regex("libztResult=(-?\\d+)").find(message)?.groupValues?.get(1)
+            }
+            val nativeErrno = failure?.message?.let { message ->
+                Regex("errno=(\\d+|unavailable)").find(message)?.groupValues?.get(1)
             }
             Log.d(
                 TAG,
                 "remote-dial native-connect target=$address:$remotePort budgetMs=$remainingMs" +
                     " elapsedMs=$nativeConnectMs result=${if (failure == null) "ok" else "error"}" +
-                    " errorType=${failure?.javaClass?.simpleName ?: "none"} errorCode=${nativeError ?: "none"}",
+                    " errorType=${failure?.javaClass?.simpleName ?: "none"} errorCode=${nativeError ?: "none"}" +
+                    " libztResult=${nativeResult ?: "unavailable"} errno=${nativeErrno ?: "unavailable"}",
             )
             var socketCloseMs: Long? = null
             val transferred = pendingDials.finish(socket, connected = failure == null) { elapsed ->

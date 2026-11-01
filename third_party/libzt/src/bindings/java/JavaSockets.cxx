@@ -861,6 +861,32 @@ JNIEXPORT jint JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1connect(
     return retval;
 }
 
+// Keep ZeroTierNative.zts_connect's original int return contract intact. The socket wrapper uses
+// this separate JNI entry point to obtain both the libzt result and the calling thread's errno.
+// Packing them into one return avoids a global error slot and remains safe with concurrent dials.
+JNIEXPORT jlong JNICALL Java_com_zerotier_sockets_ZeroTierSocket_connectWithError(
+    JNIEnv* jenv, jclass clazz, jint fd, jstring ipstr, jint port, jint timeout_ms)
+{
+    int retval = ZTS_ERR_ARG;
+    int saved_errno = 0;
+    if (ipstr) {
+        const char* utf_string = jenv->GetStringUTFChars(ipstr, NULL);
+        if (utf_string) {
+            errno = 0;
+            retval = zts_connect(fd, utf_string, port, timeout_ms);
+            // Only ZTS_ERR_SOCKET has an errno; other negative values are libzt API errors.
+            // Capture before calling back into JNI, which may itself change errno.
+            saved_errno = retval == ZTS_ERR_SOCKET ? errno : 0;
+            jenv->ReleaseStringUTFChars(ipstr, utf_string);
+        } else {
+            retval = ZTS_ERR_GENERAL; // GetStringUTFChars may also have a pending JNI exception.
+        }
+    }
+    const uint64_t packed = (static_cast<uint64_t>(static_cast<uint32_t>(retval)) << 32)
+        | static_cast<uint32_t>(saved_errno);
+    return static_cast<jlong>(packed);
+}
+
 JNIEXPORT jint JNICALL
 Java_com_zerotier_sockets_ZeroTierNative_zts_1bind(JNIEnv* jenv, jclass clazz, jint fd, jstring ipstr, jint port)
 {
@@ -1164,6 +1190,20 @@ JNIEXPORT void JNICALL
 Java_com_zerotier_sockets_ZeroTierNative_zts_1util_1delay(JNIEnv* jenv, jclass clazz, jlong milliseconds)
 {
     zts_util_delay(milliseconds);
+}
+
+JNIEXPORT jlongArray JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1peer_1path_1diagnostics(
+    JNIEnv* jenv, jclass clazz, jlong peer_id)
+{
+    (void)clazz;
+    int64_t values[7];
+    if (zts_peer_path_diagnostics(static_cast<uint64_t>(peer_id), values, 7) != ZTS_ERR_OK) return nullptr;
+    jlongArray result = jenv->NewLongArray(7);
+    if (!result) return nullptr; // A pending JNI allocation exception is preserved.
+    jlong java_values[7];
+    for (unsigned int i = 0; i < 7; ++i) java_values[i] = static_cast<jlong>(values[i]);
+    jenv->SetLongArrayRegion(result, 0, 7, java_values);
+    return result;
 }
 
 #ifdef __cplusplus

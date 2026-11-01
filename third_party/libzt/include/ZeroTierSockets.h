@@ -3022,6 +3022,20 @@ ZTS_API int ZTCALL zts_core_query_route(
 ZTS_API int ZTCALL zts_core_query_path_count(uint64_t peer_id);
 
 /**
+ * Read-only, privacy-preserving cached path diagnostics. Only peer_id=0 is supported: it
+ * aggregates all known leaf peers and cannot identify a particular destination or prove endpoint
+ * reachability. No peer IDs, physical IPs, ports, or interface names are returned. The cache is
+ * sampled on the service thread from the existing synthetic-event query; it is not a live probe.
+ * Path receive/send ages are in milliseconds, or -1 if unknown. Snapshot age is measured using a
+ * monotonic clock, including time since the process was suspended when supported by that clock.
+ * The service lock is obtained internally; do not hold zts_core_lock when calling this function.
+ * Intended for occasional background diagnostics, not the connection's critical path.
+ * values must point to at least seven int64_t entries: leaf peer count, peers with paths, path
+ * count, preferred path count, newest receive age, newest send age, and snapshot age.
+ */
+ZTS_API int ZTCALL zts_peer_path_diagnostics(uint64_t peer_id, int64_t* values, unsigned int count);
+
+/**
  * @brief Lock the core service so that queries about addresses, routes, paths, etc. can be
  * performed.
  *

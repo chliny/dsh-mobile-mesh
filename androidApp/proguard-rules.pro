@@ -15,6 +15,9 @@
 # interface method and every implementation; R8 cannot see the native call site.
 -keep interface com.zerotier.sockets.ZeroTierEventListener { *; }
 -keep class * implements com.zerotier.sockets.ZeroTierEventListener { *; }
+# JNI discovers these native methods by their original class and method names.
+-keepclasseswithmembernames class com.zerotier.sockets.ZeroTierNative { native <methods>; }
+-keepclasseswithmembernames class com.zerotier.sockets.ZeroTierSocket { native <methods>; }
 
 # OkHttp
 -dontwarn okhttp3.**
