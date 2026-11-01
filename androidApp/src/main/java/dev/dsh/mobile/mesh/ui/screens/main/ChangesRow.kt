@@ -76,6 +76,7 @@ internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
     // "Full diff" leaves this screen entirely, so the row has to read its flag from the session
     // rather than from this composition — otherwise it is collapsed again on the way back.
     val expanded = context.disclosure(DisclosureKeys.changes(node.seq))
+    val onContentExpanded = LocalTranscriptContentExpanded.current
     LaunchedEffect(sessionId, node.seq) {
         if (summary != null) return@LaunchedEffect
         when (val result = store.loadChangesSummary(sessionId, node.seq)) {
@@ -90,7 +91,10 @@ internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
             summary = summary?.let { stringResource(R.string.chat_changes_count, it.total, it.added, it.deleted) }
                 ?: error?.let { changesErrorText(it.code, it.message) } ?: stringResource(R.string.chat_changes_loading),
             expanded = expanded.expanded,
-            onToggle = expanded.onToggle,
+            onToggle = {
+                if (!expanded.expanded) onContentExpanded?.invoke()
+                expanded.onToggle()
+            },
         ) {
             summary?.files?.forEachIndexed { index, file ->
                 ChangedFileRow(store, sessionId, node.seq, index, file.path, file.display, file.added, file.deleted, context.onOpenFile, onOpenDiff = { context.onOpenChangedDiff?.invoke(node.seq, index, file.path, file.display, file.added, file.deleted) }, disclosure = context.disclosure(DisclosureKeys.changedFile(node.seq, index)))
@@ -103,6 +107,7 @@ internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
 internal fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessionId: String, seq: Long, index: Int, path: String, display: String, added: Int, deleted: Int, onOpenFile: ((String, String) -> Unit)?, onOpenDiff: (() -> Unit)? = null, full: Boolean = false, disclosure: DisclosureBinding? = null) {
     // The full-diff page has no file header; transcript files start closed independently of the parent.
     val expanded = full || disclosure?.expanded == true
+    val onContentExpanded = LocalTranscriptContentExpanded.current
     // Same reasoning as the summary above, and the full-diff page reads this same entry: the reader
     // opens a diff here and comes back to it here, so one answer serves both.
     val cached = store.changesDiffNow(sessionId, seq, index)
@@ -135,7 +140,10 @@ internal fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessio
     }
     val textMate = loaded?.takeIf { it.first == highlightIdentity }?.second
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        if (!full) Row(Modifier.fillMaxWidth().clickable { disclosure?.onToggle?.invoke() }) {
+        if (!full) Row(Modifier.fillMaxWidth().clickable {
+            if (!expanded) onContentExpanded?.invoke()
+            disclosure?.onToggle?.invoke()
+        }) {
             Text(if (expanded) "▾" else "▸", style = DsType.small13, color = DsTheme.colors.labelTertiary)
             Icon(
                 Icons.Outlined.Description,

@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -32,6 +33,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -71,6 +73,9 @@ import kotlinx.coroutines.launch
  * Firing a couple of rows early keeps a `seq`-keyed message as the anchor.
  */
 private const val LOAD_OLDER_THRESHOLD = 2
+
+/** An explicit expansion is reading navigation, not new transcript content to follow to the tail. */
+internal val LocalTranscriptContentExpanded = compositionLocalOf<(() -> Unit)?> { null }
 
 /** Placement animation is disabled because disclosure expansion must not animate every sibling. */
 internal fun transcriptItemsAnimatePlacement(): Boolean = false
@@ -223,7 +228,8 @@ internal fun shouldFollowTranscriptLayoutShift(
     canScrollForward: Boolean,
     measurementChanged: Boolean,
     sameScrollCoordinate: Boolean,
-): Boolean = wasNearBottom && !userDragging && !scrollInProgress && canScrollForward &&
+    expandedContent: Boolean = false,
+): Boolean = !expandedContent && wasNearBottom && !userDragging && !scrollInProgress && canScrollForward &&
     sameScrollCoordinate && (previouslyCanScrollForward == false || measurementChanged)
 
 internal fun shouldCatchUpTranscriptTail(
@@ -232,7 +238,8 @@ internal fun shouldCatchUpTranscriptTail(
     userDragging: Boolean,
     scrollInProgress: Boolean,
     canScrollForward: Boolean,
-): Boolean = tailIntent && !measuredNearBottom && !userDragging && !scrollInProgress && canScrollForward
+    expandedContent: Boolean = false,
+): Boolean = !expandedContent && tailIntent && !measuredNearBottom && !userDragging && !scrollInProgress && canScrollForward
 
 internal fun nextTranscriptTailIntent(
     currentIntent: Boolean,
@@ -484,6 +491,15 @@ internal fun ChatTranscript(
         mutableStateOf(sessionId?.let(readingPositions::get)?.atBottom ?: true)
     }
     var wasNearBottom by remember(sessionId) { mutableStateOf(tailIntent) }
+    // A changed-files disclosure can turn one short row into a very tall one. Keep the reader's
+    // position through the synchronous expansion and the later summary/diff measurements; resume
+    // following only after the reader deliberately scrolls back to the bottom.
+    var expandedContent by remember(sessionId) { mutableStateOf(false) }
+    val onContentExpanded: () -> Unit = {
+        expandedContent = true
+        tailIntent = false
+        wasNearBottom = false
+    }
     var restoredSession by remember { mutableStateOf<String?>(null) }
     var restoreTarget by remember(sessionId) { mutableStateOf<TranscriptReadingPosition?>(null) }
     var olderPageAnchor by remember(sessionId) { mutableStateOf<OlderPageAnchor?>(null) }
@@ -549,6 +565,9 @@ internal fun ChatTranscript(
             )
         }.collect { sample ->
             val lastIndex = sample.lastVisibleIndex ?: return@collect
+            if (expandedContent && (sample.userDragging || sample.scrollInProgress) && transcriptNearBottom(
+                    sample.itemCount, lastIndex, sample.lastVisibleEnd, sample.viewportEnd, bottomTolerancePx,
+                )) expandedContent = false
             val viewportChanged = previousViewportHeight != null && previousViewportHeight != sample.viewportHeight
             val currentCoordinate = sample.firstVisibleIndex to sample.firstVisibleOffset
             val layoutShiftedPastTail = shouldFollowTranscriptLayoutShift(
@@ -559,8 +578,9 @@ internal fun ChatTranscript(
                 canScrollForward = sample.canScrollForward,
                 measurementChanged = previousItemMeasurements != null && previousItemMeasurements != sample.visibleItemMeasurements,
                 sameScrollCoordinate = previousScrollCoordinate == currentCoordinate,
+                expandedContent = expandedContent,
             )
-            val followedLayoutShift = (layoutShiftedPastTail || viewportChanged) && wasNearBottom && sample.itemCount > 0
+            val followedLayoutShift = (layoutShiftedPastTail || (!expandedContent && viewportChanged)) && wasNearBottom && sample.itemCount > 0
             if (followedLayoutShift) {
                 transcriptPositionLog {
                     "follow-layout-shift session=${transcriptSessionLogId(sessionId)} " +
@@ -581,6 +601,7 @@ internal fun ChatTranscript(
             // case there is no previous measurement to compare; tail intent is the remaining signal
             // that a larger final row must be brought fully into view.
             if (!followedLayoutShift && shouldCatchUpTranscriptTail(
+                    expandedContent = expandedContent,
                     tailIntent = tailIntent,
                     measuredNearBottom = measuredNearBottom,
                     userDragging = sample.userDragging,
@@ -596,8 +617,8 @@ internal fun ChatTranscript(
             }
             // A streamed row may grow between measurement and auto-follow. Preserve tail intent
             // across a layout-only shift if the scroll coordinate itself did not change.
-            wasNearBottom = measuredNearBottom || tailIntent || (wasNearBottom && !sample.userDragging) ||
-                (viewportChanged && wasNearBottom) || (layoutShiftedPastTail && wasNearBottom)
+            wasNearBottom = !expandedContent && (measuredNearBottom || tailIntent || (wasNearBottom && !sample.userDragging) ||
+                (viewportChanged && wasNearBottom) || (layoutShiftedPastTail && wasNearBottom))
             previousViewportHeight = sample.viewportHeight
             previousCanScrollForward = sample.canScrollForward
             previousScrollCoordinate = currentCoordinate
@@ -656,7 +677,7 @@ internal fun ChatTranscript(
             // That measured tail is not the reader's intent and must not replace the old anchor.
             if (restoreTarget != null) return@collect
             val currentCoordinate = sample.firstVisibleIndex to sample.firstVisibleOffset
-            tailIntent = nextTranscriptTailIntent(
+            tailIntent = !expandedContent && nextTranscriptTailIntent(
                 currentIntent = tailIntent,
                 measuredAtBottom = position.atBottom,
                 userDragging = sample.userDragging,
@@ -665,8 +686,8 @@ internal fun ChatTranscript(
                 currentIndex = sample.firstVisibleIndex,
                 currentOffset = sample.firstVisibleOffset,
             )
-            wasNearBottom = tailIntent || position.atBottom
-            val positionToSave = position.copy(atBottom = tailIntent || position.atBottom)
+            wasNearBottom = !expandedContent && (tailIntent || position.atBottom)
+            val positionToSave = position.copy(atBottom = !expandedContent && (tailIntent || position.atBottom))
             if (previousLoggedBottom != position.atBottom) {
                 val shouldRecord = restoreTarget == null && shouldRecordReadingPosition(
                     rows, saved, sample.userDragging, positionToSave.atBottom,
@@ -910,7 +931,9 @@ internal fun ChatTranscript(
         } else {
             items(rows, key = { it.key }) { row ->
                 when (row) {
-                    is TranscriptRow.Node -> ChatNodeItem(node = row.node, context = context)
+                    is TranscriptRow.Node -> CompositionLocalProvider(LocalTranscriptContentExpanded provides onContentExpanded) {
+                        ChatNodeItem(node = row.node, context = context)
+                    }
                     is TranscriptRow.Command -> CommandActivityRow(row.activity, context)
                     is TranscriptRow.Workflow -> WorkflowActivityRow(row.activity, context)
                     is TranscriptRow.Process -> {

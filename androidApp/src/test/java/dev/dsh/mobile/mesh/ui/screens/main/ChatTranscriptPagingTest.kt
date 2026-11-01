@@ -116,6 +116,21 @@ class ChatTranscriptPagingTest {
     }
 
     @Test
+    fun `expanding a long changed-files list does not jump back to the tail after measurement`() {
+        // The expanded list grows both immediately and again when its file diffs arrive. Neither
+        // the normal layout-shift path nor the missed-measurement catch-up may override the reader.
+        assertFalse(shouldFollowTranscriptLayoutShift(
+            wasNearBottom = true, userDragging = false, scrollInProgress = false,
+            previouslyCanScrollForward = false, canScrollForward = true,
+            measurementChanged = true, sameScrollCoordinate = true, expandedContent = true,
+        ))
+        assertFalse(shouldCatchUpTranscriptTail(
+            tailIntent = true, measuredNearBottom = false, userDragging = false,
+            scrollInProgress = false, canScrollForward = true, expandedContent = true,
+        ))
+    }
+
+    @Test
     fun `prepend anchor survives drag release and loading until a new first row arrives`() {
         assertTrue(shouldWaitForOlderPageAnchor(false, true, false, "old-first", "old-first"))
         assertTrue(shouldWaitForOlderPageAnchor(true, true, false, "old-first", "old-first"))
