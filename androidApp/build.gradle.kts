@@ -89,6 +89,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true; buildConfig = true }
+    testOptions { unitTests.isIncludeAndroidResources = true }
     externalNativeBuild { cmake { path = file("CMakeLists.txt"); version = "3.30.5" } }
     sourceSets {
         getByName("main").java.srcDir("../third_party/libzt/src/bindings/java")
@@ -145,6 +146,10 @@ dependencies {
     implementation(libs.commonmark.ext.gfm.strikethrough)
     implementation(libs.commonmark.ext.task.list.items)
     testImplementation(libs.junit)
+    testDebugImplementation(platform(libs.androidx.compose.bom))
+    testDebugImplementation(libs.androidx.compose.ui.test.junit4)
+    testDebugImplementation(libs.hilt.android.testing)
+    add("kspTestDebug", libs.hilt.compiler)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("org.mockito:mockito-core:5.14.2")
