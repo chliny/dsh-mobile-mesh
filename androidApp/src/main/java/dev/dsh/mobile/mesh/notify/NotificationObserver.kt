@@ -154,9 +154,14 @@ class NotificationObserver @Inject constructor(
             }
             is CompletionEvent.SessionIdle -> {
                 if (!settings.notifyTurnComplete) return
+                val title = sessionTitle(event.sessionId)
                 Spec(
                     channel = DshNotifications.CHANNEL_COMPLETIONS,
-                    title = context.getString(R.string.notif_session_idle, sessionTitle(event.sessionId).orEmpty()),
+                    title = if (title.isNullOrBlank()) {
+                        context.getString(R.string.notif_session_idle_untitled)
+                    } else {
+                        context.getString(R.string.notif_session_idle, title)
+                    },
                 )
             }
         }
