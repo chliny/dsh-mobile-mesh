@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.CallSplit
 import androidx.compose.material.icons.filled.ContentCopy
@@ -482,7 +483,19 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
     ) {
         node.blocks.forEachIndexed { index, block ->
             when (block.kind) {
-                "text" -> MarkdownText(block.text.orEmpty(), imageResolver = imageResolver, onOpenLink = onOpenLink)
+                "text" -> if (streaming) {
+                    // Reloading a Markdown WebView for every delta collapses its height while the
+                    // next document loads. Keep the entire live answer stable until it settles.
+                    SelectionContainer {
+                        Text(
+                            text = block.text.orEmpty(),
+                            modifier = Modifier.fillMaxWidth(),
+                            style = DsType.mdBody.copy(color = colors.labelPrimary),
+                        )
+                    }
+                } else {
+                    MarkdownText(block.text.orEmpty(), imageResolver = imageResolver, onOpenLink = onOpenLink)
+                }
                 // A streaming assistant message keeps re-rendering its blocks, so a reasoning block that has been
                 // opened has to be able to stay open across those renders as well as across a trip
                 // away from the transcript.

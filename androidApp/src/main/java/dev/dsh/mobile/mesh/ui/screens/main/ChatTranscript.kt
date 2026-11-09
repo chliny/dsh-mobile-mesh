@@ -39,6 +39,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -61,6 +62,7 @@ import dev.dsh.mobile.mesh.ui.components.EmptyHero
 import dev.dsh.mobile.mesh.ui.components.skeleton
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -79,12 +81,6 @@ internal val LocalTranscriptContentExpanded = compositionLocalOf<(() -> Unit)?> 
 
 /** Placement animation is disabled because disclosure expansion must not animate every sibling. */
 internal fun transcriptItemsAnimatePlacement(): Boolean = false
-
-internal fun shouldRestoreOlderPageAnchor(
-    capturedDragGeneration: Int,
-    currentDragGeneration: Int,
-    userDragging: Boolean,
-): Boolean = !userDragging && capturedDragGeneration == currentDragGeneration
 
 /** The triggering drag may still be finishing; only a *new* drag abandons its pending anchor. */
 internal fun shouldDiscardOlderPageAnchor(
@@ -131,18 +127,11 @@ private data class OlderPageAnchor(
     val offset: Int,
     val firstRowKey: String?,
     val dragGeneration: Int,
+    val oldestEventSeq: Long?,
 )
 
 /** A visible item's layout offset is the opposite of scrollToItem's scroll offset. */
 internal fun olderPageAnchorScrollOffset(itemOffset: Int): Int = -itemOffset
-
-internal fun shouldWaitForOlderPageAnchor(
-    loadingOlder: Boolean,
-    hasMore: Boolean,
-    failed: Boolean,
-    firstRowKey: String?,
-    capturedFirstRowKey: String?,
-): Boolean = firstRowKey == capturedFirstRowKey && (loadingOlder || (hasMore && !failed))
 
 internal sealed interface TranscriptRow {
     val key: String
@@ -220,63 +209,6 @@ internal fun buildTranscriptRows(
     return result
 }
 
-internal fun shouldFollowTranscriptLayoutShift(
-    wasNearBottom: Boolean,
-    userDragging: Boolean,
-    scrollInProgress: Boolean,
-    previouslyCanScrollForward: Boolean?,
-    canScrollForward: Boolean,
-    measurementChanged: Boolean,
-    sameScrollCoordinate: Boolean,
-    expandedContent: Boolean = false,
-): Boolean = !expandedContent && wasNearBottom && !userDragging && !scrollInProgress && canScrollForward &&
-    sameScrollCoordinate && (previouslyCanScrollForward == false || measurementChanged)
-
-internal fun shouldCatchUpTranscriptTail(
-    tailIntent: Boolean,
-    measuredNearBottom: Boolean,
-    userDragging: Boolean,
-    scrollInProgress: Boolean,
-    canScrollForward: Boolean,
-    expandedContent: Boolean = false,
-): Boolean = !expandedContent && tailIntent && !measuredNearBottom && !userDragging && !scrollInProgress && canScrollForward
-
-internal fun nextTranscriptTailIntent(
-    currentIntent: Boolean,
-    measuredAtBottom: Boolean,
-    userDragging: Boolean,
-    previousIndex: Int?,
-    previousOffset: Int,
-    currentIndex: Int,
-    currentOffset: Int,
-): Boolean {
-    if (measuredAtBottom) return true
-    val movedTowardHistory = previousIndex != null &&
-        (currentIndex < previousIndex || (currentIndex == previousIndex && currentOffset < previousOffset))
-    return if (userDragging && movedTowardHistory) false else currentIntent
-}
-
-private data class TranscriptLayoutSample(
-    val itemCount: Int,
-    val lastVisibleIndex: Int?,
-    val lastVisibleEnd: Int,
-    val viewportEnd: Int,
-    val viewportHeight: Int,
-    val canScrollForward: Boolean,
-    val scrollInProgress: Boolean,
-    val firstVisibleIndex: Int,
-    val firstVisibleOffset: Int,
-    val userDragging: Boolean,
-    val visibleItemMeasurements: List<Pair<Int, Int>>,
-)
-
-private data class TranscriptReadingSample(
-    val position: TranscriptReadingPosition,
-    val firstVisibleIndex: Int,
-    val firstVisibleOffset: Int,
-    val userDragging: Boolean,
-)
-
 private suspend fun scrollTranscriptToEnd(listState: LazyListState, lastIndex: Int) {
     // scrollToItem(index) aligns the *start* of a long final message with the viewport. Use its
     // measured height as the offset instead, clamped by LazyColumn to the actual content bottom.
@@ -292,15 +224,6 @@ private suspend fun scrollTranscriptToEnd(listState: LazyListState, lastIndex: I
         transcriptPositionLog { "scroll-end-second target=$lastIndex measured=$measuredSize ${transcriptLayoutLog(listState)}" }
     }
 }
-
-internal fun transcriptNearBottom(
-    itemCount: Int,
-    lastVisibleIndex: Int,
-    lastVisibleEnd: Int,
-    viewportEnd: Int,
-    tolerancePx: Int,
-): Boolean = itemCount == 0 ||
-    (lastVisibleIndex == itemCount - 1 && lastVisibleEnd <= viewportEnd + tolerancePx)
 
 private const val TRANSCRIPT_POSITION_TAG = "TranscriptPosition"
 
@@ -424,7 +347,7 @@ internal fun ChatTranscript(
     presentation: TranscriptPresentation,
     listState: LazyListState,
     readingPositions: TranscriptReadingPositions,
-    onLoadOlder: () -> Unit,
+    onLoadOlder: suspend (String) -> Boolean,
     onRestoreOlder: suspend (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -484,36 +407,112 @@ internal fun ChatTranscript(
         hasAssistant = hasAssistant,
     )
 
-    // Both keyed on the session so a freshly opened one starts from a clean assumption rather than
-    // inheriting the previous transcript's position — and so the collector always writes to the
-    // state the composition is currently reading.
-    var tailIntent by remember(sessionId) {
+    // Only explicit reader gestures change follow intent. Layout remeasurement (large changed-file
+    // lists, WebView text, keyboard resizing) must never initiate a programmatic scroll.
+    var followTail by remember(sessionId) {
         mutableStateOf(sessionId?.let(readingPositions::get)?.atBottom ?: true)
     }
-    var wasNearBottom by remember(sessionId) { mutableStateOf(tailIntent) }
-    // A changed-files disclosure can turn one short row into a very tall one. Keep the reader's
-    // position through the synchronous expansion and the later summary/diff measurements; resume
-    // following only after the reader deliberately scrolls back to the bottom.
-    var expandedContent by remember(sessionId) { mutableStateOf(false) }
+    var gestureCanResumeTail by remember(sessionId) { mutableStateOf(false) }
+    // Only a session restored at the tail needs to wait for asynchronously measured content.
+    // An explicit reader action immediately takes ownership of the viewport again.
+    var restoringTail by remember(sessionId) { mutableStateOf(false) }
     val onContentExpanded: () -> Unit = {
-        expandedContent = true
-        tailIntent = false
-        wasNearBottom = false
+        followTail = false
+        gestureCanResumeTail = false
+        restoringTail = false
     }
     var restoredSession by remember { mutableStateOf<String?>(null) }
     var restoreTarget by remember(sessionId) { mutableStateOf<TranscriptReadingPosition?>(null) }
+    var restoreCanceled by remember(sessionId) { mutableStateOf(false) }
     var olderPageAnchor by remember(sessionId) { mutableStateOf<OlderPageAnchor?>(null) }
+    var olderPageRequest by remember(sessionId) { mutableIntStateOf(0) }
+    var olderPagePending by remember(sessionId) { mutableStateOf(false) }
+    val currentLoadOlder by rememberUpdatedState(onLoadOlder)
+    LaunchedEffect(sessionId, olderPageRequest) {
+        if (olderPageRequest == 0 || sessionId == null) return@LaunchedEffect
+        val request = olderPageRequest
+        val anchor = olderPageAnchor
+        try {
+            val installed = try {
+                currentLoadOlder(sessionId)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w(TRANSCRIPT_POSITION_TAG, "Failed to load older messages", error)
+                false
+            }
+            // A successful request has already published its page into the snapshot the reader
+            // sees, so the gate above can be released. Only a request that installed nothing
+            // discards its anchor immediately.
+            if (!installed && olderPageRequest == request && olderPageAnchor === anchor) {
+                olderPageAnchor = null
+            }
+        } finally {
+            if (olderPageRequest == request) olderPagePending = false
+        }
+    }
     val userDragging by listState.interactionSource.collectIsDraggedAsState()
     var dragGeneration by remember(sessionId) { mutableIntStateOf(0) }
     LaunchedEffect(listState, sessionId) {
         listState.interactionSource.interactions.collect { interaction ->
-            if (interaction is DragInteraction.Start) dragGeneration++
+            when (interaction) {
+                is DragInteraction.Start -> {
+                    dragGeneration++
+                    gestureCanResumeTail = false
+                    followTail = false
+                    restoringTail = false
+                    if (restoredSession != sessionId || restoreTarget != null) restoreCanceled = true
+                    restoreTarget = null
+                }
+                is DragInteraction.Stop -> {
+                    gestureCanResumeTail = true
+                    if (!listState.canScrollForward) followTail = true
+                }
+                else -> Unit
+            }
         }
     }
-    val bottomTolerancePx = with(LocalDensity.current) { 48.dp.roundToPx() }
+    LaunchedEffect(listState, sessionId, restoredSession) {
+        if (restoredSession != sessionId) return@LaunchedEffect
+        // A fling can arrive at the bottom after Drag.Stop; only an active scroll may re-enable
+        // following. A passive remeasure or disclosure expansion never does.
+        snapshotFlow { gestureCanResumeTail && listState.isScrollInProgress && !listState.canScrollForward }.collect { reachedBottom ->
+            if (reachedBottom) followTail = true
+        }
+    }
+    LaunchedEffect(listState, sessionId, restoredSession) {
+        if (restoredSession != sessionId) return@LaunchedEffect
+        // Rows can finish measuring after the transcript settled: a Markdown document that is not in
+        // the render cache starts at a placeholder height, and growing a row pushes the last row
+        // below the viewport without any reader gesture or data change. That is exactly what a
+        // finished answer does — its WebView replaces the streaming text and reports its real height
+        // a frame later. A restored tail re-checks every layout pass; a reader who is only following
+        // the tail is corrected only while the same first row is still on screen, so a paging
+        // re-anchor or any other programmatic scroll that moves the viewport is never fought.
+        var tailFirstKey: Any? = null
+        snapshotFlow { listState.layoutInfo }.collect { info ->
+            val first = info.visibleItemsInfo.firstOrNull()
+            val firstKey = first?.key
+            val atTail = !listState.canScrollForward
+            if (atTail) tailFirstKey = firstKey
+            // Re-measuring the last row changes its offset (a placeholder height snap is anchored at
+            // its start), so the key is the stable signal: same first row, no longer at the end.
+            val rowGrewUnderViewport = !atTail && firstKey != null && firstKey == tailFirstKey
+            if (!restoringTail && !(followTail && rowGrewUnderViewport)) return@collect
+            if (userDragging || listState.isScrollInProgress || restoreTarget != null) return@collect
+            // This emission can arrive while the list is already measuring: a Markdown document
+            // reports its final height during the same frame that remeasures its row. Ask for the
+            // next frame so the correction never remeasures a list that is measuring right now.
+            withFrameNanos { }
+            if (userDragging || listState.isScrollInProgress || !listState.canScrollForward) return@collect
+            if (!restoringTail && !followTail) return@collect
+            scrollTranscriptToEnd(listState, listState.layoutInfo.totalItemsCount - 1)
+        }
+    }
     val exitRows by rememberUpdatedState(rows)
     val exitHasMore by rememberUpdatedState(hasMore)
     val exitReady by rememberUpdatedState(restoredSession == sessionId && restoreTarget == null)
+    val exitFollowTail by rememberUpdatedState(followTail)
     DisposableEffect(sessionId, listState, readingPositions) {
         onDispose {
             val saved = sessionId?.let(readingPositions::get)
@@ -525,10 +524,7 @@ internal fun ChatTranscript(
                 val position = info.visibleItemsInfo.firstNotNullOfOrNull { item ->
                     readingPositionForVisibleRow(exitRows, exitHasMore, item.index, item.key,
                         listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset,
-                        info.visibleItemsInfo.lastOrNull()?.let { last ->
-                            transcriptNearBottom(info.totalItemsCount, last.index,
-                                last.offset + last.size, info.viewportEndOffset, bottomTolerancePx)
-                        } == true)
+                        exitFollowTail)
                 }
                 if (position != null && (saved == null || readingPositionIndex(exitRows, saved) >= 0)) {
                     readingPositions.put(sessionId, position)
@@ -539,93 +535,6 @@ internal fun ChatTranscript(
             }
         }
     }
-    LaunchedEffect(listState, sessionId, itemCount, restoredSession, restoreTarget, bottomTolerancePx) {
-        // Do not let an empty/stale layout from before the initial anchor restore reset its
-        // tail-follow state. Only a visible row in the restored transcript is meaningful.
-        if (restoredSession != sessionId || restoreTarget != null) return@LaunchedEffect
-        var previousViewportHeight: Int? = null
-        var previousCanScrollForward: Boolean? = null
-        var previousScrollCoordinate: Pair<Int, Int>? = null
-        var previousItemMeasurements: List<Pair<Int, Int>>? = null
-        snapshotFlow {
-            val info = listState.layoutInfo
-            val last = info.visibleItemsInfo.lastOrNull()
-            TranscriptLayoutSample(
-                itemCount = info.totalItemsCount,
-                lastVisibleIndex = last?.index,
-                lastVisibleEnd = (last?.offset ?: 0) + (last?.size ?: 0),
-                viewportEnd = info.viewportEndOffset,
-                viewportHeight = info.viewportEndOffset - info.viewportStartOffset,
-                canScrollForward = listState.canScrollForward,
-                scrollInProgress = listState.isScrollInProgress,
-                firstVisibleIndex = listState.firstVisibleItemIndex,
-                firstVisibleOffset = listState.firstVisibleItemScrollOffset,
-                userDragging = userDragging,
-                visibleItemMeasurements = info.visibleItemsInfo.map { it.index to it.size },
-            )
-        }.collect { sample ->
-            val lastIndex = sample.lastVisibleIndex ?: return@collect
-            if (expandedContent && (sample.userDragging || sample.scrollInProgress) && transcriptNearBottom(
-                    sample.itemCount, lastIndex, sample.lastVisibleEnd, sample.viewportEnd, bottomTolerancePx,
-                )) expandedContent = false
-            val viewportChanged = previousViewportHeight != null && previousViewportHeight != sample.viewportHeight
-            val currentCoordinate = sample.firstVisibleIndex to sample.firstVisibleOffset
-            val layoutShiftedPastTail = shouldFollowTranscriptLayoutShift(
-                wasNearBottom = wasNearBottom,
-                userDragging = sample.userDragging,
-                scrollInProgress = sample.scrollInProgress,
-                previouslyCanScrollForward = previousCanScrollForward,
-                canScrollForward = sample.canScrollForward,
-                measurementChanged = previousItemMeasurements != null && previousItemMeasurements != sample.visibleItemMeasurements,
-                sameScrollCoordinate = previousScrollCoordinate == currentCoordinate,
-                expandedContent = expandedContent,
-            )
-            val followedLayoutShift = (layoutShiftedPastTail || (!expandedContent && viewportChanged)) && wasNearBottom && sample.itemCount > 0
-            if (followedLayoutShift) {
-                transcriptPositionLog {
-                    "follow-layout-shift session=${transcriptSessionLogId(sessionId)} " +
-                        "shift=$layoutShiftedPastTail measurementsChanged=${previousItemMeasurements != sample.visibleItemMeasurements} " +
-                        "viewportChanged=$viewportChanged ${transcriptLayoutLog(listState)}"
-                }
-                scrollTranscriptToEnd(listState, sample.itemCount - 1)
-                wasNearBottom = true
-            }
-            val measuredNearBottom = transcriptNearBottom(
-                sample.itemCount,
-                lastIndex,
-                sample.lastVisibleEnd,
-                sample.viewportEnd,
-                bottomTolerancePx,
-            )
-            // The initial WebView measure can be replaced before this observer subscribes. In that
-            // case there is no previous measurement to compare; tail intent is the remaining signal
-            // that a larger final row must be brought fully into view.
-            if (!followedLayoutShift && shouldCatchUpTranscriptTail(
-                    expandedContent = expandedContent,
-                    tailIntent = tailIntent,
-                    measuredNearBottom = measuredNearBottom,
-                    userDragging = sample.userDragging,
-                    scrollInProgress = sample.scrollInProgress,
-                    canScrollForward = sample.canScrollForward,
-                ) && sample.itemCount > 0
-            ) {
-                transcriptPositionLog {
-                    "catch-up-tail-after-measure session=${transcriptSessionLogId(sessionId)} ${transcriptLayoutLog(listState)}"
-                }
-                scrollTranscriptToEnd(listState, sample.itemCount - 1)
-                wasNearBottom = true
-            }
-            // A streamed row may grow between measurement and auto-follow. Preserve tail intent
-            // across a layout-only shift if the scroll coordinate itself did not change.
-            wasNearBottom = !expandedContent && (measuredNearBottom || tailIntent || (wasNearBottom && !sample.userDragging) ||
-                (viewportChanged && wasNearBottom) || (layoutShiftedPastTail && wasNearBottom))
-            previousViewportHeight = sample.viewportHeight
-            previousCanScrollForward = sample.canScrollForward
-            previousScrollCoordinate = currentCoordinate
-            previousItemMeasurements = sample.visibleItemMeasurements
-        }
-    }
-
     // Keyed on the *newest* seq, not the item count, so only growth at the tail moves the view.
     // Counting items conflated two opposite events: a turn streaming in at the bottom, which should
     // follow, and a page of history arriving at the top, which must not — asking for older messages
@@ -633,115 +542,52 @@ internal fun ChatTranscript(
     // appearing and disappearing changed the count too, which moved the view for no reason at all.
     val newestRowKey = nodes.lastOrNull()?.let(::transcriptNodeRowKey)
     var lastSession by remember { mutableStateOf<String?>(null) }
-    // Observe only a laid-out row belonging to this session, and only after the initial restore.
-    // In particular, an empty/loading snapshot must not replace a saved reading anchor.
+    // Save the actual first visible keyed row; do not infer navigation from changes in
+    // pixel offsets, item heights, or viewport dimensions.
     LaunchedEffect(listState, sessionId, rows, hasMore, restoredSession, restoreTarget) {
-        if (sessionId == null || restoredSession != sessionId) return@LaunchedEffect
-        // A follow snapshot can replace the cached older window with only the newest page.
-        // Its automatic LazyColumn re-anchor is not a reader action: do not overwrite the
-        // last known coordinate with whatever unrelated row happens to occupy that viewport.
-        val saved = readingPositions.get(sessionId)
-        var previousLoggedBottom: Boolean? = null
-        var previousScrollCoordinate: Pair<Int, Int>? = null
+        if (sessionId == null || restoredSession != sessionId || restoreTarget != null) return@LaunchedEffect
         snapshotFlow {
             val info = listState.layoutInfo
-            val first = info.visibleItemsInfo.firstOrNull { item ->
-                rows.getOrNull(item.index - if (hasMore) 1 else 0)?.key == item.key
+            info.visibleItemsInfo.firstNotNullOfOrNull { item ->
+                readingPositionForVisibleRow(rows, hasMore, item.index, item.key,
+                    listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset,
+                    followTail && !listState.canScrollForward)
             }
-            first?.let { item ->
-                val row = rows.getOrNull(item.index - if (hasMore) 1 else 0) ?: return@let null
-                val last = info.visibleItemsInfo.lastOrNull()
-                val atBottom = last != null && transcriptNearBottom(
-                    info.totalItemsCount,
-                    last.index,
-                    last.offset + last.size,
-                    info.viewportEndOffset,
-                    bottomTolerancePx,
-                )
-                TranscriptReadingSample(
-                    position = readingPositionOf(
-                        row,
-                        if (item.index == listState.firstVisibleItemIndex) listState.firstVisibleItemScrollOffset else 0,
-                        atBottom,
-                    ),
-                    firstVisibleIndex = listState.firstVisibleItemIndex,
-                    firstVisibleOffset = listState.firstVisibleItemScrollOffset,
-                    userDragging = userDragging,
-                )
-            }
-        }.collect { sample ->
-            if (sample == null) return@collect
-            val position = sample.position
-            if (restoreTarget != null && sample.userDragging) restoreTarget = null
-            // The retained LazyListState can temporarily be clamped to the short opening page.
-            // That measured tail is not the reader's intent and must not replace the old anchor.
-            if (restoreTarget != null) return@collect
-            val currentCoordinate = sample.firstVisibleIndex to sample.firstVisibleOffset
-            tailIntent = !expandedContent && nextTranscriptTailIntent(
-                currentIntent = tailIntent,
-                measuredAtBottom = position.atBottom,
-                userDragging = sample.userDragging,
-                previousIndex = previousScrollCoordinate?.first,
-                previousOffset = previousScrollCoordinate?.second ?: 0,
-                currentIndex = sample.firstVisibleIndex,
-                currentOffset = sample.firstVisibleOffset,
-            )
-            wasNearBottom = !expandedContent && (tailIntent || position.atBottom)
-            val positionToSave = position.copy(atBottom = !expandedContent && (tailIntent || position.atBottom))
-            if (previousLoggedBottom != position.atBottom) {
-                val shouldRecord = restoreTarget == null && shouldRecordReadingPosition(
-                    rows, saved, sample.userDragging, positionToSave.atBottom,
-                )
-                transcriptPositionLog {
-                    "observe session=${transcriptSessionLogId(sessionId)} seq=${position.seq} offset=${position.offset} " +
-                        "bottom=${position.atBottom} tailIntent=${tailIntent} drag=${sample.userDragging} record=$shouldRecord " +
-                        "savedBottom=${saved?.atBottom} coordinate=$currentCoordinate previous=$previousScrollCoordinate " +
-                        transcriptLayoutLog(listState)
-                }
-                previousLoggedBottom = position.atBottom
-            }
-            if (restoreTarget == null && shouldRecordReadingPosition(rows, saved, sample.userDragging, positionToSave.atBottom)) {
-                readingPositions.put(sessionId, positionToSave)
-            }
-            previousScrollCoordinate = currentCoordinate
+        }.collect { position ->
+            if (position != null && restoreTarget == null && shouldRecordReadingPosition(
+                    rows, readingPositions.get(sessionId), userDragging, position.atBottom,
+                )) readingPositions.put(sessionId, position)
         }
     }
     SideEffect {
         val anchor = olderPageAnchor
-        if (anchor != null && !shouldDiscardOlderPageAnchor(anchor.dragGeneration, dragGeneration) &&
-            rows.firstOrNull()?.key != anchor.firstRowKey
-        ) {
-            val newIndex = rows.indexOfFirst { it.anchorSeq == anchor.seq }
-            if (newIndex >= 0) {
-                // Schedule the new coordinate for the very remeasure that inserts the page.
-                // Otherwise the stable index-0 paging row anchors the first frame to older content.
-                listState.requestScrollToItem(newIndex + if (hasMore) 1 else 0, anchor.offset)
+        if (anchor != null) {
+            if (shouldDiscardOlderPageAnchor(anchor.dragGeneration, dragGeneration)) {
+                olderPageAnchor = null
+            } else if (rows.firstOrNull()?.key != anchor.firstRowKey) {
+                val newIndex = rows.indexOfFirst { it.anchorSeq == anchor.seq }
+                if (newIndex >= 0) {
+                    // Re-anchor in the prepend's remeasure, never with a second scroll after it.
+                    listState.requestScrollToItem(newIndex + if (hasMore) 1 else 0, anchor.offset)
+                    olderPageAnchor = null
+                } else if (!hasMore) olderPageAnchor = null
             }
+            // An empty page ends paging; a page of non-rendered records can advance the
+            // authoritative cursor without changing the first visible row.
+            if (!hasMore || oldestEventSeq != anchor.oldestEventSeq) olderPageAnchor = null
         }
-    }
-    LaunchedEffect(rows, hasMore, loadingOlder, loadOlderFailed, sessionId, dragGeneration, userDragging) {
-        val anchor = olderPageAnchor ?: return@LaunchedEffect
-        if (shouldDiscardOlderPageAnchor(anchor.dragGeneration, dragGeneration)) {
-            olderPageAnchor = null
-            return@LaunchedEffect
-        }
-        // The pointer-up callback can start the request before LazyColumn dispatches Drag.Stop.
-        // Do not discard the anchor while that SAME drag is still marked active: the prepend
-        // otherwise leaves the stable paging sentinel at index 0 and jumps to the previous page.
-        if (userDragging || shouldWaitForOlderPageAnchor(loadingOlder, hasMore, loadOlderFailed,
-                rows.firstOrNull()?.key, anchor.firstRowKey)) return@LaunchedEffect
-        val newIndex = rows.indexOfFirst { it.anchorSeq == anchor.seq }
-        if (newIndex >= 0 && shouldRestoreOlderPageAnchor(anchor.dragGeneration, dragGeneration, userDragging)) {
-            listState.scrollToItem(newIndex + if (hasMore) 1 else 0, anchor.offset)
-        }
-        olderPageAnchor = null
     }
 
-    LaunchedEffect(newestRowKey, sessionId) {
+    LaunchedEffect(newestRowKey, nodes.lastOrNull(), sessionId) {
         // A history snapshot can initially contain only structural events and the paging row.
         // Treating that sentinel as the restored session consumes the one-time restore before
         // the first readable message arrives on the next server page.
         if (!canRestoreReadingPosition(rows)) return@LaunchedEffect
+        if (restoreCanceled && restoredSession != sessionId) {
+            lastSession = sessionId
+            restoredSession = sessionId
+            return@LaunchedEffect
+        }
         val switched = sessionId != lastSession
         // An existing session returns to the message the reader was viewing, not the newest
         // turn. New sessions (or anchors outside the available snapshot) still open at the tail.
@@ -757,23 +603,20 @@ internal fun ChatTranscript(
                 // End position is a semantic anchor: the first visible row can be an earlier
                 // node in the current turn, so restoring that row would move a tail reader up.
                 scrollTranscriptToEnd(listState, itemCount - 1)
-                tailIntent = true
-                wasNearBottom = true
+                followTail = true
+                restoringTail = true
             } else if (index >= 0) {
                 listState.scrollToItem(index + if (hasMore) 1 else 0, saved!!.offset)
-                tailIntent = false
-                wasNearBottom = false
+                followTail = false
             } else if (shouldWaitForReadingAnchor(saved, rows, hasMore)) {
                 // Opening a file unmounts this page. A newer follow window may not contain the
                 // historical row yet: keep the saved coordinate until authoritative pages arrive.
                 // Jumping to the tail here would also overwrite that anchor in the observer.
                 restoreTarget = saved
-                tailIntent = false
-                wasNearBottom = false
+                followTail = false
             } else {
                 scrollTranscriptToEnd(listState, itemCount - 1)
-                tailIntent = true
-                wasNearBottom = true
+                followTail = true
             }
             // scrollToItem is suspending; a new follow snapshot can cancel this effect before
             // it completes. Commit the switch only after positioning succeeds so it can retry.
@@ -783,7 +626,20 @@ internal fun ChatTranscript(
                 "restore-done session=${transcriptSessionLogId(sessionId)} path=${if (shouldRestoreTranscriptToBottom(saved)) "tail" else if (index >= 0) "anchor" else if (restoreTarget != null) "await-anchor" else "fallback-tail"} " +
                     "rowTail=${transcriptRowsLog(rows)} ${transcriptLayoutLog(listState)}"
             }
-        } else if (wasNearBottom) scrollTranscriptToEnd(listState, itemCount - 1)
+        }
+    }
+
+    // A last update can arrive while a reader's fling is still settling. Retry when the gesture
+    // settles or re-enables following rather than waiting for another transcript update.
+    LaunchedEffect(newestRowKey, nodes.lastOrNull(), sessionId, restoredSession, followTail,
+        restoreTarget, loadingOlder) {
+        if (restoredSession == sessionId && followTail && restoreTarget == null &&
+            !loadingOlder && canRestoreReadingPosition(rows)) {
+            // Do not key this effect on scroll state: our own scrollToItem changes that state
+            // and would cancel the very correction it is performing.
+            snapshotFlow { listState.isScrollInProgress || userDragging }.first { scrolling -> !scrolling }
+            scrollTranscriptToEnd(listState, itemCount - 1)
+        }
     }
 
     // The opening follow snapshot can replace a cached, deeper window with only its newest page.
@@ -792,8 +648,8 @@ internal fun ChatTranscript(
     // is missing. The oldest row must advance before another page request is permitted.
     val restoreScope = rememberCoroutineScope()
     var restorePageOldestSeq by remember(sessionId) { mutableStateOf<Long?>(null) }
-    LaunchedEffect(sessionId, rows, hasMore, oldestEventSeq, loadingOlder, restoredSession, restorePageOldestSeq, restoreTarget, userDragging) {
-        if (sessionId == null) return@LaunchedEffect
+    LaunchedEffect(sessionId, rows, hasMore, oldestEventSeq, loadingOlder, restoredSession, restorePageOldestSeq, restoreTarget, restoreCanceled, userDragging) {
+        if (sessionId == null || restoreCanceled) return@LaunchedEffect
         val saved = readingPositions.get(sessionId) ?: return@LaunchedEffect
         // An opening page can contain only non-rendered journal events. Fetch history without
         // declaring the session restored until a readable message has actually arrived.
@@ -805,8 +661,7 @@ internal fun ChatTranscript(
                 // A user scroll while the request was in flight supersedes the old anchor.
                 if (!userDragging && readingPositions.get(sessionId) == target) {
                     listState.scrollToItem(index + if (hasMore) 1 else 0, target.offset)
-                    tailIntent = false
-                    wasNearBottom = false
+                    followTail = false
                 }
                 restoreTarget = null
             } else if (saved != target) {
@@ -818,8 +673,7 @@ internal fun ChatTranscript(
                 // The saved message no longer exists on the server.
                 restoreTarget = null
                 scrollTranscriptToEnd(listState, itemCount - 1)
-                tailIntent = true
-                wasNearBottom = true
+                followTail = true
             }
         } else if (shouldFetchReadingAnchorAfterPage(rows, saved, hasMore, loadingOlder, restorePageOldestSeq, oldestEventSeq)) {
             restoreTarget = saved
@@ -837,15 +691,18 @@ internal fun ChatTranscript(
         failed = loadOlderFailed,
     ).allowsPull
     val pullThresholdPx = with(LocalDensity.current) { TOP_PULL_DISTANCE.toPx() }
-    val requestOlderPage = {
-        val visible = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index > 0 }
-        olderPageAnchor = visible?.let { item ->
-            rows.getOrNull(item.index - 1)?.let { row ->
-                OlderPageAnchor(row.anchorSeq, olderPageAnchorScrollOffset(item.offset),
-                    rows.firstOrNull()?.key, dragGeneration)
+    val requestOlderPage: () -> Unit = {
+        if (!olderPagePending && sessionId != null) {
+            olderPagePending = true
+            val visible = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index > 0 }
+            olderPageAnchor = visible?.let { item ->
+                rows.getOrNull(item.index - 1)?.let { row ->
+                    OlderPageAnchor(row.anchorSeq, olderPageAnchorScrollOffset(item.offset),
+                        rows.firstOrNull()?.key, dragGeneration, oldestEventSeq)
+                }
             }
+            olderPageRequest++
         }
-        onLoadOlder()
     }
     // Read through updated state so the gesture detector below can keep its single instance while
     // the transcript streams and the paging flags change underneath it.

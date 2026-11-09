@@ -559,7 +559,7 @@ internal fun ChatScreen(
                         presentation = transcriptPresentation,
                         listState = chatListState,
                         readingPositions = readingPositions,
-                        onLoadOlder = { scope.launch { store.loadOlder() } },
+                        onLoadOlder = { sessionId -> store.loadOlder(sessionId) },
                         onRestoreOlder = { sessionId -> store.loadOlderForReadingPosition(sessionId) },
                     )
                     ChatTab.Trajectory -> TrajectoryTab(

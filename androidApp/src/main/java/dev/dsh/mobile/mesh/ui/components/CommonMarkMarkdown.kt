@@ -291,7 +291,7 @@ internal fun CommonMarkMarkdown(
                             webView.onOpenLink = onOpenLink
                             webView.onCopyCode = webState.onCopyCode
                             webView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                            webView.render(part.html)
+                            webView.render(part)
                         },
                         modifier = Modifier.fillMaxWidth(),
                         // Reusing a WebView in LazyColumn can measure the next message with the
@@ -376,9 +376,12 @@ internal fun decodeMarkdownCopyIndex(url: String): Int? = runCatching {
     uri.rawPath?.substringAfterLast('/')?.toIntOrNull()
 }.getOrNull()
 
+private fun isMarkdownDocumentHost(host: String?): Boolean = host == "markdown.invalid" ||
+    host?.matches(Regex("markdown-[0-9]+\\.invalid")) == true
+
 internal fun relativeMarkdownNavigationTarget(url: String): String? = runCatching {
     val uri = java.net.URI(url)
-    if (uri.scheme != "https" || uri.host != "markdown.invalid") return null
+    if (uri.scheme != "https" || !isMarkdownDocumentHost(uri.host)) return null
     if (uri.path == "/" && uri.rawQuery == null && uri.rawFragment != null) return null
     buildString {
         append(uri.path.orEmpty().removePrefix("/"))
@@ -398,7 +401,13 @@ private fun normalizeStrongDelimiterWhitespace(markdown: String): String =
 internal data class MarkdownCodeBlock(val code: String, val language: String?)
 internal sealed interface MarkdownPart {
     val htmlLength: Int
-    data class Html(val html: String) : MarkdownPart { override val htmlLength: Int get() = html.length }
+    data class Html(val html: String) : MarkdownPart {
+        override val htmlLength: Int get() = html.length
+        // Retained with the bounded render cache, not with the disposable WebView. Reopening the
+        // same document must not temporarily shrink a long message to one pixel and clamp its
+        // saved reading offset. Width, density and font scale must match before reusing a height.
+        var measuredLayout: Pair<Triple<Int, Int, Float>, Int>? = null
+    }
     data class Code(val block: MarkdownCodeBlock) : MarkdownPart { override val htmlLength: Int get() = block.code.length }
 }
 private data class RenderedMarkdown(val parts: List<MarkdownPart>, val codeBlocks: List<String>)
@@ -699,7 +708,10 @@ private class CommonMarkWebView(
         set(value) { state.onCopyCode = value }
 
     private var loadedHtml: String? = null
+    private var document: MarkdownPart.Html? = null
     private var documentReady = false
+    private var documentGeneration = 0L
+    private var documentBaseUrl: String? = null
 
     init {
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -724,10 +736,16 @@ private class CommonMarkWebView(
                 handleMarkdownNavigation(url)
 
             override fun onPageFinished(view: WebView, url: String) {
+                // WebView callbacks do not carry a load ID. Give every document a unique origin
+                // and only accept a completion whose URL still belongs to the current document;
+                // an old page may finish after render() has already advanced the generation.
+                val baseUrl = documentBaseUrl ?: return
+                if (url != baseUrl) return
+                val generation = documentGeneration
                 // onPageFinished can precede WebView's committed visual/layout state. Re-measure only
                 // after Chromium confirms the document is ready to draw, then invalidate its parent.
                 view.post {
-                    if (!canPostMarkdownVisualStateCallback(released)) {
+                    if (!canPostMarkdownVisualStateCallback(released) || generation != documentGeneration) {
                         return@post
                     }
                     // A queued WebView task may outlive Compose's disposal. Chromium can also destroy
@@ -735,7 +753,7 @@ private class CommonMarkWebView(
                     runCatching {
                         view.postVisualStateCallback(System.nanoTime(), object : WebView.VisualStateCallback() {
                             override fun onComplete(requestId: Long) {
-                                if (!canPostMarkdownVisualStateCallback(released)) return
+                                if (!canPostMarkdownVisualStateCallback(released) || generation != documentGeneration) return
                                 documentReady = true
                                 view.requestLayout()
                                 view.invalidate()
@@ -747,12 +765,18 @@ private class CommonMarkWebView(
         }
     }
 
-    fun render(html: String) {
+    fun render(part: MarkdownPart.Html) {
+        document = part
+        val html = part.html
         if (loadedHtml == html) return
         loadedHtml = html
+        documentGeneration++
+        documentBaseUrl = MARKDOWN_BASE_URL.replace(
+            "markdown.invalid", "markdown-$documentGeneration.invalid",
+        )
         documentReady = false
         requestLayout()
-        loadDataWithBaseURL(MARKDOWN_BASE_URL, html, "text/html", "UTF-8", null)
+        loadDataWithBaseURL(documentBaseUrl, html, "text/html", "UTF-8", null)
     }
 
     private fun handleMarkdownNavigation(url: String): Boolean {
@@ -765,7 +789,7 @@ private class CommonMarkWebView(
             return true
         }
         val uri = Uri.parse(url)
-        if (uri.host == "markdown.invalid" && uri.fragment != null && uri.encodedPath.orEmpty() == "/") return false
+        if (isMarkdownDocumentHost(uri.host) && uri.fragment != null && uri.encodedPath.orEmpty() == "/") return false
         val target = relativeMarkdownNavigationTarget(url) ?: url
         runCatching { onOpenLink(target) }
         return true
@@ -773,8 +797,16 @@ private class CommonMarkWebView(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
-        val height = markdownWebViewMeasuredHeight(contentHeight, scale, documentReady)
-        setMeasuredDimension(resolveSize(measuredWidth, widthMeasureSpec), resolveSize(height, heightMeasureSpec))
+        val width = resolveSize(measuredWidth, widthMeasureSpec)
+        val layoutKey = Triple(width, resources.displayMetrics.densityDpi, resources.configuration.fontScale)
+        val height = if (documentReady) {
+            markdownWebViewMeasuredHeight(contentHeight, scale, true).also {
+                document?.measuredLayout = layoutKey to it
+            }
+        } else {
+            document?.measuredLayout?.takeIf { it.first == layoutKey }?.second ?: 1
+        }
+        setMeasuredDimension(width, resolveSize(height, heightMeasureSpec))
     }
 }
 
