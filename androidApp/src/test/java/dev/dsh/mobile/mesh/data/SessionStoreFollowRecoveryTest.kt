@@ -77,10 +77,19 @@ class SessionStoreFollowRecoveryTest {
             awaitCondition { channel.followIds.size == 1 }
             channel.emit(error(channel.followIds[0], "invalid_request"))
             awaitCondition { store.connectionError.value == "stream failed" }
-            delay(2_500)
+            // A terminal rejection ends the follow loop. Waiting for that job to finish is the
+            // deterministic proof that no retry is pending: any further attempt would have to come
+            // from this coroutine.
+            val followJob = followJobOf(store)
+            withTimeout(5_000) { while (followJob != null && !followJob.isCompleted) delay(10) }
             assertEquals(1, channel.followIds.size)
+            assertEquals("stream failed", store.connectionError.value)
         }
     }
+
+    private fun followJobOf(store: SessionStore): kotlinx.coroutines.Job? =
+        SessionStore::class.java.getDeclaredField("followJob").apply { isAccessible = true }.get(store)
+            as kotlinx.coroutines.Job?
 
     private suspend fun withStore(block: suspend (SessionStore, FakeChannel) -> Unit) {
         lateinit var channel: FakeChannel
