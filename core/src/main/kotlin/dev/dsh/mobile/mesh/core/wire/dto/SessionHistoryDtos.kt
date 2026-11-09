@@ -527,15 +527,20 @@ sealed class SessionControlFrame {
         @SerialName("jobs") val jobs: List<JobView> = emptyList(),
     ) : SessionControlFrame()
 
-    /** One projection unit's finished value and its durable watermark. */
+    /** Projection changes caused by one committed event, sharing its durable watermark. */
     @Serializable
     data class Projection(
         @SerialName("type") override val type: String = "projection",
         @SerialName("sessionId") val sessionId: String,
-        @SerialName("key") val key: String,
-        @SerialName("value") val value: JsonElement,
         @SerialName("seq") val seq: Int,
+        @SerialName("changes") val changes: List<ProjectionChange>,
     ) : SessionControlFrame()
+
+    @Serializable
+    data class ProjectionChange(
+        @SerialName("key") val key: String,
+        @SerialName("val") val value: JsonElement,
+    )
 
     /** A frame of an unknown `type`, preserved verbatim. */
     data class Unknown(
@@ -581,7 +586,17 @@ object SessionControlFrameSerializer : KSerializer<SessionControlFrame> {
             "baseline" -> decodeFromJsonElement(SessionControlFrame.Baseline.serializer(), json)
             "queue" -> decodeFromJsonElement(SessionControlFrame.Queue.serializer(), json)
             "jobs" -> decodeFromJsonElement(SessionControlFrame.Jobs.serializer(), json)
-            "projection" -> decodeFromJsonElement(SessionControlFrame.Projection.serializer(), json)
+            "projection" -> {
+                // Older hosts emitted one key/value per frame; current hosts send changes as a
+                // list of key/val pairs for the same committed event.
+                val normalized = if ("changes" in json) json else JsonObject(
+                    json + ("changes" to JsonArray(listOf(JsonObject(mapOf(
+                        "key" to requireNotNull(json["key"]),
+                        "val" to requireNotNull(json["value"]),
+                    ))))),
+                )
+                decodeFromJsonElement(SessionControlFrame.Projection.serializer(), normalized)
+            }
             else -> SessionControlFrame.Unknown(type, json)
         }
     }

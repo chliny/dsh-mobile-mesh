@@ -729,9 +729,13 @@ class MockHarness(
         buildJsonObject {
             put("type", "projection")
             put("sessionId", sessionId)
-            put("key", key)
-            put("value", value)
             put("seq", seq)
+            putJsonArray("changes") {
+                addJsonObject {
+                    put("key", key)
+                    put("val", value)
+                }
+            }
         },
     )
 
