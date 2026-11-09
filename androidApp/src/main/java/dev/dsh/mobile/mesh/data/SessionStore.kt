@@ -386,6 +386,7 @@ class SessionStore @Inject constructor(
     private var baselineQueuedClientId: String? = null
     private var baselineWorkerSerial = 0L
     private var baselineActiveWorkerId: Long? = null
+    private var baselineWorkerClientId: String? = null
     private var baselineWorkerJob: Job? = null
     private var selectedSessionReopened: Pair<String, String>? = null
     /** Latest request owns both address resolution and the serialized session switch. */
@@ -400,6 +401,12 @@ class SessionStore @Inject constructor(
 
     /** Coalesces transcript rebuilds during a stream; see [observeRebuildTicks]. */
     private val rebuildTicks = Channel<Unit>(Channel.CONFLATED)
+
+    /** Installed older pages whose folded snapshot the rebuild worker has not published yet. */
+    private var pendingPagePublications = 0
+
+    /** Bumped every time a snapshot containing an installed older page reaches the transcript. */
+    private val historyPagePublication = MutableStateFlow(0L)
 
     // A notification is only an invalidation hint; the screen always rereads the Host catalog.
     val scheduleRevision = MutableStateFlow(0L)
@@ -676,6 +683,12 @@ class SessionStore @Inject constructor(
     private var sessionListAppliedSerial = 0L
     private val turnStartedAtBySession = HashMap<String, Long>()
     private val titleBySession = HashMap<String, String>()
+    private val titleRevisionBySession = HashMap<String, Long>()
+    private var titleRevision = 0L
+    /** Membership events received after a list request began must outrank that older snapshot. */
+    private val sessionAddedRevisionBySession = HashMap<String, Long>()
+    private val sessionRemovedRevisionBySession = HashMap<String, Long>()
+    private var sessionMembershipRevision = 0L
     private val workspaceRows = LinkedHashMap<String, WorkspaceRow>()
     private val workspaceOrder = ArrayList<String>()
     private var archived = emptySet<String>()
@@ -888,6 +901,11 @@ class SessionStore @Inject constructor(
             sessionListAppliedSerial = 0L
             turnStartedAtBySession.clear()
             titleBySession.clear()
+            titleRevisionBySession.clear()
+            titleRevision = 0L
+            sessionAddedRevisionBySession.clear()
+            sessionRemovedRevisionBySession.clear()
+            sessionMembershipRevision = 0L
             workspaceRows.clear()
             workspaceOrder.clear()
             conversationCache.clear()
@@ -898,6 +916,7 @@ class SessionStore @Inject constructor(
             historyPageGeneration++
             loadingOlderGeneration = null
             _loadingOlder.value = false
+            releasePendingPagePublicationsLocked()
             currentEvents.clear()
             currentHasMore = false
             currentBlank = true
@@ -965,12 +984,17 @@ class SessionStore @Inject constructor(
                     }
                     // The previous carrier may leave a unary request suspended indefinitely. Do not
                     // let that worker own the next generation's baseline or session-switch queue.
-                    baselineWorkerJob?.cancel()
                     synchronized(baselineStateLock) {
-                        baselineRunning = false
-                        baselineDirty = false
-                        baselineQueuedClientId = null
-                        baselineActiveWorkerId = null
+                        // A fallback may already have started this generation before its ready event.
+                        if (baselineRunning && baselineWorkerClientId != generation.clientId) {
+                            baselineWorkerJob?.cancel()
+                            baselineWorkerJob = null
+                            baselineRunning = false
+                            baselineDirty = false
+                            baselineQueuedClientId = null
+                            baselineActiveWorkerId = null
+                            baselineWorkerClientId = null
+                        }
                     }
                     synchronized(sessionSwitchStateLock) {
                         // A user can tap the new generation before this SharedFlow item is
@@ -984,9 +1008,14 @@ class SessionStore @Inject constructor(
                             sessionSwitchGeneration = null
                         }
                     }
-                    _sessionsCurrentGenerationId.value = generation.clientId
-                    _sessionsBaselineLoaded.value = false
-                    _sessionsBaselineFailed.value = false
+                    synchronized(lock) {
+                        _sessionsCurrentGenerationId.value = generation.clientId
+                        // A state fallback can finish before this ready event is observed.
+                        if (_sessionsBaselineGenerationId.value != generation.clientId) {
+                            _sessionsBaselineLoaded.value = false
+                            _sessionsBaselineFailed.value = false
+                        }
+                    }
                 }
                 _transcriptPresentation.value = TranscriptPresentation()
                 scope.launch { refreshTranscriptPresentation(generation.clientId) }
@@ -1067,6 +1096,7 @@ class SessionStore @Inject constructor(
                         historyPageGeneration++
                         loadingOlderGeneration = null
                         _loadingOlder.value = false
+                        releasePendingPagePublicationsLocked()
                     }
                     _loadOlderFailed.value = true
                 }
@@ -1146,7 +1176,18 @@ class SessionStore @Inject constructor(
         force: Boolean = false,
         source: BaselineTriggerSource = BaselineTriggerSource.CONNECTED_GENERATION,
     ) {
-        val workerId = synchronized(baselineStateLock) {
+        val job = synchronized(baselineStateLock) {
+            // A queued generation is not necessarily the owner of the in-flight request.
+            // Replace the old worker immediately, even if the ready event has not arrived yet.
+            if (baselineRunning && generationClientId != null && baselineWorkerClientId != generationClientId) {
+                baselineWorkerJob?.cancel()
+                baselineWorkerJob = null
+                baselineRunning = false
+                baselineDirty = false
+                baselineQueuedClientId = null
+                baselineActiveWorkerId = null
+                baselineWorkerClientId = null
+            }
             if (!shouldQueueBaselineForRequest(
                     generationClientId = generationClientId,
                     lastQueuedClientId = baselineQueuedClientId,
@@ -1159,47 +1200,49 @@ class SessionStore @Inject constructor(
             baselineDirty = true
             if (baselineRunning) {
                 Log.d(TAG, "baseline request queued source=${source.label} force=$force workerRunning=true generationKnown=${generationClientId != null}")
-                null
-            } else {
-                baselineRunning = true
-                (++baselineWorkerSerial).also { baselineActiveWorkerId = it }
+                return
             }
-        }
-        if (workerId == null) return
-        Log.d(TAG, "baseline worker started worker=$workerId source=${source.label} force=$force generationKnown=${generationClientId != null}")
-        baselineWorkerJob = scope.launch {
-            try {
-                while (true) {
-                    val shouldContinue = synchronized(baselineStateLock) {
-                        if (!baselineDirty) {
+            baselineRunning = true
+            val workerId = ++baselineWorkerSerial
+            baselineActiveWorkerId = workerId
+            baselineWorkerClientId = generationClientId
+            Log.d(TAG, "baseline worker started worker=$workerId source=${source.label} force=$force generationKnown=${generationClientId != null}")
+            // Publish the job and its ownership atomically before it can execute or be cancelled.
+            scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                try {
+                    while (true) {
+                        synchronized(baselineStateLock) {
+                            if (baselineActiveWorkerId != workerId || !baselineDirty) {
+                                if (baselineActiveWorkerId == workerId) baselineRunning = false
+                                return@launch
+                            }
+                            baselineDirty = false
+                        }
+                        Log.d(TAG, "baseline run begin worker=$workerId")
+                        baselineMutex.withLock {
+                            try {
+                                baseline()
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (e: Exception) {
+                                log("baseline failed", e)
+                            }
+                        }
+                    }
+                } finally {
+                    synchronized(baselineStateLock) {
+                        if (baselineActiveWorkerId == workerId) {
                             baselineRunning = false
-                            return@launch
-                        }
-                        baselineDirty = false
-                        true
-                    }
-                    if (!shouldContinue) return@launch
-                    val activeWorker = synchronized(baselineStateLock) { baselineActiveWorkerId }
-                    Log.d(TAG, "baseline run begin worker=$activeWorker")
-                    baselineMutex.withLock {
-                        try {
-                            baseline()
-                        } catch (e: Exception) {
-                            log("baseline failed", e)
+                            baselineActiveWorkerId = null
+                            baselineWorkerClientId = null
+                            baselineWorkerJob = null
                         }
                     }
+                    Log.d(TAG, "baseline worker finished worker=$workerId")
                 }
-            } finally {
-                val completedWorker = synchronized(baselineStateLock) {
-                    if (baselineActiveWorkerId == workerId) {
-                        baselineRunning = false
-                        baselineActiveWorkerId = null
-                    }
-                    workerId
-                }
-                Log.d(TAG, "baseline worker finished worker=$completedWorker")
-            }
+            }.also { baselineWorkerJob = it }
         }
+        job.start()
     }
 
     private suspend fun baseline() {
@@ -1394,14 +1437,17 @@ class SessionStore @Inject constructor(
                 }
             }
             is SessionControlFrame.Projection -> {
-                if (frame.key == "inbox") applyInboxProjection(frame.sessionId, frame.value, frame.seq)
+                frame.changes.forEach { change ->
+                    if (change.key == "inbox") applyInboxProjection(frame.sessionId, change.value, frame.seq)
+                }
                 synchronized(lock) {
-                    if (frame.sessionId == currentId && frame.key != "modelSelection") {
-                        mergeProjectionLocked(frame.key, frame.seq, frame.value)
-                        rebuildCurrentLocked()
+                    if (frame.sessionId == currentId) {
+                        frame.changes.forEach { change ->
+                            mergeProjectionLocked(change.key, frame.seq, change.value)
+                        }
+                        publishControlProjectionsLocked(frame.sessionId)
                     }
                 }
-                if (frame.key == "modelSelection") applyModelSelectionProjection(frame.sessionId, frame.seq, frame.value)
             }
             is SessionControlFrame.Unknown -> log("unknown control frame ${frame.type}")
         }
@@ -1438,8 +1484,24 @@ class SessionStore @Inject constructor(
     /** Server queue ownership overrides any locally guessed transcript placement. */
     private fun reconcileQueuedPromptsLocked(sessionId: String, queue: List<QueueItem>) {
         val queuedRequestIds = promptQueueReconciliation.observe(queue)
-        optimisticPromptBySession[sessionId]?.removeAll { it.requestId in queuedRequestIds }
+        val removedIds = optimisticPromptBySession[sessionId].orEmpty()
+            .mapNotNullTo(mutableSetOf()) { it.requestId.takeIf(queuedRequestIds::contains) }
+        optimisticPromptBySession[sessionId]?.removeAll { it.requestId in removedIds }
         if (optimisticPromptBySession[sessionId].isNullOrEmpty()) optimisticPromptBySession.remove(sessionId)
+        if (removedIds.isNotEmpty() && sessionId == currentId && followCursor == null) {
+            _currentConversation.value?.takeIf { it.sessionId == sessionId }?.let { current ->
+                // Optimistic rows use Long.MAX_VALUE - list size + index, unlike durable event seqs.
+                val nodes = current.nodes.filterNot { node ->
+                    node is UserMessageNode && node.messageId in removedIds &&
+                        node.seq >= Long.MAX_VALUE - Int.MAX_VALUE.toLong()
+                }
+                if (nodes.size != current.nodes.size) {
+                    val updated = current.copy(nodes = nodes)
+                    _currentConversation.value = updated
+                    conversationCache[sessionId] = updated
+                }
+            }
+        }
     }
 
     /** Install an authoritative complete queue from either current or legacy host protocol. */
@@ -1450,8 +1512,8 @@ class SessionStore @Inject constructor(
             pendingQueueSubmissionBySession.remove(sessionId)
             if (sessionId == currentId) {
                 currentQueue = nextQueue
-                // An authoritative snapshot that raced ahead of propagation leaves optimistic rows visible.
-                rebuildCurrentLocked()
+                // Keep the displayed cached transcript while the follow stream is recovering.
+                publishControlProjectionsLocked(sessionId)
             }
         }
     }
@@ -1587,7 +1649,24 @@ class SessionStore @Inject constructor(
         synchronized(lock) {
             if (sessionId != currentId) return@synchronized
             values.forEach { (key, value) -> mergeProjectionLocked(key, asOf, value) }
+            publishControlProjectionsLocked(sessionId)
+        }
+    }
+
+    /** Publish authoritative control state without replacing a cached transcript during follow recovery. */
+    private fun publishControlProjectionsLocked(sessionId: String) {
+        if (followCursor != null) {
             rebuildCurrentLocked()
+            return
+        }
+        _currentConversation.value?.takeIf { it.sessionId == sessionId }?.let { current ->
+            val updated = current.copy(
+                projections = currentProjections.mapValues { it.value.value },
+                queue = currentQueue,
+                queueSubmissionPending = pendingQueueSubmissionBySession.contains(sessionId),
+            )
+            _currentConversation.value = updated
+            conversationCache[sessionId] = updated
         }
     }
 
@@ -1845,7 +1924,12 @@ class SessionStore @Inject constructor(
     private fun onSessionAdded(item: SessionSummary) {
         synchronized(lock) {
             val existing = sessionRows[item.sessionId]
-            val title = titleBySession[item.sessionId]
+            sessionRemovedRevisionBySession.remove(item.sessionId)
+            sessionAddedRevisionBySession[item.sessionId] = ++sessionMembershipRevision
+            val title = titleBySession[item.sessionId] ?: extractTitle(item.projections)?.also {
+                titleBySession[item.sessionId] = it
+                titleRevisionBySession[item.sessionId] = ++titleRevision
+            }
             val row = existing?.copy(
                 title = title ?: existing.title,
                 blank = item.blank,
@@ -1888,6 +1972,10 @@ class SessionStore @Inject constructor(
             pendingPromptBySession.remove(sessionId)
             pendingQueueSubmissionBySession.remove(sessionId)
             sessionRows.remove(sessionId)
+            sessionAddedRevisionBySession.remove(sessionId)
+            sessionRemovedRevisionBySession[sessionId] = ++sessionMembershipRevision
+            titleBySession.remove(sessionId)
+            titleRevisionBySession.remove(sessionId)
             pendingKinds.remove(sessionId)
             runningBySession.remove(sessionId)
             statusRevisionBySession.remove(sessionId)
@@ -1946,6 +2034,7 @@ class SessionStore @Inject constructor(
     private fun setTitle(sessionId: String, title: String) {
         synchronized(lock) {
             titleBySession[sessionId] = title
+            titleRevisionBySession[sessionId] = ++titleRevision
             sessionRows[sessionId]?.let { if (it.title != title) sessionRows[sessionId] = it.copy(title = title) }
             emitSessionsLocked()
         }
@@ -2060,25 +2149,17 @@ class SessionStore @Inject constructor(
         }
     }
 
-    private fun applyModelSelectionProjection(sessionId: String, seq: Int, value: JsonElement) {
-        synchronized(lock) {
-            if (!shouldApplyModelSelectionProjection(
-                    frameSessionId = sessionId,
-                    currentSessionId = currentId,
-                    currentSeq = currentProjections["modelSelection"]?.seq,
-                    incomingSeq = seq,
-                )) return
-            mergeProjectionLocked("modelSelection", seq, value)
-            rebuildCurrentLocked()
-        }
-    }
-
     private fun rebuildCurrentLocked() {
         val sid = currentId ?: return
         // Switching publishes this session's cached transcript before follow has installed its
         // journal. A queued tick or control projection must not fold that still-empty journal and
         // replace the cached content with an empty conversation in the meantime.
-        if (!canRebuildFromFollow(followCursor)) return
+        if (!canRebuildFromFollow(followCursor)) {
+            // A page installed just before the follow carrier dropped can never be folded into this
+            // transcript. Release its waiters instead of leaving them on the publication timeout.
+            releasePendingPagePublicationsLocked()
+            return
+        }
         val events = currentEvents.toList()
         val snapshot = EventFold(sid).fold(events, liveAssistant.transientEnvelopes())
         val optimistic = optimisticPromptBySession[sid].orEmpty()
@@ -2114,6 +2195,11 @@ class SessionStore @Inject constructor(
         )
         _currentConversation.value = merged
         conversationCache[sid] = merged
+        if (pendingPagePublications > 0) {
+            // The install is now visible to the reader; page callers may release their gating.
+            pendingPagePublications--
+            historyPagePublication.value += 1
+        }
     }
 
     private fun emitSessionsLocked() {
@@ -2204,9 +2290,13 @@ class SessionStore @Inject constructor(
             Log.w(TAG, "session/list skipped reason=stale-generation generationCurrent=false")
             return
         }
-        val (requestStartRevision, requestSerial) = synchronized(lock) {
-            statusRevision to ++sessionListRequestSerial
+        val requestStart = synchronized(lock) {
+            Triple(statusRevision, titleRevision, sessionMembershipRevision) to ++sessionListRequestSerial
         }
+        val requestStartRevision = requestStart.first.first
+        val requestStartTitleRevision = requestStart.first.second
+        val requestStartMembershipRevision = requestStart.first.third
+        val requestSerial = requestStart.second
         Log.d(TAG, "session/list request begin generationCurrent=${generationIsCurrent()}")
         when (val r = api.sessionList(null)) {
             is RpcResult.Ok -> {
@@ -2219,16 +2309,28 @@ class SessionStore @Inject constructor(
                 } else {
                     Log.i(TAG, "session/list baseline returned count=${r.value.items.size} generationCurrent=true")
                 }
-                clearConnectionError()
                 synchronized(lock) {
-                    if (requestSerial <= sessionListAppliedSerial) return@synchronized
+                    if (!generationIsCurrent() || requestSerial <= sessionListAppliedSerial) return@synchronized
                     sessionListAppliedSerial = requestSerial
+                    clearConnectionError()
                     sessionListBaselineCount = r.value.items.size
                     sessionListBaselineState = "ok"
+                    val listedSessionIds = r.value.items.mapTo(HashSet()) { it.sessionId }
+                    val addedAfterRequest = sessionRows.values.filter { row ->
+                        row.sessionId !in listedSessionIds &&
+                            (sessionAddedRevisionBySession[row.sessionId] ?: 0L) > requestStartMembershipRevision
+                    }
                     sessionRows.clear()
                     for (item in r.value.items) {
-                        val title = titleBySession[item.sessionId]
-                            ?: extractTitle(item.projections)?.also { titleBySession[item.sessionId] = it }
+                        if ((sessionRemovedRevisionBySession[item.sessionId] ?: 0L) > requestStartMembershipRevision) continue
+                        val title = if ((titleRevisionBySession[item.sessionId] ?: 0L) > requestStartTitleRevision || item.projections == null) {
+                            titleBySession[item.sessionId]
+                        } else {
+                            extractTitle(item.projections).also { listed ->
+                                if (listed == null) titleBySession.remove(item.sessionId)
+                                else titleBySession[item.sessionId] = listed
+                            }
+                        }
                         // session/list is the authoritative recovery snapshot. Replacing rather than
                         // putIfAbsent repairs a stale true left behind when the previous generation
                         // missed the session's final turn/end event.
@@ -2254,6 +2356,21 @@ class SessionStore @Inject constructor(
                             subagentTiming = decodeSubagentTiming(item),
                         )
                     }
+                    if (addedAfterRequest.isNotEmpty()) {
+                        val mergedRows = LinkedHashMap<String, SessionRow>(sessionRows.size + addedAfterRequest.size)
+                        addedAfterRequest.forEach { row -> mergedRows[row.sessionId] = row }
+                        mergedRows.putAll(sessionRows)
+                        sessionRows.clear()
+                        sessionRows.putAll(mergedRows)
+                    }
+                    if (requestSerial == sessionListRequestSerial) {
+                        sessionAddedRevisionBySession.entries.removeIf { (sessionId, revision) ->
+                            revision <= requestStartMembershipRevision || sessionId in listedSessionIds
+                        }
+                        sessionRemovedRevisionBySession.entries.removeIf { (sessionId, revision) ->
+                            revision <= requestStartMembershipRevision || sessionId !in listedSessionIds
+                        }
+                    }
                     if (currentId != null) rebuildCurrentLocked()
                     sessionListBaselineHostId = expectedHostId
                     sessionListBaselineGenerationId = expectedGenerationId
@@ -2269,17 +2386,24 @@ class SessionStore @Inject constructor(
                     Log.w(TAG, "session/list error ignored reason=stale-generation generationCurrent=false")
                     return
                 }
-                sessionListBaselineState = "error"
-                _sessionsBaselineGenerationId.value = expectedGenerationId
-                _sessionsBaselineLoaded.value = true
-                _sessionsBaselineFailed.value = true
+                val applied = synchronized(lock) {
+                    if (!generationIsCurrent() || requestSerial <= sessionListAppliedSerial) false else {
+                        sessionListAppliedSerial = requestSerial
+                        sessionListBaselineState = "error"
+                        _sessionsBaselineGenerationId.value = expectedGenerationId
+                        _sessionsBaselineLoaded.value = true
+                        _sessionsBaselineFailed.value = true
+                        setConnectionError(r.error.message)
+                        true
+                    }
+                }
+                if (!applied) return
                 logSessionListPresentationSnapshot("session-list-error")
                 Log.w(
                     TAG,
                     "session/list baseline failed transport=${dev.dsh.mobile.mesh.core.wire.TransportFailures.of(r.error)} " +
                         "httpStatus=${dev.dsh.mobile.mesh.core.wire.TransportFailures.statusOf(r.error)} generationCurrent=true",
                 )
-                setConnectionError(r.error.message)
             }
         }
     }
@@ -2383,6 +2507,7 @@ class SessionStore @Inject constructor(
                     _loadingOlder.value = false
                     _loadOlderFailed.value = false
                     followCursor = null
+                    releasePendingPagePublicationsLocked()
                     currentId = sessionId
                     currentAddress = address
                     _currentSessionAddress.value = address
@@ -2402,6 +2527,7 @@ class SessionStore @Inject constructor(
                 loadingOlderGeneration = null
                 _loadingOlder.value = false
                 followCursor = null
+                releasePendingPagePublicationsLocked()
                 currentId = sessionId
                 currentAddress = address
                 _currentSessionAddress.value = address
@@ -2483,7 +2609,10 @@ class SessionStore @Inject constructor(
         followJob?.cancel()
         modsBandJob?.cancel()
         _modsBand.value = null
-        synchronized(lock) { followCursor = null }
+        synchronized(lock) {
+            followCursor = null
+            releasePendingPagePublicationsLocked()
+        }
         val mux = connectionManager.generation?.mux
         if (mux == null) {
             log("cannot follow $sessionId: no connection generation")
@@ -2521,25 +2650,49 @@ class SessionStore @Inject constructor(
                 ),
             )
         }
-        val followStartedAt = System.nanoTime()
         followJob = scope.launch {
-            runCatching {
-                mux.openStream("session/follow", args).collect { item ->
-                    when (val frame = decodeOrNull(SessionFollowFrameSerializer, item)) {
-                        is SessionFollowFrame.Snapshot -> {
-                            val receivedMs = (System.nanoTime() - followStartedAt) / 1_000_000
-                            applyFollowSnapshot(sessionId, frame)
-                            log("session/follow snapshot session=$sessionId receivedMs=$receivedMs appliedMs=${(System.nanoTime() - followStartedAt) / 1_000_000} generationCurrent=${connectionManager.generation?.mux === mux}")
+            var retryMs = 1_000L
+            while (connectionManager.generation?.mux === mux && currentSessionId.value == sessionId) {
+                var receivedSnapshot = false
+                val followStartedAt = System.nanoTime()
+                try {
+                    mux.openStream("session/follow", args).collect { item ->
+                        currentCoroutineContext().ensureActive()
+                        if (connectionManager.generation?.mux !== mux || currentSessionId.value != sessionId) return@collect
+                        when (val frame = decodeOrNull(SessionFollowFrameSerializer, item)) {
+                            is SessionFollowFrame.Snapshot -> {
+                                receivedSnapshot = true
+                                val receivedMs = (System.nanoTime() - followStartedAt) / 1_000_000
+                                applyFollowSnapshot(sessionId, frame)
+                                log("session/follow snapshot session=$sessionId receivedMs=$receivedMs appliedMs=${(System.nanoTime() - followStartedAt) / 1_000_000} generationCurrent=${connectionManager.generation?.mux === mux}")
+                            }
+                            is SessionFollowFrame.Entry -> applyFollowEntry(sessionId, frame.record)
+                            is SessionFollowFrame.AssistantStream -> applyAssistantFrame(sessionId, frame)
+                            null -> log("undecodable session/follow frame")
                         }
-                        is SessionFollowFrame.Entry -> applyFollowEntry(sessionId, frame.record)
-                        is SessionFollowFrame.AssistantStream -> applyAssistantFrame(sessionId, frame)
-                        null -> log("undecodable session/follow frame")
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (failure: Throwable) {
+                    if (connectionManager.generation?.mux !== mux || currentSessionId.value != sessionId) break
+                    log("session/follow ended for $sessionId", failure)
+                    if (failure is dev.dsh.mobile.mesh.core.wire.RemoteStreamException && !failure.carrier &&
+                        failure.error.code != "consumer_fell_behind"
+                    ) {
+                        setConnectionError(failure.message)
+                        break
                     }
                 }
-            }.onFailure { failure ->
-                if (failure is kotlinx.coroutines.CancellationException) throw failure
-                log("session/follow ended for $sessionId", failure)
-                setConnectionError(failure.message)
+                if (connectionManager.generation?.mux !== mux || currentSessionId.value != sessionId) break
+                synchronized(lock) {
+                    followCursor = null
+                    historyPageGeneration++
+                    loadingOlderGeneration = null
+                    _loadingOlder.value = false
+                    releasePendingPagePublicationsLocked()
+                }
+                delay(retryMs)
+                retryMs = if (receivedSnapshot) 1_000L else (retryMs * 2).coerceAtMost(8_000L)
             }
         }
     }
@@ -2631,7 +2784,7 @@ class SessionStore @Inject constructor(
     /** Fetch a missing reading anchor from the authoritative session/page after follow opens. */
     suspend fun loadOlderForReadingPosition(sessionId: String) {
         if (awaitFollowCursor(sessionId, 10_000L) == null) return
-        if (currentSessionId.value == sessionId && synchronized(lock) { currentHasMore }) loadOlder()
+        if (currentSessionId.value == sessionId && synchronized(lock) { currentHasMore }) loadOlder(sessionId)
     }
 
     /**
@@ -2672,6 +2825,7 @@ class SessionStore @Inject constructor(
             cursor = cursor,
         )
         loadingOlderGeneration = historyPageGeneration
+        _loadOlderFailed.value = false
         _loadingOlder.value = true
         return pageContext
     }
@@ -2679,11 +2833,19 @@ class SessionStore @Inject constructor(
     /**
      * Page one screen further back. The in-flight flag collapses duplicate requests, and a page
      * with no new records ends paging instead of walking the whole history automatically.
+     * Returns whether this request installed a page; the folded snapshot may be published later.
      */
-    suspend fun loadOlder() = withContext(Dispatchers.Default) {
-        val api = apiOrNull() ?: return@withContext
-        val requestedSession = synchronized(lock) { currentId } ?: return@withContext
-        var context = synchronized(lock) { beginOlderPageLocked() }
+    suspend fun loadOlder(requestedSession: String): Boolean = withContext(Dispatchers.Default) {
+        val api = apiOrNull() ?: return@withContext false
+        // The opening wait below can outlive this carrier. A response fetched over the replaced
+        // carrier must never be installed under the replacement generation's fence: the session id
+        // stays the same across a reconnect, so only the carrier identity distinguishes them.
+        val requestClientId = connectionManager.generation?.clientId
+        fun carrierIsCurrent() = connectionManager.generation?.clientId == requestClientId
+        var context = synchronized(lock) {
+            if (currentId != requestedSession) return@withContext false
+            beginOlderPageLocked()
+        }
         if (context == null) {
             // Right after a switch the opening snapshot can still be in flight, so a deliberate
             // pull would otherwise be dropped without any spinner or failure. Wait for the
@@ -2697,16 +2859,23 @@ class SessionStore @Inject constructor(
                     pageRequestInFlight = loadingOlderGeneration == historyPageGeneration,
                 )
             }
-            if (!waitForOpening) return@withContext
+            if (!waitForOpening) return@withContext false
             log("session/page waiting ${FOLLOW_OPENING_WAIT_MS}ms for follow opening of $requestedSession")
-            awaitFollowCursor(requestedSession, FOLLOW_OPENING_WAIT_MS) ?: return@withContext
+            awaitFollowCursor(requestedSession, FOLLOW_OPENING_WAIT_MS) ?: return@withContext false
             // The reader may have switched sessions while the opening was in flight; the pull
             // belonged to the transcript it was made in.
             context = synchronized(lock) {
                 if (currentId == requestedSession) beginOlderPageLocked() else null
             }
         }
-        context ?: return@withContext
+        context ?: return@withContext false
+        if (!carrierIsCurrent()) {
+            // The wait crossed a reconnect; the claim belongs to a dead carrier.
+            releaseOlderPageLoading(context.fence.generation)
+            return@withContext false
+        }
+        val publicationBefore = historyPagePublication.value
+        var pageInstalled = false
         try {
             val request = SessionPageRequest(
                 address = context.address,
@@ -2722,6 +2891,7 @@ class SessionStore @Inject constructor(
                     val page = historyTail(envelopes, HISTORY_PAGE_SIZE)
                     val overDelivered = envelopes.size > page.size
                     val installed = synchronized(lock) {
+                        if (!carrierIsCurrent()) return@synchronized false
                         if (!shouldApplyHistoryPage(
                                 request = context.fence,
                                 currentSessionId = currentId,
@@ -2739,41 +2909,69 @@ class SessionStore @Inject constructor(
                         // Older-page folding can involve thousands of history records. Keep that
                         // work off the receiver's monitor so live follow consumers can continue
                         // draining their bounded mux queues while the page is installed.
+                        pendingPagePublications++
                         rebuildTicks.trySend(Unit)
-                        true
-                    }
-                    if (installed) {
                         clearConnectionError()
                         _loadOlderFailed.value = false
+                        true
                     }
+                    if (installed) pageInstalled = true
                 }
                 // Not a connection fault: the session is healthy and the tail still streams, so this
                 // offers a retry in the transcript rather than raising a connection banner over it.
                 is RpcResult.Err -> {
-                    val current = synchronized(lock) { isCurrentHistoryPageLocked(context.fence) }
-                    if (current) {
-                        log("session/page failed for ${context.fence.sessionId}: ${r.error.code}: ${r.error.message}")
-                        _loadOlderFailed.value = true
+                    synchronized(lock) {
+                        if (isCurrentHistoryPageLocked(context.fence)) {
+                            log("session/page failed for ${context.fence.sessionId}: ${r.error.code}: ${r.error.message}")
+                            _loadOlderFailed.value = true
+                        }
                     }
                 }
                 null -> {
-                    val current = synchronized(lock) { isCurrentHistoryPageLocked(context.fence) }
-                    if (current) {
-                        log("session/page timed out after ${SESSION_PAGE_TIMEOUT_MS}ms for ${context.fence.sessionId}")
-                        _loadOlderFailed.value = true
+                    synchronized(lock) {
+                        if (isCurrentHistoryPageLocked(context.fence)) {
+                            log("session/page timed out after ${SESSION_PAGE_TIMEOUT_MS}ms for ${context.fence.sessionId}")
+                            _loadOlderFailed.value = true
+                        }
                     }
                     // A history page timeout is specific to this read; it does not imply that the
                     // independent live session/follow carrier disconnected.
                 }
             }
         } finally {
-            synchronized(lock) {
-                if (shouldReleaseHistoryPageLoading(context.fence.generation, loadingOlderGeneration)) {
-                    loadingOlderGeneration = null
-                    _loadingOlder.value = false
-                }
+            releaseOlderPageLoading(context.fence.generation)
+        }
+        if (pageInstalled) {
+            // Report completion only once the page is actually in the transcript snapshot. Callers
+            // gate further paging on this result, and the reader must not see a second page requested
+            // against a window that still lacks the first one.
+            withTimeoutOrNull(SESSION_PAGE_PUBLICATION_TIMEOUT_MS) {
+                historyPagePublication.first { it > publicationBefore }
             }
         }
+        pageInstalled
+    }
+
+    /** Release the paging spinner only when the claim still belongs to this page generation. */
+    private fun releaseOlderPageLoading(pageGeneration: Long) {
+        synchronized(lock) {
+            if (shouldReleaseHistoryPageLoading(pageGeneration, loadingOlderGeneration)) {
+                loadingOlderGeneration = null
+                _loadingOlder.value = false
+            }
+        }
+    }
+
+    /**
+     * Wake callers waiting for a page snapshot when the transcript is torn down first.
+     *
+     * A page installed just before a switch or carrier loss may never be folded; without this the
+     * caller would sit on the publication timeout even though its transcript no longer exists.
+     */
+    private fun releasePendingPagePublicationsLocked() {
+        if (pendingPagePublications == 0) return
+        pendingPagePublications = 0
+        historyPagePublication.value += 1
     }
 
     suspend fun createSession(cwd: String? = null, workspaceId: String? = null) {
@@ -3417,7 +3615,7 @@ class SessionStore @Inject constructor(
                             if (key != "subagentCatalog") mergeProjectionLocked(key, watermark, value)
                         }
                         baseline.values["inbox"]?.let { applyInboxProjection(targetSessionId, it, watermark) }
-                        rebuildCurrentLocked()
+                        publishControlProjectionsLocked(targetSessionId)
                     }
                 }
             }

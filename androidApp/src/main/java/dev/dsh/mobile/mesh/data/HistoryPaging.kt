@@ -32,6 +32,14 @@ internal fun shouldSchedulePageRebuild(pageSessionId: String?, currentSessionId:
 internal const val SESSION_PAGE_TIMEOUT_MS = 60_000L
 
 /**
+ * How long an installed older page waits for its folded snapshot to reach the transcript.
+ *
+ * The result is still reported as installed after this bound: the page is in the store, and a
+ * dropped rebuild must not make the caller retry a request that already succeeded.
+ */
+internal const val SESSION_PAGE_PUBLICATION_TIMEOUT_MS = 5_000L
+
+/**
  * How long a reader-driven pull waits for the follow opening to publish its pinning cursor.
  *
  * The opening snapshot normally lands in milliseconds. Waiting is what keeps a pull made right
