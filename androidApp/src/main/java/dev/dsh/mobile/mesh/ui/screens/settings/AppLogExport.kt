@@ -1,12 +1,16 @@
 package dev.dsh.mobile.mesh.ui.screens.settings
 
 import android.content.Context
+import dev.dsh.mobile.mesh.connection.ConnectionTrace
 import java.io.File
 
 /** A half-open interval of logcat event times, expressed as Unix epoch milliseconds. */
 data class AppLogTimeRange(val startEpochMs: Long, val endEpochMs: Long) {
     fun isValid(): Boolean = startEpochMs < endEpochMs
 }
+
+/** The last 24 hours, which is what the export screen offers before the operator narrows it. */
+internal const val DEFAULT_LOG_WINDOW_MS = 24L * 60 * 60 * 1000
 
 /**
  * Select logcat records by epoch timestamp. UID filtering happens at the logcat source, not here,
@@ -38,7 +42,7 @@ internal fun readAppLogs(context: Context, range: AppLogTimeRange): String {
     val output = process.inputStream.bufferedReader().use { it.readText() }
     val exitCode = process.waitFor()
     check(exitCode == 0) { "logcat exited with status $exitCode" }
-    if (!shouldExportArchivedLogs(archived)) return filterAppLogsByTimeRange(output, range)
+    if (!shouldExportArchivedLogs(archived)) return withConnectionTrace(filterAppLogsByTimeRange(output, range), range)
 
     val resume = LogcatResume(lastLine)
     val recent = output.lineSequence().mapNotNull { line ->
@@ -46,7 +50,27 @@ internal fun readAppLogs(context: Context, range: AppLogTimeRange): String {
         if (resume.shouldAppend(line) && time != null && time >= range.startEpochMs && time < range.endEpochMs) line
         else null
     }.toList()
-    return history + recent.joinToString("\n", postfix = if (recent.isNotEmpty()) "\n" else "")
+    return withConnectionTrace(
+        history + recent.joinToString("\n", postfix = if (recent.isNotEmpty()) "\n" else ""),
+        range,
+    )
+}
+
+/**
+ * Append the always-on recovery journal to the exported log.
+ *
+ * It is included regardless of the opt-in logcat capture: the journal is what still explains a
+ * slow resume after the device buffer has rolled over, which is exactly when the export is needed.
+ */
+internal fun withConnectionTrace(exported: String, range: AppLogTimeRange): String {
+    val trace = ConnectionTrace.snapshot(range.startEpochMs, range.endEpochMs)
+    if (trace.isEmpty()) return exported
+    return buildString {
+        append(exported)
+        if (exported.isNotEmpty() && !exported.endsWith('\n')) append('\n')
+        append("# connection trace\n")
+        append(trace)
+    }
 }
 
 /** Begin a persistent UID-scoped logcat stream as soon as the app process starts. */

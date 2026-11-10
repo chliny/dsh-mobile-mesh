@@ -123,11 +123,10 @@ fun SettingsScreen(
     var showDisconnectDialog by remember { mutableStateOf(false) }
     var showLogsRangeDialog by remember { mutableStateOf(false) }
     var persistLogs by remember { mutableStateOf(AppLogCapture.isEnabled(context)) }
-    val initialLogsRange = remember {
-        val now = System.currentTimeMillis()
-        AppLogTimeRange(startEpochMs = now - 24L * 60 * 60 * 1000, endEpochMs = now)
-    }
-    var logsExportRange by remember { mutableStateOf(initialLogsRange) }
+    // Null means the operator has not selected a custom range. Recompute the default whenever
+    // the dialog opens, but preserve an explicitly selected range even when the dialog is closed.
+    var customLogsRange by remember { mutableStateOf<AppLogTimeRange?>(null) }
+    var logsExportRange by remember { mutableStateOf(AppLogTimeRange(0L, 0L)) }
     var pendingImport by remember { mutableStateOf<String?>(null) }
     var importConflicts by remember { mutableStateOf<List<ConnectionImportConflict>>(emptyList()) }
     var selectedReplaceIds by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -317,7 +316,13 @@ fun SettingsScreen(
                     }
                     DsButton(
                         text = stringResource(R.string.settings_logs_export),
-                        onClick = { showLogsRangeDialog = true },
+                        onClick = {
+                            // The dialog displays seconds, so use second-aligned boundaries for
+                            // the default range as well as for dates chosen by the operator.
+                            val now = System.currentTimeMillis() / 1_000L * 1_000L
+                            logsExportRange = customLogsRange ?: AppLogTimeRange(now - DEFAULT_LOG_WINDOW_MS, now)
+                            showLogsRangeDialog = true
+                        },
                         variant = DsButtonVariant.Outline,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -472,6 +477,7 @@ fun SettingsScreen(
         LogsExportRangeDialog(
             initialRange = logsExportRange,
             onDismiss = { showLogsRangeDialog = false },
+            onCustomRangeChanged = { customLogsRange = it },
             onExport = { range ->
                 logsExportRange = range
                 showLogsRangeDialog = false
@@ -485,13 +491,15 @@ fun SettingsScreen(
 private fun LogsExportRangeDialog(
     initialRange: AppLogTimeRange,
     onDismiss: () -> Unit,
+    onCustomRangeChanged: (AppLogTimeRange) -> Unit,
     onExport: (AppLogTimeRange) -> Unit,
 ) {
     val context = LocalContext.current
     var startEpochMs by remember(initialRange) { mutableStateOf(initialRange.startEpochMs) }
     var endEpochMs by remember(initialRange) { mutableStateOf(initialRange.endEpochMs) }
+    var rangeEdited by remember(initialRange) { mutableStateOf(false) }
     val range = AppLogTimeRange(startEpochMs, endEpochMs)
-    val dateTimeFormat = remember { JavaDateFormat.getDateTimeInstance(JavaDateFormat.MEDIUM, JavaDateFormat.SHORT) }
+    val dateTimeFormat = remember { JavaDateFormat.getDateTimeInstance(JavaDateFormat.MEDIUM, JavaDateFormat.MEDIUM) }
     val valid = range.isValid()
 
     AlertDialog(
@@ -499,10 +507,20 @@ private fun LogsExportRangeDialog(
         title = { Text(stringResource(R.string.settings_logs_range_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
-                TextButton(onClick = { showDateTimePicker(context, startEpochMs) { startEpochMs = it } }) {
+                TextButton(onClick = {
+                    showDateTimePicker(context, startEpochMs) {
+                        startEpochMs = it
+                        rangeEdited = true
+                    }
+                }) {
                     Text("${stringResource(R.string.settings_logs_range_start)}: ${dateTimeFormat.format(Date(startEpochMs))}")
                 }
-                TextButton(onClick = { showDateTimePicker(context, endEpochMs) { endEpochMs = it } }) {
+                TextButton(onClick = {
+                    showDateTimePicker(context, endEpochMs) {
+                        endEpochMs = it
+                        rangeEdited = true
+                    }
+                }) {
                     Text("${stringResource(R.string.settings_logs_range_end)}: ${dateTimeFormat.format(Date(endEpochMs))}")
                 }
                 if (!valid) {
@@ -515,7 +533,10 @@ private fun LogsExportRangeDialog(
             }
         },
         confirmButton = {
-            TextButton(enabled = valid, onClick = { onExport(range) }) {
+            TextButton(enabled = valid, onClick = {
+                if (rangeEdited) onCustomRangeChanged(range)
+                onExport(range)
+            }) {
                 Text(stringResource(R.string.settings_logs_range_export))
             }
         },

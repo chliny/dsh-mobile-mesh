@@ -347,6 +347,15 @@ open class WsChannel(
             sink.onMessage(text)
         }
 
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            // Complete a peer-initiated close handshake so onClosed is delivered promptly and
+            // the connection loop can replace the retired generation without waiting for timeout.
+            // An empty Close frame is reported as 1005, which cannot itself be sent on the wire.
+            // Do not echo the peer's reason: it may not be valid UTF-8 or may exceed the control
+            // frame limit once re-encoded, and OkHttp rejects a close whose reason cannot be sent.
+            webSocket.close(if (code == 1005) 1000 else code, null)
+        }
+
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             // Preserve the peer's close frame in diagnostics. A clean WebSocket close is still a
             // mux carrier loss: without code/reason the reconnect loop can only report a generic

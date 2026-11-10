@@ -3,6 +3,7 @@ package dev.dsh.mobile.mesh
 import android.app.Application
 import android.content.Context
 import androidx.appcompat.app.AppCompatDelegate
+import dev.dsh.mobile.mesh.connection.ConnectionTrace
 import dev.dsh.mobile.mesh.connection.KeepAliveWorker
 import dev.dsh.mobile.mesh.notify.NotificationObserver
 import dev.dsh.mobile.mesh.ui.screens.settings.AppLogCapture
@@ -19,6 +20,9 @@ class DshApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         AppLogCapture.start(this)
+        // Load the persisted recovery journal so a log export taken after this restart still
+        // explains a slow resume that happened in the previous process.
+        ConnectionTrace.start(this)
         AppCompatDelegate.setDefaultNightMode(nightModeFor(storedThemePreference(this)))
         KeepAliveWorker.schedule(this)
         notificationObserver.start()

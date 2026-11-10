@@ -23,7 +23,10 @@ import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.webSocket
+import io.ktor.server.websocket.webSocketRaw
+import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
+import io.ktor.websocket.close
 import io.ktor.websocket.WebSocketSession
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
@@ -262,11 +265,24 @@ class MockHarness(
                 webSocket("/api/remote.mux") {
                     handleMuxSocket()
                 }
+                // Expose the same mock protocol without Ktor's close-frame normalization so
+                // socket-level tests can exercise a peer close with an empty payload.
+                webSocketRaw("/api/remote.mux.raw") {
+                    handleMuxSocket()
+                }
             }
         }
         newServer.start(wait = false)
         server = newServer
         return newServer.engine.resolvedConnectors().first().port
+    }
+
+    /** Close current mux sockets while leaving the host available for reconnecting clients. */
+    suspend fun closeMuxSockets(withoutStatus: Boolean = false) {
+        muxSockets.keys.toList().forEach { socket ->
+            if (withoutStatus) socket.send(Frame.Close())
+            else socket.close(CloseReason(CloseReason.Codes.NORMAL, "simulated server reconnect"))
+        }
     }
 
     /**
@@ -641,6 +657,7 @@ class MockHarness(
         try {
             while (true) {
                 val received = incoming.receiveCatching().getOrNull() ?: break
+                if (received is Frame.Close) break
                 val text = (received as? Frame.Text)?.readText() ?: continue
                 val message = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject
                     ?: continue

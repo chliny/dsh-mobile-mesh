@@ -194,6 +194,27 @@ class ProtocolEndToEndTest {
     }
 
     @Test
+    fun `server initiated websocket close reconnects the live stream`() = runBlocking {
+        val recorder = Recorder()
+        val loop = ConnectionLoop(
+            { RemoteStreamMux { sink -> WsChannel("$baseUrl/api/remote.mux.raw", http, sink) } },
+            recorder,
+            LoopConfig(delay = { }),
+        )
+        loop.start()
+        try {
+            assertTrue("initial connection did not open", await { recorder.connected.isNotEmpty() })
+            harness.closeMuxSockets()
+            assertTrue("connection did not recover after peer close", await { recorder.connected.size >= 2 })
+            harness.closeMuxSockets(withoutStatus = true)
+            assertTrue("connection did not recover after peer close without a status", await { recorder.connected.size >= 3 })
+            assertEquals(1005, (recorder.connected[1].mux.failure as? dev.dsh.mobile.mesh.core.wire.WebSocketClosedException)?.code)
+        } finally {
+            loop.stop()
+        }
+    }
+
+    @Test
     fun `a unary call reaches the new namespace path`() = runBlocking {
         harness.remote("session", "list", setOf("_request")) {
             buildJsonObject {

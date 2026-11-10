@@ -25,6 +25,7 @@ import dev.dsh.mobile.mesh.core.wire.TransportFailure
 import dev.dsh.mobile.mesh.core.wire.TransportFailures
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CancellationException
@@ -34,6 +35,10 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -110,20 +115,33 @@ class ConnectionManager @Inject constructor(
     private val networkRecoveryGate = NetworkRecoveryGate()
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            val internet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            trace(
+                "network-capabilities",
+                describeNetwork(network) + " foreground=$appInForeground retained=$keepConnectedInBackground" +
+                    " hasHost=${activeHost != null} gatePending=${networkRecoveryGate.isPending()}",
+            )
             if (!shouldRecoverOnNetworkEvent(appInForeground, keepConnectedInBackground, activeHost != null) ||
-                !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                !internet
             ) return
             if (networkRecoveryGate.isPending() && shouldStartNetworkRecovery(
                     isActiveNetwork = connectivity.activeNetwork == network,
-                    hasInternetCapability = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+                    hasInternetCapability = internet,
                 )) {
                 Log.d("ConnectionManager", "Validated replacement network available: $network")
                 markCarrierRecoveryNeeded()
                 startPendingNetworkRecovery()
+                trace("handover-network-ready", describeNetwork(network))
             }
         }
 
         override fun onAvailable(network: Network) {
+            trace(
+                "network-available",
+                describeNetwork(network) + " previous=${networkTracker.current()} active=${connectivity.activeNetwork}" +
+                    " foreground=$appInForeground retained=$keepConnectedInBackground hasHost=${activeHost != null}" +
+                    " phase=${_state.value.phase} hasConnected=${_state.value.hasConnected}",
+            )
             val connected = _state.value.phase == ConnectionPhase.CONNECTED
             val (operationInFlight, operationNetwork) = synchronized(operationLock) {
                 val inFlight = connectJob?.isActive == true
@@ -145,8 +163,15 @@ class ConnectionManager @Inject constructor(
                     operationTargetsReplacementNetwork = operationNetwork == network,
                 )) networkRecoveryGate.markPending()
             Log.d("ConnectionManager", "Default network available: $network (previous=$previous, dirty=${networkRecoveryGate.isPending()})")
+            trace(
+                "network-default-changed",
+                "network=$network previous=$previous recoveryNeeded=$networkLostWhileConnected" +
+                    " gatePending=${networkRecoveryGate.isPending()} active=${connectivity.activeNetwork}" +
+                    " operationInFlight=$operationInFlight phase=${_state.value.phase}",
+            )
             if (shouldRecoverOnNetworkEvent(appInForeground, keepConnectedInBackground, activeHost != null) && networkRecoveryGate.isPending()) {
                 markCarrierRecoveryNeeded()
+                trace("handover-recovery-arm", describeNetwork(network))
                 if (shouldStartNetworkRecovery(
                         isActiveNetwork = connectivity.activeNetwork == network,
                         hasInternetCapability = connectivity.getNetworkCapabilities(network)
@@ -161,6 +186,12 @@ class ConnectionManager @Inject constructor(
         }
 
         override fun onLost(network: Network) {
+            trace(
+                "network-lost",
+                describeNetwork(network) + " current=${networkTracker.current()}" +
+                    " foreground=$appInForeground retained=$keepConnectedInBackground" +
+                    " phase=${_state.value.phase} hasConnected=${_state.value.hasConnected}",
+            )
             val before = networkTracker.current()
             networkTracker.onLost(network, _state.value.phase == ConnectionPhase.CONNECTED)
             defaultNetwork = networkTracker.current()
@@ -244,6 +275,8 @@ class ConnectionManager @Inject constructor(
     @Volatile private var recoveryRetryWaitingForOperation = false
     @Volatile private var probeRecoveryPending = false
     @Volatile private var appInForeground = false
+    /** Identifies the foreground visit observed by the diagnostic collector, or null in background. */
+    private val watchdogForegroundEpoch = MutableStateFlow<Long?>(null)
     @Volatile private var backgroundedAtMs = 0L
     private val lifecycleTransitionLock = Any()
     private val serviceStartGate = ForegroundServiceStartGate()
@@ -251,6 +284,21 @@ class ConnectionManager @Inject constructor(
     private val activeFileTransferLeases = AtomicInteger(0)
     @Volatile private var foregroundProbeJob: Job? = null
     @Volatile private var publishedGenerationNeedsProbe = false
+    /** A retained background carrier remains usable, but must be checked on the next foreground. */
+    private var verifyOnNextForeground = false
+    private var foregroundTransitionEpoch = 0L
+    private var foregroundProbeGeneration: HostGeneration? = null
+    private var lastPublishedGeneration: HostGeneration? = null
+    private var generationOwner: RecoveryCallbackFence.Token? = null
+    private var generationEpoch = -1L
+    /**
+     * Monotonic revision of the published-generation slot, guarded by [lifecycleTransitionLock].
+     *
+     * An asynchronous probe result commits inside that lock, but its recovery side effect runs
+     * later, outside it. The revision lets that effect prove no generation was published, failed
+     * or retired in between: comparing only `generation == null` cannot tell two generations apart.
+     */
+    private var generationRevision = 0L
     /** Failure reason from the last retired mux, retained across ConnectionLoop's reconnect window. */
     @Volatile private var lastMuxCarrierFailure: Throwable? = null
     /** Latest desired host retained across a background-disabled suspension. */
@@ -270,6 +318,11 @@ class ConnectionManager @Inject constructor(
         }.onFailure { Log.w("ConnectionManager", "Unable to register network callback", it) }
         // Apply the background-retention toggle immediately instead of waiting for a later
         // handshake. This also tears down the foreground-service notification when it is disabled.
+        // Recovery is normally sub-second; anything still blocked after ten seconds is the
+        // symptom users report hours later, when logcat has rolled over. The watchdog journals a
+        // self-describing snapshot so the next export says what was still pending and on which
+        // network, instead of only that the spinner was up.
+        scope.launch { recoveryWatchdog() }
         scope.launch {
             hostsStore.settings.collect { settings ->
                 keepConnectedInBackground = settings.keepConnectedInBackground
@@ -320,26 +373,65 @@ class ConnectionManager @Inject constructor(
         _terminalAvailable.value = terminalCapabilityForConnection(selection, null, null)
     }
 
-    private fun sinksFor(token: RecoveryCallbackFence.Token): LoopSinks = object : LoopSinks {
+    /** One recovery/handover decision for the durable diagnostic journal (see [ConnectionTrace]). */
+    private fun trace(event: String, detail: String = "") = ConnectionTrace.record(event, detail)
+
+    /**
+     * Network identity in one token: an id alone cannot tell a Wi-Fi drop from a cellular handover,
+     * and the transport plus capabilities are what explain a recovery decision later.
+     */
+    private fun describeNetwork(network: Network?): String {
+        if (network == null) return "network=none"
+        val capabilities = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
+        val transports = buildList {
+            if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) add("wifi")
+            if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true) add("cellular")
+            if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) add("vpn")
+            if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true) add("ethernet")
+        }
+        return "network=$network transport=${transports.ifEmpty { listOf("unknown") }.joinToString("+")}" +
+            " internet=${capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true}" +
+            " validated=${capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true}" +
+            " suspended=${capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) == false}"
+    }
+
+    private fun sinksFor(
+        token: RecoveryCallbackFence.Token,
+        owner: ConnectionLifecycleCoordinator.Token,
+    ): LoopSinks = object : LoopSinks {
         override fun onEventFrame(frame: RemoteEventFrame) {
             loopFence.runIfCurrent(token) { eventFrames.tryEmit(frame) }
         }
 
         override fun onConnected(generation: HostGeneration) {
+            // Arbitrate a ready generation and a pending handover using the same slot lock.
+            // The callback fence is always acquired after operationLock, never the reverse.
+            synchronized(operationLock) {
             loopFence.runIfCurrent(token) {
+            if (!lifecycle.accepts(owner)) return@runIfCurrent
             val generationApi = api ?: return@runIfCurrent
+            acknowledgeNetworkHandoverFromReadyGeneration(generation)
+            synchronized(lifecycleTransitionLock) {
             this@ConnectionManager.generation = generation
+            generationOwner = token
+            generationEpoch = lifecycleEpoch
+            generationRevision++
             if (publishedGenerationNeedsProbe) _terminalAvailable.value = false
             eventApis[generation.clientId] = generationApi
             val host = activeHost
             val previousState = _state.value
-            acknowledgeNetworkHandoverFromReadyGeneration(generation)
             val needsLivenessProbe = shouldProbePublishedGeneration(
                 hasConnected = previousState.hasConnected,
                 recoveryOverlayVisible = previousState.recoveryOverlayVisible || previousState.foregroundCheckPending,
                 generationAlreadyNeedsProbe = publishedGenerationNeedsProbe,
             )
             Log.d("ConnectionManager", "Connected generation published for ${host?.id} needsLivenessProbe=$needsLivenessProbe")
+            trace(
+                "generation-ready",
+                "host=${host?.id} clientId=${generation.clientId} needsLivenessProbe=$needsLivenessProbe" +
+                    " foreground=$appInForeground phase=${previousState.phase} hasConnected=${previousState.hasConnected}" +
+                    " previouslyPublished=${lastPublishedGeneration !== generation}",
+            )
             if (host != null) scope.launch { hostsStore.touchHost(host.host, host.port) }
             publishedGenerationNeedsProbe = needsLivenessProbe
             if (needsLivenessProbe) {
@@ -354,6 +446,7 @@ class ConnectionManager @Inject constructor(
                     foregroundCheckPending = true,
                 )
                 Log.w("ConnectionManager", "Generation opened after lifecycle boundary; withholding CONNECTED until host probe succeeds")
+                trace("generation-withheld", "host=${host?.id} clientId=${generation.clientId} foreground=$appInForeground")
                 if (appInForeground) probePublishedGeneration(generation, generationApi, host?.id, lifecycleEpoch)
                 return@runIfCurrent
             }
@@ -369,13 +462,18 @@ class ConnectionManager @Inject constructor(
                 foregroundCheckPending = needsLivenessProbe,
             )
             restoreTerminalCapability()
+            lastPublishedGeneration = generation
             connectedGenerations.tryEmit(generation)
             lastMuxCarrierFailure = null
             maybeStartService()
+            trace("generation-published", "host=${host?.id} clientId=${generation.clientId} foreground=$appInForeground")
+            }
+            }
             }
         }
 
         override fun onStateChange(state: ConnectionState) {
+            var recoverCarrier = false
             loopFence.runIfCurrent(token) {
             // The mux generation is no longer usable as soon as the carrier starts reconnecting.
             // Keep the unary client: it is an HTTP client, not the retired WebSocket generation, and
@@ -385,7 +483,18 @@ class ConnectionManager @Inject constructor(
             if (state == ConnectionState.RECONNECTING) {
                 val carrierFailure = generation?.mux?.failure ?: lastMuxCarrierFailure
                 if (carrierFailure != null) lastMuxCarrierFailure = carrierFailure
-                generation = null
+                synchronized(lifecycleTransitionLock) {
+                    generation = null
+                    generationOwner = null
+                    generationEpoch = -1L
+                    generationRevision++
+                }
+                trace(
+                    "loop-reconnecting",
+                    "carrierFailure=${carrierFailure?.let(::safeTransportDiagnostic) ?: "none"}" +
+                        " phase=${current.phase} hasConnected=${current.hasConnected}" +
+                        " foreground=$appInForeground gatePending=${networkRecoveryGate.isPending()}",
+                )
                 // The loop emits RECONNECTING for its first generation after a carrier replacement.
                 // That is not a second carrier loss: the replacement's own ready handshake is still
                 // authoritative, and renewing here creates a foreground relay churn loop.
@@ -405,24 +514,29 @@ class ConnectionManager @Inject constructor(
                             recoveryInFlight = synchronized(recoveryLock) { transportRecoveryInFlight },
                             failedAttempt = current.attempts + 1,
                             isCarrierFailure = loopFailureIsCarrierFailure(carrierFailure),
-                        )) recoverTransportAfterCarrierLoss()
+                        )) recoverCarrier = true
                 }
             }
-            val probePending = publishedGenerationNeedsProbe || foregroundProbeJob?.isActive == true
-            val phase = publishedLoopPhase(
-                state = state,
-                hasConnected = current.hasConnected,
-                probePending = probePending,
-            )
-            // Note: does not clear `failure`. The loop emits this on every retry, so clearing here
-            // would erase the explanation a fraction of a second after showing it.
-            _state.value = current.copy(
-                phase = phase,
-                foregroundCheckPending = current.foregroundCheckPending ||
-                    (current.hasConnected && phase == ConnectionPhase.RECONNECTING && appInForeground),
-                recoveryOverlayVisible = current.recoveryOverlayVisible ||
-                    (current.hasConnected && phase == ConnectionPhase.RECONNECTING),
-            )
+            synchronized(lifecycleTransitionLock) {
+                val latest = _state.value
+                val phase = publishedLoopPhase(
+                    state = state,
+                    hasConnected = latest.hasConnected,
+                    probePending = publishedGenerationNeedsProbe,
+                )
+                // Read and publish under the same lock as probe completion: an already successful
+                // probe must not be changed back to RECONNECTING by a stale CONNECTED callback.
+                _state.value = latest.copy(
+                    phase = phase,
+                    foregroundCheckPending = latest.foregroundCheckPending ||
+                        (latest.hasConnected && phase == ConnectionPhase.RECONNECTING && appInForeground),
+                    recoveryOverlayVisible = latest.recoveryOverlayVisible ||
+                        (latest.hasConnected && phase == ConnectionPhase.RECONNECTING),
+                )
+            }
+            }
+            if (recoverCarrier) synchronized(operationLock) {
+                if (loopFence.accepts(token) && lifecycle.accepts(owner)) recoverTransportAfterCarrierLoss()
             }
         }
 
@@ -437,6 +551,7 @@ class ConnectionManager @Inject constructor(
         }
 
         override fun onGenerationFailed(attempt: Int, failure: GenerationFailure, failedMux: RemoteStreamMux?, carrierFailure: Throwable?) {
+            var recoverCarrier = false
             loopFence.runIfCurrent(token) {
             _terminalAvailable.value = false
             val muxDiagnostics = failedMux?.diagnostics?.let { stats ->
@@ -444,6 +559,18 @@ class ConnectionManager @Inject constructor(
             } ?: ""
             val safeCause = carrierFailure?.let(::safeTransportDiagnostic) ?: "none"
             Log.w("ConnectionManager", "Generation $attempt failed: $failure carrierCause=$safeCause$muxDiagnostics")
+            val failureDiagnostic = when (failure) {
+                is GenerationFailure.MuxTimedOut -> "type=mux-timeout timeoutMs=${failure.timeoutMs}"
+                is GenerationFailure.MuxFailed -> "type=mux-failed kind=${failure.kind}"
+                is GenerationFailure.ReadyFailed ->
+                    "type=ready-failed transport=${TransportFailures.of(failure.error)} status=${TransportFailures.statusOf(failure.error)}"
+            }
+            trace(
+                "generation-failed",
+                "attempt=$attempt $failureDiagnostic carrierCause=$safeCause$muxDiagnostics" +
+                    " foreground=$appInForeground retained=$keepConnectedInBackground" +
+                    " recoveryInFlight=${synchronized(recoveryLock) { transportRecoveryInFlight }}",
+            )
             _state.value = _state.value.copy(
                 failure = ConnectFailure.from(failure),
                 attempts = attempt,
@@ -463,8 +590,11 @@ class ConnectionManager @Inject constructor(
                     recoveryInFlight = synchronized(recoveryLock) { transportRecoveryInFlight },
                 )) {
                 markCarrierRecoveryNeeded()
-                recoverTransportAfterCarrierLoss()
+                recoverCarrier = true
             }
+            }
+            if (recoverCarrier) synchronized(operationLock) {
+                if (loopFence.accepts(token) && lifecycle.accepts(owner)) recoverTransportAfterCarrierLoss()
             }
         }
     }
@@ -474,7 +604,7 @@ class ConnectionManager @Inject constructor(
             isConnectionStateAuthoritative(
                 phase = _state.value.phase,
                 generationPublished = generation != null,
-                probePending = publishedGenerationNeedsProbe || foregroundProbeJob?.isActive == true,
+                probePending = publishedGenerationNeedsProbe,
             )
         }
 
@@ -500,14 +630,17 @@ class ConnectionManager @Inject constructor(
         // Callers may still hold the HostConfig from before the last successful probe.
         // Start each new intent with the latest persisted result for this exact endpoint.
         val currentConfig = config.copy(lastProtocol = hostsStore.protocolFor(config))
-        activeProtocol.value = null
-        activeUserQuestionsCapability = null
-        _terminalAvailable.value = false
-        val target = lifecycle.request(ConnectionIntent(currentConfig, afterTransportReady))
-        suspendedHost = currentConfig
-        suspendedTransportReady = afterTransportReady
-        suspendedForBackground = !lifecycle.mayRun()
-        if (lifecycle.mayRun()) replaceOperation(target, reconnect = false)
+        trace("connect-requested", "host=${currentConfig.host}:${currentConfig.port} scheme=${currentConfig.meshTransport}")
+        synchronized(operationLock) {
+            activeProtocol.value = null
+            activeUserQuestionsCapability = null
+            _terminalAvailable.value = false
+            val target = lifecycle.request(ConnectionIntent(currentConfig, afterTransportReady))
+            suspendedHost = currentConfig
+            suspendedTransportReady = afterTransportReady
+            suspendedForBackground = !lifecycle.mayRun()
+            if (lifecycle.mayRun()) replaceOperation(target, reconnect = false)
+        }
     }
 
     private fun replaceOperation(
@@ -515,10 +648,64 @@ class ConnectionManager @Inject constructor(
         reconnect: Boolean,
         attempt: Int = 0,
         preservePendingIdentity: Boolean = false,
+        foregroundRestart: Boolean = false,
+        recoveryOperation: Boolean = false,
     ) {
         val job: Job
         synchronized(operationLock) {
+            // A resumed target can already have been replaced or disconnected while waiting for
+            // the operation slot. Reject it before cancelling any newer operation or carrier.
+            if (foregroundRestart && !lifecycle.accepts(target.token)) return
+            if (foregroundRestart && synchronized(lifecycleTransitionLock) {
+                    val ready = generation
+                    val pendingProbe = foregroundProbeJob
+                    val probeRunning = pendingProbe != null && !pendingProbe.isCancelled && !pendingProbe.isCompleted &&
+                        foregroundProbeGeneration === ready
+                    val published = ready != null && lastPublishedGeneration === ready
+                    val readyApi = api
+                    if (appInForeground && ready != null && readyApi != null && !ready.mux.isClosed &&
+                        generationEpoch == lifecycleEpoch && activeHost?.id == target.value.host.id &&
+                        lifecycle.accepts(target.token) && !networkLostWhileConnected &&
+                        !networkRecoveryGate.isPending() && networkRecoveryAttemptVersion == null &&
+                        (probeRunning || published)
+                    ) {
+                        if (!probeRunning && published) {
+                            // The resume decision may have copied a stale RECONNECTING snapshot
+                            // after this generation was published; re-enter verification instead.
+                            _state.value = _state.value.copy(phase = ConnectionPhase.CONNECTED)
+                            val expectedTransition = foregroundTransitionEpoch
+                            val expectedEpoch = lifecycleEpoch
+                            val hostId = activeHost?.id
+                            scope.launch {
+                                synchronized(lifecycleTransitionLock) {
+                                    if (appInForeground && foregroundTransitionEpoch == expectedTransition &&
+                                        lifecycleEpoch == expectedEpoch && generation === ready && api === readyApi &&
+                                        lifecycle.accepts(target.token) && !networkLostWhileConnected &&
+                                        !networkRecoveryGate.isPending() && networkRecoveryAttemptVersion == null
+                                    ) probePublishedGeneration(ready, readyApi, hostId, expectedEpoch)
+                                }
+                            }
+                        }
+                        trace(
+                            "foreground-restart-kept",
+                            "host=${activeHost?.id} clientId=${ready.clientId} probeRunning=$probeRunning" +
+                                " published=$published backgroundSkipped=true",
+                        )
+                        true
+                    } else false
+                }) return
             val previousOperation = connectJob
+            val previousOperationAgeMs = if (previousOperation != null && connectOperationStartedAtNanos > 0L) {
+                java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                    (System.nanoTime() - connectOperationStartedAtNanos).coerceAtLeast(0L),
+                )
+            } else 0L
+            trace(
+                "operation-replace",
+                "host=${target.value.host.id} reconnect=$reconnect foregroundRestart=$foregroundRestart" +
+                    " recoveryOperation=$recoveryOperation previousOperation=${previousOperation != null}" +
+                    " previousOperationAgeMs=$previousOperationAgeMs activeTransport=${meshTransport.activeTransport()}",
+            )
             previousOperation?.cancel()
             if (previousOperation?.isActive == true) {
                 meshTransport.cancelTailscaleStart()
@@ -533,7 +720,7 @@ class ConnectionManager @Inject constructor(
             val previousTeardown = teardownJob
             connectOperationStartedAtNanos = System.nanoTime()
             connectOperationNetwork = connectivity.activeNetwork
-            job = scope.launch {
+            job = scope.launch(start = CoroutineStart.LAZY) {
                 previousOperation?.join()
                 previousTeardown?.join()
                 lifecycleMutex.withLock {
@@ -549,6 +736,11 @@ class ConnectionManager @Inject constructor(
                 runConnectionOperation(target, reconnect, attempt, preservePendingIdentity)
             }
             connectJob = job
+            if (recoveryOperation) synchronized(recoveryLock) { transportRecoveryInFlight = true }
+            // Start while the slot lock is still held. Otherwise another replacement could cancel
+            // this not-yet-started job, whose completion would run inline inside that replacement's
+            // critical section and observe a half-installed slot.
+            job.start()
         }
         job.invokeOnCompletion {
             val ownsOperationSlot = synchronized(operationLock) {
@@ -556,37 +748,38 @@ class ConnectionManager @Inject constructor(
                     connectJob = null
                     connectOperationStartedAtNanos = 0L
                     connectOperationNetwork = null
+                    synchronized(recoveryLock) { transportRecoveryInFlight = false }
+                    networkRecoveryAttemptVersion?.let { version ->
+                        networkRecoveryGate.complete(version, transportSucceeded = networkRecoveryTransportSucceeded)
+                        networkRecoveryAttemptVersion = null
+                        networkRecoveryTransportSucceeded = false
+                    }
                     true
                 }
             }
             if (!ownsOperationSlot) return@invokeOnCompletion
             // A handover noticed while this operation was already building its relay must not be
             // dropped: that operation dialled the retired path, so re-arm recovery now the slot is free.
-            synchronized(recoveryLock) {
-                transportRecoveryInFlight = false
-            }
-            networkRecoveryAttemptVersion?.let { version ->
-                networkRecoveryGate.complete(version, transportSucceeded = networkRecoveryTransportSucceeded)
-                networkRecoveryAttemptVersion = null
-                networkRecoveryTransportSucceeded = false
-            }
-            if (carrierRecoverySucceededPendingHandover) {
-                carrierRecoverySucceededPendingHandover = false
-                if (networkRecoveryGate.isPending()) startPendingNetworkRecovery()
-            }
-            if (recoveryRetryWaitingForOperation && lifecycle.mayRun()) {
-                recoveryRetryWaitingForOperation = false
-                val retryToken = lifecycle.current()
-                if (retryToken != null) {
-                    Log.d("ConnectionManager", "Retrying recovery after prior operation released its slot")
-                    startRecovery(0)
+            // Every pending flag is consumed under the slot lock that arms it, so a losing start can
+            // never leave a flag armed after the only operation that could consume it has finished.
+            synchronized(operationLock) {
+                if (carrierRecoverySucceededPendingHandover) {
+                    carrierRecoverySucceededPendingHandover = false
+                    if (networkRecoveryGate.isPending()) startPendingNetworkRecovery()
                 }
-            }
-            if (carrierRecoveryPending && startRecovery(0)) {
-                carrierRecoveryPending = false
-            }
-            if (probeRecoveryPending && appInForeground && startRecovery(0)) {
-                probeRecoveryPending = false
+                if (recoveryRetryWaitingForOperation && lifecycle.mayRun()) {
+                    recoveryRetryWaitingForOperation = false
+                    if (lifecycle.current() != null) {
+                        Log.d("ConnectionManager", "Retrying recovery after prior operation released its slot")
+                        startRecovery(0)
+                    }
+                }
+                if (carrierRecoveryPending && startRecovery(0)) {
+                    carrierRecoveryPending = false
+                }
+                if (probeRecoveryPending && appInForeground && startRecovery(0)) {
+                    probeRecoveryPending = false
+                }
             }
             if (networkRecoveryGate.isPending() && recoveryRetryJob?.isActive != true &&
                 (appInForeground || keepConnectedInBackground)
@@ -600,6 +793,22 @@ class ConnectionManager @Inject constructor(
                 else {
                     Log.d("ConnectionManager", "Pending recovery remains deferred until network validation")
                     schedulePendingNetworkRecoveryRecheck()
+                }
+            }
+            // A foreground verification can be requested after this operation publishes its
+            // generation but before its job finishes. Reclaim that debt when the slot is free;
+            // the job/generation fence inside probePublishedGeneration prevents duplicate probes.
+            synchronized(operationLock) {
+                if (connectJob == null) synchronized(lifecycleTransitionLock) {
+                    val ready = generation
+                    val readyApi = api
+                    val hostId = activeHost?.id
+                    if (appInForeground && publishedGenerationNeedsProbe && ready != null &&
+                        readyApi != null && hostId != null && !ready.mux.isClosed &&
+                        generationEpoch == lifecycleEpoch && lifecycle.accepts(target.token) &&
+                        !networkLostWhileConnected && !networkRecoveryGate.isPending() &&
+                        networkRecoveryAttemptVersion == null
+                    ) probePublishedGeneration(ready, readyApi, hostId, lifecycleEpoch)
                 }
             }
         }
@@ -662,6 +871,12 @@ class ConnectionManager @Inject constructor(
             Log.w(
                 "ConnectionManager",
                 "Connection operation failed (reconnect=$reconnect, timeout=${error is TimeoutCancellationException}): ${error.message}",
+            )
+            trace(
+                "operation-failed",
+                "host=${config.id} reconnect=$reconnect timeout=${error is TimeoutCancellationException}" +
+                    " willRetry=$willRetry phase=${_state.value.phase} errorType=${error.javaClass.simpleName}" +
+                    " transport=${TransportFailures.classify(error)}",
             )
             activeBaseUrl = null
             api = null
@@ -781,7 +996,7 @@ class ConnectionManager @Inject constructor(
                 api = nextApi
                 eventApis.clear()
                 val token = loopFence.next()
-                loop = ConnectionLoop(muxFactory(config, baseUrl, transportLatencyMs), sinksFor(token), LoopConfig()).also { it.start() }
+                loop = ConnectionLoop(muxFactory(config, baseUrl, transportLatencyMs), sinksFor(token, target.token), LoopConfig()).also { it.start() }
             }
             // One discovery job per transport: reuse each list response for both protocol and
             // optional capabilities, and retry only while the API generation is inconclusive.
@@ -904,6 +1119,11 @@ class ConnectionManager @Inject constructor(
             }
             timing?.phase("operation", operationStartedAt ?: System.nanoTime(), "finished")
             Log.d("ConnectionManager", "Connection operation finished (reconnect=$reconnect, epoch=$epoch)")
+            trace(
+                "operation-finished",
+                "host=${config.host} reconnect=$reconnect epoch=$epoch phase=${_state.value.phase}" +
+                    " needsProbe=$publishedGenerationNeedsProbe foreground=$appInForeground",
+            )
         }
     }
 
@@ -917,24 +1137,33 @@ class ConnectionManager @Inject constructor(
     }
 
     fun disconnect() {
-        activeProtocol.value = null
-        activeUserQuestionsCapability = null
-        _terminalAvailable.value = false
-        lifecycle.disconnect()
-        scope.launch { hostsStore.setActiveConnectionId(null) }
-        suspendedHost = null
-        suspendedTransportReady = null
-        suspendedForBackground = false
-        stopConnection()
+        trace(
+            "disconnect-requested",
+            "host=${activeHost?.host}:${activeHost?.port} phase=${_state.value.phase} generation=${generation?.clientId}",
+        )
+        synchronized(operationLock) {
+            activeProtocol.value = null
+            activeUserQuestionsCapability = null
+            _terminalAvailable.value = false
+            lifecycle.disconnect()
+            scope.launch { hostsStore.setActiveConnectionId(null) }
+            suspendedHost = null
+            suspendedTransportReady = null
+            suspendedForBackground = false
+            stopConnection()
+        }
     }
 
     private fun cancelAuxiliaryOperations() {
-        lifecycleEpoch++
+        synchronized(lifecycleTransitionLock) {
+            lifecycleEpoch++
+            foregroundProbeJob?.cancel()
+            foregroundProbeJob = null
+            foregroundProbeGeneration = null
+        }
         carrierRecoveryPending = false
         probeRecoveryPending = false
         recoveryRetryWaitingForOperation = false
-        foregroundProbeJob?.cancel()
-        foregroundProbeJob = null
         recoveryRetryJob?.cancel()
         recoveryRetryJob = null
         synchronized(recoveryLock) {
@@ -945,7 +1174,6 @@ class ConnectionManager @Inject constructor(
     }
 
     private fun retirePublishedConnection(stopConnectionService: Boolean = true) {
-        publishedGenerationNeedsProbe = false
         lastMuxCarrierFailure = null
         synchronized(publicationLock) {
             loopFence.invalidate()
@@ -953,7 +1181,14 @@ class ConnectionManager @Inject constructor(
             loop = null
             api = null
             activeBaseUrl = null
-            generation = null
+            synchronized(lifecycleTransitionLock) {
+                publishedGenerationNeedsProbe = false
+                lastPublishedGeneration = null
+                generation = null
+                generationOwner = null
+                generationEpoch = -1L
+                generationRevision++
+            }
             eventApis.clear()
             activeHost = null
         }
@@ -1042,14 +1277,27 @@ class ConnectionManager @Inject constructor(
             "ConnectionManager",
             "Network handover satisfied by ready generation clientId=${generation.clientId}; skipped redundant relay renewal",
         )
+        trace("handover-acknowledged", "clientId=${generation.clientId} network=${connectivity.activeNetwork}")
     }
 
     private fun recoverTransportAfterCarrierLoss() {
-        val operationInFlight = synchronized(operationLock) { connectJob?.isActive == true }
-        val recoveryInFlight = synchronized(recoveryLock) { transportRecoveryInFlight }
-        if (shouldDeferCarrierRecovery(operationInFlight, recoveryInFlight) || !startRecovery(0)) {
-            carrierRecoveryPending = true
+        // Check the slot and arm the pending retry in one critical section: otherwise the
+        // operation could finish between the failed start and the flag write, and its completion
+        // would have already looked at an empty flag, losing the retry entirely.
+        val deferred = synchronized(operationLock) {
+            val operationInFlight = connectJob != null
+            val recoveryInFlight = synchronized(recoveryLock) { transportRecoveryInFlight }
+            if (shouldDeferCarrierRecovery(operationInFlight, recoveryInFlight) || !startRecovery(0)) {
+                carrierRecoveryPending = true
+                true
+            } else false
+        }
+        if (deferred) {
             Log.d("ConnectionManager", "Carrier recovery deferred until the current operation completes")
+            trace(
+                "carrier-recovery-deferred",
+                "slotBusy=${connectJob != null} reservation=${synchronized(recoveryLock) { transportRecoveryInFlight }}",
+            )
         }
     }
 
@@ -1061,7 +1309,15 @@ class ConnectionManager @Inject constructor(
         val current = _state.value
         if (token != sshTunnel.activeRelayToken || activeHost?.sshEnabled != true || current.phase != ConnectionPhase.CONNECTED) return
         Log.w("ConnectionManager", "Active SSH relay terminated; scheduling transport recovery")
-        generation = null
+        trace("ssh-relay-terminated", "host=${activeHost?.host} token=$token phase=${current.phase}")
+        synchronized(lifecycleTransitionLock) {
+            if (generation != null) {
+                generation = null
+                generationOwner = null
+                generationEpoch = -1L
+                generationRevision++
+            }
+        }
         markCarrierRecoveryNeeded()
         if (shouldRecoverTerminatedSshRelay(appInForeground, keepConnectedInBackground)) recoverTransportAfterCarrierLoss()
     }
@@ -1076,21 +1332,28 @@ class ConnectionManager @Inject constructor(
     fun reconnectIfNeeded() {
         if (_state.value.authorizationPending != null) {
             Log.d("ConnectionManager", "Reconnect skipped during authorization")
+            trace("recovery-skipped", "reason=authorization-pending trigger=reconnectIfNeeded")
             return
         }
         startRecovery(0)
     }
 
-    private fun startPendingNetworkRecovery() {
-        val canStart = synchronized(operationLock) { connectJob?.isActive != true }
-        val version = networkRecoveryGate.claimIfCanStart(canStart)
+    private fun startPendingNetworkRecovery() = synchronized(operationLock) {
+        val version = networkRecoveryGate.claimIfCanStart(connectJob == null)
         if (version == null) {
             Log.d("ConnectionManager", "Network handover recovery remains pending until operation slot is free")
+            trace(
+                "handover-claim-deferred",
+                "network=${connectivity.activeNetwork} gatePending=${networkRecoveryGate.isPending()}" +
+                    " slotBusy=${connectJob != null}",
+            )
             return
         }
+        trace("handover-claimed", "version=$version network=${connectivity.activeNetwork}")
         networkRecoveryAttemptVersion = version
         if (!startRecovery(0)) {
             // The claim is provisional until the operation slot has actually been won.
+            trace("handover-claim-released", "version=$version reason=recovery-not-started")
             networkRecoveryAttemptVersion = null
             networkRecoveryGate.release(version)
             if (shouldScheduleForegroundNetworkRecheck(appInForeground, networkRecoveryGate.isPending(), keepConnectedInBackground)) {
@@ -1110,6 +1373,11 @@ class ConnectionManager @Inject constructor(
                 hasInternetCapability = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
             )) {
             Log.d("ConnectionManager", "Recovery deferred until active network is Internet-capable")
+            trace(
+                "recovery-deferred",
+                "reason=network-not-internet-capable network=${connectivity.activeNetwork}" +
+                    " foreground=$appInForeground retained=$keepConnectedInBackground",
+            )
             networkRecoveryGate.markPending()
             // Battery saver/Doze can publish the only network callback before foreground recovery
             // marks this gate. Recheck from our own lifecycle-owned timer so RECONNECTING never
@@ -1121,33 +1389,67 @@ class ConnectionManager @Inject constructor(
         }
         if (recoveryRetryJob?.isActive == true) {
             Log.d("ConnectionManager", "Transport recovery retry already scheduled")
+            trace("recovery-skipped", "reason=retry-already-scheduled attempt=$attempt")
             return false
         }
         if (!appInForeground && !keepConnectedInBackground) {
             Log.d("ConnectionManager", "Recovery deferred while background retention is disabled")
+            trace("recovery-deferred", "reason=background-retention-disabled attempt=$attempt")
             return false
         }
-        if (synchronized(operationLock) { connectJob?.isActive == true }) {
-            Log.d("ConnectionManager", "Connection operation already in flight")
-            return false
-        }
-        val target = lifecycle.retryToken() ?: return false
-        synchronized(recoveryLock) {
-            if (transportRecoveryInFlight) {
-                Log.d("ConnectionManager", "Transport recovery already scheduled")
-                return false
+        // Claim the operation slot, the recovery reservation and the lifecycle token in one
+        // critical section. Two callbacks can notice the same dead carrier; if they raced here,
+        // the loser's retryToken() would advance the epoch and strand the winner's target, so
+        // neither recovery would start. Only the caller that wins the slot may take a token.
+        return synchronized(operationLock) {
+            if (connectJob != null) {
+                Log.d("ConnectionManager", "Connection operation already in flight")
+                trace("recovery-deferred", "reason=operation-slot-busy attempt=$attempt")
+                return@synchronized false
             }
-            transportRecoveryInFlight = true
+            val target = synchronized(recoveryLock) {
+                if (transportRecoveryInFlight) {
+                    Log.d("ConnectionManager", "Transport recovery already scheduled")
+                    trace("recovery-skipped", "reason=reservation-taken attempt=$attempt")
+                    null
+                } else {
+                    // retryToken advances the lifecycle epoch; claim it only while the slot and
+                    // the recovery reservation are both held so nobody can invalidate it.
+                    lifecycle.retryToken()?.also { transportRecoveryInFlight = true }
+                }
+            }
+            if (target == null) return@synchronized false
+            Log.d("ConnectionManager", "Starting tokened transport recovery (attempt ${attempt + 1})")
+            trace(
+                "recovery-started",
+                "attempt=${attempt + 1} target=${target.token} network=${connectivity.activeNetwork}" +
+                    " foreground=$appInForeground retained=$keepConnectedInBackground" +
+                    " gatePending=${networkRecoveryGate.isPending()} networkLostWhileConnected=$networkLostWhileConnected",
+            )
+            // replaceOperation clears the auxiliary reservations while it retires the old carrier;
+            // recoveryOperation restores this claim inside the same operation slot. If teardown or
+            // service management throws before the slot is installed, the claim must not stay set:
+            // a stranded reservation would defer every later recovery forever.
+            try {
+                replaceOperation(target, reconnect = true, attempt = attempt, recoveryOperation = true)
+            } catch (error: Throwable) {
+                synchronized(recoveryLock) { transportRecoveryInFlight = false }
+                throw error
+            }
+            true
         }
-        Log.d("ConnectionManager", "Starting tokened transport recovery (attempt ${attempt + 1})")
-        replaceOperation(target, reconnect = true, attempt = attempt)
-        return true
     }
 
     private fun schedulePendingNetworkRecoveryRecheck() {
         if (recoveryRetryJob?.isActive == true) return
+        val recheckDelayMs = networkRecoveryRecheckDelayMs(appInForeground)
+        trace(
+            "network-recheck-scheduled",
+            "delayMs=$recheckDelayMs foreground=$appInForeground gatePending=${networkRecoveryGate.isPending()}" +
+                " network=${connectivity.activeNetwork}",
+        )
         recoveryRetryJob = scope.launch {
-            kotlinx.coroutines.delay(networkRecoveryRecheckDelayMs(appInForeground))
+            kotlinx.coroutines.delay(recheckDelayMs)
             recoveryRetryJob = null
             if (!shouldScheduleForegroundNetworkRecheck(appInForeground, networkRecoveryGate.isPending(), keepConnectedInBackground)) return@launch
             val activeNetwork = connectivity.activeNetwork
@@ -1157,6 +1459,7 @@ class ConnectionManager @Inject constructor(
                     hasInternetCapability = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
                 )) {
                 Log.d("ConnectionManager", "Foreground network recheck found an Internet-capable network")
+                trace("network-recheck", "result=internet-capable network=$activeNetwork")
                 startPendingNetworkRecovery()
                 if (networkRecoveryGate.isPending() && (appInForeground || keepConnectedInBackground) &&
                     synchronized(operationLock) { connectJob?.isActive != true }
@@ -1174,18 +1477,28 @@ class ConnectionManager @Inject constructor(
         failedToken: ConnectionLifecycleCoordinator.Token,
     ) {
         recoveryRetryJob?.cancel()
+        val delayMs = recoveryRetryDelayMs(attempt)
+        trace("retry-scheduled", "attempt=$attempt delayMs=$delayMs token=$failedToken")
         recoveryRetryJob = scope.launch {
-            kotlinx.coroutines.delay(recoveryRetryDelayMs(attempt))
+            kotlinx.coroutines.delay(delayMs)
             val current = lifecycle.current() ?: return@launch
             if (!lifecycle.mayRun() || current.token != failedToken) return@launch
             if (_state.value.authorizationPending != null) {
                 Log.d("ConnectionManager", "Scheduled recovery skipped during authorization")
+                trace("retry-skipped", "attempt=$attempt reason=authorization-pending")
                 return@launch
             }
             recoveryRetryJob = null
-            if (synchronized(operationLock) { connectJob?.isActive == true }) {
-                recoveryRetryWaitingForOperation = true
+            // Arm the retained retry under the same lock completion uses to consume it, so the
+            // operation cannot release its slot in between and drop the retry.
+            val operationInFlight = synchronized(operationLock) {
+                val inFlight = connectJob != null
+                if (inFlight) recoveryRetryWaitingForOperation = true
+                inFlight
+            }
+            if (operationInFlight) {
                 Log.d("ConnectionManager", "Recovery retry elapsed while prior operation is cleaning up; retry retained")
+                trace("retry-retained", "attempt=$attempt reason=operation-slot-busy")
                 return@launch
             }
             recoveryRetryWaitingForOperation = false
@@ -1203,6 +1516,14 @@ class ConnectionManager @Inject constructor(
      * immediately rebuild the stale relay path. The cooldown absorbs duplicate activity resumes.
      */
     fun recoverForForeground(forceCheck: Boolean = false) {
+        trace(
+            "foreground-resume-requested",
+            "forceCheck=$forceCheck foreground=$appInForeground retained=$keepConnectedInBackground" +
+                " phase=${_state.value.phase} hasConnected=${_state.value.hasConnected}" +
+                " generation=${generation?.clientId} probePending=$publishedGenerationNeedsProbe" +
+                " verifyDebt=$verifyOnNextForeground ${describeNetwork(connectivity.activeNetwork)}" +
+                " gatePending=${networkRecoveryGate.isPending()} networkLost=$networkLostWhileConnected",
+        )
         val foregroundTiming = RecoveryTiming()
         val foregroundStartedAt = foregroundTiming.start("foreground-resume")
         val retryWasCancelledOnBackground = foregroundRetryNeedsResume
@@ -1212,7 +1533,14 @@ class ConnectionManager @Inject constructor(
                 foregroundTiming.phase("foreground-resume", foregroundStartedAt, "ignored", "duplicate=true")
                 return
             }
+            if (!appInForeground) foregroundTransitionEpoch++
             appInForeground = true
+            watchdogForegroundEpoch.value = foregroundTransitionEpoch
+            if (verifyOnNextForeground) {
+                publishedGenerationNeedsProbe = true
+                verifyOnNextForeground = false
+                trace("foreground-verify-debt", "generation=${generation?.clientId} reason=background-hop")
+            }
         }
         if (shouldStartConnectionService(keepConnectedInBackground, appInForeground)) startService()
         // Returning from Google sign-in can recreate the Activity while tsnet is still waiting for
@@ -1257,11 +1585,13 @@ class ConnectionManager @Inject constructor(
         if (forceCheck && currentBeforeResume.hasConnected && currentPhaseBeforeResume == ConnectionPhase.CONNECTED &&
             !networkRecoveryPreferredAtResume
         ) {
-            publishedGenerationNeedsProbe = true
-            _state.value = currentBeforeResume.copy(
-                foregroundCheckPending = true,
-                recoveryOverlayVisible = true,
-            )
+            synchronized(lifecycleTransitionLock) {
+                val latest = _state.value
+                if (appInForeground && latest.hasConnected && latest.phase == ConnectionPhase.CONNECTED) {
+                    publishedGenerationNeedsProbe = true
+                    _state.value = latest.copy(foregroundCheckPending = true, recoveryOverlayVisible = true)
+                }
+            }
             Log.d("ConnectionManager", "Interactive resume forced foreground liveness check")
         }
         // A very short background transition can clear the presentation latch in onStop before the
@@ -1279,11 +1609,15 @@ class ConnectionManager @Inject constructor(
             // choosing the action below: foregroundRecoveryAction treats that flag as an already
             // running probe and would return NONE, leaving a retained CONNECTED carrier stuck under
             // the spinner after a long background stay.
-            _state.value = currentBeforeResume.copy(
-                recoveryOverlayVisible = true,
-                foregroundCheckPending = currentBeforeResume.foregroundCheckPending ||
-                    currentPhaseBeforeResume != ConnectionPhase.CONNECTED,
-            )
+            synchronized(lifecycleTransitionLock) {
+                _state.update { latest ->
+                    latest.copy(
+                        recoveryOverlayVisible = true,
+                        foregroundCheckPending = latest.foregroundCheckPending ||
+                            latest.phase != ConnectionPhase.CONNECTED,
+                    )
+                }
+            }
             Log.d("ConnectionManager", "Foreground resume re-armed recovery overlay")
         }
         val resumedTarget = lifecycle.foreground()
@@ -1322,11 +1656,21 @@ class ConnectionManager @Inject constructor(
                 }
                 foregroundTiming.phase("foreground-resume", foregroundStartedAt, "in-flight")
                 Log.d("ConnectionManager", "Foreground recovery already in flight; keeping current operation operationAgeMs=$operationAgeMs backgroundMs=$backgroundDurationBeforeResume")
+                trace(
+                    "foreground-resume-in-flight",
+                    "operationAgeMs=$operationAgeMs backgroundMs=$backgroundDurationBeforeResume" +
+                        " phase=$currentPhaseBeforeResume ${describeNetwork(resumeNetwork)}",
+                )
                 return
             }
             Log.d("ConnectionManager", "Foreground resume renews connection for ${resumedTarget.value.host.id}")
+            trace(
+                "foreground-resume-replace",
+                "host=${resumedTarget.value.host.id} phase=$currentPhaseBeforeResume" +
+                    " backgroundMs=$backgroundDurationBeforeResume ${describeNetwork(resumeNetwork)}",
+            )
             if (networkRecoveryGate.isPending()) startPendingNetworkRecovery()
-            else replaceOperation(resumedTarget, reconnect = true)
+            else replaceOperation(resumedTarget, reconnect = true, foregroundRestart = true)
             return
         }
         if (connectJob?.isActive != true && currentPhaseBeforeResume == ConnectionPhase.DISCONNECTED) {
@@ -1390,6 +1734,13 @@ class ConnectionManager @Inject constructor(
         )
         foregroundTiming.phase("foreground-resume", foregroundStartedAt, "action", "phase=${current.phase} action=$action backgroundMs=$backgroundDuration")
         Log.d("ConnectionManager", "Foreground recovery requested: phase=${current.phase}, backgroundMs=$backgroundDuration, action=$action")
+        trace(
+            "foreground-resume-action",
+            "action=$action phase=${current.phase} backgroundMs=$backgroundDuration" +
+                " recoveryInFlight=$recoveryInFlight retryWasCancelledOnBackground=$retryWasCancelledOnBackground" +
+                " ${describeNetwork(connectivity.activeNetwork)} gatePending=${networkRecoveryGate.isPending()}" +
+                " networkLostWhileConnected=$networkLostWhileConnected",
+        )
         if (action == ForegroundRecoveryAction.NONE && shouldClearConnectedRecoveryPresentation(
                 phase = current.phase,
                 recoveryInFlight = recoveryInFlight,
@@ -1451,51 +1802,11 @@ class ConnectionManager @Inject constructor(
             ForegroundRecoveryAction.VERIFY -> {
                 val expectedGeneration = generation
                 val expectedApi = api
-                val expectedHostId = activeHost?.id
-                val expectedEpoch = lifecycleEpoch
-                foregroundProbeJob = scope.launch {
-                    val mux = expectedGeneration?.mux
-                    val carrierOpen = mux != null && !mux.isClosed
-                    val result = if (carrierOpen) runCatching {
-                        kotlinx.coroutines.withTimeout(foregroundProbeTimeoutMs(activeHost?.meshTransport)) {
-                            expectedApi?.connectionProbe()
-                        }
-                    }.getOrNull() else null
-                    val reachedHost = foregroundProbeReachedHost(carrierOpen, result)
-                    if (!mayPublishAfterForegroundProbe(
-                            appInForeground = appInForeground,
-                            lifecycleEpochMatches = expectedEpoch == lifecycleEpoch,
-                            generationMatches = activeHost?.id == expectedHostId && generation === expectedGeneration,
-                        )) return@launch
-                    if (reachedHost) {
-                        publishedGenerationNeedsProbe = false
-                        Log.d("ConnectionManager", "Foreground end-to-end probe succeeded")
-                        _state.value = _state.value.copy(
-                            foregroundCheckPending = false,
-                            recoveryOverlayVisible = false,
-                        )
-                    } else {
-                        Log.w("ConnectionManager", "Foreground end-to-end probe failed; renewing transport")
-                        _state.value = _state.value.copy(
-                            phase = ConnectionPhase.RECONNECTING,
-                            foregroundCheckPending = true,
-                            recoveryOverlayVisible = true,
-                        )
-                        generation = null
-                        markCarrierRecoveryNeeded()
-                        val operationInFlight = synchronized(operationLock) { connectJob?.isActive == true }
-                        if (shouldArmRecoveryAfterProbeFailure(appInForeground, operationInFlight)) {
-                            probeRecoveryPending = true
-                        } else {
-                            recoverTransportAfterCarrierLoss()
-                        }
-                    }
-                }.also { job ->
-                    job.invokeOnCompletion {
-                        synchronized(recoveryLock) {
-                            if (foregroundProbeJob === job) foregroundProbeJob = null
-                        }
-                    }
+                if (expectedGeneration != null && expectedApi != null) {
+                    probePublishedGeneration(expectedGeneration, expectedApi, activeHost?.id, lifecycleEpoch)
+                } else {
+                    markCarrierRecoveryNeeded()
+                    recoverTransportAfterCarrierLoss()
                 }
             }
         }
@@ -1507,65 +1818,144 @@ class ConnectionManager @Inject constructor(
         expectedHostId: String?,
         expectedEpoch: Long,
     ) {
-        if (foregroundProbeJob?.isActive == true) return
-        _state.value = _state.value.copy(
-            foregroundCheckPending = true,
-            recoveryOverlayVisible = true,
-        )
-        foregroundProbeJob = scope.launch {
-            val carrierOpen = !expectedGeneration.mux.isClosed
-            val result = if (carrierOpen) runCatching {
-                kotlinx.coroutines.withTimeout(foregroundProbeTimeoutMs(activeHost?.meshTransport)) { expectedApi.connectionProbe() }
-            }.getOrNull() else null
-            val reachedHost = foregroundProbeReachedHost(carrierOpen, result)
-            if (!mayPublishAfterForegroundProbe(
-                    appInForeground = appInForeground,
-                    lifecycleEpochMatches = expectedEpoch == lifecycleEpoch,
-                    generationMatches = activeHost?.id == expectedHostId && generation === expectedGeneration,
-                )) return@launch
-            if (reachedHost) {
-                publishedGenerationNeedsProbe = false
-                restoreTerminalCapability()
-                val current = _state.value
-                if (current.phase != ConnectionPhase.CONNECTED) {
-                    _state.value = current.copy(
-                        phase = ConnectionPhase.CONNECTED,
-                        host = activeHost,
-                        description = expectedGeneration.description,
-                        stage = ConnectStage.Connected,
-                        failure = null,
-                        attempts = 0,
-                        hasConnected = true,
-                        foregroundCheckPending = false,
-                        recoveryOverlayVisible = false,
-                    )
-                    connectedGenerations.tryEmit(expectedGeneration)
-                } else {
-                    _state.value = current.copy(
-                        foregroundCheckPending = false,
-                        recoveryOverlayVisible = false,
-                    )
-                    connectedGenerations.tryEmit(expectedGeneration)
+        val job = synchronized(lifecycleTransitionLock) {
+            if (!appInForeground || generation !== expectedGeneration || lifecycleEpoch != expectedEpoch) {
+                trace(
+                    "probe-skipped",
+                    "reason=ownership host=$expectedHostId clientId=${expectedGeneration.clientId}" +
+                        " foreground=$appInForeground epochMatch=${lifecycleEpoch == expectedEpoch}",
+                )
+                return
+            }
+            val existing = foregroundProbeJob
+            if (existing != null && !existing.isCancelled && !existing.isCompleted &&
+                foregroundProbeGeneration === expectedGeneration
+            ) {
+                trace("probe-already-running", "clientId=${expectedGeneration.clientId}")
+                return
+            }
+            foregroundProbeJob?.cancel()
+            val transitionEpoch = foregroundTransitionEpoch
+            publishedGenerationNeedsProbe = true
+            _state.value = _state.value.copy(foregroundCheckPending = true, recoveryOverlayVisible = true)
+            trace(
+                "probe-start",
+                "host=$expectedHostId clientId=${expectedGeneration.clientId} epoch=$expectedEpoch" +
+                    " timeoutMs=${foregroundProbeTimeoutMs(activeHost?.meshTransport)}" +
+                    " transition=$transitionEpoch foreground=$appInForeground",
+            )
+            val next = scope.launch(start = CoroutineStart.LAZY) {
+                val probeStartedAt = System.nanoTime()
+                val carrierOpen = !expectedGeneration.mux.isClosed
+                val result = if (carrierOpen) try {
+                    withTimeoutOrNull(foregroundProbeTimeoutMs(activeHost?.meshTransport)) {
+                        expectedApi.connectionProbe()
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                } else null
+                val reachedHost = foregroundProbeReachedHost(carrierOpen, result)
+                val ownJob = kotlin.coroutines.coroutineContext[Job]
+                var failedRevision = -1L
+                val ownsResult = synchronized(lifecycleTransitionLock) {
+                    if (foregroundProbeJob !== ownJob || foregroundTransitionEpoch != transitionEpoch ||
+                        !appInForeground || lifecycleEpoch != expectedEpoch ||
+                        activeHost?.id != expectedHostId || generation !== expectedGeneration
+                    ) false else {
+                        if (reachedHost) {
+                            // Completion of the network call is the ownership boundary, not Job
+                            // completion. A following forceCheck must be able to install a new probe.
+                            foregroundProbeJob = null
+                            foregroundProbeGeneration = null
+                            publishedGenerationNeedsProbe = false
+                            restoreTerminalCapability()
+                            _state.value = _state.value.copy(
+                                phase = ConnectionPhase.CONNECTED,
+                                host = activeHost,
+                                description = expectedGeneration.description,
+                                stage = ConnectStage.Connected,
+                                failure = null,
+                                attempts = 0,
+                                hasConnected = true,
+                                foregroundCheckPending = false,
+                                recoveryOverlayVisible = false,
+                            )
+                            if (lastPublishedGeneration !== expectedGeneration) {
+                                lastPublishedGeneration = expectedGeneration
+                                connectedGenerations.tryEmit(expectedGeneration)
+                            }
+                        } else {
+                            generation = null
+                            generationOwner = null
+                            generationEpoch = -1L
+                            // Claim this failure: any later generation publish, failure or
+                            // retirement bumps the revision and invalidates the recovery below.
+                            failedRevision = ++generationRevision
+                            _state.value = _state.value.copy(
+                                phase = ConnectionPhase.RECONNECTING,
+                                foregroundCheckPending = true,
+                                recoveryOverlayVisible = true,
+                            )
+                        }
+                        true
+                    }
                 }
-                Log.d("ConnectionManager", "Published generation end-to-end probe succeeded")
-            } else {
-                Log.w("ConnectionManager", "Published generation probe failed; renewing transport")
-                generation = null
-                markCarrierRecoveryNeeded()
-                val operationInFlight = synchronized(operationLock) { connectJob?.isActive == true }
-                if (shouldArmRecoveryAfterProbeFailure(appInForeground, operationInFlight)) {
-                    probeRecoveryPending = true
+                if (!ownsResult) {
+                    trace(
+                        "probe-discarded",
+                        "reason=superseded host=$expectedHostId clientId=${expectedGeneration.clientId}",
+                    )
+                    return@launch
+                }
+                val probeElapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - probeStartedAt)
+                trace(
+                    "probe-result",
+                    "host=$expectedHostId clientId=${expectedGeneration.clientId} reached=$reachedHost" +
+                        " carrierOpen=$carrierOpen elapsedMs=$probeElapsedMs",
+                )
+                if (reachedHost) {
+                    Log.d("ConnectionManager", "Published generation end-to-end probe succeeded")
                 } else {
-                    recoverTransportAfterCarrierLoss()
+                    // Acting on the failure outside the state lock is only safe while this probe
+                    // still owns the connection intent; a disconnect or a new generation must not
+                    // be retired by an already-superseded probe result.
+                    var claimed = false
+                    synchronized(operationLock) {
+                        claimed = synchronized(lifecycleTransitionLock) {
+                            generationRevision == failedRevision &&
+                                lifecycleEpoch == expectedEpoch &&
+                                activeHost?.id == expectedHostId
+                        }
+                        if (claimed) {
+                            Log.w("ConnectionManager", "Published generation probe failed; renewing transport")
+                            markCarrierRecoveryNeeded()
+                            if (shouldArmRecoveryAfterProbeFailure(appInForeground, connectJob != null)) {
+                                probeRecoveryPending = true
+                            } else {
+                                recoverTransportAfterCarrierLoss()
+                            }
+                        }
+                    }
+                    if (!claimed) {
+                        Log.d("ConnectionManager", "Discarding superseded probe failure; connection intent changed")
+                    }
                 }
             }
-        }.also { job ->
-            job.invokeOnCompletion {
-                synchronized(recoveryLock) {
-                    if (foregroundProbeJob === job) foregroundProbeJob = null
+            foregroundProbeGeneration = expectedGeneration
+            foregroundProbeJob = next
+            next.invokeOnCompletion {
+                synchronized(lifecycleTransitionLock) {
+                    if (foregroundProbeJob === next) {
+                        foregroundProbeJob = null
+                        foregroundProbeGeneration = null
+                    }
                 }
             }
+            next
         }
+        job.start()
     }
 
     private fun backgroundDurationSinceLastStopMs(): Long =
@@ -1637,19 +2027,78 @@ class ConnectionManager @Inject constructor(
 
     /** Mark carrier callbacks as backgrounded; foreground recovery is resumed explicitly on resume. */
     fun onAppBackgrounded() {
+        trace(
+            "background-requested",
+            "foreground=$appInForeground retained=$keepConnectedInBackground phase=${_state.value.phase}" +
+                " hasConnected=${_state.value.hasConnected} generation=${generation?.clientId}" +
+                " probePending=$publishedGenerationNeedsProbe ${describeNetwork(connectivity.activeNetwork)}" +
+                " gatePending=${networkRecoveryGate.isPending()} operationInFlight=${connectJob != null}",
+        )
         val backgroundTiming = RecoveryTiming()
         val backgroundStartedAt = backgroundTiming.start("background-transition")
-        synchronized(lifecycleTransitionLock) {
+        val withheld = synchronized(lifecycleTransitionLock) {
             if (!shouldHandleLifecycleTransition(appInForeground, targetForeground = false)) {
                 backgroundTiming.phase("background-transition", backgroundStartedAt, "ignored", "duplicate=true")
                 return
             }
             appInForeground = false
+            watchdogForegroundEpoch.value = null
+            foregroundTransitionEpoch++
+            foregroundProbeJob?.cancel()
+            foregroundProbeJob = null
+            foregroundProbeGeneration = null
+            if (shouldRearmPublishedGenerationAfterBackground(keepConnectedInBackground, _state.value.hasConnected)) {
+                // The debt is only a foreground fence. It must not suppress a ready generation or
+                // its API while the foreground service retains the connection in the background.
+                verifyOnNextForeground = true
+                publishedGenerationNeedsProbe = false
+                trace(
+                    "background-verify-debt",
+                    "generation=${generation?.clientId} lastPublished=${lastPublishedGeneration?.clientId}" +
+                        " needsPublish=${generation != null && lastPublishedGeneration !== generation}",
+                )
+                val ready = generation
+                val owner = generationOwner
+                if (ready != null && owner != null && lastPublishedGeneration !== ready) owner to ready else null
+            } else null
         }
         lifecycle.background()
+        // Do not acquire loopFence while holding the transition lock: retirement takes the fence
+        // first. Recheck the owner and generation after taking the fence in its existing lock order.
+        withheld?.let { (owner, ready) ->
+            loopFence.runIfCurrent(owner) {
+                synchronized(lifecycleTransitionLock) {
+                    val host = activeHost
+                    if (!appInForeground && keepConnectedInBackground && generation === ready &&
+                        generationOwner === owner && generationEpoch == lifecycleEpoch &&
+                        lastPublishedGeneration !== ready && !ready.mux.isClosed && api != null &&
+                        host != null && lifecycle.current()?.value?.host?.id == host.id &&
+                        !networkLostWhileConnected && !networkRecoveryGate.isPending() &&
+                        networkRecoveryAttemptVersion == null
+                    ) {
+                        _state.value = _state.value.copy(
+                            phase = ConnectionPhase.CONNECTED,
+                            host = host,
+                            description = ready.description,
+                            stage = ConnectStage.Connected,
+                            failure = null,
+                            attempts = 0,
+                            hasConnected = true,
+                            foregroundCheckPending = false,
+                            recoveryOverlayVisible = false,
+                        )
+                        restoreTerminalCapability()
+                        lastPublishedGeneration = ready
+                        connectedGenerations.tryEmit(ready)
+                        trace(
+                            "generation-published",
+                            "host=${host.id} clientId=${ready.clientId} foreground=false reason=background-withheld",
+                        )
+                    }
+                }
+            }
+        }
         backgroundedAtMs = System.currentTimeMillis()
-        foregroundProbeJob?.cancel()
-        foregroundProbeJob = null
         val retryPendingBeforeBackground = recoveryRetryJob?.isActive == true &&
             _state.value.hasConnected && _state.value.phase != ConnectionPhase.CONNECTED
         val networkRecoveryNeedsResume = networkRecoveryGate.isPending() && _state.value.hasConnected
@@ -1677,28 +2126,26 @@ class ConnectionManager @Inject constructor(
             if (!keepConnectedInBackground && activeFileTransferLeases.get() > 0) {
                 Log.d("ConnectionManager", "Deferring background suspension for file transfer count=${activeFileTransferLeases.get()}")
             }
-            val current = _state.value
-            // A retained carrier can die silently while Android keeps the same default network.
-            // Force one foreground liveness probe for every established generation after a background
-            // hop; otherwise the short-resume fast path can leave a stale CONNECTED state with no
-            // spinner and no recovery trigger.
-            if (shouldRearmPublishedGenerationAfterBackground(keepConnectedInBackground, current.hasConnected)) {
-                publishedGenerationNeedsProbe = true
-            }
             val operationInFlight = synchronized(operationLock) { connectJob?.isActive == true }
             val retryScheduled = recoveryRetryJob?.isActive == true
-            val preserveRecoveryPresentation = shouldPreserveRecoveryPresentationOnBackground(
-                keepConnectedInBackground = keepConnectedInBackground,
-                phase = current.phase,
-                operationInFlight = operationInFlight,
-                retryScheduled = retryScheduled,
-            )
-            _state.value = current.copy(
-                foregroundCheckPending = preserveRecoveryPresentation,
-                recoveryOverlayVisible = preserveRecoveryPresentation,
-            )
+            _state.update { latest ->
+                val preserve = shouldPreserveRecoveryPresentationOnBackground(
+                    keepConnectedInBackground = keepConnectedInBackground,
+                    phase = latest.phase,
+                    operationInFlight = operationInFlight,
+                    retryScheduled = retryScheduled,
+                )
+                latest.copy(foregroundCheckPending = preserve, recoveryOverlayVisible = preserve)
+            }
         }
         backgroundTiming.phase("background-transition", backgroundStartedAt, "retained", "phase=${_state.value.phase}")
+        trace(
+            "background-settled",
+            "phase=${_state.value.phase} hasConnected=${_state.value.hasConnected}" +
+                " overlay=${_state.value.recoveryOverlayVisible} probePending=${_state.value.foregroundCheckPending}" +
+                " verifyDebt=$verifyOnNextForeground gatePending=${networkRecoveryGate.isPending()}" +
+                " operationInFlight=${connectJob != null}",
+        )
     }
 
     /** Retry the retained mesh identity after the native authorization-completed event. */
@@ -1764,6 +2211,7 @@ class ConnectionManager @Inject constructor(
             throw error
         }
         Log.d("ConnectionManager", "Mesh transport ready in ${elapsedMs(startedAt)}ms")
+        trace("transport-mesh-ready", "host=${config.host} mesh=${config.meshTransport} elapsedMs=${elapsedMs(startedAt)}")
         val sshStartedAt = timing.start("ssh-start")
         val baseUrl = try {
             finishTransportStart(config, meshRelay, recovery = true).also {
@@ -1775,6 +2223,7 @@ class ConnectionManager @Inject constructor(
             throw error
         }
         Log.d("ConnectionManager", "SSH/API relay ready in ${elapsedMs(startedAt)}ms at $baseUrl")
+        trace("transport-ssh-ready", "host=${config.host} elapsedMs=${elapsedMs(startedAt)}")
         timing.phase("transport-total", startedAt, "ok")
         return baseUrl
     }
@@ -1814,6 +2263,53 @@ class ConnectionManager @Inject constructor(
         if (serviceStartGate.requestStop()) context.stopService(Intent(context, ConnectionService::class.java))
     }
 
+    /**
+     * Journal one self-describing snapshot per slow-recovery milestone.
+     *
+     * This only observes published state; it never changes recovery behaviour and cannot retry or
+     * tear anything down, so a diagnostic warning can never be the cause of a failure.
+     */
+    private suspend fun recoveryWatchdog() {
+        combine(_state, watchdogForegroundEpoch) { state, foregroundEpoch ->
+            foregroundEpoch?.takeIf {
+                state.hasConnected && (
+                    state.phase != ConnectionPhase.CONNECTED ||
+                        state.foregroundCheckPending ||
+                        state.recoveryOverlayVisible
+                    )
+            }
+        }.distinctUntilChanged().collectLatest { foregroundEpoch ->
+            if (foregroundEpoch == null) return@collectLatest
+            // This timer exists only while a previously connected foreground session is blocked.
+            // A background or healthy state cancels it immediately; neither has periodic wakeups.
+            val startedAt = android.os.SystemClock.elapsedRealtime()
+            kotlinx.coroutines.delay(RECOVERY_SLOW_WARN_MS)
+            while (true) {
+                val state = _state.value
+                // Recheck at the timer boundary as lifecycle/state updates may be concurrent with
+                // flow delivery. A stopped activity or recovered connection must not emit warnings.
+                if (watchdogForegroundEpoch.value != foregroundEpoch || !appInForeground || !state.hasConnected || (
+                        state.phase == ConnectionPhase.CONNECTED &&
+                            !state.foregroundCheckPending && !state.recoveryOverlayVisible
+                    )) return@collectLatest
+                // Diagnostics must never cancel the watchdog or affect connection recovery.
+                runCatching {
+                    trace(
+                        "recovery-slow",
+                        "elapsedMs=${android.os.SystemClock.elapsedRealtime() - startedAt} phase=${state.phase}" +
+                            " overlay=${state.recoveryOverlayVisible} foregroundCheckPending=${state.foregroundCheckPending}" +
+                            " needsProbe=$publishedGenerationNeedsProbe stage=${state.stage} attempts=${state.attempts}" +
+                            " generation=${generation?.clientId} operationInFlight=${connectJob != null}" +
+                            " foreground=$appInForeground retained=$keepConnectedInBackground" +
+                            " gatePending=${networkRecoveryGate.isPending()} networkLost=$networkLostWhileConnected" +
+                            " ${describeNetwork(connectivity.activeNetwork)}",
+                    )
+                }
+                kotlinx.coroutines.delay(RECOVERY_SLOW_REPEAT_MS)
+            }
+        }
+    }
+
     /** Called only after the service has satisfied Android's startForegroundService deadline. */
     internal fun onForegroundServiceStarted() {
         if (serviceStartGate.foregroundStarted()) context.stopService(Intent(context, ConnectionService::class.java))
@@ -1821,6 +2317,9 @@ class ConnectionManager @Inject constructor(
 
     private companion object {
         const val FILE_TRANSFER_BACKGROUND_GRACE_MS = 1_500L
+        /** A recovery still visible after this long is what users report; journal one snapshot then. */
+        const val RECOVERY_SLOW_WARN_MS = 10_000L
+        const val RECOVERY_SLOW_REPEAT_MS = 30_000L
         /** Bound the resume probe so fake green is replaced promptly, even for a black-holed TCP path. */
         const val FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS = 10_000L
         const val AUTHORIZATION_RESUME_TIMEOUT_MS = ConnectionTimeoutPolicy.authorizationResumeMs
