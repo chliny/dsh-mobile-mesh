@@ -260,6 +260,7 @@ internal fun DetailsPanel(
                     JobsCard(jobs, store, scope, disclosures, jobKillRequestedLabel, jobKillFailedLabel, toast.second)
                     QueueCard(conv.queue, store, disclosures)
                     SubagentsCard(subagents, sessions, disclosures, onOpen = onOpenSubagent)
+                    AgentTeamCard(conv.projections["agentTeam"], disclosures)
                     WorkflowCard(conv.nodes, disclosures)
                 }
 
@@ -744,6 +745,101 @@ private fun SubagentsCard(
             }
         }
     }
+}
+
+/**
+ * The Host's Agent Team task board, read from the open Session's `agentTeam` projection.
+ *
+ * The Host owns every fact this card shows: the board order, each task's status, its saved owner
+ * name, its blockers, the `ready` flag, and the advisory write-scope warnings. A task is therefore
+ * rendered exactly as the Host published it — never re-sorted, filtered, re-derived, or completed
+ * with an invented member. A Host that composes no Agent Team service publishes no `agentTeam` key,
+ * so the card stays absent instead of showing an empty board.
+ */
+@Composable
+private fun AgentTeamCard(element: JsonElement?, disclosureScope: DisclosureScope) {
+    val colors = DsTheme.colors
+    val team = remember(element) { agentTeamView(element) } ?: return
+    // Sessions without a Team still carry the registered projection; a board with no tasks and no
+    // recorded failure has nothing to tell the reader, so it earns no card.
+    if (team.tasks.isEmpty() && team.failure == null) return
+    Card(
+        id = "agentTeam",
+        disclosureScope = disclosureScope,
+        title = stringResource(R.string.agent_team_title),
+        summary = if (team.failure != null) {
+            stringResource(R.string.agent_team_stale)
+        } else {
+            team.tasks.size.takeIf { it > 0 }?.toString()
+        },
+        // A recorded failure means these tasks are only the Host's last valid state; open the card
+        // so the reader sees that caveat instead of a collapsed row that looks current.
+        initiallyExpanded = team.failure != null,
+    ) {
+        team.failure?.let { failure ->
+            Text(
+                stringResource(R.string.agent_team_failure, failure),
+                style = DsType.caption11,
+                color = colors.warnLabel,
+            )
+        }
+        team.tasks.forEach { task ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                StateDot(agentTeamStatusDot(task.status))
+                Spacer(Modifier.width(DsSpacing.small))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        task.subject,
+                        style = DsType.small13,
+                        color = colors.labelPrimary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    val owner = task.ownerName
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { stringResource(R.string.agent_team_owner, it) }
+                    val blockers = task.blockedBy
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { stringResource(R.string.agent_team_blocked_by, it.joinToString(", ")) }
+                    val detail = listOfNotNull(owner, blockers).joinToString(" · ")
+                    if (detail.isNotEmpty()) {
+                        Text(detail, style = DsType.caption11, color = colors.labelCaption)
+                    }
+                    // Host advisory text (e.g. overlapping write scopes), shown verbatim: the Host
+                    // owns the message and this build must not paraphrase it into a weaker claim.
+                    task.writeScopeWarnings.forEach { warning ->
+                        Text(warning, style = DsType.caption11, color = colors.warnLabel)
+                    }
+                }
+                Spacer(Modifier.width(DsSpacing.small))
+                if (task.ready) {
+                    DsPill(text = stringResource(R.string.agent_team_ready))
+                }
+                Spacer(Modifier.width(DsSpacing.xsmall))
+                DsPill(text = agentTeamStatusLabel(task.status))
+            }
+        }
+    }
+}
+
+/** Status wording the board reuses from the existing task vocabulary; unknown statuses stay verbatim. */
+@Composable
+private fun agentTeamStatusLabel(status: String): String = when (status) {
+    "pending" -> stringResource(R.string.chat_todo_status_pending)
+    "in_progress" -> stringResource(R.string.chat_todo_status_in_progress)
+    "completed" -> stringResource(R.string.chat_todo_status_completed)
+    // The Host vocabulary may grow; showing its own word beats mislabelling a new state.
+    else -> status
+}
+
+/** Dot colour for one Host status; readiness and warnings are separate Host facts. */
+private fun agentTeamStatusDot(status: String): StateDotState = when (status) {
+    "in_progress" -> StateDotState.Running
+    "completed" -> StateDotState.Done
+    else -> StateDotState.Idle
 }
 
 @Composable
