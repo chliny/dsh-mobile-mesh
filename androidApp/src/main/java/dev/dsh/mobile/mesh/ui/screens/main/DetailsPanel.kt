@@ -57,6 +57,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.ContextPressureView
 import dev.dsh.mobile.mesh.core.DshCore
 import dev.dsh.mobile.mesh.core.wire.dto.HostDescription
 import dev.dsh.mobile.mesh.core.wire.dto.JobView
+import dev.dsh.mobile.mesh.core.wire.dto.SessionAddress
 import dev.dsh.mobile.mesh.core.wire.dto.SessionStatsView
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentListEntry
 import dev.dsh.mobile.mesh.core.wire.dto.TokenUsageView
@@ -73,15 +74,19 @@ import dev.dsh.mobile.mesh.ui.components.SectionHeader
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.core.wire.dto.AgentPresetListValue
 import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
+import dev.dsh.mobile.mesh.core.wire.dto.agentTeamView
 import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.components.formatDurationMs
 import dev.dsh.mobile.mesh.ui.components.formatTokens
 import dev.dsh.mobile.mesh.ui.components.rememberDsToast
+import dev.dsh.mobile.mesh.ui.rememberConnectionManager
 import dev.dsh.mobile.mesh.ui.rememberSessionStore
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
+import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 
@@ -101,6 +106,14 @@ internal fun DetailsPanel(
 ) {
     BackHandler(onBack = onClose)
     val store = rememberSessionStore()
+    val manager = rememberConnectionManager()
+    val connection by manager.state.collectAsState()
+    var observedGeneration by remember(manager) { mutableStateOf(manager.generation) }
+    LaunchedEffect(manager) {
+        manager.connectedGenerations.onSubscription {
+            manager.generation?.let { emit(it) }
+        }.collect { observedGeneration = it }
+    }
     val colors = DsTheme.colors
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -113,6 +126,7 @@ internal fun DetailsPanel(
     val subagents by store.subagents.collectAsState()
     val sessions by store.sessions.collectAsState()
     val currentSessionId by store.currentSessionId.collectAsState()
+    val currentAddress by store.currentSessionAddress.collectAsState()
     val stats by store.sessionStats.collectAsState()
     val usage by store.tokenUsage.collectAsState()
     val breakdown by store.contextBreakdown.collectAsState()
@@ -221,6 +235,16 @@ internal fun DetailsPanel(
                         variant = DsButtonVariant.Ghost,
                         size = DsButtonSize.Small,
                     )
+                }
+
+                val generation = observedGeneration
+                val stateApi = generation?.let { manager.apiForEvent(it.clientId) }
+                if (connection.phase == dev.dsh.mobile.mesh.connection.ConnectionPhase.CONNECTED &&
+                    generation != null && manager.generation === generation && stateApi != null &&
+                    manager.connectedApi === stateApi && currentAddress is SessionAddress.Session &&
+                    currentSessionId == (currentAddress as SessionAddress.Session).sessionId
+                ) {
+                    SessionStateCard(currentSessionId!!, generation, stateApi)
                 }
 
                 val conv = conversation
