@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import dev.dsh.mobile.mesh.R
+import dev.dsh.mobile.mesh.core.wire.dto.ImageAttachmentRef
 import dev.dsh.mobile.mesh.ui.media.AttachmentImageState
 import dev.dsh.mobile.mesh.ui.media.aspectRatioOf
 import dev.dsh.mobile.mesh.ui.media.rememberAttachmentCache
@@ -44,9 +45,7 @@ import dev.dsh.mobile.mesh.ui.theme.DsType
  */
 @Composable
 fun AttachmentImage(
-    attachmentId: String,
-    intrinsicWidth: Int,
-    intrinsicHeight: Int,
+    attachment: ImageAttachmentRef,
     modifier: Modifier = Modifier,
     maxHeight: Int = 240,
     contentDescription: String? = null,
@@ -59,16 +58,14 @@ fun AttachmentImage(
     // Decode for the widest the transcript can ever show it, not for the source resolution.
     val targetWidthPx = remember(screenWidthDp) { with(density) { screenWidthDp.dp.roundToPx() } }
     val state by rememberAttachmentImage(
-        attachmentId = attachmentId,
-        intrinsicWidth = intrinsicWidth,
-        intrinsicHeight = intrinsicHeight,
+        attachment = attachment,
         targetWidthPx = targetWidthPx,
         store = store,
         cache = cache,
     )
-    var zoomed by remember(attachmentId) { mutableStateOf(false) }
-    val ratio = remember(intrinsicWidth, intrinsicHeight) {
-        aspectRatioOf(intrinsicWidth, intrinsicHeight)
+    var zoomed by remember(attachment.attachmentId) { mutableStateOf(false) }
+    val ratio = remember(attachment.width, attachment.height) {
+        aspectRatioOf(attachment.width, attachment.height)
     }
 
     Box(

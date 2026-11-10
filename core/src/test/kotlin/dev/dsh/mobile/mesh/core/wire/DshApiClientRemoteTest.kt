@@ -6,6 +6,8 @@ import kotlinx.coroutines.test.runTest
 import dev.dsh.mobile.mesh.core.wire.dto.CommandSubmitAttachment
 import dev.dsh.mobile.mesh.core.wire.dto.EncodedFileUploadRequest
 import dev.dsh.mobile.mesh.core.wire.dto.EncodedImageAttachment
+import dev.dsh.mobile.mesh.core.wire.dto.ImageAttachmentRef
+import dev.dsh.mobile.mesh.core.wire.dto.SessionAttachmentRequest
 import dev.dsh.mobile.mesh.core.wire.dto.PromptContentPart
 import dev.dsh.mobile.mesh.core.wire.dto.SessionPromptRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentPromptRequest
@@ -118,6 +120,37 @@ class DshApiClientRemoteTest {
         assertEquals("s-1", args["request"]!!.jsonObject["sessionId"]!!.jsonPrimitive.content)
         assertEquals("bash-2", args["request"]!!.jsonObject["jobId"]!!.jsonPrimitive.content)
         assertEquals("requested", (result as RpcResult.Ok).value.outcome)
+    }
+
+    @Test
+    fun `attachment read sends the legacy id and the complete reference together`() = runTest {
+        // 0.2.2 replaced `attachmentId` with the complete reference. Both Host generations
+        // discard the request member they do not declare, so one request keeps image viewing
+        // working across the upgrade without a capability probe.
+        val transport = RecordingTransport { _, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """{"attachment":{"attachmentId":"sha256:abc","mediaType":"image/png","bytes":3,"width":1,"height":1},"data":"AAAA"}""")
+        }
+        val ref = ImageAttachmentRef(
+            attachmentId = "sha256:abc",
+            mediaType = "image/png",
+            bytes = 3,
+            width = 1,
+            height = 1,
+        )
+        val result = client(transport).sessionAttachment(
+            SessionAttachmentRequest(sessionId = "s-1", attachmentId = "sha256:abc", attachment = ref),
+        )
+        assertEquals("/api/session/attachment", transport.lastPath)
+        val request = Json.parseToJsonElement(transport.lastBody!!).jsonObject["payload"]!!
+            .jsonObject["args"]!!.jsonObject["request"]!!.jsonObject
+        assertEquals("s-1", request["sessionId"]!!.jsonPrimitive.content)
+        assertEquals("sha256:abc", request["attachmentId"]!!.jsonPrimitive.content)
+        val attachment = request["attachment"]!!.jsonObject
+        assertEquals("sha256:abc", attachment["attachmentId"]!!.jsonPrimitive.content)
+        assertEquals("image/png", attachment["mediaType"]!!.jsonPrimitive.content)
+        assertEquals(3L, attachment["bytes"]!!.jsonPrimitive.content.toLong())
+        assertEquals("AAAA", (result as RpcResult.Ok).value.data)
     }
 
     @Test

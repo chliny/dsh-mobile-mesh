@@ -2,6 +2,8 @@ package dev.dsh.mobile.mesh.core.wire
 
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionAnswer
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionAnswerItem
+import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionIntent
+import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionItem
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionRequestEvent
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionWait
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventFrame
@@ -41,6 +43,37 @@ class UserQuestionsWireTest {
         val frame = WireJson.decodeFromString(RemoteEventFrameSerializer,
             """{"type":"waterfall","event":"user-questions/request","eventId":"e","agentId":"agent", "request":{"questions":[],"wait":{"callId":"call-1","timed":true}}}""") as RemoteEventFrame.Waterfall
         assertEquals("call-1", decodeFromJsonElement(AskUserQuestionRequestEvent.serializer(), frame.request).wait?.callId)
+    }
+
+    @Test
+    fun `new and unknown presentation intents never drop the question request`() {
+        // 0.2.2 added an `approval` intent. An intent changes presentation only, so the app must
+        // still show the question and its options instead of failing the whole frame.
+        val approval = decodeFromString<AskUserQuestionItem>(
+            """{"id":"q","question":"Allow access to Files?","options":[{"label":"Allow"},{"label":"Deny"}],
+               "intent":{"kind":"approval","approve":"Allow","reject":"Deny","always":"Always allow",
+               "subject":{"name":"Files","icon":"https://example.test/files.png"},
+               "display":{"question":{"en":"Allow access to Files?","zh":"允许访问文件？"}}}}""",
+        )
+        val intent = approval.intent as AskUserQuestionIntent.Approval
+        assertEquals("Allow", intent.approve)
+        assertEquals("Deny", intent.reject)
+        assertEquals("Always allow", intent.always)
+        assertEquals("Files", intent.subject?.name)
+        assertEquals("允许访问文件？", intent.display?.question?.get("zh"))
+
+        // An intent tag from a later Host is presentation-only as well: decode it as no intent so
+        // the generic option flow still answers it.
+        val future = decodeFromString<AskUserQuestionItem>(
+            """{"id":"q","question":"Pick one","intent":{"kind":"future-tag","detail":"x"}}""",
+        )
+        assertNull(future.intent)
+        assertEquals("Pick one", future.question)
+
+        val request = decodeFromString<AskUserQuestionRequestEvent>(
+            """{"questions":[{"id":"q","question":"Allow?","intent":{"kind":"approval","approve":"A","reject":"R"}}]}""",
+        )
+        assertEquals(1, request.questions.size)
     }
 
     @Test

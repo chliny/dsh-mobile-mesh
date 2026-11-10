@@ -15,11 +15,13 @@ object DshCore {
      * `terminal/environment.maxBufferedBytes` field, and session capabilities by the
      * `session/list` / `session/projections` probes.
      *
-     * The current compatibility target is DeepSeek Harness tag `dsh-v0.2.1-rc.2` (commit
-     * `687f282e86`); its changes do not touch any endpoint this client calls, so the baseline
-     * claim reflects verified compatibility rather than a required code change. Older hosts
-     * remain supported through the connection-time protocol detection and optional API handling
-     * described in the same README section.
+     * The current compatibility target is DeepSeek Harness tag `dsh-v0.2.2-rc.1` (commit
+     * `66491b05e3`). The wire types were also checked against upstream `master` at `fcc0ad4621`
+     * (811 commits past that release, itself untagged): where that branch already changed a
+     * shape this client calls — the `subagents/interruptByUser` rename and the trimmed
+     * `subagents/prompt` request — the client sends the released form and negotiates the newer
+     * route from structured missing-route evidence. Older hosts remain supported through the
+     * connection-time protocol detection and optional API handling described in the README.
      */
-    const val PROTOCOL_BASELINE = "0.2.1-rc.2"
+    const val PROTOCOL_BASELINE = "0.2.2-rc.1"
 }

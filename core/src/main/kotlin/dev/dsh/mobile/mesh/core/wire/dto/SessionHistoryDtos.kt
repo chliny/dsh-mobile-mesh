@@ -26,7 +26,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Session journal wire types, ported from `packages/api/session-controller/src/types.ts`
- * (v0.1.3-alpha.1).
+ * (protocol baseline: v0.2.2-rc.1).
  *
  * Harness 0.1.2 split reading a transcript into a live `session/follow` stream and a
  * `session/page` unary read, and the two are not independent: a page must be pinned to the follow
@@ -38,6 +38,12 @@ import kotlinx.serialization.json.jsonPrimitive
  * durable at all: a follower that wants them opts in with [SessionFollowRequest.assistantStream]
  * and receives them as [SessionFollowFrame.AssistantStream] frames, which are process-local
  * presentation and never replayed from the log.
+ *
+ * Harness 0.2.2 made the follow snapshot's background activation opt-in through
+ * [SessionFollowRequest.activate] and let one `session/control` projection frame carry several
+ * key changes for one committed event. [SessionControlFrame] accepts both the legacy single-key
+ * frame and the multi-change frame; `session/page` remains accepted as the deprecated alias of
+ * `session/events` and now also reports its inclusive `cursor`.
  */
 
 /**
@@ -173,17 +179,16 @@ object SessionHistoryRecordSerializer : KSerializer<SessionHistoryRecord> {
 }
 
 /**
- * Named arguments of `session/page`.
+ * Named arguments of `session/events` and its legacy alias `session/page`.
  *
- * [throughSeq] is mandatory and comes from the matching `session/follow` generation's opening
- * cursor: it fixes the read at the same log cut, which is what lets a page and the live tail be
- * joined without a gap. `-1` denotes an empty log. [beforeSeq] selects an *older* page before
- * that cut and cannot stand in for the cursor.
+ * For pagination joined to a live follow, [throughSeq] must be the follow opening cursor.
+ * Current Hosts also accept its omission on `session/events` to read the current tail; legacy
+ * `session/page` requires it. `-1` denotes an empty log, not an unspecified cursor.
  */
 @Serializable
 data class SessionPageRequest(
     @SerialName("address") val address: SessionAddress,
-    @SerialName("throughSeq") val throughSeq: Int,
+    @SerialName("throughSeq") val throughSeq: Int? = null,
     /** Absent for the tail page, which must end exactly at [throughSeq]. */
     @SerialName("beforeSeq") val beforeSeq: Int? = null,
     /** Caps user/assistant message count without dropping tools or state between them. */
@@ -204,6 +209,8 @@ data class SessionTurnWindow(
 data class SessionPage(
     @SerialName("records") val records: List<SessionHistoryRecord> = emptyList(),
     @SerialName("hasMore") val hasMore: Boolean = false,
+    /** Inclusive cut returned by current Hosts; legacy pages omit it. */
+    @SerialName("cursor") val cursor: Int? = null,
 )
 
 /**
@@ -221,6 +228,16 @@ data class SessionFollowRequest(
     @SerialName("assistantStream") val assistantStream: Boolean? = null,
     /** Turn-aligned opening history window with the same policy used by `session/page`. */
     @SerialName("turnWindow") val turnWindow: SessionTurnWindow? = null,
+    /**
+     * Ask the Host to resume this prepared Session in the background after the opening snapshot.
+     *
+     * Harness 0.2.2 made activation opt-in: an omitted flag keeps the read passive, while hosts
+     * before it promoted every prepared ordinary Session unconditionally. The app therefore
+     * sends `true` for an ordinary Session to keep the behavior it was built against, and omits
+     * it for subagent transcripts (which are never activated). Older Hosts discard the
+     * undeclared request member, so no capability probe is needed.
+     */
+    @SerialName("activate") val activate: Boolean? = null,
 )
 
 // ============================================================================================

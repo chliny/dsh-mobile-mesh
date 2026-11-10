@@ -36,6 +36,9 @@ class ToolCardMappingTest {
                 put("attachment", buildJsonObject {
                     put("attachmentId", "image-digest")
                     put("mediaType", "image/png")
+                    // The wire reference carries its exact stored byte length; the 0.2.2 read
+                    // route verifies it, so a tool image without one is not a valid reference.
+                    put("bytes", 2048)
                     put("width", 640)
                     put("height", 480)
                     put("name", "preview.png")
@@ -46,7 +49,13 @@ class ToolCardMappingTest {
             as ToolCardView.GenericCard
         assertEquals("{not-json", card.rawInput)
         assertEquals(ContentBlockView.TextBlock("finished successfully"), card.content?.first())
-        assertEquals(ContentBlockView.ImageBlock("image-digest", "image/png", 640, 480, "preview.png"), card.content?.last())
+        val image = card.content?.last() as ContentBlockView.ImageBlock
+        // The complete reference survives: the 0.2.2 image read route needs more than the id.
+        assertEquals("image-digest", image.attachment.attachmentId)
+        assertEquals("image/png", image.attachment.mediaType)
+        assertEquals(640, image.attachment.width)
+        assertEquals(480, image.attachment.height)
+        assertEquals("preview.png", image.attachment.name)
     }
 
     @Test

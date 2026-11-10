@@ -192,9 +192,7 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
             node.blocks.filter { it.kind == "image" }.forEach { block ->
                 parseImageRef(block)?.let { ref ->
                     AttachmentImage(
-                        attachmentId = ref.attachmentId,
-                        intrinsicWidth = ref.width,
-                        intrinsicHeight = ref.height,
+                        attachment = ref,
                         contentDescription = ref.name,
                     )
                 }
@@ -518,9 +516,7 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
                 "tool-call", "tool-result" -> Unit
                 "image" -> parseImageRef(block)?.let { ref ->
                     AttachmentImage(
-                        attachmentId = ref.attachmentId,
-                        intrinsicWidth = ref.width,
-                        intrinsicHeight = ref.height,
+                        attachment = ref,
                         contentDescription = ref.name,
                     )
                 }

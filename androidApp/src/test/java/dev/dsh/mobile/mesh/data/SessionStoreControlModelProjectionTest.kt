@@ -102,7 +102,7 @@ class SessionStoreControlModelProjectionTest {
         val manager = Mockito.mock(ConnectionManager::class.java)
         val pageCalls = AtomicInteger()
         val api = Mockito.mock(DshApiClient::class.java, org.mockito.stubbing.Answer { invocation ->
-            if (invocation.method.name == "sessionPage") {
+            if (invocation.method.name == "sessionPage" || invocation.method.name == "sessionEvents") {
                 pageCalls.incrementAndGet()
                 RpcResult.Err(RpcError("failure", "Unexpected page"))
             } else {
@@ -166,7 +166,7 @@ class SessionStoreControlModelProjectionTest {
         )
         var generation = HostGeneration(HostDescription("/home"), "g1", mux)
         val api = Mockito.mock(DshApiClient::class.java, org.mockito.stubbing.Answer { invocation ->
-            if (invocation.method.name == "sessionPage") {
+            if (invocation.method.name == "sessionPage" || invocation.method.name == "sessionEvents") {
                 pageEntered.countDown()
                 check(releasePage.await(5, TimeUnit.SECONDS))
                 RpcResult.Ok(olderPage)
@@ -234,7 +234,7 @@ class SessionStoreControlModelProjectionTest {
             hasMore = false,
         )
         val api = Mockito.mock(DshApiClient::class.java, org.mockito.stubbing.Answer { invocation ->
-            if (invocation.method.name == "sessionPage") RpcResult.Ok(olderPage)
+            if (invocation.method.name == "sessionPage" || invocation.method.name == "sessionEvents") RpcResult.Ok(olderPage)
             else Mockito.RETURNS_DEFAULTS.answer(invocation)
         })
         val generation = HostGeneration(HostDescription("/home"), "g1", mux)

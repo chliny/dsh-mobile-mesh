@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import dev.dsh.mobile.mesh.core.wire.dto.ImageAttachmentRef
 import dev.dsh.mobile.mesh.data.SessionStore
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -70,17 +71,15 @@ class AttachmentCache @Inject constructor() {
  */
 @Composable
 fun rememberAttachmentImage(
-    attachmentId: String,
-    intrinsicWidth: Int,
-    intrinsicHeight: Int,
+    attachment: ImageAttachmentRef,
     targetWidthPx: Int,
     store: SessionStore,
     cache: AttachmentCache,
 ): State<AttachmentImageState> {
-    val sample = remember(intrinsicWidth, targetWidthPx) {
-        sampleSizeFor(intrinsicWidth, targetWidthPx)
+    val sample = remember(attachment.width, targetWidthPx) {
+        sampleSizeFor(attachment.width, targetWidthPx)
     }
-    val key = remember(attachmentId, sample) { "$attachmentId@$sample" }
+    val key = remember(attachment.attachmentId, sample) { "${attachment.attachmentId}@$sample" }
     // A cache hit resolves during composition so a scrolled-back image does not flash a skeleton.
     val state = remember(key) {
         mutableStateOf(
@@ -89,7 +88,7 @@ fun rememberAttachmentImage(
     }
     LaunchedEffect(key) {
         if (state.value is AttachmentImageState.Loading) {
-            state.value = loadAttachment(attachmentId, key, sample, store, cache)
+            state.value = loadAttachment(attachment, key, sample, store, cache)
         }
     }
     return state
@@ -97,14 +96,15 @@ fun rememberAttachmentImage(
 
 /** Cache hit, else fetch and decode. Returns the terminal state; it never throws. */
 private suspend fun loadAttachment(
-    attachmentId: String,
+    attachment: ImageAttachmentRef,
     key: String,
     sampleSize: Int,
     store: SessionStore,
     cache: AttachmentCache,
 ): AttachmentImageState {
     cache.get(key)?.let { return AttachmentImageState.Ready(it) }
-    val bytes = store.fetchAttachment(attachmentId)
+    // The 0.2.2 route needs the complete reference, not just its storage identity.
+    val bytes = store.fetchAttachment(attachment)
     if (bytes == null || bytes.isEmpty()) return AttachmentImageState.Failed
     val decoded = withContext(Dispatchers.Default) { decode(bytes, sampleSize) }
         ?: return AttachmentImageState.Failed

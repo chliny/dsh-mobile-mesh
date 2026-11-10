@@ -25,8 +25,15 @@ import dev.dsh.mobile.mesh.core.wire.dto.PluginInventorySnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.REMOTE_EVENT_RESULT_ENDPOINT
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventOutcome
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventResult
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleActionResult
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleCreateRequest
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleDeleteInactiveResult
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleDeliveryLimits
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleIdRequest
 import dev.dsh.mobile.mesh.core.wire.dto.ScheduleCatalogEntry
 import dev.dsh.mobile.mesh.core.wire.dto.ScheduleDeleteRequest
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleEditRequest
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleEditResult
 import dev.dsh.mobile.mesh.core.wire.dto.ScheduleDeleteResult
 import dev.dsh.mobile.mesh.core.wire.dto.ScheduleHistoryRequest
 import dev.dsh.mobile.mesh.core.wire.dto.ScheduleHistoryResult
@@ -189,14 +196,39 @@ class DshApiClient(
     /** Read the Host's complete cross-session task catalog (also a safe old-Host capability probe). */
     suspend fun scheduleCatalog(): RpcResult<List<ScheduleCatalogEntry>> = callEmpty("schedule/catalog")
 
+    suspend fun scheduleCreate(request: ScheduleCreateRequest): RpcResult<ScheduleCatalogEntry> =
+        callRequest("schedule/create", request)
+
+    suspend fun scheduleRun(id: String): RpcResult<ScheduleActionResult> =
+        callRequest("schedule/run", ScheduleIdRequest(id))
+
+    suspend fun scheduleDeleteInactive(): RpcResult<ScheduleDeleteInactiveResult> =
+        callEmpty("schedule/deleteInactive")
+
+    suspend fun scheduleDeliveryLimits(): RpcResult<ScheduleDeliveryLimits> =
+        callEmpty("schedule/deliveryLimits")
+
     /** Read saved deliveries using the original Session binding; never activate the Session. */
     suspend fun scheduleHistory(request: ScheduleHistoryRequest): RpcResult<ScheduleHistoryResult> =
         callRequest("schedule/history", request)
 
-    /** Compare against the complete committed record; never retry a conflict with a stale draft. */
+    /**
+     * Mutate one task through the 0.2.2 `schedule/edit` operation.
+     *
+     * The Host answers a conflict or a lookup miss as a result value rather than an error; the
+     * caller must not retry with a stale draft.
+     */
+    suspend fun scheduleEdit(request: ScheduleEditRequest): RpcResult<ScheduleEditResult> =
+        call("schedule/edit", buildJsonObject {
+            val encoded = encodeToJsonElement(ScheduleEditRequest.serializer(), request) as JsonObject
+            put("request", JsonObject(encoded + ("expectedUpdatedAt" to (request.expectedUpdatedAt?.let(::JsonPrimitive) ?: JsonNull))))
+        })
+
+    /** Legacy compare-and-update route (hosts before 0.2.2); never retry a conflict with a stale draft. */
     suspend fun scheduleUpdate(request: ScheduleUpdateRequest): RpcResult<ScheduleUpdateResult> =
         callRequest("schedule/update", request)
 
+    /** Legacy delete route (hosts before 0.2.2). */
     suspend fun scheduleDelete(request: ScheduleDeleteRequest): RpcResult<ScheduleDeleteResult> =
         callRequest("schedule/delete", request)
 
@@ -418,6 +450,10 @@ class DshApiClient(
     suspend fun sessionCreate(request: SessionCreateRequest): RpcResult<SessionCreateValue> =
         callRequest("session/create", request)
 
+    /** `session/events` — a passive history page, or the current tail when throughSeq is omitted. */
+    suspend fun sessionEvents(request: SessionPageRequest): RpcResult<SessionPage> =
+        callRequest("session/events", request)
+
     /**
      * `session/page` — one message-aligned backwards page of history.
      *
@@ -547,6 +583,16 @@ class DshApiClient(
     /** `subagents/prompt` — delivers human content to a continuable child's inbox. */
     suspend fun subagentPrompt(request: SubagentPromptRequest): RpcResult<SubagentPromptValue> =
         callRequest("subagents/prompt", request)
+
+    /**
+     * `subagents/interruptByUser` — interrupts a live continuable child's current turn as its
+     * user (unreleased `master` rename of `interruptByParent`).
+     *
+     * The Gateway derives the owning parent from the child identity, so the call carries only
+     * the child id; a Host without this route answers with a structured missing-route error.
+     */
+    suspend fun subagentInterruptByUser(childSessionId: String): RpcResult<SubagentInterruptValue> =
+        call("subagents/interruptByUser", args { put("childSessionId", JsonPrimitive(childSessionId)) })
 
     /**
      * `subagents/interruptByParent` — interrupts a live continuable child's current turn.

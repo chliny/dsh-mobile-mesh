@@ -361,11 +361,22 @@ data class EncodedFileUploadRequest(
     @SerialName("name") val name: String? = null,
 )
 
-/** Request payload of `session.attachment`. */
+/**
+ * Request payload of `session.attachment`.
+ *
+ * Harness 0.2.2 replaced the bare storage identity with the complete image reference, and
+ * Hosts on both sides of that change discard request fields they do not declare: older Hosts
+ * read [attachmentId] and drop [attachment], current Hosts read [attachment] and drop
+ * [attachmentId]. Sending both therefore serves either generation without a capability probe,
+ * which matters because this route has no other read-only way to identify its shape.
+ */
 @Serializable
 data class SessionAttachmentRequest(
     @SerialName("sessionId") val sessionId: String,
+    /** Opaque storage identity; required by hosts released before 0.2.2. */
     @SerialName("attachmentId") val attachmentId: String,
+    /** Complete durable reference; required by 0.2.2 and later hosts. */
+    @SerialName("attachment") val attachment: ImageAttachmentRef,
 )
 
 /** Request payload of `session.updateQueue`. */

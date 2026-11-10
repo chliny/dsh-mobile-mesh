@@ -580,10 +580,8 @@ private fun GenericBody(card: ToolCardView.GenericCard) {
                     )
                     // A tool that returns a screenshot arrives here, not on the message path.
                     is ContentBlockView.ImageBlock -> AttachmentImage(
-                        attachmentId = block.attachmentId,
-                        intrinsicWidth = block.width,
-                        intrinsicHeight = block.height,
-                        contentDescription = block.name,
+                        attachment = block.attachment,
+                        contentDescription = block.attachment.name,
                     )
                 }
             }

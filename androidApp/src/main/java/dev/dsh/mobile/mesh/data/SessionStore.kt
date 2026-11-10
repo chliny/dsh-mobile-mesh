@@ -4,6 +4,7 @@ import android.util.Base64
 import android.util.Log
 import dev.dsh.mobile.mesh.connection.ConnectionManager
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
+import dev.dsh.mobile.mesh.connection.missingUnaryRemoteEndpoint
 import dev.dsh.mobile.mesh.core.session.AssistantLiveState
 import dev.dsh.mobile.mesh.core.session.ChatBlock
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
@@ -42,6 +43,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.GoalSnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.DirectoryListing
 import dev.dsh.mobile.mesh.core.wire.dto.HostDescription
 import dev.dsh.mobile.mesh.core.wire.dto.ImageLimitsView
+import dev.dsh.mobile.mesh.core.wire.dto.ImageAttachmentRef
 import dev.dsh.mobile.mesh.core.wire.dto.ImageRejection
 import dev.dsh.mobile.mesh.core.wire.dto.JobView
 import dev.dsh.mobile.mesh.core.wire.dto.JobListRequest
@@ -56,6 +58,11 @@ import dev.dsh.mobile.mesh.core.wire.dto.PlanStateView
 import dev.dsh.mobile.mesh.core.wire.dto.PluginInventorySnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.PromptContentPart
 import dev.dsh.mobile.mesh.core.wire.dto.QUESTION_CANCELLED
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleCatalogEntry
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleDeleteRequest
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleEditPatch
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleEditRequest
+import dev.dsh.mobile.mesh.core.wire.dto.ScheduleUpdateRequest
 import dev.dsh.mobile.mesh.core.wire.dto.QueueAction
 import dev.dsh.mobile.mesh.core.wire.dto.ModelSelectionProjection
 import kotlinx.coroutines.flow.combine
@@ -79,6 +86,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.SessionFollowRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionForkRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionHistoryRecord
 import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
+import dev.dsh.mobile.mesh.core.wire.dto.SessionPage
 import dev.dsh.mobile.mesh.core.wire.dto.SessionPageRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionProjectionsRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionProjectionsBlock
@@ -91,6 +99,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.SessionUpdateQueueRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SkillEntry
 import dev.dsh.mobile.mesh.core.wire.dto.SkillListRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentCatalogProjectionEntry
+import dev.dsh.mobile.mesh.core.wire.dto.SubagentInterruptValue
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentListEntry
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentTimingProjection
 import dev.dsh.mobile.mesh.core.wire.dto.TokenUsageView
@@ -265,6 +274,13 @@ data class PendingQuestions(
 )
 
 /**
+ * Outcome of one Host automation-task mutation: whether the catalog should reload and what to
+ * show the user. A non-mutating miss (`schedule_conflict`, `schedule_not_found`) carries a
+ * message and still reloads, because the row the editor read is stale.
+ */
+data class ScheduleMutationOutcome(val reload: Boolean, val message: String?)
+
+/**
  * Whether more history remains after folding a backwards page.
  *
  * The load-bearing clause is [freshCount]: history paging is driven by scroll position, so a page
@@ -279,6 +295,9 @@ internal fun nextHasMore(freshCount: Int, hostHasMore: Boolean, overDelivered: B
 
 internal fun requiresApiPublication(phase: ConnectionPhase, apiPresent: Boolean): Boolean =
     phase == ConnectionPhase.CONNECTED && !apiPresent
+
+/** Non-mutating legacy Schedule edit outcomes: the draft is stale and the catalog should reload. */
+private val LEGACY_SCHEDULE_MISS_CODES = setOf("schedule_conflict", "schedule_not_found", "schedule_ended")
 
 /** Only render a cached snapshot whose embedded identity is the selected session. */
 internal fun conversationForSelectedSession(
@@ -759,6 +778,19 @@ class SessionStore @Inject constructor(
     private var modelCatalogCache: ModelCatalog? = null
     /** Avoid duplicate permission catalog calls when generation publication and session open race. */
     private var permissionCatalogRequestedGeneration: String? = null
+
+    /**
+     * Which interrupt route one connection generation's Host answered. `null` means unobserved;
+     * the route name changed on unreleased `master`, so it is negotiated on first use and kept
+     * for that generation only.
+     */
+    private var subagentInterruptRoute: Pair<String?, Boolean>? = null
+
+    /** Whether one connection generation's Host accepted the modern `schedule/edit` route. */
+    private var scheduleEditRoute: Pair<String?, Boolean>? = null
+
+    /** Missing session/events is cached only for the carrier that reported it. */
+    private var eventsUnavailableGeneration: String? = null
 
     /** User prompts rendered immediately while the follow stream catches up. */
     private val optimisticPromptBySession = mutableMapOf<String, MutableList<OptimisticPrompt>>()
@@ -2601,8 +2633,11 @@ class SessionStore @Inject constructor(
      * never paged — and are folded after the durable window as a provisional message.
      *
      * Following does not resume a stopped agent: the host publishes a cold session's prepared
-     * snapshot immediately and promotes it in the background, so opening a transcript is an
-     * observation rather than an execution.
+     * snapshot immediately and, when asked, promotes it in the background, so opening a
+     * transcript is an observation rather than an execution. Harness 0.2.2 made that promotion
+     * opt-in through `activate`; this app has always relied on the background promotion that
+     * older hosts performed unconditionally, so it asks for it explicitly and lets older hosts
+     * discard the undeclared member. Subagent transcripts are never activated.
      */
     private fun startFollow(sessionId: String, address: SessionAddress) {
         log("opening session/follow for $sessionId")
@@ -2646,6 +2681,7 @@ class SessionStore @Inject constructor(
                         address = address,
                         maxMessages = INITIAL_TRANSCRIPT_MESSAGE_COUNT,
                         assistantStream = true,
+                        activate = if (address is SessionAddress.Session) true else null,
                     ),
                 ),
             )
@@ -2830,6 +2866,26 @@ class SessionStore @Inject constructor(
         return pageContext
     }
 
+    /** Prefer passive events reads; only a named missing route permits the legacy read. */
+    private suspend fun readSessionEvents(
+        api: DshApiClient,
+        request: SessionPageRequest,
+        generationId: String?,
+        legacy: suspend () -> RpcResult<SessionPage>,
+    ): RpcResult<SessionPage> {
+        if (generationId != null && synchronized(lock) { eventsUnavailableGeneration == generationId }) {
+            return legacy()
+        }
+        val result = api.sessionEvents(request)
+        if (result !is RpcResult.Err ||
+            !missingUnaryRemoteEndpoint(result.error.code, result.error.details, "session/events")
+        ) return result
+        // A response from a retired carrier must not select or call routes on its successor.
+        if (connectionManager.generation?.clientId != generationId) return result
+        if (generationId != null) synchronized(lock) { eventsUnavailableGeneration = generationId }
+        return legacy()
+    }
+
     /**
      * Page one screen further back. The in-flight flag collapses duplicate requests, and a page
      * with no new records ends paging instead of walking the whole history automatically.
@@ -2883,7 +2939,9 @@ class SessionStore @Inject constructor(
                 beforeSeq = context.oldestSeq?.toInt(),
                 maxMessages = HISTORY_PAGE_SIZE,
             )
-            when (val r = withTimeoutOrNull(pageTimeoutForTransport(SESSION_PAGE_TIMEOUT_MS)) { api.sessionPage(request) }) {
+            when (val r = withTimeoutOrNull(pageTimeoutForTransport(SESSION_PAGE_TIMEOUT_MS)) {
+                readSessionEvents(api, request, requestClientId) { api.sessionPage(request) }
+            }) {
                 is RpcResult.Ok -> {
                     // Same guard as the opening window, so paging backwards stays bounded instead
                     // of pulling the whole log at once.
@@ -3279,7 +3337,7 @@ class SessionStore @Inject constructor(
         val api = apiOrNull() ?: return
         if (address is SessionAddress.Subagent) {
             if (address.mode == "continuable") {
-                when (val r = api.subagentInterrupt(address.childSessionId, address.parentSessionId)) {
+                when (val r = interruptLiveSubagent(api, address.childSessionId, address.parentSessionId)) {
                     is RpcResult.Ok -> Unit
                     is RpcResult.Err -> setConnectionError(r.error.message)
                 }
@@ -3292,6 +3350,176 @@ class SessionStore @Inject constructor(
             is RpcResult.Err -> setConnectionError(r.error.message)
         }
     }
+
+    /**
+     * Interrupt one continuable child through whichever route this connection's Host answers.
+     *
+     * Unreleased upstream `master` renamed `subagents/interruptByParent` to
+     * `subagents/interruptByUser` and reduced the call to the child identity alone; released
+     * hosts still serve the parent form. The first answer is remembered for this connection
+     * generation, and the fallback is taken only on structured missing-route evidence.
+     */
+    private suspend fun interruptLiveSubagent(
+        api: DshApiClient,
+        childSessionId: String,
+        parentSessionId: String,
+    ): RpcResult<SubagentInterruptValue> {
+        val generationId = connectionManager.generation?.clientId
+        val known = synchronized(lock) { subagentInterruptRoute?.takeIf { it.first == generationId }?.second }
+        if (known == true) return api.subagentInterruptByUser(childSessionId)
+        if (known == false) return api.subagentInterrupt(childSessionId, parentSessionId)
+        val modern = api.subagentInterruptByUser(childSessionId)
+        if (modern is RpcResult.Ok) {
+            synchronized(lock) { subagentInterruptRoute = generationId to true }
+            return modern
+        }
+        val failure = (modern as RpcResult.Err).error
+        if (!missingUnaryRemoteEndpoint(failure.code, failure.details, "subagents/interruptByUser")) return modern
+        val legacy = api.subagentInterrupt(childSessionId, parentSessionId)
+        if (legacy is RpcResult.Ok) synchronized(lock) { subagentInterruptRoute = generationId to false }
+        return legacy
+    }
+
+    /**
+     * Update one Host automation task, preferring the 0.2.2 `schedule/edit` operation.
+     *
+     * 0.2.2 replaced `schedule/update` with one closed edit operation and moved conflict detection
+     * onto the row's `updatedAt` revision. Both payloads are built here; the route is negotiated
+     * once per connection generation, and only a structured missing-route answer switches to the
+     * legacy form.
+     */
+    suspend fun updateScheduleTask(
+        task: ScheduleCatalogEntry,
+        title: String,
+        prompt: String,
+        timingChange: JsonObject?,
+        legacyExpected: JsonObject,
+        expectedGenerationId: String? = null,
+    ): ScheduleMutationOutcome {
+        val generation = connectionManager.generation ?: return ScheduleMutationOutcome(reload = false, message = null)
+        if (expectedGenerationId != null && generation.clientId != expectedGenerationId) return ScheduleMutationOutcome(reload = false, message = null)
+        val api = connectionManager.connectedApi ?: return ScheduleMutationOutcome(reload = false, message = null)
+        if (connectionManager.generation !== generation) return ScheduleMutationOutcome(reload = false, message = null)
+        if (scheduleEditRoute() != false) {
+            val request = ScheduleEditRequest(
+                id = task.id,
+                action = "update",
+                patch = ScheduleEditPatch(title = title, prompt = prompt, timing = timingChange),
+                expectedUpdatedAt = task.updatedAt,
+            )
+            val result = api.scheduleEdit(request)
+            if (connectionManager.generation !== generation) return ScheduleMutationOutcome(reload = false, message = null)
+            when (result) {
+                is RpcResult.Ok -> {
+                    rememberScheduleEditRoute(modern = true, generationId = generation.clientId)
+                    val value = result.value
+                    return ScheduleMutationOutcome(
+                        reload = value.accepted || value.missCode != null,
+                        message = value.missCode ?: value.message,
+                    )
+                }
+                is RpcResult.Err -> {
+                    if (!missingScheduleEdit(result.error)) {
+                        setConnectionError(result.error.message)
+                        return ScheduleMutationOutcome(reload = false, message = result.error.message)
+                    }
+                    rememberScheduleEditRoute(modern = false, generationId = generation.clientId)
+                }
+            }
+        }
+        if (connectionManager.generation !== generation) return ScheduleMutationOutcome(reload = false, message = null)
+        val legacy = api.scheduleUpdate(
+            ScheduleUpdateRequest(
+                sessionId = task.deliverySessionId.orEmpty(),
+                id = task.id,
+                expected = legacyExpected,
+                title = title,
+                prompt = prompt,
+                change = timingChange,
+            ),
+        )
+        if (connectionManager.generation !== generation) return ScheduleMutationOutcome(reload = false, message = null)
+        return when (legacy) {
+            is RpcResult.Ok -> {
+                val value = legacy.value
+                val saved = value.record != null
+                ScheduleMutationOutcome(
+                    reload = saved || value.code in LEGACY_SCHEDULE_MISS_CODES,
+                    message = if (saved) null else value.message ?: value.code,
+                )
+            }
+            is RpcResult.Err -> {
+                setConnectionError(legacy.error.message)
+                ScheduleMutationOutcome(reload = false, message = legacy.error.message)
+            }
+        }
+    }
+
+    /**
+     * Delete one Host automation task, preferring the 0.2.2 `schedule/edit` delete action.
+     *
+     * The legacy route is used only when the Host answered the modern one as missing.
+     */
+    suspend fun deleteScheduleTask(task: ScheduleCatalogEntry, expectedGenerationId: String? = null): ScheduleMutationOutcome {
+        val generation = connectionManager.generation ?: return ScheduleMutationOutcome(reload = false, message = null)
+        if (expectedGenerationId != null && generation.clientId != expectedGenerationId) return ScheduleMutationOutcome(reload = false, message = null)
+        val api = connectionManager.connectedApi ?: return ScheduleMutationOutcome(reload = false, message = null)
+        if (connectionManager.generation !== generation) return ScheduleMutationOutcome(reload = false, message = null)
+        if (scheduleEditRoute() != false) {
+            val request = ScheduleEditRequest(
+                id = task.id,
+                action = "delete",
+                expectedUpdatedAt = task.updatedAt,
+            )
+            val result = api.scheduleEdit(request)
+            if (connectionManager.generation !== generation) return ScheduleMutationOutcome(reload = false, message = null)
+            when (result) {
+                is RpcResult.Ok -> {
+                    rememberScheduleEditRoute(modern = true, generationId = generation.clientId)
+                    val value = result.value
+                    return ScheduleMutationOutcome(
+                        reload = value.accepted || value.missCode != null,
+                        message = value.missCode ?: value.message,
+                    )
+                }
+                is RpcResult.Err -> {
+                    if (!missingScheduleEdit(result.error)) {
+                        setConnectionError(result.error.message)
+                        return ScheduleMutationOutcome(reload = false, message = result.error.message)
+                    }
+                    rememberScheduleEditRoute(modern = false, generationId = generation.clientId)
+                }
+            }
+        }
+        if (connectionManager.generation !== generation) return ScheduleMutationOutcome(reload = false, message = null)
+        val legacy = api.scheduleDelete(ScheduleDeleteRequest(task.deliverySessionId.orEmpty(), task.id))
+        if (connectionManager.generation !== generation) return ScheduleMutationOutcome(reload = false, message = null)
+        return when (legacy) {
+            is RpcResult.Ok -> {
+                val value = legacy.value
+                ScheduleMutationOutcome(
+                    reload = value.deleted || value.code == "schedule_not_found",
+                    message = value.code,
+                )
+            }
+            is RpcResult.Err -> {
+                setConnectionError(legacy.error.message)
+                ScheduleMutationOutcome(reload = false, message = legacy.error.message)
+            }
+        }
+    }
+
+    /** The modern edit route this connection generation answered, or null while unobserved. */
+    private fun scheduleEditRoute(): Boolean? = synchronized(lock) {
+        scheduleEditRoute?.takeIf { it.first == connectionManager.generation?.clientId }?.second
+    }
+
+    private fun rememberScheduleEditRoute(modern: Boolean, generationId: String) = synchronized(lock) {
+        if (connectionManager.generation?.clientId == generationId) scheduleEditRoute = generationId to modern
+    }
+
+    private fun missingScheduleEdit(error: RpcError): Boolean =
+        missingUnaryRemoteEndpoint(error.code, error.details, "schedule/edit")
 
     suspend fun updateQueue(itemId: String, action: String, contentText: String? = null): String? {
         val sid = currentSessionId.value ?: return "no open session"
@@ -3546,10 +3774,22 @@ class SessionStore @Inject constructor(
         }
     }
 
-    suspend fun fetchAttachment(attachmentId: String): ByteArray? {
+    /**
+     * Read one durable image by its complete reference.
+     *
+     * The request carries both the pre-0.2.2 `attachmentId` and the 0.2.2 `attachment` reference:
+     * each Host generation discards the request member it does not declare, so one call serves
+     * either and the image surface needs no capability probe.
+     */
+    suspend fun fetchAttachment(attachment: ImageAttachmentRef): ByteArray? {
         val sid = currentSessionId.value ?: return null
         val api = apiOrNull() ?: return null
-        return when (val r = api.sessionAttachment(SessionAttachmentRequest(sid, attachmentId))) {
+        val request = SessionAttachmentRequest(
+            sessionId = sid,
+            attachmentId = attachment.attachmentId,
+            attachment = attachment,
+        )
+        return when (val r = api.sessionAttachment(request)) {
             is RpcResult.Ok -> runCatching { Base64.decode(r.value.data, Base64.DEFAULT) }.getOrNull()
             is RpcResult.Err -> {
                 setConnectionError(r.error.message)
@@ -3731,7 +3971,7 @@ class SessionStore @Inject constructor(
     suspend fun interruptSubagent(childSessionId: String) {
         val sid = currentSessionId.value ?: return
         val api = apiOrNull() ?: return
-        when (val r = api.subagentInterrupt(childSessionId = childSessionId, parentSessionId = sid)) {
+        when (val r = interruptLiveSubagent(api, childSessionId, sid)) {
             is RpcResult.Ok -> Unit
             is RpcResult.Err -> setConnectionError(r.error.message)
         }
@@ -3753,9 +3993,11 @@ class SessionStore @Inject constructor(
             log("subagent $childSessionId has no readable transcript mode")
             return
         }
-        // Each durable address owns its own log and cursor. Read the child's opening snapshot
-        // instead of paging it through the unrelated parent generation.
-        val mux = connectionManager.generation?.mux ?: return
+        // Read this child's own tail, not the unrelated parent transcript's cursor.
+        val generation = connectionManager.generation ?: return
+        val mux = generation.mux
+        val api = connectionManager.apiForEvent(generation.clientId) ?: return
+        if (connectionManager.generation !== generation || apiOrNull() !== api) return
         val address = SessionAddress.Subagent(
             parentSessionId = sid,
             childSessionId = childSessionId,
@@ -3771,19 +4013,33 @@ class SessionStore @Inject constructor(
             )
         }
         try {
-            val frame = decodeOrNull(
-                SessionFollowFrameSerializer,
-                mux.openStream("session/follow", args).first(),
-            )
-            if (frame is SessionFollowFrame.Snapshot) {
-                val envelopes = historyTail(expandRecords(frame.records), INITIAL_TRANSCRIPT_MESSAGE_COUNT)
-                _subagentConversation.value = EventFold(childSessionId).fold(envelopes)
-                    .copy(hasMore = frame.hasMore)
-            } else {
-                error("session/follow did not open with a snapshot")
+            val page = readSessionEvents(
+                api,
+                SessionPageRequest(address = address, maxMessages = INITIAL_TRANSCRIPT_MESSAGE_COUNT),
+                generation.clientId,
+            ) {
+                val frame = decodeOrNull(
+                    SessionFollowFrameSerializer,
+                    mux.openStream("session/follow", args).first(),
+                )
+                if (frame !is SessionFollowFrame.Snapshot) error("session/follow did not open with a snapshot")
+                RpcResult.Ok(SessionPage(records = frame.records, hasMore = frame.hasMore))
+            }
+            if (connectionManager.generation !== generation || currentSessionId.value != sid) return
+            when (page) {
+                is RpcResult.Ok -> {
+                    val envelopes = historyTail(expandRecords(page.value.records), INITIAL_TRANSCRIPT_MESSAGE_COUNT)
+                    _subagentConversation.value = EventFold(childSessionId).fold(envelopes)
+                        .copy(hasMore = page.value.hasMore)
+                }
+                is RpcResult.Err -> {
+                    _subagentConversation.value = null
+                    setConnectionError(page.error.message)
+                }
             }
         } catch (failure: Throwable) {
             if (failure is kotlinx.coroutines.CancellationException) throw failure
+            if (connectionManager.generation !== generation || currentSessionId.value != sid) return
             _subagentConversation.value = null
             setConnectionError(failure.message)
         }

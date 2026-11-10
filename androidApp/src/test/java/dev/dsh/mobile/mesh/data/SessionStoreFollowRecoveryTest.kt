@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
@@ -38,12 +39,17 @@ class SessionStoreFollowRecoveryTest {
     private class FakeChannel(private val sink: WsChannelSink) :
         WsChannel("http://stub/api/remote.mux", OkHttpClient(), sink) {
         val followIds = CopyOnWriteArrayList<String>()
+        val followRequests = CopyOnWriteArrayList<JsonObject>()
         override fun start() = sink.onOpen()
         override fun send(text: String): Boolean {
             val message = Json.parseToJsonElement(text).jsonObject
             if (message["type"]?.jsonPrimitive?.content == "open" &&
                 message["endpoint"]?.jsonPrimitive?.content == "session/follow"
-            ) followIds += message.getValue("streamId").jsonPrimitive.content
+            ) {
+                followIds += message.getValue("streamId").jsonPrimitive.content
+                val request = message["payload"]?.jsonObject?.get("args")?.jsonObject?.get("request") as? JsonObject
+                request?.let(followRequests::add)
+            }
             return true
         }
         override fun close() = Unit
@@ -67,6 +73,17 @@ class SessionStoreFollowRecoveryTest {
             channel.emit(snapshot(channel.followIds[1], 2, "after"))
             awaitCondition { store.currentConversation.value?.projections?.get("recoveryTest")?.jsonPrimitive?.content == "after" }
             assertEquals(2, channel.followIds.size)
+        }
+    }
+
+    @Test
+    fun `opening an ordinary transcript asks the host to activate it`() = runBlocking {
+        // 0.2.2 made background promotion opt-in through `activate`; this app was built on the
+        // older unconditional promotion, so an ordinary open must keep asking for it.
+        withStore { store, channel ->
+            store.openSession("s")
+            awaitCondition { channel.followRequests.size == 1 }
+            assertEquals(true, channel.followRequests.single()["activate"]?.jsonPrimitive?.content?.toBoolean())
         }
     }
 

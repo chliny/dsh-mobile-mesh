@@ -3,6 +3,8 @@ package dev.dsh.mobile.mesh.ui.screens.main
 import dev.dsh.mobile.mesh.core.session.ToolCallNode
 import dev.dsh.mobile.mesh.core.session.ToolResultNode
 import dev.dsh.mobile.mesh.core.wire.WireJson
+import dev.dsh.mobile.mesh.core.wire.decodeFromJsonElement
+import dev.dsh.mobile.mesh.core.wire.dto.ImageAttachmentRef
 import dev.dsh.mobile.mesh.ui.components.ContentBlockView
 import dev.dsh.mobile.mesh.ui.components.DiffHunk
 import dev.dsh.mobile.mesh.ui.components.ReadLine
@@ -94,13 +96,11 @@ private fun genericContentBlocks(content: JsonElement): List<ContentBlockView> {
 
 private fun genericImageBlock(block: JsonObject): ContentBlockView.ImageBlock? {
     val attachment = (block["attachment"] as? JsonObject) ?: block
-    val id = (attachment["attachmentId"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
-        ?.takeIf { it.isNotBlank() } ?: return null
-    val mediaType = (attachment["mediaType"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
-        ?.takeIf { it.isNotBlank() } ?: return null
-    val width = int(attachment, "width")?.takeIf { it > 0 } ?: return null
-    val height = int(attachment, "height")?.takeIf { it > 0 } ?: return null
-    return ContentBlockView.ImageBlock(id, mediaType, width, height, str(attachment, "name"))
+    // Decode the whole reference, not individual fields: the image read route requires it.
+    val ref = runCatching {
+        decodeFromJsonElement(ImageAttachmentRef.serializer(), attachment)
+    }.getOrNull()?.takeIf { it.attachmentId.isNotBlank() && it.width > 0 && it.height > 0 } ?: return null
+    return ContentBlockView.ImageBlock(ref)
 }
 
 /** The call's arguments as an object, or null when they are absent or not a JSON object. */

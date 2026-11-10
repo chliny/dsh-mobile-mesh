@@ -1,5 +1,7 @@
 package dev.dsh.mobile.mesh.ui.components
 
+import dev.dsh.mobile.mesh.core.wire.dto.ImageAttachmentRef
+
 /**
  * View models for the harness tool cards. Pure data — rendering lives in
  * [ToolCards.kt].
@@ -14,16 +16,11 @@ sealed interface ContentBlockView {
     data class ReasoningBlock(val text: String) : ContentBlockView
 
     /**
-     * A raster the tool produced — a screenshot, a rendered chart. The intrinsic size travels with
-     * the reference so the decoder can downsample without a bounds-only pass.
+     * A raster the tool produced — a screenshot, a rendered chart. The complete wire reference
+     * travels with the block: its intrinsic size drives downsampling, and the 0.2.2 read route
+     * requires the whole reference rather than a bare id.
      */
-    data class ImageBlock(
-        val attachmentId: String,
-        val mediaType: String,
-        val width: Int,
-        val height: Int,
-        val name: String? = null,
-    ) : ContentBlockView
+    data class ImageBlock(val attachment: ImageAttachmentRef) : ContentBlockView
 }
 
 /** One diff hunk: [path] plus the removed [oldText] and/or added [newText] lines. */
@@ -132,7 +129,7 @@ fun ToolCardView.hasExpandableContent(): Boolean = when (this) {
             when (block) {
                 is ContentBlockView.TextBlock -> block.text.isNotBlank()
                 is ContentBlockView.ReasoningBlock -> block.text.isNotBlank()
-                is ContentBlockView.ImageBlock -> block.attachmentId.isNotBlank()
+                is ContentBlockView.ImageBlock -> block.attachment.attachmentId.isNotBlank()
             }
         }
     is ToolCardView.TerminalCard -> !description.isNullOrBlank() || !command.isNullOrBlank() ||

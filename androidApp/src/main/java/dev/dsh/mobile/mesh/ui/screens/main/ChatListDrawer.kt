@@ -269,11 +269,12 @@ fun ChatListDrawer(
     val workspaceSessionIds = workspaces.flatMap { it.sessionIds }.toSet()
 
     // Subagents nest under the session that spawned them. `origin` is the discriminator, not
-    // `parentSessionId` — an ordinary fork sets a parent too, and a fork is a session in its own
-    // right that belongs at the top level. Grouping is by *immediate* parent so a subagent that
-    // spawned its own subagents nests to whatever depth the run actually reached; a child whose
-    // parent is archived or blank attaches to the nearest ancestor still on screen instead of
-    // disappearing with it.
+    // `parentSessionId` — hosts before 0.2.2 also set a parent on ordinary forks, and a fork is a
+    // session in its own right that belongs at the top level; 0.2.2 stopped publishing that parent
+    // for forks, while subagent sessions still carry it. Grouping is by *immediate* parent so a
+    // subagent that spawned its own subagents nests to whatever depth the run actually reached; a
+    // child whose parent is archived or blank attaches to the nearest ancestor still on screen
+    // instead of disappearing with it.
     val childrenByParent = remember(listable) { indexSubagents(listable, sessionsById) }
     val nestedIds = remember(childrenByParent) {
         childrenByParent.values.flatten().mapTo(HashSet()) { it.sessionId }
