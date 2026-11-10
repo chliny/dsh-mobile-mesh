@@ -21,14 +21,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
+import dev.dsh.mobile.mesh.core.wire.dto.ModelBadge
 import dev.dsh.mobile.mesh.core.wire.dto.ModelCatalogModel
 import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
 import dev.dsh.mobile.mesh.data.SessionStore
@@ -39,6 +42,7 @@ import dev.dsh.mobile.mesh.ui.theme.DsShapes
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 /**
@@ -58,6 +62,10 @@ internal fun ModelsSheet(
 ) {
     val scope = rememberCoroutineScope()
     val colors = DsTheme.colors
+    val configuration = LocalConfiguration.current
+    // The Host localizes badge text itself; this client only picks the reader's language out of
+    // the map it was given, falling back to the Host's required `en` when that language is absent.
+    val badgeLanguageTags = remember(configuration) { modelBadgeLanguageTags(configuration.locales.get(0)) }
     DsBottomSheet(title = stringResource(R.string.models_title), onDismiss = onDismiss) {
         if (models == null) {
             Text(stringResource(R.string.common_loading), style = DsType.std14, color = colors.labelTertiary)
@@ -94,6 +102,7 @@ internal fun ModelsSheet(
                     val isCurrent = current.provider == group.id && current.model == model.id
                     ModelRow(
                         model = model,
+                        badgeLanguageTags = badgeLanguageTags,
                         selected = isCurrent,
                         selectedEffort = current.reasoningEffort.takeIf { isCurrent },
                         onSelect = { scope.launch { store.selectModel(group.id, model.id) } },
@@ -116,6 +125,20 @@ internal fun ModelsSheet(
 }
 
 /**
+ * Language tags used to pick one Host badge translation, most specific first.
+ *
+ * The Host keys translations by lowercase language id and always includes `en`, which
+ * [ModelBadgeText.resolve] falls back to. Trying the full BCP 47 tag before its language keeps a
+ * regional translation authoritative when the Host publishes one.
+ */
+internal fun modelBadgeLanguageTags(locale: Locale): List<String> {
+    val tags = LinkedHashSet<String>()
+    locale.toLanguageTag().lowercase().takeUnless { it.isEmpty() || it == "und" }?.let(tags::add)
+    locale.language.lowercase().takeUnless { it.isEmpty() || it == "und" }?.let(tags::add)
+    return tags.toList()
+}
+
+/**
  * One model as a card: the name, and — once it is the live one — the reasoning tiers beneath.
  *
  * The chosen card carries an accent wash and border rather than only a blue name and a check
@@ -133,6 +156,7 @@ internal fun reasoningEffortSelection(key: String): String? =
 @Composable
 private fun ModelRow(
     model: ModelCatalogModel,
+    badgeLanguageTags: List<String>,
     selected: Boolean,
     selectedEffort: String?,
     onSelect: () -> Unit,
@@ -162,13 +186,27 @@ private fun ModelRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        model.name,
-                        style = DsType.std14Strong,
-                        color = if (selected) colors.accent else colors.labelPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            model.name,
+                            style = DsType.std14Strong,
+                            color = if (selected) colors.accent else colors.labelPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        // The Host's own label, in the reader's language when it published one.
+                        // It is shown beside the name and never filters, sorts, or gates a model.
+                        val badge = model.badge
+                        val badgeLabel = badge?.text?.resolve(badgeLanguageTags)
+                        if (badge != null && badgeLabel != null) {
+                            Spacer(Modifier.width(DsSpacing.xsmall))
+                            ModelBadgePill(text = badgeLabel, tone = badge.tone)
+                        }
+                    }
                     model.description?.takeIf { it.isNotBlank() }?.let {
                         Text(
                             it,
@@ -224,5 +262,30 @@ private fun ModelRow(
                 }
             }
         }
+    }
+}
+
+/**
+ * The Host's label as a quiet pill. The tone only chooses an emphasis pair from the theme
+ * palette; an unrecognized tone from a newer Host stays readable at the least emphasis.
+ */
+@Composable
+private fun ModelBadgePill(text: String, tone: String) {
+    val colors = DsTheme.colors
+    val (container, content) = when (tone) {
+        ModelBadge.TONE_INFO -> colors.accentTertiary to colors.accent
+        ModelBadge.TONE_SUCCESS -> colors.successTertiary to colors.success
+        ModelBadge.TONE_WARNING -> colors.warnTertiary to colors.warnLabel
+        else -> colors.bgLayer3 to colors.labelSecondary
+    }
+    Surface(color = container, shape = DsShapes.pill) {
+        Text(
+            text = text,
+            style = DsType.caption11Strong,
+            color = content,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = DsSpacing.xsmall, vertical = DsSpacing.tiny),
+        )
     }
 }

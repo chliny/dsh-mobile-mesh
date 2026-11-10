@@ -1,15 +1,27 @@
 package dev.dsh.mobile.mesh.core.wire.dto
 
+import dev.dsh.mobile.mesh.core.wire.decodeFromJsonElement
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.builtins.nullable
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Sessions-domain DTOs, ported from `packages/api/session-controller/src/types.ts`,
  * `packages/attachment/attachment/src/types.ts` and `packages/client/file-upload/src/types.ts`
- * (protocol baseline: v0.2.1-rc.2). Includes the request/response values of the `session` namespace methods
+ * (protocol baseline: v0.2.2-rc.1). Includes the request/response values of the `session` namespace methods
  * (list/search/create/rename/fork/selectModel/prompt/attachment/updateQueue/cancel), the
- * model-catalog shapes, and the image and file attachment shapes.
+ * model-catalog shapes (including the 0.2.2 model badge), and the image and file attachment shapes.
  */
 
 /** One Session list entry. */
@@ -114,6 +126,112 @@ data class ModelReasoning(
     @SerialName("defaultEffort") val defaultEffort: String? = null,
 )
 
+/**
+ * Provider-authored label riding one catalog model (harness 0.2.2 `ModelCatalogModel.badge`).
+ *
+ * Display data only: catalog membership and the session's selection remain the Host's decision, so
+ * this label must never filter, sort, rank, or gate a model. [tone] is deliberately a plain string
+ * rather than an enum: the Host's tone vocabulary may grow, and a tone this build does not know
+ * must still decode and render (at the least emphasis) instead of failing the whole catalog.
+ */
+@Serializable
+data class ModelBadge(
+    /** One literal for every reader, or translations keyed by lowercase language id. */
+    @SerialName("text") val text: ModelBadgeText,
+    /** Host emphasis token, one of [TONE_NEUTRAL], [TONE_INFO], [TONE_SUCCESS], [TONE_WARNING]. */
+    @SerialName("tone") val tone: String = TONE_NEUTRAL,
+) {
+    companion object {
+        /** Least emphasis; also the rendering of an unrecognized tone. */
+        const val TONE_NEUTRAL = "neutral"
+        const val TONE_INFO = "info"
+        const val TONE_SUCCESS = "success"
+        const val TONE_WARNING = "warning"
+    }
+}
+
+/**
+ * A badge's text as the Host publishes it: one literal, or translations keyed by lowercase
+ * language id with a required English entry (the Host validates both before publishing).
+ */
+@Serializable(with = ModelBadgeTextSerializer::class)
+sealed class ModelBadgeText {
+    /** The same text for every reader. */
+    data class Literal(val value: String) : ModelBadgeText()
+
+    /** Translations keyed by lowercase language id; [resolve] falls back to the Host's `en`. */
+    data class Translations(val values: Map<String, String>) : ModelBadgeText()
+
+    /**
+     * Resolve the text for a reader locale.
+     * @param languageTags lowercase BCP 47 tags, most specific first (e.g. `zh-cn`, `zh`)
+     * @returns the first matching translation, else the Host's English text, else null when
+     *   nothing displayable was published (the caller then hides the label, not the model)
+     */
+    fun resolve(languageTags: List<String>): String? = when (this) {
+        is Literal -> value.takeIf { it.isNotBlank() }
+        is Translations -> {
+            languageTags.firstNotNullOfOrNull { tag -> values[tag]?.takeIf { it.isNotBlank() } }
+                ?: values["en"]?.takeIf { it.isNotBlank() }
+        }
+    }
+}
+
+/** Decode the Host's `string | Record<language, string>` badge text and encode the same shape. */
+object ModelBadgeTextSerializer : KSerializer<ModelBadgeText> {
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("ModelBadgeText")
+
+    override fun deserialize(decoder: Decoder): ModelBadgeText =
+        parseModelBadgeText((decoder as JsonDecoder).decodeJsonElement())
+            ?: throw SerializationException("unsupported model badge text shape")
+
+    override fun serialize(encoder: Encoder, value: ModelBadgeText) {
+        val json = when (value) {
+            is ModelBadgeText.Literal -> JsonPrimitive(value.value)
+            is ModelBadgeText.Translations -> JsonObject(value.values.mapValues { JsonPrimitive(it.value) })
+        }
+        (encoder as JsonEncoder).encodeJsonElement(json)
+    }
+}
+
+/**
+ * Decode an optional badge without letting one malformed or future payload take the catalog down.
+ *
+ * The model list is what the sheet exists to show; a badge this build cannot read reads as absent,
+ * exactly like a Host that publishes none, so its model stays visible and selectable.
+ */
+object ModelBadgeOrNullSerializer : KSerializer<ModelBadge?> {
+    private val delegate = ModelBadge.serializer().nullable
+
+    override val descriptor: SerialDescriptor = delegate.descriptor
+
+    override fun serialize(encoder: Encoder, value: ModelBadge?) = delegate.serialize(encoder, value)
+
+    override fun deserialize(decoder: Decoder): ModelBadge? {
+        val jsonDecoder = decoder as? JsonDecoder ?: return delegate.deserialize(decoder)
+        return runCatching {
+            decodeFromJsonElement(ModelBadge.serializer(), jsonDecoder.decodeJsonElement())
+        }.getOrNull()
+    }
+}
+
+/** Read one wire badge text, or null when the shape is not the Host's string-or-translations form. */
+private fun parseModelBadgeText(element: JsonElement?): ModelBadgeText? = when (element) {
+    is JsonPrimitive -> {
+        // JsonNull is a primitive too; `isString` keeps numbers and booleans out.
+        if (element.isString) element.content.takeIf { it.isNotBlank() }?.let(ModelBadgeText::Literal) else null
+    }
+    is JsonObject -> {
+        val values = LinkedHashMap<String, String>()
+        for ((language, value) in element) {
+            val text = (value as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+            if (text.isNotBlank()) values[language.lowercase()] = text
+        }
+        values.takeIf { it.isNotEmpty() }?.let(ModelBadgeText::Translations)
+    }
+    else -> null
+}
+
 /** One model displayed inside its provider group. */
 @Serializable
 data class ModelCatalogModel(
@@ -121,6 +239,12 @@ data class ModelCatalogModel(
     @SerialName("name") val name: String,
     @SerialName("description") val description: String? = null,
     @SerialName("reasoning") val reasoning: ModelReasoning? = null,
+    /**
+     * Provider-authored label shown beside the name; display data only. Absent on Hosts released
+     * before harness 0.2.2 and whenever the published payload is unreadable.
+     */
+    @Serializable(with = ModelBadgeOrNullSerializer::class)
+    @SerialName("badge") val badge: ModelBadge? = null,
 )
 
 /** One provider and the models it advertised successfully. */
