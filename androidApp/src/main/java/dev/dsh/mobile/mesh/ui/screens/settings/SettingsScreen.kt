@@ -717,6 +717,17 @@ private fun PluginRow(entry: PluginInventoryEntry) {
                         color = colors.labelTertiary,
                     )
                 }
+                // A failed fiber's cause exists only on the Host that ran it, so show that message
+                // verbatim. Old Hosts omit it and running entries have nothing to report: their rows
+                // keep the exact look they had, rather than having a cause guessed for them.
+                val diagnostic = entry.diagnostic
+                if (entry.fiberPhase == PluginFiberPhase.FAILED && diagnostic != null) {
+                    Text(
+                        text = diagnostic,
+                        style = DsType.caption11,
+                        color = colors.errorSecondary,
+                    )
+                }
             }
         }
     }

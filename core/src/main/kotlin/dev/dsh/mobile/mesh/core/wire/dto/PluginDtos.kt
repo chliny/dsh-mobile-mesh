@@ -43,6 +43,16 @@ data class PluginInventoryEntry(
     /** Effective enablement, already folded through any disabled ancestor group. */
     @SerialName("enabled") val enabled: Boolean,
     @SerialName("fiberPhase") val fiberPhase: PluginFiberPhase? = null,
+    /**
+     * Host-reported startup failure for this entry's root fiber, when
+     * [fiberPhase] is [PluginFiberPhase.FAILED].
+     *
+     * The text is the Host's own error message, shown verbatim: the app cannot
+     * reproduce a startup failure it never ran. Across the wire the field is
+     * absent whenever the entry has no failed fiber, and old Hosts omit it
+     * entirely, so `null` means "nothing reported" rather than "no failure".
+     */
+    @SerialName("diagnostic") val diagnostic: String? = null,
 )
 
 /** Value of `pluginInventory/list`. */
