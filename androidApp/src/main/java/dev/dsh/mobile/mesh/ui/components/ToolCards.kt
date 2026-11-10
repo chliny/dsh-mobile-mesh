@@ -67,11 +67,25 @@ fun ToolCard(
     state: DisclosureState? = null,
     onOpenFile: ((String, String) -> Unit)? = null,
 ) {
+    // A Host-reported stopped patch is a stopped tool run: the warning dot outranks the glyph,
+    // exactly as it does for an interrupted shell. The row model only sees the requested call, so
+    // this result-only semantic is derived from the card here.
+    val stoppedPatch = view is ToolCardView.DiffCard && view.partial
+    val disclosureState = when {
+        stoppedPatch && (state == null || state == DisclosureState.Idle) -> DisclosureState.Stopped
+        else -> state ?: if (view.isRunning()) DisclosureState.Running else DisclosureState.Idle
+    }
     DisclosureRow(
         title = titleOverride ?: view.displayTitle(),
-        summary = summaryOverride ?: view.summary(),
+        // A stopped patch must stay visible while collapsed. The caller's summary describes the
+        // requested call, which is not evidence that any operation was applied.
+        summary = if (stoppedPatch) {
+            stringResource(dev.dsh.mobile.mesh.R.string.apply_patch_partial)
+        } else {
+            summaryOverride ?: view.summary()
+        },
         icon = iconOverride ?: view.icon(),
-        state = state ?: if (view.isRunning()) DisclosureState.Running else DisclosureState.Idle,
+        state = disclosureState,
         expanded = expanded,
         onToggle = if (view.hasExpandableContent()) onToggle else null,
     ) {
@@ -248,6 +262,36 @@ private fun DiffBody(card: ToolCardView.DiffCard, onOpenFile: ((String, String) 
     val colors = DsTheme.colors
     val (added, removed, files) = diffStats(card.diffs)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (card.partial) {
+            // The Host stopped before every operation finished. State it before any hunk so the
+            // changes below cannot be mistaken for the complete patch.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(DsShapes.row)
+                    .background(colors.warnTertiary)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                StateDot(StateDotState.Warning, size = 8.dp)
+                Text(
+                    stringResource(dev.dsh.mobile.mesh.R.string.apply_patch_partial),
+                    style = DsType.caption11Strong,
+                    color = colors.warnLabel,
+                )
+            }
+            // The Host's own stopped summary: which operations failed or were not executed. The
+            // hunks below cannot explain why applying ended early.
+            card.detail?.takeIf { it.isNotBlank() }?.let { detail ->
+                Text(
+                    detail,
+                    style = DsType.caption11.copy(fontFamily = DsType.codeFont),
+                    color = colors.labelSecondary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
+        }
         card.diffs.forEach { hunk ->
             Text(
                 basename(hunk.path),

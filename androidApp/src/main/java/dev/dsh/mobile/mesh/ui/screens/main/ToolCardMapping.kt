@@ -55,6 +55,7 @@ internal fun buildToolCardView(
     if (args != null) {
         terminalCard(call, args, result, running, cwd)?.let { return it }
         diffCard(call, args, result)?.let { return it }
+        patchCard(call, args, result)?.let { return it }
         readCard(args, result, cwd, home)?.let { return it }
         searchCard(call, args, result)?.let { return it }
         webCard(call, args, result)?.let { return it }
@@ -385,6 +386,39 @@ private fun diffCard(call: ToolCallNode, args: JsonObject, result: ToolResultNod
     }
     return ToolCardView.DiffCard(diffs = applied)
 }
+
+/**
+ * The multi-file patch card: the Host's applied-change metadata, never the requested patch.
+ *
+ * Upstream `apply_patch` persists `meta = { diffs, stopped }`. `diffs` is derived from the
+ * operations the Host actually applied (completed updates and removals, plus a failed move's
+ * written destination; creations carry no bounded before/after basis), and `stopped` is set when
+ * the patch did not finish every operation. The call argument is only the patch that was
+ * *requested*, so a running call, a failed result, or a result without usable metadata keeps the
+ * generic card that shows the Host's own text — a requested or unapplied change is never drawn as
+ * one.
+ */
+private fun patchCard(call: ToolCallNode, args: JsonObject, result: ToolResultNode?): ToolCardView? {
+    if (call.name != "apply_patch" || str(args, "input") == null) return null
+    if (!validEscalation(args)) return null
+    if (result == null || result.isError) return null
+    val applied = appliedDiffs(result) ?: return null
+    // An empty patch, and a patch whose applied operations are all creations or unbounded
+    // removals, carries no hunks: the generic result text is the only truthful picture there.
+    if (applied.isEmpty()) return null
+    val partial = stoppedFromMeta(result)
+    // A stopped patch keeps the Host's own account of what failed or never ran; the applied
+    // hunks cannot say why applying ended early.
+    return ToolCardView.DiffCard(
+        diffs = applied,
+        partial = partial,
+        detail = if (partial) toolResultText(result) else null,
+    )
+}
+
+/** The Host's explicit "applying stopped before every operation finished" flag, if any. */
+private fun stoppedFromMeta(result: ToolResultNode): Boolean =
+    (meta(result)?.get("stopped") as? JsonPrimitive)?.booleanOrNull == true
 
 // ============================================================================================
 // Read

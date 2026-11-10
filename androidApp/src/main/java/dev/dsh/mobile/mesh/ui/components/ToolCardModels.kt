@@ -97,8 +97,23 @@ sealed interface ToolCardView {
         val running: Boolean? = null,
     ) : ToolCardView
 
-    /** Diff: per-path hunks with added/removed line counts. */
-    data class DiffCard(val title: String? = null, val diffs: List<DiffHunk>) : ToolCardView
+    /**
+     * Diff: per-path hunks with added/removed line counts.
+     *
+     * [partial] marks a multi-file patch whose Host result metadata reported that applying stopped
+     * before every operation finished. The hunks are still exactly the operations that were
+     * applied, but the card must not read as a complete success.
+     *
+     * [detail] carries the Host's own result text for that stopped outcome — which operations
+     * failed or were not executed — because the hunks alone cannot say why applying stopped. It
+     * is verbatim Host output, never a client guess, and absent for a complete patch.
+     */
+    data class DiffCard(
+        val title: String? = null,
+        val diffs: List<DiffHunk>,
+        val partial: Boolean = false,
+        val detail: String? = null,
+    ) : ToolCardView
 
     /** Search: file matches or path list, with truncation info. */
     data class SearchCard(
