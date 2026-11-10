@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.intOrNull
 
 /** Session API generation: a parent-catalog host replaced `subagents/list`. */
 enum class HarnessProtocol { LEGACY_SUBAGENTS, PARENT_CATALOG, UNDETERMINED }
@@ -73,7 +74,7 @@ internal class HarnessProtocolSelection(private val previous: HarnessProtocol? =
             is RpcResult.Ok -> true
             is RpcResult.Err -> when {
                 capability == HarnessCapability.TERMINAL &&
-                    missingRemoteEndpoint(result.error.code, result.error.details, "terminal/list") -> false
+                    missingUnaryRemoteEndpoint(result.error.code, result.error.details, "terminal/list") -> false
                 else -> throw ProtocolProbeException(result.error.code, result.error.message)
             }
         }
@@ -176,16 +177,42 @@ internal fun classifySessionList(value: JsonElement): HarnessProtocol? {
 internal fun classifyProjectionRoute(result: RpcResult<*>): HarnessProtocol = when (result) {
     is RpcResult.Ok -> HarnessProtocol.UNDETERMINED
     is RpcResult.Err -> {
-        if (missingRemoteEndpoint(result.error.code, result.error.details, "session/projections"))
+        if (missingUnaryRemoteEndpoint(result.error.code, result.error.details, "session/projections"))
             HarnessProtocol.LEGACY_SUBAGENTS
         else throw ProtocolProbeException(result.error.code, result.error.message)
     }
 }
 
-/** A named missing Remote export, not an arbitrary HTTP 404, access refusal, or lookup failure. */
+/** A named missing Remote export on a stream, not an access refusal, timeout, or lookup failure. */
 internal fun missingRemoteEndpoint(code: String, details: JsonElement?, endpoint: String): Boolean =
     code == "gateway/invocation-unavailable" &&
         (details as? JsonObject)?.get("endpoint") == JsonPrimitive(endpoint)
+
+/**
+ * A unary Remote path this Host does not expose.
+ *
+ * Unary requests share the `/api` handler, which answers an unclaimed endpoint with a plain HTTP
+ * 404 before any gateway dispatch; the client surfaces that as `capability-unavailable` with the
+ * NOT_FOUND transport marker and the originating status in `details`. Streams opened on the mux
+ * instead receive the gateway's structured `gateway/invocation-unavailable` frame, so both forms
+ * are accepted — and only those forms. A timeout, an authentication refusal, or any other failure
+ * is never evidence that a route is absent.
+ */
+internal fun missingUnaryRemoteEndpoint(code: String, details: JsonElement?, endpoint: String): Boolean {
+    if (missingRemoteEndpoint(code, details, endpoint)) return true
+    if (code != "capability-unavailable") return false
+    val fields = details as? JsonObject ?: return false
+    return fields[TransportFailures.DETAILS_KEY] == JsonPrimitive(TransportFailure.NOT_FOUND.name) &&
+        (fields[TransportFailures.STATUS_KEY] as? JsonPrimitive)?.intOrNull == 404
+}
+
+/**
+ * The unary [RpcError] form of [missingUnaryRemoteEndpoint].
+ * @param error - the typed failure a unary call answered
+ * @param endpoint - the exact Remote path whose absence is being tested
+ */
+internal fun missingUnaryRemoteEndpoint(error: dev.dsh.mobile.mesh.core.wire.RpcError, endpoint: String): Boolean =
+    missingUnaryRemoteEndpoint(error.code, error.details, endpoint)
 
 internal class ProtocolProbeException(code: String, message: String) :
     Exception("Could not determine Harness session API ($code): $message")
