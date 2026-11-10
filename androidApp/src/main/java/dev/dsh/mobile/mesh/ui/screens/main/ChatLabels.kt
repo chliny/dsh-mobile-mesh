@@ -79,6 +79,13 @@ internal fun subagentLabel(entry: SubagentListEntry): String? = when (entry) {
     else -> null
 }
 
+/** Host-provided display name; session operations continue to use the catalog id. */
+internal fun subagentName(entry: SubagentListEntry): String? = when (entry) {
+    is SubagentListEntry.ChildContinuable -> entry.name
+    is SubagentListEntry.Projected -> entry.entry.name
+    else -> null
+}?.takeIf { it.isNotBlank() }
+
 internal fun canOpenSubagentTranscript(entry: SubagentListEntry): Boolean = when (entry) {
     is SubagentListEntry.ChildOneShot, is SubagentListEntry.ChildContinuable -> true
     is SubagentListEntry.Projected -> entry.entry.mode == "one-shot" || entry.entry.mode == "continuable"

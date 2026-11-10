@@ -68,6 +68,8 @@ sealed class SubagentListEntry {
         @SerialName("hasChildren") val hasChildren: Boolean,
         @SerialName("mode") val mode: String = "continuable",
         @SerialName("label") val label: String,
+        /** Host-provided sibling-unique name; absent on older Hosts. */
+        @SerialName("name") val name: String? = null,
     ) : SubagentListEntry() {
         override val kind: String get() = "child"
     }
@@ -157,6 +159,8 @@ data class SubagentCatalogProjectionEntry(
     /** `one-shot`, `continuable`, `unknown`, or `external` work without a readable child Session. */
     @SerialName("mode") val mode: String,
     @SerialName("label") val label: String? = null,
+    /** Host-provided name unique among siblings; absent on older or historical records. */
+    @SerialName("name") val name: String? = null,
 )
 
 /** Complete direct-child catalog plus the delivery-time parent availability hint. */

@@ -683,6 +683,8 @@ private fun SubagentsCard(
         }
         subagents.forEach { entry ->
             val id = subagentId(entry)
+            val label = subagentLabel(entry)?.takeIf { it.isNotBlank() }
+            val name = subagentName(entry)
             val child = id?.let(sessionsById::get)
             val running = subagentActivityRunning(entry, child?.running == true)
             val duration = child?.subagentTiming?.let { subagentElapsedMs(it, running, subagentNow) }
@@ -696,12 +698,16 @@ private fun SubagentsCard(
                 Spacer(Modifier.width(DsSpacing.small))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        subagentLabel(entry) ?: id.orEmpty(),
+                        label ?: name ?: id.orEmpty(),
                         style = DsType.small13,
                         color = colors.labelPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    if (label != null && name != null && name != label) {
+                        Text(name, style = DsType.caption11, color = colors.labelCaption,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                     Text(
                         listOfNotNull(
                             stringResource(if (running) R.string.subagents_running else R.string.subagents_inactive),

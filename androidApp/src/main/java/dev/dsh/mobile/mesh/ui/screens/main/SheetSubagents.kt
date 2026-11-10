@@ -93,6 +93,8 @@ internal fun SubagentsSheet(
 @Composable
 private fun SubagentRow(entry: SubagentListEntry, running: Boolean, elapsedMs: Long?, onClick: () -> Unit) {
     val colors = DsTheme.colors
+    val label = subagentLabel(entry)?.takeIf { it.isNotBlank() }
+    val name = subagentName(entry)
     val modeLabel = when (entry) {
         is SubagentListEntry.ChildOneShot -> stringResource(R.string.subagents_oneshot)
         is SubagentListEntry.ChildContinuable -> stringResource(R.string.subagents_continuable)
@@ -112,14 +114,19 @@ private fun SubagentRow(entry: SubagentListEntry, running: Boolean, elapsedMs: L
     ) {
         StateDot(if (running) StateDotState.Running else StateDotState.Idle)
         Spacer(Modifier.width(DsSpacing.small))
-        Text(
-            subagentLabel(entry) ?: subagentId(entry).orEmpty(),
-            style = DsType.small13,
-            color = colors.labelPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                label ?: name ?: subagentId(entry).orEmpty(),
+                style = DsType.small13,
+                color = colors.labelPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (label != null && name != null && name != label) {
+                Text(name, style = DsType.caption11, color = colors.labelTertiary,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
         elapsedMs?.let {
             Text(formatDurationMs(it), style = DsType.caption11, color = colors.labelTertiary)
             if (modeLabel != null) Spacer(Modifier.width(DsSpacing.xsmall))
