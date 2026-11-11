@@ -84,7 +84,7 @@ class SettingsViewModel @Inject constructor(
     suspend fun exportConnections(): String {
         val hosts = hostsStore.hosts.first()
         val ids = hosts.map { it.id }.toSet()
-        val cookies = sessions.exportCookies(ids)
+        val cookies = sessions.exportCookies(hosts)
         val credentials = sshSecrets.exportCredentials(ids)
         return ConnectionTransferCodec.encode(
             ConnectionTransfer(
@@ -108,7 +108,7 @@ class SettingsViewModel @Inject constructor(
         val idMapping = hostsStore.importHosts(transfer.connections.map { it.host }, replaceExistingIds)
         sessions.importCookies(transfer.connections.mapNotNull { entry ->
             val importedId = idMapping[entry.host.id] ?: return@mapNotNull null
-            entry.cookie?.takeIf { it.isNotBlank() }?.let { importedId to it }
+            entry.cookie?.takeIf { it.isNotBlank() }?.let { entry.host.copy(id = importedId) to it }
         }.toMap())
         transfer.connections.forEach { entry ->
             val importedId = idMapping[entry.host.id] ?: return@forEach

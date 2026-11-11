@@ -25,7 +25,11 @@ internal class RememberedHostsStorage(private val dataStore: DataStore<Preferenc
         private val protocolsSerializer = MapSerializer(String.serializer(), String.serializer())
     }
 
-    val hosts: Flow<List<HostConfig>> = dataStore.data.map(::readHosts)
+    val hosts: Flow<List<HostConfig>> = dataStore.data.map { prefs ->
+        val hosts = readHosts(prefs)
+        val tokens = hosts.filter { it.launchToken.isNotBlank() }.groupBy { it.authEndpointKey() }
+        hosts.map { host -> host.copy(launchToken = tokens[host.authEndpointKey()]?.first()?.launchToken.orEmpty()) }
+    }
 
     private fun readHosts(prefs: Preferences): List<HostConfig> = prefs[HOSTS]?.let { raw ->
         runCatching {
@@ -64,6 +68,7 @@ internal class RememberedHostsStorage(private val dataStore: DataStore<Preferenc
         lateinit var result: UpdateResult<T>
         dataStore.edit { prefs ->
             val current = readHosts(prefs).toMutableList()
+            migrateHarnessCookies(prefs, current)
             val protocols = readProtocols(prefs, current)
             result = UpdateResult(transform(current, prefs, protocols))
             prefs[HOSTS] = WireJson.encodeToString(serializer, current)
@@ -79,8 +84,15 @@ internal class RememberedHostsStorage(private val dataStore: DataStore<Preferenc
             val observed = config.lastProtocol?.takeUnless { it == HarnessProtocol.UNDETERMINED }
                 ?.takeIf { existing == null || sameHarnessEndpoint(existing, config) }
             if (observed != null) protocols.putIfAbsent(key, observed)
-            val merged = mergeRememberedHost(existing, config.copy(lastProtocol = protocols[key]))
+            val sameAuth = existing != null && existing.authEndpointKey() == config.authEndpointKey()
+            val peerToken = current.firstOrNull {
+                it.id != existing?.id && it.authEndpointKey() == config.authEndpointKey() && it.launchToken.isNotBlank()
+            }?.launchToken.orEmpty()
+            val suppliedToken = config.launchToken.takeIf { it.isNotBlank() && (existing == null || it != existing.launchToken) }
+            val token = suppliedToken ?: peerToken.ifBlank { if (sameAuth) existing?.launchToken.orEmpty() else "" }
+            val merged = mergeRememberedHost(existing, config.copy(lastProtocol = protocols[key])).copy(launchToken = token)
             current.removeAll { it.id == config.id || it.connectionIdentity() == config.connectionIdentity() }
+            if (token.isNotBlank()) current.replaceAll { if (it.authEndpointKey() == config.authEndpointKey()) it.copy(launchToken = token) else it }
             current.add(0, merged)
         }
     }
@@ -108,7 +120,8 @@ internal class RememberedHostsStorage(private val dataStore: DataStore<Preferenc
 
     suspend fun saveLaunchToken(hostId: String, token: String) {
         update { current, _, _ ->
-            current.replaceAll { if (it.id == hostId) it.copy(launchToken = token) else it }
+            val endpoint = current.firstOrNull { it.id == hostId }?.authEndpointKey() ?: return@update
+            current.replaceAll { if (it.authEndpointKey() == endpoint) it.copy(launchToken = token) else it }
         }
     }
 
@@ -154,7 +167,11 @@ internal class RememberedHostsStorage(private val dataStore: DataStore<Preferenc
             sshDshHost = sshDshHost,
             launchToken = existing?.launchToken.orEmpty(),
         )
+        val peerToken = current.firstOrNull {
+            it.authEndpointKey() == config.authEndpointKey() && it.launchToken.isNotBlank()
+        }?.launchToken.orEmpty()
         val merged = mergeRememberedHost(existing, config.copy(lastProtocol = protocols[config.harnessEndpointKey()]))
+            .copy(launchToken = peerToken)
         current.removeAll { it.id == config.id || it.connectionIdentity() == config.connectionIdentity() }
         current.add(0, merged)
         merged
@@ -189,7 +206,9 @@ internal class RememberedHostsStorage(private val dataStore: DataStore<Preferenc
 
     suspend fun removeHost(id: String) {
         update { current, prefs, _ ->
+            val removed = current.firstOrNull { it.id == id }
             current.removeAll { it.id == id }
+            if (removed != null) removeUnusedHarnessCookie(prefs, current, removed)
             if (prefs[ACTIVE_CONNECTION_ID] == id) prefs.remove(ACTIVE_CONNECTION_ID)
         }
     }

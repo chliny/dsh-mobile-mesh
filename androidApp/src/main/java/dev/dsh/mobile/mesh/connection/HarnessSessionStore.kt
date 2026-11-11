@@ -1,6 +1,7 @@
 package dev.dsh.mobile.mesh.connection
 
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -8,86 +9,102 @@ import dev.dsh.mobile.mesh.core.wire.HarnessSession
 import dev.dsh.mobile.mesh.core.wire.SessionExchange
 import dev.dsh.mobile.mesh.core.wire.WireJson
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import okhttp3.OkHttpClient
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Harness browser sessions, one per host.
- *
- * Harness 0.1.2 answers 401 to every `/api` request without one, so a direct connection cannot do
- * anything at all until this store holds a cookie for that host. The cookie is obtained once, by
- * exchanging the launch token the harness prints at startup, and survives harness restarts — the
- * signing secret is durable upstream even though the token itself rotates.
- *
-     * The cookie is stored with the app's private DataStore so a launch token only needs to be
-     * exchanged once per host.
- */
+private val legacyKey = stringPreferencesKey("harness_sessions_json")
+private val endpointKey = stringPreferencesKey("harness_endpoint_sessions_json")
+private val hostsKey = stringPreferencesKey("hosts_json")
+private val cookieSerializer = MapSerializer(String.serializer(), String.serializer())
+private val hostsSerializer = ListSerializer(HostConfig.serializer())
+
+private fun readCookies(prefs: Preferences, key: Preferences.Key<String>): Map<String, String> =
+    prefs[key]?.let { runCatching { WireJson.decodeFromString(cookieSerializer, it) }.getOrNull() }.orEmpty()
+
+private fun readHosts(prefs: Preferences): List<HostConfig> =
+    prefs[hostsKey]?.let { runCatching { WireJson.decodeFromString(hostsSerializer, it) }.getOrNull() }.orEmpty()
+
+/** Called inside the same transaction, before changing remembered hosts. */
+internal fun migrateHarnessCookies(prefs: MutablePreferences, hosts: List<HostConfig>) {
+    val legacy = readCookies(prefs, legacyKey)
+    if (legacy.isEmpty()) return
+    val endpoints = readCookies(prefs, endpointKey).toMutableMap()
+    val remaining = legacy.toMutableMap()
+    hosts.forEach { host ->
+        remaining.remove(host.id)?.takeIf { it.isNotBlank() }?.let {
+            endpoints.putIfAbsent(host.authEndpointKey(), it)
+        }
+    }
+    prefs[endpointKey] = WireJson.encodeToString(cookieSerializer, endpoints)
+    // Orphaned host IDs must not attach to a subsequently imported or newly created profile.
+    prefs.remove(legacyKey)
+}
+
+internal fun removeUnusedHarnessCookie(prefs: MutablePreferences, remainingHosts: List<HostConfig>, removedHost: HostConfig) {
+    if (remainingHosts.none { it.authEndpointKey() == removedHost.authEndpointKey() }) {
+        prefs[endpointKey] = WireJson.encodeToString(cookieSerializer, readCookies(prefs, endpointKey) - removedHost.authEndpointKey())
+    }
+}
+
+/** Browser sessions are shared by the actual DSH authentication endpoint. */
 @Singleton
 class HarnessSessionStore @Inject constructor(
     private val dataStore: DataStore<Preferences>,
     private val okHttpClient: OkHttpClient,
 ) {
-    private val serializer = MapSerializer(String.serializer(), String.serializer())
+    suspend fun cookie(host: HostConfig): String? = endpointCookies()[host.authEndpointKey()]
 
-    /** The `Cookie` value for [hostId], or null when this device has no session for it. */
-    suspend fun cookie(hostId: String): String? = sessions()[hostId]
+    suspend fun hasSession(host: HostConfig): Boolean = cookie(host) != null
 
-    suspend fun hasSession(hostId: String): Boolean = cookie(hostId) != null
-
-    /**
-     * Exchange [tokenInput] for a session and remember it.
-     *
-     * [tokenInput] may be the bare token, the whole `?token=…` URL, or the entire startup line the
-     * harness printed — see [HarnessSession.tokenFrom].
-     */
-    suspend fun pair(
-        hostId: String,
-        baseUrl: String,
-        tokenInput: String,
-        hostHeader: String? = null,
-    ): SessionExchange {
-        val token = HarnessSession.tokenFrom(tokenInput)
-            ?: return SessionExchange.Refused(0)
+    suspend fun pair(host: HostConfig, baseUrl: String, tokenInput: String, hostHeader: String? = null): SessionExchange {
+        val token = HarnessSession.tokenFrom(tokenInput) ?: return SessionExchange.Refused(0)
         val outcome = HarnessSession.exchange(baseUrl, token, okHttpClient, hostHeader = hostHeader)
         if (outcome is SessionExchange.Granted) {
-            write(sessions() + (hostId to outcome.cookie))
+            dataStore.edit { prefs ->
+                migrateHarnessCookies(prefs, readHosts(prefs))
+                prefs[endpointKey] = WireJson.encodeToString(cookieSerializer, readCookies(prefs, endpointKey) + (host.authEndpointKey() to outcome.cookie))
+            }
         }
         return outcome
     }
 
-    /** Forget the session for [hostId]. Safe to call when there is none. */
-    suspend fun remove(hostId: String) {
-        val current = sessions()
-        if (hostId !in current) return
-        write(current - hostId)
+    suspend fun exportCookies(hosts: List<HostConfig>): Map<String, String> {
+        val cookies = endpointCookies()
+        return hosts.mapNotNull { host -> cookies[host.authEndpointKey()]?.let { host.id to it } }.toMap()
     }
 
-    suspend fun exportCookies(hostIds: Set<String>): Map<String, String> =
-        sessions().filterKeys { it in hostIds }
+    /**
+     * Current endpoint cookies, migrating id-keyed sessions only when some are still stored.
+     *
+     * Ordinary reads must not open a write transaction: this is called for every client the app
+     * builds (including reconnects), and DataStore writes its file for every edit.
+     */
+    private suspend fun endpointCookies(): Map<String, String> {
+        val prefs = dataStore.data.first()
+        if (prefs[legacyKey] == null) return readCookies(prefs, endpointKey)
+        var migrated = emptyMap<String, String>()
+        dataStore.edit { editable ->
+            migrateHarnessCookies(editable, readHosts(editable))
+            migrated = readCookies(editable, endpointKey)
+        }
+        return migrated
+    }
 
-    suspend fun importCookies(cookies: Map<String, String>) {
+    suspend fun importCookies(cookies: Map<HostConfig, String>) {
         if (cookies.isEmpty()) return
-        write(sessions() + cookies.filterValues { it.isNotBlank() })
+        dataStore.edit { prefs ->
+            migrateHarnessCookies(prefs, readHosts(prefs))
+            val current = readCookies(prefs, endpointKey).toMutableMap()
+            cookies.forEach { (host, cookie) -> if (cookie.isNotBlank()) current[host.authEndpointKey()] = cookie }
+            prefs[endpointKey] = WireJson.encodeToString(cookieSerializer, current)
+        }
     }
 
-    /** Forget every session — the Settings "clear data" action. */
     suspend fun clear() {
-        dataStore.edit { it.remove(KEY) }
-    }
-
-    private suspend fun sessions(): Map<String, String> {
-        val raw = dataStore.data.first()[KEY] ?: return emptyMap()
-        return runCatching { WireJson.decodeFromString(serializer, raw) }.getOrDefault(emptyMap())
-    }
-
-    private suspend fun write(next: Map<String, String>) {
-        dataStore.edit { it[KEY] = WireJson.encodeToString(serializer, next) }
-    }
-
-    private companion object {
-        val KEY = stringPreferencesKey("harness_sessions_json")
+        dataStore.edit { it.remove(legacyKey); it.remove(endpointKey) }
     }
 }

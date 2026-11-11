@@ -27,7 +27,7 @@ class HarnessClientFactory @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val sessions: HarnessSessionStore,
 ) {
-    private suspend fun cookieFor(config: HostConfig): String? = sessions.cookie(config.id)
+    private suspend fun cookieFor(config: HostConfig): String? = sessions.cookie(config)
 
     /**
      * A client for [config], carrying whatever credential and pin that endpoint needs.

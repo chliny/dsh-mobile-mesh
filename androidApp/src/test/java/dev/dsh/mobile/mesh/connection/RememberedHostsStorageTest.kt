@@ -32,6 +32,35 @@ class RememberedHostsStorageTest {
     @get:Rule val files = TemporaryFolder()
 
     @Test
+    fun `updating token reaches ssh gateways and direct connections to the same harness`() = withStorage { store, _ ->
+        val m3 = host("m3").copy(host = "10.1.0.3", sshEnabled = true, sshDshHost = "10.1.0.9")
+        val m1 = host("m1").copy(host = "10.1.0.1", sshEnabled = true, sshDshHost = "10.1.0.9")
+        val direct = host("ios").copy(host = "10.1.0.9")
+        val other = host("other").copy(host = "10.1.0.8", sshEnabled = true, sshDshHost = "127.0.0.1")
+        listOf(m3, m1, direct, other).forEach { store.upsertHost(it) }
+        store.saveLaunchToken(m3.id, "fresh-token")
+        val saved = store.hosts.first().associateBy { it.id }
+        listOf(m3, m1, direct).forEach { assertEquals("fresh-token", saved.getValue(it.id).launchToken) }
+        assertTrue(saved.getValue(other.id).launchToken.isBlank())
+        store.upsertHost(m1.copy(name = "renamed"))
+        assertEquals("fresh-token", store.hosts.first().first { it.id == m1.id }.launchToken)
+    }
+
+    @Test
+    fun `ssh loopback spellings never share credentials across machines`() = withStorage { store, _ ->
+        val m3 = host("m3").copy(host = "10.1.0.3", sshEnabled = true, sshDshHost = "localhost")
+        val m1 = host("m1").copy(host = "10.1.0.1", sshEnabled = true, sshDshHost = "localhost")
+        val m4 = host("m4").copy(host = "10.1.0.4", sshEnabled = true, sshDshHost = "::1")
+        val m3Direct = host("m3-direct").copy(host = "10.1.0.3")
+        listOf(m3, m1, m4, m3Direct).forEach { store.upsertHost(it) }
+        store.saveLaunchToken(m3.id, "m3-token")
+        val saved = store.hosts.first().associateBy { it.id }
+        assertEquals("m3-token", saved.getValue(m3Direct.id).launchToken)
+        assertTrue(saved.getValue(m1.id).launchToken.isBlank())
+        assertTrue(saved.getValue(m4.id).launchToken.isBlank())
+    }
+
+    @Test
     fun `cacheDescription cannot overwrite a concurrently confirmed protocol`() = withStorage { store, dataStore ->
         val original = host("first")
         store.upsertHost(original)

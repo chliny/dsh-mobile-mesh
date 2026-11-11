@@ -866,7 +866,7 @@ class ConnectViewModel @Inject constructor(
                 // clearing it early otherwise turns the next 401 into an unrecoverable retry loop.
                 val tokenCandidate = pendingLaunchToken
                 if (!shouldPairLaunchToken(
-                        hasSession = harnessSessions.hasSession(host.id),
+                        hasSession = harnessSessions.hasSession(host),
                         token = tokenCandidate,
                         explicitlySubmitted = launchToken != null,
                     )) {
@@ -882,7 +882,7 @@ class ConnectViewModel @Inject constructor(
                 }
                 Log.d("ConnectViewModel", "Transport ready; pairing DSH launch token through relay")
                 _state.update { it.copy(signingIn = true, signInError = null) }
-                when (val exchange = harnessSessions.pair(host.id, baseUrl, tokenToPair, host.harnessAuthority)) {
+                when (val exchange = harnessSessions.pair(host, baseUrl, tokenToPair, host.harnessAuthority)) {
                     is SessionExchange.Granted -> {
                         Log.d("ConnectViewModel", "DSH launch token pairing granted")
                         if (!connectFence.accepts(requestId)) return@connect
@@ -916,7 +916,7 @@ class ConnectViewModel @Inject constructor(
             hostsStore.saveLaunchToken(host.id, token)
             _state.update { it.copy(signingIn = true, signInError = null) }
             when (val outcome = harnessSessions.pair(
-                host.id, connectionManager.pairingBaseUrl(host), token, host.harnessAuthority,
+                host, connectionManager.pairingBaseUrl(host), token, host.harnessAuthority,
             )) {
                 is SessionExchange.Granted -> {
                     pendingLaunchToken = null
