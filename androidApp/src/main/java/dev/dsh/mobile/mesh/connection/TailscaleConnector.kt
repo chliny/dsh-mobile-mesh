@@ -84,7 +84,7 @@ class TailscaleConnector @Inject constructor(
         val network = connectivity.activeNetwork
             ?.takeIf { isUsableTailscaleNetwork(hasActiveNetwork = true, hasInternetCapability = isInternetCapable(it)) }
             ?: awaitActiveNetwork()
-            ?: throw IllegalStateException("No active internet connection for Tailscale")
+            ?: throw MeshNotReady("No active internet connection for Tailscale")
         synchronized(lock) {
             nativeStarted = true
             boundNetwork = network
@@ -114,7 +114,11 @@ class TailscaleConnector @Inject constructor(
                 // identity after the embedded sign-in completes rather than minting another node.
                 throw TailscaleLoginRequired(result.loginUrl)
             }
-            throw IllegalStateException(result.error ?: "Tailscale is not ready")
+            val error = result.error
+            if (error == null || isTransientTailscaleFailure(error)) {
+                throw MeshNotReady(error ?: "Tailscale is not ready")
+            }
+            throw IllegalStateException(error)
         }
     }
 
@@ -132,7 +136,11 @@ class TailscaleConnector @Inject constructor(
             val parsed = Uri.parse(baseUrl)
             android.util.Log.d("TailscaleConnector", "relay-renew elapsedMs=${elapsedMs(startedAt)} result=ok")
             MeshRelay(parsed.host ?: "127.0.0.1", parsed.port.takeIf { it > 0 } ?: 80)
-        } ?: throw IllegalStateException(result.error ?: "Tailscale relay is not ready")
+        } ?: throw if (result.error == null || isTransientTailscaleFailure(result.error)) {
+            MeshNotReady(result.error ?: "Tailscale relay is not ready")
+        } else {
+            IllegalStateException(result.error)
+        }
     }
 
     fun cancelStart() {
