@@ -257,6 +257,9 @@ class SessionStoreControlModelProjectionTest {
             awaitCondition { store.currentConversation.value?.nodes?.isNotEmpty() == true }
 
             assertTrue(store.loadOlder("s"))
+            // Paging installs the page from its own coroutine; assert the rendered window, not the
+            // request result, so the check waits for the append instead of racing it.
+            awaitCondition { store.currentConversation.value?.nodes?.any { it.seq == 1L } == true }
             // A second pull made now must page a window that already contains the first page.
             assertEquals(
                 "Paging must not report completion while the transcript still shows the old window",
