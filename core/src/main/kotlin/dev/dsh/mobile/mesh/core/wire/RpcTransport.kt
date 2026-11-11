@@ -24,12 +24,22 @@ import okhttp3.WebSocketListener
 import okio.BufferedSink
 
 /**
- * One HTTP carrier exchange: the status code and raw body of an authenticated HTTP request.
+ * One HTTP carrier exchange: the status code, raw body and binary parts of an authenticated HTTP
+ * request.
+ *
  * HTTP status is carrier-only — business errors arrive as HTTP 200 with `ok: false` in the body.
+ *
+ * A Remote result that contains native bytes (`Uint8Array`) is not JSON at all: the gateway answers
+ * `multipart/form-data` whose `metadata` part is the ordinary server-response envelope with each
+ * byte field replaced by `null`, and whose other parts carry the raw bytes. Harness 0.2.0 moved
+ * binary results to that encoding, so [body] keeps the JSON envelope for every other response and
+ * [parts] carries the raw bytes keyed by their multipart name. Keeping the carrier-level split
+ * here lets the wire client stay a JSON codec: it injects the bytes into their envelope paths.
  */
 data class RpcHttpResponse(
     val status: Int,
     val body: String,
+    val parts: Map<String, ByteArray> = emptyMap(),
 )
 
 /** Thrown by [RpcTransport] on a non-2xx carrier response or a network-level failure. */
@@ -82,6 +92,107 @@ interface RpcTransport {
 
 /** JSON media type used for every /api POST. */
 private val JSON_MEDIA_TYPE: MediaType = "application/json; charset=utf-8".toMediaType()
+private val CRLF = byteArrayOf('\r'.code.toByte(), '\n'.code.toByte())
+private val HEADER_END = byteArrayOf('\r'.code.toByte(), '\n'.code.toByte(), '\r'.code.toByte(), '\n'.code.toByte())
+
+/** The `metadata` JSON envelope and raw binary fields of one multipart Remote response. */
+internal data class MultipartRpcResponse(
+    val metadata: String,
+    val parts: Map<String, ByteArray>,
+)
+
+/**
+ * Split one `multipart/form-data` Remote answer into its `metadata` envelope and binary parts.
+ *
+ * The gateway writes that form for results carrying native bytes: a `metadata` part holding the
+ * server-response envelope with each byte field `null`, and one part per binary field whose name
+ * the envelope records. Parts may appear in any order and the boundary can appear inside the
+ * bytes, so the scan only treats `--boundary` at a line start as a delimiter.
+ *
+ * @param contentType the response `Content-Type`, whose `boundary` parameter is required
+ * @param body the complete response body
+ * @returns the envelope and parts, or null when this is not a well-formed multipart answer
+ */
+internal fun parseMultipartRpcResponse(contentType: String?, body: ByteArray): MultipartRpcResponse? {
+    val boundary = contentType
+        ?.split(';')
+        ?.map(String::trim)
+        ?.firstOrNull { it.startsWith("boundary=", ignoreCase = true) }
+        ?.substringAfter('=')
+        ?.trim('"')
+        ?.takeIf(String::isNotBlank)
+        ?: return null
+    val delimiter = "--$boundary".toByteArray(Charsets.UTF_8)
+    var position = indexOfDelimiter(body, delimiter, 0)
+    var metadata: String? = null
+    val parts = LinkedHashMap<String, ByteArray>()
+    while (position >= 0) {
+        var cursor = position + delimiter.size
+        if (cursor + 2 <= body.size && body[cursor] == '-'.code.toByte() && body[cursor + 1] == '-'.code.toByte()) {
+            break
+        }
+        if (cursor + 2 <= body.size && body[cursor] == CRLF[0] && body[cursor + 1] == CRLF[1]) cursor += 2
+        val headerEnd = indexOf(body, HEADER_END, cursor) ?: return null
+        val headers = String(body, cursor, headerEnd - cursor, Charsets.UTF_8)
+        var contentEnd = indexOfDelimiter(body, delimiter, headerEnd + HEADER_END.size)
+        if (contentEnd < 0) return null
+        // The CRLF that precedes a delimiter belongs to the delimiter, not to the part content.
+        if (contentEnd >= 2 && body[contentEnd - 1] == CRLF[1] && body[contentEnd - 2] == CRLF[0]) contentEnd -= 2
+        val content = body.copyOfRange(headerEnd + HEADER_END.size, contentEnd)
+        val name = headers.lineSequence()
+            .firstOrNull { it.startsWith("Content-Disposition:", ignoreCase = true) }
+            ?.split(';')
+            ?.map(String::trim)
+            ?.firstOrNull { it.startsWith("name=", ignoreCase = true) }
+            ?.substringAfter('=')
+            ?.trim('"')
+        if (name == "metadata") {
+            metadata = String(content, Charsets.UTF_8)
+        } else if (name != null) {
+            parts[name] = content
+        }
+        position = contentEnd + 2
+        if (position > body.size) return null
+        position = indexOfDelimiter(body, delimiter, position)
+    }
+    val envelope = metadata ?: return null
+    return MultipartRpcResponse(envelope, parts)
+}
+
+/**
+ * First index of a multipart delimiter at or after [from], or -1.
+ *
+ * A delimiter only counts at the start of a line: a binary part may contain the same bytes, and a
+ * free-text search there would truncate the data and corrupt the decode.
+ */
+private fun indexOfDelimiter(haystack: ByteArray, delimiter: ByteArray, from: Int): Int {
+    var index = indexOf(haystack, delimiter, from)
+    while (index >= 0) {
+        val atLineStart = index == 0 ||
+            (index >= 2 && haystack[index - 2] == CRLF[0] && haystack[index - 1] == CRLF[1])
+        if (atLineStart) return index
+        index = indexOf(haystack, delimiter, index + 1)
+    }
+    return -1
+}
+
+/** First index of [needle] at or after [from], or -1. */
+private fun indexOf(haystack: ByteArray, needle: ByteArray, from: Int): Int {
+    if (needle.isEmpty()) return from
+    var index = from
+    while (index <= haystack.size - needle.size) {
+        var matched = true
+        for (offset in needle.indices) {
+            if (haystack[index + offset] != needle[offset]) {
+                matched = false
+                break
+            }
+        }
+        if (matched) return index
+        index++
+    }
+    return -1
+}
 
 /**
  * OkHttp-backed [RpcTransport]. Sends `Content-Type: application/json`, sets the `Host` header
@@ -145,13 +256,28 @@ class OkHttpRpcTransport(
 
                 override fun onResponse(call: Call, response: Response) {
                     response.use { resp ->
-                        val responseBody = resp.body?.string().orEmpty()
-                        if (resp.isSuccessful) {
-                            continuation.resume(RpcHttpResponse(resp.code, responseBody))
-                        } else {
+                        if (!resp.isSuccessful) {
                             continuation.resumeWithException(
                                 RpcTransportException(resp.code, carrierMessage(resp.code)),
                             )
+                            return
+                        }
+                        val contentType = resp.header("Content-Type")
+                        val multipart = contentType
+                            ?.substringBefore(';')
+                            ?.trim()
+                            ?.equals("multipart/form-data", ignoreCase = true) == true
+                        if (multipart) {
+                            val parsed = parseMultipartRpcResponse(contentType, resp.body?.bytes() ?: ByteArray(0))
+                            if (parsed == null) {
+                                continuation.resumeWithException(
+                                    RpcTransportException(resp.code, "malformed multipart Remote response"),
+                                )
+                            } else {
+                                continuation.resume(RpcHttpResponse(resp.code, parsed.metadata, parsed.parts))
+                            }
+                        } else {
+                            continuation.resume(RpcHttpResponse(resp.code, resp.body?.string().orEmpty()))
                         }
                     }
                 }

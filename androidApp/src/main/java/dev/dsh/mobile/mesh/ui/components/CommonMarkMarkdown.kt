@@ -312,6 +312,26 @@ internal fun CommonMarkMarkdown(
     }
 }
 
+/** Replace one unreadable local image with its plain alt text, removing it when there is none. */
+private fun replaceImageWithAltText(image: Image) {
+    val builder = StringBuilder()
+    fun appendPlainText(node: Node) {
+        var child = node.firstChild
+        while (child != null) {
+            if (child is Text) builder.append(child.literal) else appendPlainText(child)
+            child = child.next
+        }
+    }
+    appendPlainText(image)
+    val alt = builder.toString().trim()
+    if (alt.isEmpty()) {
+        image.unlink()
+    } else {
+        image.insertBefore(Text(alt))
+        image.unlink()
+    }
+}
+
 private suspend fun rewriteDestinations(
     root: Node,
     imageCache: MarkdownImageResolutionCache?,
@@ -338,8 +358,14 @@ private suspend fun rewriteDestinations(
                 if (!resolved.isNullOrBlank() && resolvedChars + resolved.length <= MAX_MARKDOWN_IMAGE_DOCUMENT_CHARS) {
                     node.destination = resolved
                     resolvedChars += resolved.length
+                    imageDestinations += node.destination
+                } else if (local) {
+                    // A local image nobody could read stays inert alt text, like the browser client:
+                    // leaving the raw relative destination makes the WebView request the document
+                    // base and paint a broken-image glyph where the caption belongs.
+                    replaceImageWithAltText(node)
+                    return
                 }
-                imageDestinations += node.destination
             }
             is Link -> {
                 val destination = node.destination

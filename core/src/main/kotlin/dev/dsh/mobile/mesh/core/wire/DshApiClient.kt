@@ -104,6 +104,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceValue
 import java.io.IOException
 import java.io.InputStream
 import java.net.URLEncoder
+import java.util.Base64
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
@@ -116,6 +117,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.serializer
 
@@ -159,7 +161,7 @@ class DshApiClient(
         val request = ClientRequest(rpcId = newRpcId(), method = endpoint, payload = payload)
         return try {
             val response = transport.post("/api/$endpoint", encodeEnvelope(request))
-            val envelope = decodeServerResponse(response.body)
+            val envelope = decodeServerResponse(restoreMultipartValue(response))
             when (val result = envelope.result) {
                 is RpcResult.Ok -> try {
                     RpcResult.Ok(decodeFromJsonElement(value, result.value))
@@ -182,6 +184,58 @@ class DshApiClient(
             RpcResult.Err(notAHarness("response envelope decode failed: ${e.message}"))
         } catch (e: IllegalArgumentException) {
             RpcResult.Err(notAHarness(e.message ?: "invalid response"))
+        }
+    }
+
+    /**
+     * Rebuild a JSON envelope from a multipart Remote answer.
+     *
+     * Harness 0.2.0 sends results containing native bytes as `multipart/form-data`: the `metadata`
+     * part is the ordinary server-response envelope with each byte field replaced by `null`, and one
+     * attachment per byte field says where it belongs. Injecting those bytes back into the envelope
+     * before decoding keeps every DTO a plain JSON shape (a byte container declares how it accepts
+     * a string, e.g. base64) and keeps this client independent of which Remote results carry bytes.
+     *
+     * @param response the carrier answer, whose [RpcHttpResponse.parts] are non-empty only for a
+     *   multipart answer
+     * @returns the envelope JSON string unchanged for ordinary answers
+     */
+    private fun restoreMultipartValue(response: RpcHttpResponse): String {
+        if (response.parts.isEmpty()) return response.body
+        return runCatching {
+            val root = WireJson.parseToJsonElement(response.body).jsonObject
+            val result = root["result"] as? JsonObject ?: return response.body
+            val attachments = root["attachments"] as? JsonArray ?: return response.body
+            var value: JsonElement = result["value"] ?: return response.body
+            for (element in attachments) {
+                val attachment = element as? JsonObject ?: continue
+                val part = (attachment["part"] as? JsonPrimitive)?.contentOrNull ?: continue
+                val bytes = response.parts[part] ?: continue
+                val path = (attachment["path"] as? JsonArray)
+                    ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                    .orEmpty()
+                value = replaceAtPath(value, path, JsonPrimitive(Base64.getEncoder().encodeToString(bytes)))
+            }
+            JsonObject(root + ("result" to JsonObject(result + ("value" to value)))).toString()
+        }.getOrDefault(response.body)
+    }
+
+    /** Replace the placeholder a multipart attachment points at, walking object keys and array indexes. */
+    private fun replaceAtPath(value: JsonElement, path: List<String>, replacement: JsonElement): JsonElement {
+        if (path.isEmpty()) return replacement
+        val segment = path.first()
+        val rest = path.drop(1)
+        val index = segment.toIntOrNull()
+        return when (value) {
+            is JsonObject -> if (index != null) value else JsonObject(
+                value + (segment to replaceAtPath(value[segment] ?: return value, rest, replacement)),
+            )
+            is JsonArray -> if (index == null || index !in value.indices) value else JsonArray(
+                value.mapIndexed { position, item ->
+                    if (position == index) replaceAtPath(item, rest, replacement) else item
+                },
+            )
+            else -> value
         }
     }
 
