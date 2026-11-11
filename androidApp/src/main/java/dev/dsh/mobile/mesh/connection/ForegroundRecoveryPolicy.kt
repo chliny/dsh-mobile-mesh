@@ -178,13 +178,32 @@ internal fun shouldRecoverBeforeForegroundProbe(
     recoveryInFlight: Boolean,
 ): Boolean = !recoveryInFlight && (handoverPending || !activeNetworkInternetCapable)
 
-/** A transient name lookup after Android resumes networking is not a terminal manual-connect error. */
+/** Carrier failures that heal on their own; never a reason to keep a first connection down. */
+private val TRANSIENT_CONNECTION_FAILURES = setOf(
+    TransportFailure.TIMEOUT,
+    TransportFailure.DNS,
+    TransportFailure.UNREACHABLE,
+    TransportFailure.PEER_CLOSED,
+)
+
+/** True when [failure] is a transient carrier problem rather than a terminal configuration error. */
+internal fun isTransientConnectionFailure(failure: Throwable): Boolean =
+    failure is MeshNotReady ||
+        failure is ConnectionOperationTimeoutException ||
+        TransportFailures.classify(failure) in TRANSIENT_CONNECTION_FAILURES
+
+/**
+ * Retry a failed operation. Transient carrier failures are retried even before the first successful
+ * connection: a cold ZeroTier node, a network handover or a connect deadline is not a terminal
+ * manual-connect error, and dropping the first attempt left the user with nothing until they
+ * tapped Connect again.
+ */
 internal fun shouldRetryConnectionOperation(
     reconnect: Boolean,
     hasConnected: Boolean,
     lifecycleMayRun: Boolean,
     failure: Throwable,
-): Boolean = lifecycleMayRun && (reconnect || hasConnected || TransportFailures.classify(failure) == TransportFailure.DNS)
+): Boolean = lifecycleMayRun && (reconnect || hasConnected || isTransientConnectionFailure(failure))
 
 internal fun shouldRetryRecoveryAfterForegroundResume(
     recoveryFailed: Boolean,

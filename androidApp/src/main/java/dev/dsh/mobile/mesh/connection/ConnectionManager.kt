@@ -377,6 +377,24 @@ class ConnectionManager @Inject constructor(
     private fun trace(event: String, detail: String = "") = ConnectionTrace.record(event, detail)
 
     /**
+     * Stable failure category for the journal.
+     *
+     * Release builds rename exception classes, so `simpleName` reads as an obfuscated token there;
+     * these checks carry across builds and answer the question the export is used for: did the
+     * mesh never become ready, did the host refuse, or did the operation time out?
+     */
+    private fun failureKind(error: Throwable): String = when {
+        error is MeshNotReady -> "mesh-not-ready"
+        error is MeshAuthorizationPending -> "mesh-authorization-pending"
+        error is TimeoutCancellationException -> "operation-timeout"
+        error is CancellationException -> "cancelled"
+        TransportFailures.classify(error) != TransportFailure.OTHER ->
+            "transport-${TransportFailures.classify(error).name.lowercase()}"
+        error is java.io.IOException -> "io"
+        else -> "other"
+    }
+
+    /**
      * Network identity in one token: an id alone cannot tell a Wi-Fi drop from a cellular handover,
      * and the transport plus capabilities are what explain a recovery decision later.
      */
@@ -875,7 +893,7 @@ class ConnectionManager @Inject constructor(
             trace(
                 "operation-failed",
                 "host=${config.id} reconnect=$reconnect timeout=${error is TimeoutCancellationException}" +
-                    " willRetry=$willRetry phase=${_state.value.phase} errorType=${error.javaClass.simpleName}" +
+                    " willRetry=$willRetry phase=${_state.value.phase} failure=${failureKind(error)}" +
                     " transport=${TransportFailures.classify(error)}",
             )
             activeBaseUrl = null

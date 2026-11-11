@@ -54,6 +54,8 @@ class ZeroTierConnector @Inject constructor(
     private var nodeNetworkId: String? = null
     private var readiness: ZeroTierReadiness? = null
     private val generation = ZeroTierGeneration()
+    /** Consecutive retryable mesh-not-ready results; a patient wait follows a few of them. */
+    private val consecutiveNotReady = java.util.concurrent.atomic.AtomicInteger(0)
 
     private fun signal(state: ZeroTierReadiness, id: Long, eventCode: Int) {
         when (eventCode) {
@@ -131,20 +133,21 @@ class ZeroTierConnector @Inject constructor(
             Triple(pair.first, pair.second, generation.next())
         }
         timing.phase("node-select", selectStart, "ok", detail = "reused=$reused")
+        // Background suspension clears MeshTransportManager.active but retains the process-global
+        // native node. A subsequent start is therefore recovery, not a cold bootstrap.
+        val targetConnectTimeoutMs = zeroTierTargetConnectTimeoutMs(recovery = reused)
+        recordMeshAttempt("start", reused, networkId, targetConnectTimeoutMs)
         // A new node cannot reach a network target before joining that network and obtaining an
         // address. Retained nodes with an address pass through immediately, preserving recovery.
         ensureNetworkAddress(current, state, networkId, token, timing, zeroTierReadinessTimeoutMs(reusedNode = reused))
         val readyStart = timing.start("await-transport-ready")
-        // Background suspension clears MeshTransportManager.active but retains the process-global
-        // native node. A subsequent start is therefore recovery, not a cold bootstrap.
-        val targetConnectTimeoutMs = zeroTierTargetConnectTimeoutMs(recovery = reused)
         val (readySignal, dialedTarget) = awaitTransportReady(
             current,
             state,
             networkId,
             resolveTarget(config),
             targetConnectTimeoutMs,
-            zeroTierReadinessTimeoutMs(reusedNode = reused),
+            recoveryDialReadinessTimeoutMs(reused),
         )
         timing.phase(
             "await-transport-ready",
@@ -152,19 +155,35 @@ class ZeroTierConnector @Inject constructor(
             if (readySignal == ZERO_TIER_TIMEOUT_SIGNAL) "timeout" else "ok",
             detail = "signal=$readySignal online=${isServiceOnline()}",
         )
-        check(readySignal != ZERO_TIER_TIMEOUT_SIGNAL) {
-            context.getString(
-                if (isServiceOnline()) R.string.zero_tier_target_unreachable
-                else R.string.zero_tier_node_unavailable,
+        if (readySignal == ZERO_TIER_TIMEOUT_SIGNAL) {
+            // The wait ended on its own deadline, not on an authorization decision: release any
+            // socket that raced in and surface a retryable transport failure.
+            closeDialed(dialedTarget)
+            throw meshNotReady(
+                "phase=await-transport-ready reused=$reused elapsedMs=${
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - readyStart)
+                } targetConnectMs=$targetConnectTimeoutMs",
+                context.getString(
+                    if (isServiceOnline()) R.string.zero_tier_target_unreachable
+                    else R.string.zero_tier_node_unavailable,
+                ),
             )
         }
         val relayStart = timing.start("relay-open")
         val opened = synchronized(lock) {
-            coroutineContext.ensureActive()
-            generation.checkCurrent(token)
+            try {
+                coroutineContext.ensureActive()
+                generation.checkCurrent(token)
+            } catch (error: Throwable) {
+                closeDialed(dialedTarget)
+                throw error
+            }
+            // relayFor owns the proven dial from here on: it either adopts it into a relay or
+            // closes it on every failure path before rethrowing.
             relayFor(config, timing, dialedTarget, targetConnectTimeoutMs)
         }
         timing.phase("relay-open", relayStart, "ok", detail = "port=${opened.port}")
+        markMeshReady()
         opened
     }
 
@@ -207,17 +226,18 @@ class ZeroTierConnector @Inject constructor(
             )
         }
         timing.phase("node-select", selectStart, "ok", detail = "reused=true")
+        val targetConnectTimeoutMs = zeroTierTargetConnectTimeoutMs(recovery = true)
+        recordMeshAttempt("renew-relay", reused = true, networkId = networkId, targetConnectTimeoutMs = targetConnectTimeoutMs)
         // Renewal can also resume a previously pending authorization, where no address exists yet.
         ensureNetworkAddress(current, state, networkId, token, timing, zeroTierReadinessTimeoutMs(reusedNode = true))
         val readyStart = timing.start("await-transport-ready")
-        val targetConnectTimeoutMs = zeroTierTargetConnectTimeoutMs(recovery = true)
         val (readySignal, dialedTarget) = awaitTransportReady(
             current,
             state,
             networkId,
             resolveTarget(config),
             targetConnectTimeoutMs,
-            zeroTierReadinessTimeoutMs(reusedNode = true),
+            recoveryDialReadinessTimeoutMs(reused = true),
         )
         timing.phase(
             "await-transport-ready",
@@ -225,22 +245,75 @@ class ZeroTierConnector @Inject constructor(
             if (readySignal == ZERO_TIER_TIMEOUT_SIGNAL) "timeout" else "ok",
             detail = "signal=$readySignal online=${isServiceOnline()}",
         )
-        check(readySignal != ZERO_TIER_TIMEOUT_SIGNAL) {
-            context.getString(
-                if (isServiceOnline()) R.string.zero_tier_target_unreachable
-                else R.string.zero_tier_node_unavailable,
+        if (readySignal == ZERO_TIER_TIMEOUT_SIGNAL) {
+            // The wait ended on its own deadline, not on an authorization decision: release any
+            // socket that raced in and surface a retryable transport failure.
+            closeDialed(dialedTarget)
+            throw meshNotReady(
+                "phase=await-transport-ready reused=true elapsedMs=${
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - readyStart)
+                } targetConnectMs=$targetConnectTimeoutMs",
+                context.getString(
+                    if (isServiceOnline()) R.string.zero_tier_target_unreachable
+                    else R.string.zero_tier_node_unavailable,
+                ),
             )
         }
         val relayStart = timing.start("relay-open")
         val opened = synchronized(lock) {
-            coroutineContext.ensureActive()
-            generation.checkCurrent(token)
-            relay?.close()
+            try {
+                coroutineContext.ensureActive()
+                generation.checkCurrent(token)
+            } catch (error: Throwable) {
+                closeDialed(dialedTarget)
+                throw error
+            }
+            runCatching { relay?.close() }
             relay = null
             relayFor(config, timing, dialedTarget, targetConnectTimeoutMs)
         }
         timing.phase("relay-open", relayStart, "ok", detail = "port=${opened.port}")
+        markMeshReady()
         opened
+    }
+
+    /**
+     * How long one recovery attempt waits for the retained node to carry a dial.
+     *
+     * The first attempts stay fast so a healthy handover resumes immediately; repeated failures
+     * mean the node is taking longer than that window, and only a longer wait can catch it.
+     */
+    private fun recoveryDialReadinessTimeoutMs(reused: Boolean): Long =
+        if (reused) zeroTierRecoveryReadinessTimeoutMs(consecutiveNotReady.get())
+        else zeroTierReadinessTimeoutMs(reusedNode = false)
+
+    /** Durable snapshot of what the retained node could do at the start of one recovery attempt. */
+    private fun recordMeshAttempt(phase: String, reused: Boolean, networkId: Long, targetConnectTimeoutMs: Int) {
+        ConnectionTrace.record(
+            "zt-attempt",
+            "phase=$phase reused=$reused consecutiveNotReady=${consecutiveNotReady.get()}" +
+                " online=${isServiceOnline()} addressAssigned=${hasAddress(networkId)}" +
+                " transportReady=${transportReady(networkId)}" +
+                " dialReadinessMs=${recoveryDialReadinessTimeoutMs(reused)} targetConnectMs=$targetConnectTimeoutMs",
+        )
+    }
+
+    /** Journal one retryable not-ready result and escalate the next wait once they accumulate. */
+    private fun noteNotReady(detail: String) {
+        consecutiveNotReady.incrementAndGet()
+        ConnectionTrace.record(
+            "zt-not-ready",
+            "$detail streak=${consecutiveNotReady.get()} online=${isServiceOnline()}",
+        )
+    }
+
+    private fun meshNotReady(detail: String, message: String): MeshNotReady {
+        noteNotReady(detail)
+        return MeshNotReady(message)
+    }
+
+    private fun markMeshReady() {
+        consecutiveNotReady.set(0)
     }
 
     /** Join and acquire a local address before probing the remote target. */
@@ -278,7 +351,12 @@ class ZeroTierConnector @Inject constructor(
             didJoin
         }
         timing.phase("join", joinStart, if (joined == null) "timeout" else "ok", detail = "joined=$joined")
-        check(joined != null) { context.getString(R.string.zero_tier_node_unavailable) }
+        if (joined == null) {
+            throw meshNotReady(
+                "phase=join timeoutMs=$nodeInitTimeoutMs",
+                context.getString(R.string.zero_tier_node_unavailable),
+            )
+        }
         val addressStart = timing.start("await-address")
         awaitAddress(current, networkId, state)
         timing.phase(
@@ -497,11 +575,20 @@ class ZeroTierConnector @Inject constructor(
         TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
 
     private suspend fun awaitAddress(current: ZeroTierNode, networkId: Long, state: ZeroTierReadiness) {
-        if (state.awaitNetworkAddress(networkId, 15, TimeUnit.SECONDS) { hasAddress(networkId) }) return
-        val nodeId = java.lang.Long.toUnsignedString(current.id, 16).padStart(10, '0')
-        throw MeshAuthorizationPending(
-            "Authorize ZeroTier node $nodeId in the network controller, then tap Connect again.",
+        if (state.awaitNetworkAddress(networkId, 15, TimeUnit.SECONDS) { hasAddress(networkId) }) {
+            state.clearNetworkError(networkId)
+            return
+        }
+        // A timeout is not an authorization decision. libzt reports NETWORK_ACCESS_DENIED through
+        // the readiness wait above, so without a recorded error the node simply has not finished
+        // joining yet and the wait must stay retryable instead of asking for a manual action.
+        val failure = state.failureOnAddressTimeout(
+            networkId,
+            java.lang.Long.toUnsignedString(current.id, 16).padStart(10, '0'),
+            context.getString(R.string.zero_tier_node_unavailable),
         )
+        if (failure is MeshNotReady) noteNotReady("phase=await-address timeoutMs=15000")
+        throw failure
     }
 
     private fun relayFor(
@@ -511,22 +598,47 @@ class ZeroTierConnector @Inject constructor(
         targetConnectTimeoutMs: Int,
     ): MeshRelay {
         val resolveStart = timing.start("relay-resolve")
-        val (addresses, remotePort) = resolveTarget(config)
+        val (addresses, remotePort) = try {
+            resolveTarget(config)
+        } catch (error: Throwable) {
+            closeDialed(dialed)
+            throw error
+        }
         Log.d(TAG, "Resolved ZeroTier relay target ${config.host} -> ${addresses.joinToString()}")
         timing.phase("relay-resolve", resolveStart, "ok", detail = "target=${addresses.joinToString()}:$remotePort")
+        // This method owns `dialed` from here on: every path below adopts it into a relay or closes
+        // it. A connection that already proved the path must never be dropped without an owner.
         // The relay only forwards to this target, so a reused relay can take the connection too.
         relay?.takeIf { it.canReuse(addresses, remotePort) }?.let {
             it.adopt(dialed, targetConnectTimeoutMs)
             Log.d(TAG, "Reusing ZeroTier relay at ${it.localPort} to ${addresses.joinToString()}:$remotePort")
             return it.relay
         }
-        relay?.close()
+        runCatching { relay?.close() }
         Log.d(TAG, "Opening ZeroTier relay to ${addresses.joinToString()}:$remotePort")
         val bindStart = timing.start("relay-bind")
-        val nextRelay = ZeroTierRelay(addresses, remotePort, executor, targetConnectTimeoutMs, dialed).also { it.start() }
+        val nextRelay = try {
+            ZeroTierRelay(addresses, remotePort, executor, targetConnectTimeoutMs, dialed)
+        } catch (error: Throwable) {
+            closeDialed(dialed)
+            throw error
+        }
+        try {
+            nextRelay.start()
+        } catch (error: Throwable) {
+            // The relay already owns `dialed`; closing it releases the bound server socket and the
+            // unused proven connection.
+            nextRelay.close()
+            throw error
+        }
         timing.phase("relay-bind", bindStart, "ok", detail = "port=${nextRelay.localPort}")
         relay = nextRelay
         return nextRelay.relay
+    }
+
+    /** Release a proven target connection that no relay took ownership of. */
+    private fun closeDialed(dialed: DialedTarget?) {
+        runCatching { dialed?.first?.close() }
     }
 
     private fun checkResult(code: Int, operation: String) {
@@ -549,10 +661,9 @@ internal class ZeroTierTiming(
 
     fun start(name: String): Long {
         val now = System.nanoTime()
-        Log.d(
-            TAG,
-            "ztAttempt=$id phase=$name start totalMs=${TimeUnit.NANOSECONDS.toMillis(now - startedAt)}",
-        )
+        val total = TimeUnit.NANOSECONDS.toMillis(now - startedAt)
+        Log.d(TAG, "ztAttempt=$id phase=$name start totalMs=$total")
+        ConnectionTrace.record("zt-timing", "ztAttempt=$id phase=$name start totalMs=$total")
         return now
     }
 
@@ -561,6 +672,7 @@ internal class ZeroTierTiming(
         val total = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
         val suffix = if (detail.isBlank()) "" else " detail=$detail"
         Log.d(TAG, "ztAttempt=$id phase=$name elapsedMs=$elapsed totalMs=$total result=$result$suffix")
+        ConnectionTrace.record("zt-timing", "ztAttempt=$id phase=$name elapsedMs=$elapsed totalMs=$total result=$result$suffix")
     }
 
     private companion object {
@@ -581,6 +693,7 @@ internal class ZeroTierGeneration {
 internal class ZeroTierReadiness {
     private var online = CompletableDeferred<Unit>()
     private val networks = mutableMapOf<Long, CompletableDeferred<Unit>>()
+    private val networkErrors = mutableMapOf<Long, Throwable>()
 
     @Synchronized fun nodeOnline() { online.complete(Unit) }
     @Synchronized fun nodeOffline() {
@@ -588,6 +701,7 @@ internal class ZeroTierReadiness {
         online = CompletableDeferred()
     }
     @Synchronized fun networkReady(id: Long) {
+        networkErrors.remove(id)
         val event = networks[id]?.takeUnless { it.isCompleted } ?: CompletableDeferred<Unit>()
         networks[id] = event
         event.complete(Unit)
@@ -597,10 +711,29 @@ internal class ZeroTierReadiness {
         networks[id] = CompletableDeferred()
     }
     @Synchronized fun networkError(id: Long, error: Throwable) {
+        networkErrors[id] = error
         val event = networks[id]?.takeUnless { it.isCompleted } ?: CompletableDeferred<Unit>()
         networks[id] = event
         event.completeExceptionally(error)
     }
+
+    @Synchronized fun clearNetworkError(id: Long) { networkErrors.remove(id) }
+
+    /**
+     * What a timed-out address wait should surface for [id].
+     *
+     * A denial or "network not found" callback recorded for this network wins, because libzt emits
+     * those at most once. Without one, the wait only means the stack has not finished joining yet,
+     * which is transient and retryable rather than a user action item.
+     */
+    fun failureOnAddressTimeout(id: Long, nodeId: String, nodeUnavailableMessage: String): Throwable =
+        when (val recorded = synchronized(this) { networkErrors[id] }) {
+            null -> MeshNotReady(nodeUnavailableMessage)
+            is MeshAuthorizationPending -> MeshAuthorizationPending(
+                "Authorize ZeroTier node $nodeId in the network controller, then tap Connect again.",
+            )
+            else -> recorded
+        }
 
     private fun onlineEvent(): CompletableDeferred<Unit> = synchronized(this) { online }
     private fun networkEvent(id: Long): CompletableDeferred<Unit> = synchronized(this) {
