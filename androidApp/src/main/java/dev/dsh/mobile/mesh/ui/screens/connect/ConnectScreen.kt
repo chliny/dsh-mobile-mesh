@@ -596,11 +596,11 @@ fun ConnectScreen(
             if (connectInFlight) {
                 ConnectProgressRow(state.stage, state.attempted)
             }
-            state.authorizationPending?.let { message -> ConnectAuthorizationPendingBlock(message) }
             // Only the new-connection form starts attempts of its own. Editing a remembered
-            // connection only saves it, so a failure still in the shared state was raised by the
-            // connection list (possibly for another host) and must not be carried in here.
+            // connection only saves it, so pending authorization and failures still in the shared
+            // state belong to the connection list and must not be carried in here.
             if (editingHost == null) {
+                state.authorizationPending?.let { message -> ConnectAuthorizationPendingBlock(message) }
                 state.failure?.let { failure ->
                     ConnectFailureBlock(
                         failure = failure,

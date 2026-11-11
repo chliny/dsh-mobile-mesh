@@ -51,12 +51,32 @@ class ConnectScreenEditorFailureTest {
         compose.onNodeWithText(failureText).assertExists()
     }
 
-    private fun render(initialHost: HostConfig?) {
-        val state = MutableStateFlow(
-            ConnectUiState(failure = ConnectFailure.Timeout, attempted = attempted),
+    @Test
+    fun `editing a remembered connection does not show pending authorization from the list`() {
+        val message = "Waiting for authorization on another connection"
+        render(
+            initialHost = HostConfig(id = "host-1", name = "Home", host = "192.168.1.20", port = 3080),
+            state = ConnectUiState(authorizationPending = message),
         )
+
+        compose.onNodeWithText(message).assertDoesNotExist()
+    }
+
+    @Test
+    fun `new connection form still shows its pending authorization`() {
+        val message = "Waiting for authorization on this connection"
+        render(initialHost = null, state = ConnectUiState(authorizationPending = message))
+
+        compose.onNodeWithText(message).assertExists()
+    }
+
+    private fun render(
+        initialHost: HostConfig?,
+        state: ConnectUiState = ConnectUiState(failure = ConnectFailure.Timeout, attempted = attempted),
+    ) {
+        val flow = MutableStateFlow(state)
         val viewModel = Mockito.mock(ConnectViewModel::class.java)
-        Mockito.`when`(viewModel.state).thenReturn(state)
+        Mockito.`when`(viewModel.state).thenReturn(flow)
         Mockito.`when`(viewModel.draft).thenReturn(MutableStateFlow(ConnectionDraft()))
         Mockito.`when`(viewModel.savedSshCredentials(Mockito.anyString())).thenReturn(null)
         compose.setContent {
