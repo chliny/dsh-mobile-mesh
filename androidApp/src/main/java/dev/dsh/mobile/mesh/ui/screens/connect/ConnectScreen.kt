@@ -597,16 +597,21 @@ fun ConnectScreen(
                 ConnectProgressRow(state.stage, state.attempted)
             }
             state.authorizationPending?.let { message -> ConnectAuthorizationPendingBlock(message) }
-            state.failure?.let { failure ->
-                ConnectFailureBlock(
-                    failure = failure,
-                    attempted = state.attempted,
-                    sshEnabled = editingHost?.sshEnabled ?: sshEnabled,
-                    sshPort = editingHost?.sshPort ?: sshPort.toIntOrNull(),
-                    retrying = state.retrying,
-                    onCancel = viewModel::cancelConnect,
-                    onSignIn = { viewModel.setSignInOpen(true) },
-                )
+            // Only the new-connection form starts attempts of its own. Editing a remembered
+            // connection only saves it, so a failure still in the shared state was raised by the
+            // connection list (possibly for another host) and must not be carried in here.
+            if (editingHost == null) {
+                state.failure?.let { failure ->
+                    ConnectFailureBlock(
+                        failure = failure,
+                        attempted = state.attempted,
+                        sshEnabled = sshEnabled,
+                        sshPort = sshPort.toIntOrNull(),
+                        retrying = state.retrying,
+                        onCancel = viewModel::cancelConnect,
+                        onSignIn = { viewModel.setSignInOpen(true) },
+                    )
+                }
             }
             Spacer(Modifier.height(DsSpacing.large))
         }
