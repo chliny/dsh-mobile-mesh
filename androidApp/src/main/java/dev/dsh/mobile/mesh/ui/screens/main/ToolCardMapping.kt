@@ -139,13 +139,28 @@ private fun meta(result: ToolResultNode?): JsonObject? = result?.meta as? JsonOb
  * Either both are absent or both are valid; a call carrying a permission without a justification
  * is not one this app is willing to render as a first-party card.
  */
+/**
+ * Whether the optional sandbox-escalation fields describe a call the Host can accept.
+ *
+ * The Host permits an omitted or blank justification when the call repeats the Session's standing
+ * mode ("completely access" presets send exactly that), and requires a non-empty justification
+ * only for a wider mode. A justification without a mode is invalid. This validator therefore only
+ * checks the mode vocabulary and the field types: a blank justification is not a malformed call,
+ * and treating it as one hid the diff card for every edit made under a full-access preset.
+ */
 private fun validEscalation(args: JsonObject): Boolean {
     val permission = args["sandbox_permissions"]
     val justification = args["justification"]
-    if (permission == null && justification == null) return true
-    val level = permission?.jsonPrimitive?.contentOrNull
-    if (level != "workspace-write" && level != "danger-full-access") return false
-    return justification?.jsonPrimitive?.contentOrNull?.isNotBlank() == true
+    val level = when (val raw = permission) {
+        null -> null
+        is JsonPrimitive -> raw.takeIf { it.isString }?.contentOrNull
+        else -> return false
+    }
+    if (permission != null && level !in setOf("workspace-write", "danger-full-access")) return false
+    if (justification != null && (justification !is JsonPrimitive || !justification.isString)) return false
+    // A justification without a mode is rejected by the Host, so it cannot describe applied work.
+    if (permission == null && (justification as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true) return false
+    return true
 }
 
 // ============================================================================================

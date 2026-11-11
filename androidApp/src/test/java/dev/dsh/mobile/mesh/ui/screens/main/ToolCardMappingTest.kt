@@ -152,6 +152,40 @@ class ToolCardMappingTest {
     }
 
     @Test
+    fun `edit from a full access preset shows its diff instead of raw arguments`() {
+        // A Host whose filesystem advertises escalation fields sends `sandbox_permissions` and
+        // `justification` with every edit. Repeating the Session's standing mode may carry a blank
+        // justification (the contract permits it), and that must not demote the card to the raw
+        // argument dump a newer Host format produced.
+        val path = "custom_components/narwal/narwal_client/client.py"
+        val absolutePath = "/home/developer/workspace/hass/ha-narwal/custom_components/narwal/narwal_client/client.py"
+        val oldText = "        \"status/robot_base_status\": {\n          \"2\": (int, float),"
+        val newText = "        \"status/robot_base_status\": {\n          \"1\": (dict, list),  # error-only broadcast\n          \"2\": (int, float),"
+        val args = buildJsonObject {
+            put("file_path", path)
+            put("old_string", oldText)
+            put("new_string", newText)
+            put("replace_all", false)
+            put("sandbox_permissions", "danger-full-access")
+            put("justification", "")
+        }
+        val editCall = call("edit", args.toString())
+
+        // While the call runs, the requested replacement is the truthful preview.
+        val running = buildToolCardView(editCall, null, true) as ToolCardView.DiffCard
+        assertEquals(listOf(DiffHunk(path, oldText, newText)), running.diffs)
+
+        // Once settled, the Host's applied hunks replace the request-derived preview.
+        val meta = buildJsonObject {
+            put("path", absolutePath)
+            put("diffs", buildJsonArray { add(fileDiff(absolutePath, oldText, newText)) })
+        }
+        val content = buildJsonArray { add(text("The file $absolutePath has been updated successfully.")) }
+        val settled = buildToolCardView(editCall, result(content, meta = meta), false) as ToolCardView.DiffCard
+        assertEquals(listOf(DiffHunk(absolutePath, oldText, newText)), settled.diffs)
+    }
+
+    @Test
     fun `apply patch shows every hunk the host reports it applied`() {
         val input = "*** Begin Patch\n*** Update File: app/a.kt\n@@\n-old\n+new\n*** Delete File: app/b.kt\n*** End Patch"
         val meta = buildJsonObject {
