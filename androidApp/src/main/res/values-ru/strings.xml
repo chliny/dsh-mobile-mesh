@@ -251,6 +251,7 @@
     <string name="settings_readonly_banner">Настройки доступны только для чтения через сеть. Откройте Harness на его собственном компьютере, чтобы изменить их.</string>
     <string name="settings_notifications">Уведомления</string>
     <string name="settings_notifications_turn">Уведомлять о завершении хода</string>
+    <string name="settings_notifications_subagent">Уведомлять о завершении субагента</string>
     <string name="settings_notifications_goal">Уведомлять о завершении или блокировке цели</string>
     <string name="settings_notifications_action">Уведомлять, когда требуется ваше действие</string>
     <string name="settings_background">Оставаться на связи в фоне</string>
@@ -275,6 +276,8 @@
     <string name="notif_connected_text">Поддерживаем соединение с %1$s.</string>
     <string name="notif_turn_complete">Ход завершён — %1$s</string>
     <string name="notif_turn_interrupted">Ход остановлен — %1$s</string>
+    <string name="notif_subagent_complete">Субагент завершён — %1$s</string>
+    <string name="notif_subagent_complete_untitled">Субагент завершён</string>
     <string name="notif_goal_complete">Цель завершена — %1$s</string>
     <string name="notif_goal_blocked">Цель заблокирована — %1$s</string>
     <string name="notif_review_requested">Запрошено рассмотрение — %1$s</string>
@@ -388,6 +391,7 @@
     <string name="settings_harness">Harness</string>
     <string name="settings_data">Данные</string>
     <string name="settings_notifications_turn_hint">Ход завершается, пока приложение в фоне</string>
+    <string name="settings_notifications_subagent_hint">Сеанс субагента завершается в фоне</string>
     <string name="settings_notifications_goal_hint">Цель выполнена или заблокирована</string>
     <string name="settings_notifications_action_hint">Подтверждение, вопрос или план ждут вас</string>
     <string name="settings_background_hint">Запускает службу переднего плана, чтобы события продолжали поступать</string>

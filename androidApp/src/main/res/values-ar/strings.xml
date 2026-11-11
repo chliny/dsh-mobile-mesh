@@ -251,6 +251,7 @@
     <string name="settings_readonly_banner">الإعدادات للقراءة فقط عبر الشبكة. افتح Harness على جهاز الكمبيوتر الخاص به لتغييرها.</string>
     <string name="settings_notifications">الإشعارات</string>
     <string name="settings_notifications_turn">الإشعار عند اكتمال جولة</string>
+    <string name="settings_notifications_subagent">الإشعار عند اكتمال وكيل فرعي</string>
     <string name="settings_notifications_goal">الإشعار عند اكتمال الهدف أو حظره</string>
     <string name="settings_notifications_action">الإشعار عند الحاجة إلى إجراء منك</string>
     <string name="settings_background">البقاء متصلًا في الخلفية</string>
@@ -275,6 +276,8 @@
     <string name="notif_connected_text">الحفاظ على الاتصال بـ %1$s.</string>
     <string name="notif_turn_complete">اكتملت الجولة — %1$s</string>
     <string name="notif_turn_interrupted">تم إيقاف الجولة — %1$s</string>
+    <string name="notif_subagent_complete">اكتمل وكيل فرعي — %1$s</string>
+    <string name="notif_subagent_complete_untitled">اكتمل وكيل فرعي</string>
     <string name="notif_goal_complete">اكتمل الهدف — %1$s</string>
     <string name="notif_goal_blocked">تم حظر الهدف — %1$s</string>
     <string name="notif_review_requested">تم طلب مراجعة — %1$s</string>
@@ -388,6 +391,7 @@
     <string name="settings_harness">Harness</string>
     <string name="settings_data">البيانات</string>
     <string name="settings_notifications_turn_hint">انتهاء دور والتطبيق في الخلفية</string>
+    <string name="settings_notifications_subagent_hint">انتهاء جلسة وكيل فرعي في الخلفية</string>
     <string name="settings_notifications_goal_hint">اكتمال هدف أو تعطّله</string>
     <string name="settings_notifications_action_hint">موافقة أو سؤال أو خطة بانتظارك</string>
     <string name="settings_background_hint">يشغّل خدمة في المقدمة كي تستمر الأحداث بالوصول</string>

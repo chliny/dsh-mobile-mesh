@@ -253,6 +253,7 @@
     <string name="settings_readonly_banner">Les paramètres sont en lecture seule via le réseau. Ouvrez le Harness sur son propre ordinateur pour les modifier.</string>
     <string name="settings_notifications">Notifications</string>
     <string name="settings_notifications_turn">Notifier à la fin d’un tour</string>
+    <string name="settings_notifications_subagent">Notifier à la fin d’un sous-agent</string>
     <string name="settings_notifications_goal">Notifier quand un objectif se termine ou se bloque</string>
     <string name="settings_notifications_action">Notifier quand votre action est requise</string>
     <string name="settings_background">Rester connecté en arrière-plan</string>
@@ -277,6 +278,8 @@
     <string name="notif_connected_text">Maintien de la connexion à %1$s.</string>
     <string name="notif_turn_complete">Tour terminé — %1$s</string>
     <string name="notif_turn_interrupted">Tour arrêté — %1$s</string>
+    <string name="notif_subagent_complete">Sous-agent terminé — %1$s</string>
+    <string name="notif_subagent_complete_untitled">Sous-agent terminé</string>
     <string name="notif_goal_complete">Objectif terminé — %1$s</string>
     <string name="notif_goal_blocked">Objectif bloqué — %1$s</string>
     <string name="notif_review_requested">Révision demandée — %1$s</string>
@@ -390,6 +393,7 @@
     <string name="settings_harness">Harness</string>
     <string name="settings_data">Données</string>
     <string name="settings_notifications_turn_hint">Un tour qui se termine pendant que l’app est en arrière-plan</string>
+    <string name="settings_notifications_subagent_hint">Une session de sous-agent qui se termine en arrière-plan</string>
     <string name="settings_notifications_goal_hint">Un objectif terminé ou bloqué</string>
     <string name="settings_notifications_action_hint">Une approbation, une question ou un plan qui vous attend</string>
     <string name="settings_background_hint">Exécute un service au premier plan pour continuer à recevoir les événements</string>

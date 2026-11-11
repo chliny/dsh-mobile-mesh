@@ -265,6 +265,19 @@ fun SettingsScreen(
                         settings.notifyTurnComplete,
                         stringResource(R.string.settings_notifications_turn_hint),
                     ) { viewModel.set { it.copy(notifyTurnComplete = !it.notifyTurnComplete) } }
+                    // A child turn is a turn, so this is a refinement of the row above rather than
+                    // a sibling preference: it only appears once turn notifications are on, and it
+                    // stays off until asked for because a delegation fan-out can be dozens of
+                    // completions the user is not waiting on.
+                    if (settings.notifyTurnComplete) {
+                        Box(Modifier.padding(start = DsSpacing.large)) {
+                            ToggleRow(
+                                stringResource(R.string.settings_notifications_subagent),
+                                settings.notifySubagentComplete,
+                                stringResource(R.string.settings_notifications_subagent_hint),
+                            ) { viewModel.set { it.copy(notifySubagentComplete = !it.notifySubagentComplete) } }
+                        }
+                    }
                     ToggleRow(
                         stringResource(R.string.settings_notifications_goal),
                         settings.notifyGoal,

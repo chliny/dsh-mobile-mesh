@@ -251,6 +251,7 @@
     <string name="settings_readonly_banner">การตั้งค่าเป็นแบบอ่านอย่างเดียวผ่านเครือข่าย เปิด Harness บนคอมพิวเตอร์ของมันเองเพื่อเปลี่ยนแปลง</string>
     <string name="settings_notifications">การแจ้งเตือน</string>
     <string name="settings_notifications_turn">แจ้งเตือนเมื่อเทิร์นเสร็จสมบูรณ์</string>
+    <string name="settings_notifications_subagent">แจ้งเตือนเมื่อซับเอเจนต์เสร็จสมบูรณ์</string>
     <string name="settings_notifications_goal">แจ้งเตือนเมื่อเป้าหมายเสร็จสมบูรณ์หรือถูกบล็อก</string>
     <string name="settings_notifications_action">แจ้งเตือนเมื่อต้องมีการดำเนินการของคุณ</string>
     <string name="settings_background">คงการเชื่อมต่อในเบื้องหลัง</string>
@@ -275,6 +276,8 @@
     <string name="notif_connected_text">คงการเชื่อมต่อกับ %1$s ไว้</string>
     <string name="notif_turn_complete">เทิร์นเสร็จสมบูรณ์ — %1$s</string>
     <string name="notif_turn_interrupted">หยุดเทิร์นแล้ว — %1$s</string>
+    <string name="notif_subagent_complete">ซับเอเจนต์เสร็จสมบูรณ์ — %1$s</string>
+    <string name="notif_subagent_complete_untitled">ซับเอเจนต์เสร็จสมบูรณ์</string>
     <string name="notif_goal_complete">เป้าหมายเสร็จสมบูรณ์ — %1$s</string>
     <string name="notif_goal_blocked">เป้าหมายถูกบล็อก — %1$s</string>
     <string name="notif_review_requested">ขอตรวจสอบแล้ว — %1$s</string>
@@ -388,6 +391,7 @@
     <string name="settings_harness">Harness</string>
     <string name="settings_data">ข้อมูล</string>
     <string name="settings_notifications_turn_hint">เทิร์นจบขณะที่แอปอยู่เบื้องหลัง</string>
+    <string name="settings_notifications_subagent_hint">เซสชันซับเอเจนต์สิ้นสุดขณะแอปอยู่เบื้องหลัง</string>
     <string name="settings_notifications_goal_hint">เป้าหมายสำเร็จหรือถูกบล็อก</string>
     <string name="settings_notifications_action_hint">มีการอนุมัติ คำถาม หรือแผนรอคุณอยู่</string>
     <string name="settings_background_hint">รันบริการเบื้องหน้าเพื่อให้เหตุการณ์ส่งเข้ามาต่อเนื่อง</string>

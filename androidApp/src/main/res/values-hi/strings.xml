@@ -251,6 +251,7 @@
     <string name="settings_readonly_banner">सेटिंग्स नेटवर्क पर केवल-पढ़ने के लिए हैं। उन्हें बदलने के लिए Harness को उसके अपने कंप्यूटर पर खोलें।</string>
     <string name="settings_notifications">सूचनाएं</string>
     <string name="settings_notifications_turn">टर्न पूरा होने पर सूचित करें</string>
+    <string name="settings_notifications_subagent">उप-एजेंट पूरा होने पर सूचित करें</string>
     <string name="settings_notifications_goal">लक्ष्य पूरा होने या अवरुद्ध होने पर सूचित करें</string>
     <string name="settings_notifications_action">आपकी कार्रवाई आवश्यक होने पर सूचित करें</string>
     <string name="settings_background">बैकग्राउंड में कनेक्टेड रहें</string>
@@ -275,6 +276,8 @@
     <string name="notif_connected_text">%1$s से कनेक्शन बनाए रखना।</string>
     <string name="notif_turn_complete">टर्न पूर्ण — %1$s</string>
     <string name="notif_turn_interrupted">टर्न रोका गया — %1$s</string>
+    <string name="notif_subagent_complete">उप-एजेंट पूरा हुआ — %1$s</string>
+    <string name="notif_subagent_complete_untitled">उप-एजेंट पूरा हुआ</string>
     <string name="notif_goal_complete">लक्ष्य पूर्ण — %1$s</string>
     <string name="notif_goal_blocked">लक्ष्य अवरुद्ध — %1$s</string>
     <string name="notif_review_requested">समीक्षा अनुरोधित — %1$s</string>
@@ -388,6 +391,7 @@
     <string name="settings_harness">Harness</string>
     <string name="settings_data">डेटा</string>
     <string name="settings_notifications_turn_hint">ऐप के बैकग्राउंड में रहते हुए टर्न पूरा होना</string>
+    <string name="settings_notifications_subagent_hint">बैकग्राउंड में उप-एजेंट सत्र पूरा होना</string>
     <string name="settings_notifications_goal_hint">लक्ष्य पूरा होना या अवरुद्ध होना</string>
     <string name="settings_notifications_action_hint">कोई अनुमोदन, प्रश्न या योजना आपकी प्रतीक्षा में</string>
     <string name="settings_background_hint">घटनाएँ आती रहें, इसके लिए फ़ोरग्राउंड सेवा चलाता है</string>

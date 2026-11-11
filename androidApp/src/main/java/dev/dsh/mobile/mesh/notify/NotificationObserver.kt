@@ -14,9 +14,13 @@ import dev.dsh.mobile.mesh.ui.AppNavigationState
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -35,6 +39,10 @@ import kotlinx.serialization.json.jsonPrimitive
  * session events only on a per-session `session/follow` stream, so [SessionStore] — which owns
  * those streams — reports them through [onSessionEvent] instead. What remains on the host event
  * stream is the two pending-request waterfalls and the session status notification.
+ *
+ * A delegated child's completion is silenced by default: one parent turn can fan out into many
+ * children, and each one ending would otherwise bury the notification the user is waiting for.
+ * [AppSettings.notifySubagentComplete] opts back in, layered under [AppSettings.notifyTurnComplete].
  */
 @Singleton
 class NotificationObserver @Inject constructor(
@@ -48,6 +56,10 @@ class NotificationObserver @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val classifier = CompletionClassifier()
     private val seen = LinkedHashSet<String>()
+    private val settingsReady = CompletableDeferred<Unit>()
+    // Preferences can be slow or unreadable on startup. Bound this queue so the event collectors
+    // never accumulate an unbounded backlog while waiting for the first settings value.
+    private val pendingNotifications = Channel<PendingNotification>(capacity = 512)
 
     @Volatile
     private var settings = AppSettings()
@@ -64,7 +76,20 @@ class NotificationObserver @Inject constructor(
         // resume sessions the user never opened.
         store.notificationSink = ::onSessionEvent
         scope.launch {
-            hostsStore.settings.collect { settings = it }
+            hostsStore.settings
+                .catch { error ->
+                    if (error is CancellationException) throw error
+                    android.util.Log.w("NotificationObserver", "Unable to read notification settings; using defaults", error)
+                    emit(AppSettings())
+                }
+                .collect {
+                    settings = it
+                    settingsReady.complete(Unit)
+                }
+        }
+        scope.launch {
+            settingsReady.await()
+            for (event in pendingNotifications) postNotification(event)
         }
         scope.launch {
             connectionManager.eventFrames.collect { handleEventFrame(it) }
@@ -106,22 +131,35 @@ class NotificationObserver @Inject constructor(
     }
 
     private fun maybeNotify(event: CompletionEvent) {
-        if (!notifications.canPost()) return
         if (navigationState.isChatVisible(event.sessionId)) return
+        val hostId = connectionManager.state.value.host?.id ?: return
+        val row = store.sessions.value.firstOrNull { it.sessionId == event.sessionId }
+        if (pendingNotifications.trySend(PendingNotification(event, hostId, row?.title, row?.origin == "subagent")).isFailure) {
+            android.util.Log.w("NotificationObserver", "Notification backlog full before settings were ready")
+        }
+    }
 
+    private fun postNotification(pending: PendingNotification) {
+        if (!notifications.canPost()) return
+        val event = pending.event
+        val subagent = pending.subagent
         val spec = when (event) {
             is CompletionEvent.TurnComplete -> {
-                if (!settings.notifyTurnComplete) return
+                if (!turnCompletionEnabled(subagent)) return
                 Spec(
                     channel = DshNotifications.CHANNEL_COMPLETIONS,
-                    title = context.getString(R.string.notif_turn_complete, sessionTitle(event.sessionId).orEmpty()),
+                    title = if (subagent) {
+                        subagentFinishedTitle(pending.title)
+                    } else {
+                        context.getString(R.string.notif_turn_complete, pending.title.orEmpty())
+                    },
                 )
             }
             is CompletionEvent.TurnInterrupted -> {
-                if (!settings.notifyTurnComplete) return
+                if (!turnCompletionEnabled(subagent)) return
                 Spec(
                     channel = DshNotifications.CHANNEL_COMPLETIONS,
-                    title = context.getString(R.string.notif_turn_interrupted, sessionTitle(event.sessionId).orEmpty()),
+                    title = context.getString(R.string.notif_turn_interrupted, pending.title.orEmpty()),
                 )
             }
             is CompletionEvent.GoalComplete -> {
@@ -153,33 +191,64 @@ class NotificationObserver @Inject constructor(
                 )
             }
             is CompletionEvent.SessionIdle -> {
-                if (!settings.notifyTurnComplete) return
-                val title = sessionTitle(event.sessionId)
-                Spec(
-                    channel = DshNotifications.CHANNEL_COMPLETIONS,
-                    title = if (title.isNullOrBlank()) {
-                        context.getString(R.string.notif_session_idle_untitled)
-                    } else {
-                        context.getString(R.string.notif_session_idle, title)
-                    },
-                )
+                if (!turnCompletionEnabled(subagent)) return
+                if (subagent) {
+                    Spec(
+                        channel = DshNotifications.CHANNEL_COMPLETIONS,
+                        title = subagentFinishedTitle(pending.title),
+                    )
+                } else {
+                    val title = pending.title
+                    Spec(
+                        channel = DshNotifications.CHANNEL_COMPLETIONS,
+                        title = if (title.isNullOrBlank()) {
+                            context.getString(R.string.notif_session_idle_untitled)
+                        } else {
+                            context.getString(R.string.notif_session_idle, title)
+                        },
+                    )
+                }
             }
         }
 
-        if (isDuplicate(event.dedupKey)) return
+        // Idle notifications have no durable sequence; the classifier already emits only once
+        // per running-to-idle transition. A permanent zero-seq key would suppress later runs.
+        if (event !is CompletionEvent.SessionIdle && isDuplicate(event.dedupKey)) return
 
-        val hostId = connectionManager.state.value.host?.id ?: return
         val id = notificationId(event.sessionId, spec.channel)
-        notifications.postSession(spec.channel, id, spec.title, "", event.sessionId, hostId)
+        notifications.postSession(spec.channel, id, spec.title, "", event.sessionId, pending.hostId)
     }
+
+    private data class PendingNotification(
+        val event: CompletionEvent,
+        val hostId: String,
+        val title: String?,
+        val subagent: Boolean,
+    )
 
     private data class Spec(
         val channel: String,
         val title: String,
     )
 
-    private fun sessionTitle(sessionId: String): String? =
-        store.sessions.value.firstOrNull { it.sessionId == sessionId }?.title
+    /**
+     * Turn completion as gated by the notification settings.
+     *
+     * [AppSettings.notifySubagentComplete] refines [AppSettings.notifyTurnComplete] instead of
+     * replacing it: a child completes by ending a turn, so turning turn notifications off silences
+     * its completions even when the child preference was left on.
+     */
+    private fun turnCompletionEnabled(subagent: Boolean): Boolean =
+        settings.notifyTurnComplete && (!subagent || settings.notifySubagentComplete)
+
+    /** A finished child's own title when the host projected one; children are often untitled. */
+    private fun subagentFinishedTitle(title: String?): String {
+        return if (title.isNullOrBlank()) {
+            context.getString(R.string.notif_subagent_complete_untitled)
+        } else {
+            context.getString(R.string.notif_subagent_complete, title)
+        }
+    }
 
     private fun notificationId(sessionId: String, channel: String): Int {
         val offset = when (channel) {

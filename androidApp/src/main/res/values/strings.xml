@@ -429,6 +429,7 @@
     <string name="settings_readonly_banner">Settings are read-only over the network. Open the harness on its own computer to change them.</string>
     <string name="settings_notifications">Notifications</string>
     <string name="settings_notifications_turn">Notify when a turn completes</string>
+    <string name="settings_notifications_subagent">Notify when a subagent finishes</string>
     <string name="settings_notifications_goal">Notify when a goal completes or blocks</string>
     <string name="settings_notifications_action">Notify when your action is needed</string>
     <string name="settings_background">Keep connected in background</string>
@@ -471,6 +472,7 @@
     <string name="settings_harness">Harness</string>
     <string name="settings_data">Data</string>
     <string name="settings_notifications_turn_hint">A turn finishing while the app is in the background</string>
+    <string name="settings_notifications_subagent_hint">A subagent session finishing in the background</string>
     <string name="settings_notifications_goal_hint">A goal completing or getting blocked</string>
     <string name="settings_notifications_action_hint">An approval, question, or plan waiting on you</string>
     <string name="settings_background_hint">Runs a foreground service so events keep arriving</string>
@@ -481,6 +483,8 @@
     <string name="notif_connected_text">Keeping the connection to %1$s alive.</string>
     <string name="notif_turn_complete">Turn complete — %1$s</string>
     <string name="notif_turn_interrupted">Turn stopped — %1$s</string>
+    <string name="notif_subagent_complete">Subagent finished — %1$s</string>
+    <string name="notif_subagent_complete_untitled">Subagent finished</string>
     <string name="notif_goal_complete">Goal complete — %1$s</string>
     <string name="notif_goal_blocked">Goal blocked — %1$s</string>
     <string name="notif_review_requested">Review requested — %1$s</string>

@@ -251,6 +251,7 @@
     <string name="settings_readonly_banner">سیٹنگز نیٹ ورک پر صرف پڑھنے کے لیے ہیں۔ انہیں تبدیل کرنے کے لیے Harness کو اس کے اپنے کمپیوٹر پر کھولیں۔</string>
     <string name="settings_notifications">اطلاعات</string>
     <string name="settings_notifications_turn">ٹرن مکمل ہونے پر اطلاع دیں</string>
+    <string name="settings_notifications_subagent">ذیلی ایجنٹ مکمل ہونے پر اطلاع دیں</string>
     <string name="settings_notifications_goal">ہدف مکمل یا مسدود ہونے پر اطلاع دیں</string>
     <string name="settings_notifications_action">آپ کی کارروائی درکار ہونے پر اطلاع دیں</string>
     <string name="settings_background">پس منظر میں منسلک رہیں</string>
@@ -275,6 +276,8 @@
     <string name="notif_connected_text">%1$s سے کنکشن برقرار رکھا جا رہا ہے۔</string>
     <string name="notif_turn_complete">ٹرن مکمل — %1$s</string>
     <string name="notif_turn_interrupted">ٹرن روک دیا گیا — %1$s</string>
+    <string name="notif_subagent_complete">ذیلی ایجنٹ مکمل ہو گیا — %1$s</string>
+    <string name="notif_subagent_complete_untitled">ذیلی ایجنٹ مکمل ہو گیا</string>
     <string name="notif_goal_complete">ہدف مکمل — %1$s</string>
     <string name="notif_goal_blocked">ہدف مسدود — %1$s</string>
     <string name="notif_review_requested">جائزہ طلب کیا گیا — %1$s</string>
@@ -388,6 +391,7 @@
     <string name="settings_harness">Harness</string>
     <string name="settings_data">ڈیٹا</string>
     <string name="settings_notifications_turn_hint">ایپ کے پس منظر میں ہوتے ہوئے ٹرن مکمل ہونا</string>
+    <string name="settings_notifications_subagent_hint">پس منظر میں ذیلی ایجنٹ سیشن مکمل ہونا</string>
     <string name="settings_notifications_goal_hint">ہدف مکمل ہونا یا رک جانا</string>
     <string name="settings_notifications_action_hint">کوئی منظوری، سوال یا منصوبہ آپ کا منتظر</string>
     <string name="settings_background_hint">واقعات آتے رہیں، اس کے لیے فورگراؤنڈ سروس چلاتا ہے</string>

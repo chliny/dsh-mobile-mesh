@@ -23,14 +23,17 @@ import dev.dsh.mobile.mesh.ui.AppNavigationState
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -44,6 +47,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.startCoroutine
@@ -339,22 +343,145 @@ class SessionAddedNotificationFlowTest {
         assertEquals("Session finished", flow.finish("untitled"))
     }
 
-    private fun withFlow(block: suspend CoroutineScope.(Fixture) -> Unit) = runBlocking {
-        val flow = Fixture()
+    @Test
+    fun `cleared idle notification returns on a later run but duplicate idle stays silent`() = withFlow { flow ->
+        flow.clearNotifications()
+        flow.addSession("repeated", "\"Release plan\"")
+        assertEquals("Session finished — Release plan", flow.finish("repeated"))
+        flow.clearNotifications()
+
+        flow.emitStatus("repeated", running = false)
+        flow.emitApprovalBarrier()
+        assertEquals(listOf("Review requested — Bash"), flow.notificationTitles())
+        flow.clearNotifications()
+
+        assertEquals("Session finished — Release plan", flow.finish("repeated"))
+    }
+
+    @Test
+    fun `startup waits for stored notification preferences before posting`() = withFlow(
+        settings = AppSettings(notifyTurnComplete = false), holdSettings = true,
+    ) { flow ->
+        flow.clearNotifications()
+        flow.addSession("parent", "\"Release plan\"")
+        flow.emitStatus("parent", running = true)
+        flow.emitStatus("parent", running = false)
+        flow.emitApproval()
+        // Rendezvous delivery of another frame ensures the observer processed the earlier idle
+        // and approval events while the first settings value was still held back.
+        flow.emitStatus("unrelated", running = true)
+        flow.loadSettings()
+        flow.waitForNotification()
+        assertEquals(listOf("Review requested — Bash"), flow.notificationTitles())
+    }
+
+    @Test
+    fun `notification uses visibility and host at completion while settings load`() = withFlow(holdSettings = true) { flow ->
+        flow.clearNotifications()
+        flow.addSession("visible", "\"Visible session\"")
+        flow.addSession("background", "\"Original title\"")
+        flow.addSession("child", "\"Delegated\"", origin = "subagent", parentSessionId = "background")
+        flow.showSession("visible")
+        flow.emitStatus("visible", running = true)
+        flow.emitStatus("visible", running = false)
+        flow.emitStatus("background", running = true)
+        flow.emitStatus("background", running = false)
+        flow.emitStatus("child", running = true)
+        flow.emitStatus("child", running = false)
+        flow.emitApproval()
+        // This rendezvous ensures the observer has processed both completions before navigation changes.
+        flow.emitStatus("unrelated", running = true)
+
+        flow.showSession("background")
+        flow.removeSession("child")
+        withTimeout(5_000) { flow.store.sessions.first { rows -> rows.none { it.sessionId == "child" } } }
+        Mockito.`when`(flow.api.sessionRename(SessionRenameRequest("background", "Later title")))
+            .thenReturn(RpcResult.Ok(SessionRenameValue(title = "Later title", seq = 3)))
+        flow.store.renameSession("background", "Later title")
+        flow.switchHost()
+        flow.loadSettings()
+        flow.waitForTitle("Review requested — Bash")
+        assertEquals(
+            setOf("Session finished — Original title", "Review requested — Bash"),
+            flow.notificationTitles().toSet(),
+        )
+        assertEquals("host", flow.notificationHostId("Session finished — Original title"))
+    }
+
+    @Test
+    fun `subagent completion stays silent by default`() = withFlow { flow ->
+        flow.addSession("child", "\"Explore auth flow\"", origin = "subagent", parentSessionId = "parent")
+        flow.addSession("parent", "\"Release plan\"")
+        flow.emitStatus("child", running = true)
+        flow.emitStatus("child", running = false)
+        // The parent's completion is the ordering barrier: by the time its notification exists, the
+        // child's idle status has been classified too. A second notification means it leaked.
+        assertEquals("Session finished — Release plan", flow.finish("parent"))
+        assertEquals(1, flow.notificationCount())
+    }
+
+    @Test
+    fun `subagent completion notifies when the option is enabled`() = withFlow(
+        settings = AppSettings(notifySubagentComplete = true),
+    ) { flow ->
+        flow.addSession("child", "\"Explore auth flow\"", origin = "subagent", parentSessionId = "parent")
+        assertEquals("Subagent finished — Explore auth flow", flow.finish("child"))
+    }
+
+    @Test
+    fun `subagent completion also needs turn notifications on`() {
+        // Positive control: root turn notifications really work with the option enabled.
+        withFlow { flow ->
+            flow.clearNotifications()
+            flow.addSession("parent", "\"Release plan\"")
+            assertEquals("Session finished — Release plan", flow.finish("parent"))
+        }
+        withFlow(settings = AppSettings(notifyTurnComplete = false, notifySubagentComplete = true)) { flow ->
+            flow.clearNotifications()
+            flow.addSession("child", "\"Explore auth flow\"", origin = "subagent", parentSessionId = "parent")
+            flow.addSession("parent", "\"Release plan\"")
+            flow.emitStatus("child", running = true)
+            flow.emitStatus("child", running = false)
+            flow.emitStatus("parent", running = true)
+            flow.emitStatus("parent", running = false)
+            // The independent approval notification proves the earlier statuses were processed.
+            flow.emitApprovalBarrier()
+            assertEquals(listOf("Review requested — Bash"), flow.notificationTitles())
+        }
+    }
+
+    private fun withFlow(
+        settings: AppSettings = AppSettings(),
+        holdSettings: Boolean = false,
+        block: suspend CoroutineScope.(Fixture) -> Unit,
+    ) = runBlocking {
+        val flow = Fixture(settings, holdSettings)
         try {
-            withTimeout(30_000) { block(flow) }
+            withTimeout(30_000) {
+                flow.settingsStarted.await()
+                if (!holdSettings) flow.settingsReady.await()
+                block(flow)
+            }
         } finally {
             flow.close()
         }
     }
 
-    private class Fixture {
+    private class Fixture(settings: AppSettings = AppSettings(), holdSettings: Boolean = false) {
+        val settingsStarted = CompletableDeferred<Unit>()
+        val settingsReady = CompletableDeferred<Unit>()
+        private val releaseSettings = CompletableDeferred<Unit>().apply { if (!holdSettings) complete(Unit) }
         private val context: Context = RuntimeEnvironment.getApplication()
-        private val frames = MutableSharedFlow<RemoteEventFrame>(extraBufferCapacity = 16)
+        private val frames = MutableSharedFlow<RemoteEventFrame>()
         private val connection = mock(ConnectionManager::class.java)
         val api = mock(DshApiClient::class.java)
         private val hosts = mock(HostsStore::class.java)
-        private val navigation = mock(AppNavigationState::class.java)
+        private val visibleSession = AtomicReference<String?>(null)
+        private val navigation = Mockito.mock(AppNavigationState::class.java, org.mockito.stubbing.Answer { invocation ->
+            if (invocation.method.name == "isChatVisible") invocation.arguments[0] == visibleSession.get()
+            else Mockito.RETURNS_DEFAULTS.answer(invocation)
+        })
+        private val hostState = MutableStateFlow(ConnectionUiState(host = HostConfig("host", "Host", "localhost", 3080)))
         private val observer: NotificationObserver
         val store: SessionStore
 
@@ -366,8 +493,14 @@ class SessionAddedNotificationFlowTest {
             `when`(connection.eventFrames).thenReturn(frames)
             `when`(connection.connectedGenerations).thenReturn(MutableSharedFlow())
             `when`(connection.harnessProtocolChanges).thenReturn(MutableStateFlow(null))
-            `when`(connection.state).thenReturn(MutableStateFlow(ConnectionUiState(host = HostConfig("host", "Host", "localhost", 3080))))
-            `when`(hosts.settings).thenReturn(MutableStateFlow(AppSettings()))
+            `when`(connection.state).thenReturn(hostState)
+            `when`(hosts.settings).thenReturn(flow {
+                settingsStarted.complete(Unit)
+                releaseSettings.await()
+                emit(settings)
+                settingsReady.complete(Unit)
+                awaitCancellation()
+            })
             store = SessionStore(connection)
             observer = NotificationObserver(store, connection, DshNotifications(context), hosts, navigation, context)
             try {
@@ -391,11 +524,24 @@ class SessionAddedNotificationFlowTest {
             (field.get(target) as CoroutineScope).cancel()
         }
 
-        suspend fun addSession(id: String, titleJson: String?) {
+        suspend fun addSession(
+            id: String,
+            titleJson: String?,
+            origin: String? = null,
+            parentSessionId: String? = null,
+        ) {
             withTimeout(5_000) { frames.subscriptionCount.first { it >= 2 } }
             val projection = titleJson?.let { ",\"projections\":{\"asOfSeq\":0,\"values\":{\"title\":$it}}" }.orEmpty()
-            val summary = Json.parseToJsonElement("""{"sessionId":"$id","updatedAt":1,"running":false,"blank":false$projection}""")
+            val lineage = buildString {
+                if (origin != null) append(",\"origin\":\"$origin\"")
+                if (parentSessionId != null) append(",\"parentSessionId\":\"$parentSessionId\"")
+            }
+            val summary = Json.parseToJsonElement(
+                """{"sessionId":"$id","updatedAt":1,"running":false,"blank":false$projection$lineage}""",
+            )
             frames.emit(RemoteEventFrame.Emit(event = "api-session/added", args = listOf(summary)))
+            // The observer decides by the store's row, so wait until the row (and its lineage) exists.
+            withTimeout(5_000) { store.sessions.first { rows -> rows.any { it.sessionId == id } } }
         }
 
         suspend fun removeSession(id: String) {
@@ -403,9 +549,18 @@ class SessionAddedNotificationFlowTest {
             frames.emit(RemoteEventFrame.Emit(event = "api-session/removed", args = listOf(JsonPrimitive(id))))
         }
 
+        suspend fun emitStatus(id: String, running: Boolean) {
+            frames.emit(
+                RemoteEventFrame.Emit(
+                    event = "api-session/status",
+                    args = listOf(JsonPrimitive(id), JsonPrimitive(running)),
+                ),
+            )
+        }
+
         suspend fun finish(id: String): String {
-            frames.emit(RemoteEventFrame.Emit(event = "api-session/status", args = listOf(JsonPrimitive(id), JsonPrimitive(true))))
-            frames.emit(RemoteEventFrame.Emit(event = "api-session/status", args = listOf(JsonPrimitive(id), JsonPrimitive(false))))
+            emitStatus(id, running = true)
+            emitStatus(id, running = false)
             val manager = context.getSystemService(NotificationManager::class.java)
             val notification = withTimeout(5_000) {
                 while (shadowOf(manager).allNotifications.isEmpty()) delay(10)
@@ -413,5 +568,65 @@ class SessionAddedNotificationFlowTest {
             }
             return notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString()
         }
+
+        /** Posts a needs-action notification, gated by its own switch, after the frames before it. */
+        suspend fun emitApproval() {
+            frames.emit(
+                RemoteEventFrame.Waterfall(
+                    event = "approval/request",
+                    eventId = "barrier-approval",
+                    agentId = "barrier-session",
+                    request = Json.parseToJsonElement("""{"toolName":"Bash"}""") as JsonObject,
+                ),
+            )
+        }
+
+        suspend fun emitApprovalBarrier() {
+            emitApproval()
+            waitForNotification()
+        }
+
+        suspend fun waitForNotification() {
+            val manager = context.getSystemService(NotificationManager::class.java)
+            withTimeout(5_000) {
+                while (shadowOf(manager).allNotifications.isEmpty()) delay(10)
+            }
+        }
+
+        fun showSession(sessionId: String?) {
+            visibleSession.set(sessionId)
+        }
+
+        fun switchHost() {
+            hostState.value = hostState.value.copy(host = HostConfig("other-host", "Other", "localhost", 3080))
+        }
+
+        fun notificationHostId(title: String): String? {
+            val notification = shadowOf(context.getSystemService(NotificationManager::class.java)).allNotifications
+                .single { it.extras.getCharSequence(Notification.EXTRA_TITLE).toString() == title }
+            return shadowOf(notification.contentIntent).savedIntent.getStringExtra(DshNotifications.EXTRA_HOST_ID)
+        }
+
+        suspend fun waitForTitle(title: String) {
+            withTimeout(5_000) {
+                while (title !in notificationTitles()) delay(10)
+            }
+        }
+
+        suspend fun loadSettings() {
+            releaseSettings.complete(Unit)
+            withTimeout(5_000) { settingsReady.await() }
+        }
+
+        fun clearNotifications() {
+            context.getSystemService(NotificationManager::class.java).cancelAll()
+        }
+
+        fun notificationCount(): Int =
+            shadowOf(context.getSystemService(NotificationManager::class.java)).allNotifications.size
+
+        fun notificationTitles(): List<String> =
+            shadowOf(context.getSystemService(NotificationManager::class.java)).allNotifications
+                .map { it.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }
     }
 }

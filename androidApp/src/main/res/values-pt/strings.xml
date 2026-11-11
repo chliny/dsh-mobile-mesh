@@ -251,6 +251,7 @@
     <string name="settings_readonly_banner">As configurações são somente leitura pela rede. Abra o Harness no próprio computador para alterá-las.</string>
     <string name="settings_notifications">Notificações</string>
     <string name="settings_notifications_turn">Notificar quando um turno for concluído</string>
+    <string name="settings_notifications_subagent">Notificar quando um subagente terminar</string>
     <string name="settings_notifications_goal">Notificar quando um objetivo for concluído ou bloqueado</string>
     <string name="settings_notifications_action">Notificar quando sua ação for necessária</string>
     <string name="settings_background">Manter conexão em segundo plano</string>
@@ -275,6 +276,8 @@
     <string name="notif_connected_text">Mantendo a conexão com %1$s.</string>
     <string name="notif_turn_complete">Turno concluído — %1$s</string>
     <string name="notif_turn_interrupted">Turno interrompido — %1$s</string>
+    <string name="notif_subagent_complete">Subagente concluído — %1$s</string>
+    <string name="notif_subagent_complete_untitled">Subagente concluído</string>
     <string name="notif_goal_complete">Objetivo concluído — %1$s</string>
     <string name="notif_goal_blocked">Objetivo bloqueado — %1$s</string>
     <string name="notif_review_requested">Revisão solicitada — %1$s</string>
@@ -388,6 +391,7 @@
     <string name="settings_harness">Harness</string>
     <string name="settings_data">Dados</string>
     <string name="settings_notifications_turn_hint">Um turno que termina com o app em segundo plano</string>
+    <string name="settings_notifications_subagent_hint">Uma sessão de subagente terminando em segundo plano</string>
     <string name="settings_notifications_goal_hint">Um objetivo concluído ou bloqueado</string>
     <string name="settings_notifications_action_hint">Uma aprovação, pergunta ou plano esperando por você</string>
     <string name="settings_background_hint">Executa um serviço em primeiro plano para continuar recebendo eventos</string>

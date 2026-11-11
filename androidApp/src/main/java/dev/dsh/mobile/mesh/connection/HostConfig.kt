@@ -132,6 +132,14 @@ data class AppSettings(
     val autoConnectLoopback: Boolean = true,
     val keepConnectedInBackground: Boolean = false,
     val notifyTurnComplete: Boolean = true,
+    /**
+     * Whether a subagent session's completion notifies too.
+     *
+     * Off by default: a background delegation is the parent turn's business, and a fan-out of
+     * children would otherwise bury the one notification the user is waiting for. Only meaningful
+     * while [notifyTurnComplete] is on, since a child completes by ending a turn.
+     */
+    val notifySubagentComplete: Boolean = false,
     val notifyGoal: Boolean = true,
     val notifyNeedsAction: Boolean = true,
     val themePreference: String = "system", // light | dark | system

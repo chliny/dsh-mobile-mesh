@@ -251,6 +251,7 @@
     <string name="settings_readonly_banner">Los ajustes son de solo lectura a través de la red. Abre el Harness en su propio ordenador para cambiarlos.</string>
     <string name="settings_notifications">Notificaciones</string>
     <string name="settings_notifications_turn">Notificar cuando un turno se complete</string>
+    <string name="settings_notifications_subagent">Notificar cuando un subagente finalice</string>
     <string name="settings_notifications_goal">Notificar cuando un objetivo se complete o se bloquee</string>
     <string name="settings_notifications_action">Notificar cuando se necesite tu acción</string>
     <string name="settings_background">Mantener la conexión en segundo plano</string>
@@ -275,6 +276,8 @@
     <string name="notif_connected_text">Manteniendo la conexión con %1$s.</string>
     <string name="notif_turn_complete">Turno completado — %1$s</string>
     <string name="notif_turn_interrupted">Turno detenido — %1$s</string>
+    <string name="notif_subagent_complete">Subagente finalizado — %1$s</string>
+    <string name="notif_subagent_complete_untitled">Subagente finalizado</string>
     <string name="notif_goal_complete">Objetivo completado — %1$s</string>
     <string name="notif_goal_blocked">Objetivo bloqueado — %1$s</string>
     <string name="notif_review_requested">Revisión solicitada — %1$s</string>
@@ -388,6 +391,7 @@
     <string name="settings_harness">Harness</string>
     <string name="settings_data">Datos</string>
     <string name="settings_notifications_turn_hint">Un turno que termina con la app en segundo plano</string>
+    <string name="settings_notifications_subagent_hint">Una sesión de subagente que termina en segundo plano</string>
     <string name="settings_notifications_goal_hint">Un objetivo que se completa o se bloquea</string>
     <string name="settings_notifications_action_hint">Una aprobación, pregunta o plan que te espera</string>
     <string name="settings_background_hint">Ejecuta un servicio en primer plano para seguir recibiendo eventos</string>

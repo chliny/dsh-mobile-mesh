@@ -38,6 +38,7 @@ class HostsStore @Inject constructor(
         val AUTO_LOOPBACK = booleanPreferencesKey("auto_loopback")
         val BACKGROUND = booleanPreferencesKey("background")
         val NOTIFY_TURN = booleanPreferencesKey("notify_turn")
+        val NOTIFY_SUBAGENT = booleanPreferencesKey("notify_subagent")
         val NOTIFY_GOAL = booleanPreferencesKey("notify_goal")
         val NOTIFY_ACTION = booleanPreferencesKey("notify_action")
         val THEME = stringPreferencesKey("theme")
@@ -199,6 +200,7 @@ class HostsStore @Inject constructor(
             prefs[Keys.AUTO_LOOPBACK] = next.autoConnectLoopback
             prefs[Keys.BACKGROUND] = next.keepConnectedInBackground
             prefs[Keys.NOTIFY_TURN] = next.notifyTurnComplete
+            prefs[Keys.NOTIFY_SUBAGENT] = next.notifySubagentComplete
             prefs[Keys.NOTIFY_GOAL] = next.notifyGoal
             prefs[Keys.NOTIFY_ACTION] = next.notifyNeedsAction
             prefs[Keys.THEME] = next.themePreference
@@ -223,6 +225,7 @@ class HostsStore @Inject constructor(
             autoConnectLoopback = prefs[Keys.AUTO_LOOPBACK] ?: true,
             keepConnectedInBackground = prefs[Keys.BACKGROUND] ?: false,
             notifyTurnComplete = prefs[Keys.NOTIFY_TURN] ?: true,
+            notifySubagentComplete = prefs[Keys.NOTIFY_SUBAGENT] ?: false,
             notifyGoal = prefs[Keys.NOTIFY_GOAL] ?: true,
             notifyNeedsAction = prefs[Keys.NOTIFY_ACTION] ?: true,
             themePreference = prefs[Keys.THEME] ?: "system",

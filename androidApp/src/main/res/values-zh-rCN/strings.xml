@@ -295,6 +295,7 @@
     <string name="settings_readonly_banner">设置通过网络为只读。请在 Harness 所在的电脑上打开它以更改设置。</string>
     <string name="settings_notifications">通知</string>
     <string name="settings_notifications_turn">回合完成时通知</string>
+    <string name="settings_notifications_subagent">子代理完成时通知</string>
     <string name="settings_notifications_goal">目标完成或受阻时通知</string>
     <string name="settings_notifications_action">需要你操作时通知</string>
     <string name="settings_background">在后台保持连接</string>
@@ -310,6 +311,8 @@
     <string name="notif_connected_text">保持与 %1$s 的连接。</string>
     <string name="notif_turn_complete">回合完成 — %1$s</string>
     <string name="notif_turn_interrupted">回合已中断 — %1$s</string>
+    <string name="notif_subagent_complete">子代理完成 — %1$s</string>
+    <string name="notif_subagent_complete_untitled">子代理完成</string>
     <string name="notif_goal_complete">目标完成 — %1$s</string>
     <string name="notif_goal_blocked">目标受阻 — %1$s</string>
     <string name="notif_review_requested">已请求审阅 — %1$s</string>
@@ -453,6 +456,7 @@
     <string name="settings_harness">Harness</string>
     <string name="settings_data">数据</string>
     <string name="settings_notifications_turn_hint">应用在后台时回合结束</string>
+    <string name="settings_notifications_subagent_hint">子代理会话在后台完成</string>
     <string name="settings_notifications_goal_hint">目标完成或被阻塞</string>
     <string name="settings_notifications_action_hint">有审批、提问或计划等待你处理</string>
     <string name="settings_background_hint">运行前台服务以持续接收事件</string>

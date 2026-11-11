@@ -251,6 +251,7 @@
     <string name="settings_readonly_banner">সেটিংস নেটওয়ার্কে শুধুমাত্র পাঠযোগ্য। সেগুলো পরিবর্তন করতে নিজের কম্পিউটারে Harness খুলুন।</string>
     <string name="settings_notifications">বিজ্ঞপ্তি</string>
     <string name="settings_notifications_turn">টার্ন সম্পন্ন হলে জানান</string>
+    <string name="settings_notifications_subagent">সাবএজেন্ট সম্পন্ন হলে জানান</string>
     <string name="settings_notifications_goal">লক্ষ্য সম্পন্ন বা অবরুদ্ধ হলে জানান</string>
     <string name="settings_notifications_action">আপনার পদক্ষেপ প্রয়োজন হলে জানান</string>
     <string name="settings_background">ব্যাকগ্রাউন্ডে সংযুক্ত থাকুন</string>
@@ -275,6 +276,8 @@
     <string name="notif_connected_text">%1$s-এর সাথে সংযোগ বজায় রাখা হচ্ছে।</string>
     <string name="notif_turn_complete">টার্ন সম্পন্ন — %1$s</string>
     <string name="notif_turn_interrupted">টার্ন থামানো হয়েছে — %1$s</string>
+    <string name="notif_subagent_complete">সাবএজেন্ট সম্পন্ন — %1$s</string>
+    <string name="notif_subagent_complete_untitled">সাবএজেন্ট সম্পন্ন</string>
     <string name="notif_goal_complete">লক্ষ্য সম্পন্ন — %1$s</string>
     <string name="notif_goal_blocked">লক্ষ্য অবরুদ্ধ — %1$s</string>
     <string name="notif_review_requested">পর্যালোচনা চাওয়া হয়েছে — %1$s</string>
@@ -388,6 +391,7 @@
     <string name="settings_harness">Harness</string>
     <string name="settings_data">ডেটা</string>
     <string name="settings_notifications_turn_hint">অ্যাপ ব্যাকগ্রাউন্ডে থাকাকালীন টার্ন শেষ হওয়া</string>
+    <string name="settings_notifications_subagent_hint">ব্যাকগ্রাউন্ডে সাবএজেন্ট সেশন শেষ হওয়া</string>
     <string name="settings_notifications_goal_hint">লক্ষ্য সম্পূর্ণ বা অবরুদ্ধ হওয়া</string>
     <string name="settings_notifications_action_hint">কোনো অনুমোদন, প্রশ্ন বা পরিকল্পনা আপনার অপেক্ষায়</string>
     <string name="settings_background_hint">ইভেন্ট আসতে থাকার জন্য ফোরগ্রাউন্ড সার্ভিস চালায়</string>
