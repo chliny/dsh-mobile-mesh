@@ -695,6 +695,7 @@ private class CommonMarkWebView(
     fun release() {
         if (released) return
         released = true
+        removeCallbacks(reloadForWidthChange)
         stopLoading()
         destroy()
     }
@@ -712,6 +713,29 @@ private class CommonMarkWebView(
     private var documentReady = false
     private var documentGeneration = 0L
     private var documentBaseUrl: String? = null
+
+    /**
+     * The view width, density and text scale `contentHeight` describes.
+     *
+     * Chromium keeps a loaded document laid out for the viewport it was loaded in: resizing the
+     * View does not re-lay it out, and `contentHeight` keeps describing the old layout. A row
+     * measured from that keeps a height the document never renders — the blank band under the last
+     * message after the app window was narrowed (split screen, a folded device) and widened again.
+     * A width change therefore loads the document again for the new width.
+     */
+    private var settledLayoutKey: Triple<Int, Int, Float>? = null
+
+    /** The view was resized while a document was still loading; load it again once it is ready. */
+    private var reloadAfterReady = false
+
+    /** A deferred load for the current width is queued; a new document can ride on it. */
+    private var pendingLayoutReload = false
+
+    /** Last height this view reported; kept while a reload for a new width is pending. */
+    private var lastMeasuredHeight = 1
+
+    private fun layoutKeyFor(width: Int): Triple<Int, Int, Float> =
+        Triple(width, resources.displayMetrics.densityDpi, resources.configuration.fontScale)
 
     init {
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -755,6 +779,15 @@ private class CommonMarkWebView(
                             override fun onComplete(requestId: Long) {
                                 if (!canPostMarkdownVisualStateCallback(released) || generation != documentGeneration) return
                                 documentReady = true
+                                if (reloadAfterReady) {
+                                    // The document was laid out for the width it was loaded at, not
+                                    // the one the view settled on: load it again for that width.
+                                    scheduleLayoutReload()
+                                    return
+                                }
+                                // The committed visual state describes the width this view was laid
+                                // out at when the document loaded; a later width reloads it below.
+                                settledLayoutKey = measuredWidth.takeIf { it > 0 }?.let(::layoutKeyFor)
                                 view.requestLayout()
                                 view.invalidate()
                             }
@@ -770,13 +803,10 @@ private class CommonMarkWebView(
         val html = part.html
         if (loadedHtml == html) return
         loadedHtml = html
-        documentGeneration++
-        documentBaseUrl = MARKDOWN_BASE_URL.replace(
-            "markdown.invalid", "markdown-$documentGeneration.invalid",
-        )
-        documentReady = false
-        requestLayout()
-        loadDataWithBaseURL(documentBaseUrl, html, "text/html", "UTF-8", null)
+        // The deferred load for a new width loads whatever document is current when it runs, so a
+        // document switch during the grace period rides on it instead of loading twice.
+        if (pendingLayoutReload && documentReady) return
+        loadDocument()
     }
 
     private fun handleMarkdownNavigation(url: String): Boolean {
@@ -798,15 +828,81 @@ private class CommonMarkWebView(
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
         val width = resolveSize(measuredWidth, widthMeasureSpec)
-        val layoutKey = Triple(width, resources.displayMetrics.densityDpi, resources.configuration.fontScale)
-        val height = if (documentReady) {
-            markdownWebViewMeasuredHeight(contentHeight, scale, true).also {
+        val layoutKey = layoutKeyFor(width)
+        val cached = document?.measuredLayout?.takeIf { it.first == layoutKey }?.second
+        val height = when {
+            !documentReady -> cached ?: 1
+            settledLayoutKey == layoutKey -> markdownWebViewMeasuredHeight(contentHeight, scale, true).also {
                 document?.measuredLayout = layoutKey to it
             }
-        } else {
-            document?.measuredLayout?.takeIf { it.first == layoutKey }?.second ?: 1
+            // A width this row was measured at before: that height is still right for it.
+            cached != null -> cached
+            // A reload for the current width has not landed yet; hold the row steady.
+            else -> lastMeasuredHeight
         }
+        lastMeasuredHeight = height
         setMeasuredDimension(width, resolveSize(height, heightMeasureSpec))
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (oldw <= 0 || w == oldw) return
+        if (!documentReady) {
+            // The in-flight document is being laid out at a width the view no longer has.
+            reloadAfterReady = true
+            return
+        }
+        settledLayoutKey = null
+        // A width this document was measured at before needs no reload; its height is cached.
+        if (document?.measuredLayout?.first != layoutKeyFor(w)) scheduleLayoutReload()
+    }
+
+    /**
+     * Load the document again for the view's current width, once the renderer has taken the new
+     * view size. Chromium ignores a resize that arrives in the same frame as the load, so the
+     * reload is deferred; a window drag resizes in many steps and the pending reload is replaced
+     * rather than queued.
+     */
+    private fun scheduleLayoutReload() {
+        reloadAfterReady = false
+        pendingLayoutReload = true
+        removeCallbacks(reloadForWidthChange)
+        postDelayed(reloadForWidthChange, WIDTH_RELOAD_DELAY_MS)
+    }
+
+    private val reloadForWidthChange = Runnable {
+        if (released || !pendingLayoutReload) return@Runnable
+        if (!documentReady) {
+            // A load is already in flight; the width change is applied when it finishes.
+            pendingLayoutReload = false
+            reloadAfterReady = true
+            return@Runnable
+        }
+        loadDocument()
+    }
+
+    /** (Re)load the current document so it is laid out for the view's current width. */
+    private fun loadDocument() {
+        pendingLayoutReload = false
+        removeCallbacks(reloadForWidthChange)
+        val html = loadedHtml ?: return
+        documentGeneration++
+        documentBaseUrl = MARKDOWN_BASE_URL.replace(
+            "markdown.invalid", "markdown-$documentGeneration.invalid",
+        )
+        documentReady = false
+        settledLayoutKey = null
+        requestLayout()
+        loadDataWithBaseURL(documentBaseUrl, html, "text/html", "UTF-8", null)
+    }
+
+    private companion object {
+        /**
+         * Grace period between the view's resize and the reload that re-lays the document out.
+         * Chromium needs its renderer to adopt the new view size first; a reload that races it
+         * comes back laid out for the old width.
+         */
+        const val WIDTH_RELOAD_DELAY_MS = 150L
     }
 }
 
