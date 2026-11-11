@@ -20,7 +20,7 @@ class SessionPagingTest {
         val appRoot = java.io.File("src/main/java/dev/dsh/mobile/mesh/ui/AppRoot.kt").readText()
         val drawer = java.io.File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/ChatListDrawer.kt").readText()
         val retainedState = appRoot.indexOf("val visiblePageByWorkspace = remember(activeHostKey)")
-        val pageSwitch = appRoot.indexOf("        when {")
+        val pageSwitch = appRoot.indexOf("when (rootPage)")
 
         assertTrue(retainedState >= 0 && retainedState < pageSwitch)
         assertTrue(appRoot.contains("visiblePageByWorkspace = visiblePageByWorkspace,"))

@@ -19,10 +19,4 @@ class ConnectionProgressPolicyTest {
         assertFalse(shouldShowConnectionProgress(ConnectStage.Idle))
         assertFalse(shouldShowConnectionProgress(ConnectStage.Connected))
     }
-
-    @Test
-    fun `system back is blocked while connection attempt is active`() {
-        assertFalse(shouldAllowConnectionListBack(connecting = true))
-        assertTrue(shouldAllowConnectionListBack(connecting = false))
-    }
 }

@@ -115,7 +115,6 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         val editingHost = resolveEditingHostId(editingHostId, hosts.map { it.id })
             ?.let { id -> hosts.firstOrNull { it.id == id } }
         var connectFormInstance by rememberSaveable { mutableIntStateOf(0) }
-        var hasRenderedConnectedPage by rememberSaveable { mutableStateOf(false) }
         var renderedConnectedHostId by rememberSaveable { mutableStateOf<String?>(null) }
         // The session list and file pages remove MainScreen from composition. Owning this state
         // here keeps each session's reading coordinate across those navigation transitions.
@@ -135,19 +134,27 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         // collapsed would drop that intent on every visit.
         val transcriptDisclosures = remember(activeHostKey) { TranscriptDisclosures() }
         if (connection.hasConnected) {
-            hasRenderedConnectedPage = true
             renderedConnectedHostId = connection.host?.id ?: renderedConnectedHostId
         }
-        val keepSessionPageDuringRecovery = shouldKeepSessionPageDuringRecovery(
-            hasConnectedBefore = hasRenderedConnectedPage,
-            activeHostId = connection.host?.id ?: renderedConnectedHostId,
-            phase = connection.phase,
-        )
-        val showMain = connection.hasConnected || keepSessionPageDuringRecovery
+        // Only a live connection owns the session pages. The manager keeps `hasConnected` while it
+        // rebuilds a carrier, so a reconnect keeps the current transcript behind the recovery
+        // scrim; a cold start, a process-death restore, or an explicit disconnect falls back to the
+        // connection list rather than reopening remembered session content.
+        val sessionPagesAvailable = shouldShowSessionPages(connection.hasConnected, connection.host?.id)
         val showConnect = showConnectPage
-        val showStartupConnections = shouldShowStartupConnections(connection.hasConnected, editingHost != null) &&
-            !keepSessionPageDuringRecovery && !showSettings && !showConnectPage
+        val showStartupConnections = shouldShowStartupConnections(sessionPagesAvailable, editingHost != null) &&
+            !showSettings && !showConnectPage
         val showingConnectionList = showConnections || showStartupConnections
+        // One value decides both what renders and what identity the recovery scrim blocks Back on;
+        // an unconnected app cannot resolve to a session page here no matter which flags survived
+        // process death.
+        val rootPage = resolveAppRootPage(
+            connectionsVisible = showingConnectionList,
+            settingsVisible = showSettings,
+            connectFormVisible = showConnect,
+            sessionPagesAvailable = sessionPagesAvailable,
+            sessionListRequested = showSessionList,
+        )
         // The native login URL is the authoritative signal for showing authorization. A fast
         // state emission must not leave the user on the connection form with a valid URL pending.
         val showTailscaleLogin = connectUiState.tailscaleLoginUrl?.isNotBlank() == true
@@ -184,23 +191,32 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
             // An explicit connection-list selection owns its route even if recovery overlays were
             // previously set, so use the latest selected authority and clear that intent on success.
             if (selectedConnectionIsReady && editingHost == null &&
-                (shouldRouteAfterRecovery(keepSessionPageDuringRecovery, awaitingSelectedConnection))) {
+                (shouldRouteAfterRecovery(sessionPagesAvailable, awaitingSelectedConnection))) {
                 awaitingSelectedConnection = false
                 showConnectPage = false
                 showConnections = false
+                // The success owns the route even when the user watched the attempt from settings:
+                // leaving that page open would strand them on a page whose session content is now
+                // ready behind it.
+                showSettings = false
                 showSessionList = true
             }
         }
-        when {
-            showConnections || showStartupConnections -> ConnectionsScreen(
+        when (rootPage) {
+            AppRootPage.CONNECTIONS -> ConnectionsScreen(
                 onClose = {
-                    showConnections = false
-                    showConnectPage = false
-                    editingHostId = null
-                    when (connectionListBackTarget(connectionListOrigin)) {
-                        ConnectionListOrigin.SETTINGS -> showSettings = true
-                        ConnectionListOrigin.SESSION -> showSessionList = true
-                        ConnectionListOrigin.CONNECT_FORM, ConnectionListOrigin.STARTUP -> Unit
+                    // A connect attempt owns the list, but the settings page is a safe place to
+                    // wait: the attempt keeps running in the background and the recovery scrim
+                    // (not this list) is what prevents walking on into the session pages.
+                    if (shouldAllowConnectionListBack(connectUiState.connecting, connectionListOrigin)) {
+                        showConnections = false
+                        showConnectPage = false
+                        editingHostId = null
+                        when (connectionListBackTarget(connectionListOrigin)) {
+                            ConnectionListOrigin.SETTINGS -> showSettings = true
+                            ConnectionListOrigin.SESSION -> showSessionList = true
+                            ConnectionListOrigin.CONNECT_FORM, ConnectionListOrigin.STARTUP -> Unit
+                        }
                     }
                 },
                 onConnectAttempt = { connectViewModel.cancelConnect() },
@@ -265,7 +281,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 onDismissToken = { connectViewModel.setSignInOpen(false) },
                 onSubmitToken = connectViewModel::signIn,
             )
-            showSettings -> SettingsScreen(
+            AppRootPage.SETTINGS -> SettingsScreen(
                 onClose = { showSettings = false },
                 onOpenConnections = {
                     connectionListOrigin = ConnectionListOrigin.SETTINGS
@@ -274,7 +290,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     showSessionList = false
                 },
             )
-            showConnect -> key(editingHost?.id ?: "new", connectFormInstance) {
+            AppRootPage.CONNECT_FORM -> key(editingHost?.id ?: "new", connectFormInstance) {
                 ConnectScreen(
                     onOpenSettings = { showSettings = true },
                     onClose = if (connection.hasConnected) ({ showConnectPage = false }) else null,
@@ -289,7 +305,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     restoreDraft = false,
                 )
             }
-            showSessionList -> ChatListDrawer(
+            AppRootPage.SESSION_LIST -> ChatListDrawer(
                 visiblePageByWorkspace = visiblePageByWorkspace,
                 connectionPhase = connection.phase,
                 onClose = { showSessionList = false },
@@ -298,7 +314,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     showSettings = true
                 },
             )
-            showMain -> MainScreen(
+            AppRootPage.MAIN -> MainScreen(
                 readingPositions = readingPositions,
                 transcriptListStates = transcriptListStates,
                 disclosures = transcriptDisclosures,
@@ -307,7 +323,7 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                 onReconnect = viewModel::reconnect,
                 onOpenSessionList = { showSessionList = true },
             )
-            else -> Unit
+            AppRootPage.NONE -> Unit
         }
 
         // The remembered-connection list has no form on screen, so it owns the token-update dialog
@@ -343,12 +359,32 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
             recoveryOverlayVisible = connection.recoveryOverlayVisible,
             showingConnectionList = showingConnectionList,
         )
-        // The system Back gesture/key must not navigate away while the global blocking scrim is up.
-        BackHandler(enabled = shouldBlockSystemBackDuringOverlay(recoveryOverlayVisible)) { }
-        if (recoveryOverlayVisible) {
-            ConnectionRecoveryOverlay()
-        }
+        ConnectionRecoveryScrim(
+            visible = recoveryOverlayVisible,
+            // Re-registers the Back blocker when the page behind the scrim changes; see the scrim.
+            pageIdentity = rootPage,
+        )
     }
+}
+
+/**
+ * The global blocking scrim shown while an established connection is verified or rebuilt.
+ *
+ * The system Back blocker is registered *inside* the scrim, after whatever page is behind it.
+ * `OnBackPressedDispatcher` dispatches the most recently added callback first, and pages that enter
+ * composition after the root's first pass (settings, the connect form, the session content page,
+ * …) add their callback later than an eager root-level handler would — so an always-present root
+ * blocker loses to them, and Back used to navigate behind the scrim. [pageIdentity] re-registers
+ * the blocker whenever the page behind the scrim changes, so a page opened during recovery cannot
+ * steal the gesture either.
+ */
+@Composable
+internal fun ConnectionRecoveryScrim(visible: Boolean, pageIdentity: Any?) {
+    if (!visible) return
+    key(pageIdentity) {
+        BackHandler(enabled = true) { }
+    }
+    ConnectionRecoveryOverlay()
 }
 
 @Composable
