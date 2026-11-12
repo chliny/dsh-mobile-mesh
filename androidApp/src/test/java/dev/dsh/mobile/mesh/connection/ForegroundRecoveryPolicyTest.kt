@@ -268,10 +268,14 @@ class ForegroundRecoveryPolicyTest {
     }
 
     @Test
-    fun `quick retries stay fast before falling back to a two second cadence`() {
+    fun `consecutive recovery failures back off progressively up to a cap`() {
         assertEquals(500L, recoveryRetryDelayMs(0))
-        assertEquals(500L, recoveryRetryDelayMs(2))
-        assertEquals(2_000L, recoveryRetryDelayMs(3))
+        assertEquals(1_000L, recoveryRetryDelayMs(1))
+        assertEquals(2_000L, recoveryRetryDelayMs(2))
+        assertEquals(4_000L, recoveryRetryDelayMs(3))
+        assertEquals(8_000L, recoveryRetryDelayMs(4))
+        assertEquals(15_000L, recoveryRetryDelayMs(5))
+        assertEquals(15_000L, recoveryRetryDelayMs(50))
     }
 
     @Test

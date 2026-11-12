@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
 import dev.dsh.mobile.mesh.core.wire.ConnectionLoop
@@ -151,17 +152,25 @@ class ConnectionManager @Inject constructor(
             networkTracker.onAvailable(network, connected)
             defaultNetwork = networkTracker.current()
             networkLostWhileConnected = networkTracker.hasRecoveryNeeded()
-            if (networkLostWhileConnected) networkRecoveryGate.markPending()
-            // A replacement network is also the event that unblocks a *stranded* recovery: the quick
-            // attempts may already have run against the dead carrier. Re-arm while a desired host is
-            // still unconnected, otherwise the app stays disconnected until the user intervenes.
-            if (shouldReArmOnReplacementNetwork(
-                    connected = connected,
-                    networkChanged = previous != network,
-                    hasDesiredHost = activeHost != null || suspendedHost != null,
-                    operationInFlight = operationInFlight,
-                    operationTargetsReplacementNetwork = operationNetwork == network,
-                )) networkRecoveryGate.markPending()
+            synchronized(operationLock) {
+                var markedHandover = false
+                if (networkLostWhileConnected && previous != network) {
+                    networkRecoveryGate.markPending()
+                    markedHandover = true
+                }
+                // A replacement network also unblocks a stranded recovery against the old path.
+                if (shouldReArmOnReplacementNetwork(
+                        connected = connected,
+                        networkChanged = previous != network,
+                        hasDesiredHost = activeHost != null || suspendedHost != null,
+                        operationInFlight = connectJob != null,
+                        operationTargetsReplacementNetwork = connectJob != null && connectOperationNetwork == network,
+                    )) {
+                    networkRecoveryGate.markPending()
+                    markedHandover = true
+                }
+                if (previous != network && markedHandover) supersedeRecoveryRetryLocked("new-network")
+            }
             Log.d("ConnectionManager", "Default network available: $network (previous=$previous, dirty=${networkRecoveryGate.isPending()})")
             trace(
                 "network-default-changed",
@@ -196,8 +205,11 @@ class ConnectionManager @Inject constructor(
             networkTracker.onLost(network, _state.value.phase == ConnectionPhase.CONNECTED)
             defaultNetwork = networkTracker.current()
             networkLostWhileConnected = networkTracker.hasRecoveryNeeded()
-            if (networkLostWhileConnected) {
-                networkRecoveryGate.markPending()
+            if (networkLostWhileConnected && before == network) {
+                synchronized(operationLock) {
+                    networkRecoveryGate.markPending()
+                    supersedeRecoveryRetryLocked("new-network")
+                }
                 if (shouldScheduleForegroundNetworkRecheck(
                         appInForeground,
                         networkRecoveryGate.isPending(),
@@ -273,6 +285,12 @@ class ConnectionManager @Inject constructor(
     @Volatile private var recoveryRetryJob: Job? = null
     @Volatile private var foregroundRetryNeedsResume = false
     @Volatile private var recoveryRetryWaitingForOperation = false
+    // These values are protected by operationLock. A retry belongs only to the claimed handover
+    // that failed; a later network event must start with the fast first-attempt policy.
+    private var recoveryRetryWaitingAttempt = 0
+    private var handoverRetryVersion: Long? = null
+    private var handoverRetryTargetRevision: Long? = null
+    private var handoverRetryAttempt = 0
     @Volatile private var probeRecoveryPending = false
     @Volatile private var appInForeground = false
     /** Identifies the foreground visit observed by the diagnostic collector, or null in background. */
@@ -670,6 +688,7 @@ class ConnectionManager @Inject constructor(
         recoveryOperation: Boolean = false,
     ) {
         val job: Job
+        val operationId = java.util.UUID.randomUUID().toString()
         synchronized(operationLock) {
             // A resumed target can already have been replaced or disconnected while waiting for
             // the operation slot. Reject it before cancelling any newer operation or carrier.
@@ -720,7 +739,7 @@ class ConnectionManager @Inject constructor(
             } else 0L
             trace(
                 "operation-replace",
-                "host=${target.value.host.id} reconnect=$reconnect foregroundRestart=$foregroundRestart" +
+                "operationId=$operationId host=${target.value.host.id} reconnect=$reconnect foregroundRestart=$foregroundRestart" +
                     " recoveryOperation=$recoveryOperation previousOperation=${previousOperation != null}" +
                     " previousOperationAgeMs=$previousOperationAgeMs activeTransport=${meshTransport.activeTransport()}",
             )
@@ -739,16 +758,69 @@ class ConnectionManager @Inject constructor(
             connectOperationStartedAtNanos = System.nanoTime()
             connectOperationNetwork = connectivity.activeNetwork
             job = scope.launch(start = CoroutineStart.LAZY) {
-                previousOperation?.join()
-                previousTeardown?.join()
-                lifecycleMutex.withLock {
-                    if (!lifecycle.accepts(target.token)) return@withLock
-                    sshTunnel.stop()
-                    if (!reconnect && shouldStopMeshBeforeConnect(
-                            activeTransport = meshTransport.activeTransport(),
-                            nextTransport = target.value.host.meshTransport,
-                            preservePendingIdentity = preservePendingIdentity,
-                        )) meshTransport.stop()
+                suspend fun awaitPrevious(phase: String, previous: Job?) {
+                    if (previous == null) return
+                    val elapsedStart = SystemClock.elapsedRealtime()
+                    val uptimeStart = SystemClock.uptimeMillis()
+                    trace("operation-wait", "operationId=$operationId phase=$phase result=start elapsedRealtimeMs=$elapsedStart uptimeMs=$uptimeStart")
+                    try {
+                        previous.join()
+                        trace(
+                            "operation-wait",
+                            "operationId=$operationId phase=$phase result=completed elapsedDeltaMs=${SystemClock.elapsedRealtime() - elapsedStart}" +
+                                " uptimeDeltaMs=${SystemClock.uptimeMillis() - uptimeStart} previousCancelled=${previous.isCancelled}",
+                        )
+                    } catch (error: Throwable) {
+                        val result = if (error is CancellationException) "cancelled" else "error"
+                        trace(
+                            "operation-wait",
+                            "operationId=$operationId phase=$phase result=$result elapsedDeltaMs=${SystemClock.elapsedRealtime() - elapsedStart}" +
+                                " uptimeDeltaMs=${SystemClock.uptimeMillis() - uptimeStart}",
+                        )
+                        throw error
+                    }
+                }
+                awaitPrevious("previous-operation", previousOperation)
+                awaitPrevious("previous-teardown", previousTeardown)
+                val mutexElapsedStart = SystemClock.elapsedRealtime()
+                val mutexUptimeStart = SystemClock.uptimeMillis()
+                trace(
+                    "operation-wait",
+                    "operationId=$operationId phase=lifecycle-mutex result=start elapsedRealtimeMs=$mutexElapsedStart uptimeMs=$mutexUptimeStart",
+                )
+                var mutexAcquired = false
+                try {
+                    lifecycleMutex.withLock {
+                        mutexAcquired = true
+                        val elapsedDelta = SystemClock.elapsedRealtime() - mutexElapsedStart
+                        val uptimeDelta = SystemClock.uptimeMillis() - mutexUptimeStart
+                        // Do not take ConnectionTrace's internal lock while holding lifecycleMutex.
+                        // Capture both clocks here and enqueue the diagnostic independently.
+                        scope.launch {
+                            trace(
+                                "operation-wait",
+                                "operationId=$operationId phase=lifecycle-mutex result=acquired" +
+                                    " elapsedDeltaMs=$elapsedDelta uptimeDeltaMs=$uptimeDelta",
+                            )
+                        }
+                        if (!lifecycle.accepts(target.token)) return@withLock
+                        sshTunnel.stop()
+                        if (!reconnect && shouldStopMeshBeforeConnect(
+                                activeTransport = meshTransport.activeTransport(),
+                                nextTransport = target.value.host.meshTransport,
+                                preservePendingIdentity = preservePendingIdentity,
+                            )) meshTransport.stop()
+                    }
+                } catch (error: Throwable) {
+                    if (!mutexAcquired) {
+                        val result = if (error is CancellationException) "cancelled" else "error"
+                        trace(
+                            "operation-wait",
+                            "operationId=$operationId phase=lifecycle-mutex result=$result elapsedDeltaMs=${SystemClock.elapsedRealtime() - mutexElapsedStart}" +
+                                " uptimeDeltaMs=${SystemClock.uptimeMillis() - mutexUptimeStart}",
+                        )
+                    }
+                    throw error
                 }
                 if (!lifecycle.accepts(target.token)) return@launch
                 runConnectionOperation(target, reconnect, attempt, preservePendingIdentity)
@@ -769,6 +841,11 @@ class ConnectionManager @Inject constructor(
                     synchronized(recoveryLock) { transportRecoveryInFlight = false }
                     networkRecoveryAttemptVersion?.let { version ->
                         networkRecoveryGate.complete(version, transportSucceeded = networkRecoveryTransportSucceeded)
+                        if (networkRecoveryTransportSucceeded && handoverRetryVersion == version) {
+                            handoverRetryVersion = null
+                            handoverRetryTargetRevision = null
+                            handoverRetryAttempt = 0
+                        }
                         networkRecoveryAttemptVersion = null
                         networkRecoveryTransportSucceeded = false
                     }
@@ -787,9 +864,12 @@ class ConnectionManager @Inject constructor(
                 }
                 if (recoveryRetryWaitingForOperation && lifecycle.mayRun()) {
                     recoveryRetryWaitingForOperation = false
+                    val retryAttempt = recoveryRetryWaitingAttempt
+                    recoveryRetryWaitingAttempt = 0
                     if (lifecycle.current() != null) {
                         Log.d("ConnectionManager", "Retrying recovery after prior operation released its slot")
-                        startRecovery(0)
+                        if (networkRecoveryGate.isPending()) startPendingNetworkRecovery()
+                        else startRecovery(retryAttempt)
                     }
                 }
                 if (carrierRecoveryPending && startRecovery(0)) {
@@ -908,10 +988,16 @@ class ConnectionManager @Inject constructor(
                 authorizationPending = _state.value.authorizationPending,
                 tailscaleLoginUrl = _state.value.tailscaleLoginUrl,
             )
+            val failedJob = kotlin.coroutines.coroutineContext[Job]
+            val failedHandoverVersion = synchronized(operationLock) {
+                if (connectJob === failedJob) networkRecoveryAttemptVersion else null
+            }
             cleanupResources()
             if (willRetry) scheduleRetry(
-                (attempt + 1).coerceAtMost(FOREGROUND_RECOVERY_FAST_ATTEMPTS),
+                attempt + 1,
                 target.token,
+                failedJob,
+                failedHandoverVersion,
             )
         }
         try {
@@ -1182,6 +1268,7 @@ class ConnectionManager @Inject constructor(
         carrierRecoveryPending = false
         probeRecoveryPending = false
         recoveryRetryWaitingForOperation = false
+        recoveryRetryWaitingAttempt = 0
         recoveryRetryJob?.cancel()
         recoveryRetryJob = null
         synchronized(recoveryLock) {
@@ -1219,6 +1306,9 @@ class ConnectionManager @Inject constructor(
         networkTracker.consumeRecoveryNeeded()
         networkLostWhileConnected = false
         synchronized(operationLock) {
+            handoverRetryVersion = null
+            handoverRetryTargetRevision = null
+            handoverRetryAttempt = 0
             val previousOperation = connectJob
             previousOperation?.cancel()
             if (previousOperation?.isActive == true) {
@@ -1356,6 +1446,16 @@ class ConnectionManager @Inject constructor(
         startRecovery(0)
     }
 
+    /** Caller owns operationLock; supersede only a timer or a retry waiting for that slot. */
+    private fun supersedeRecoveryRetryLocked(reason: String) {
+        val retry = recoveryRetryJob
+        recoveryRetryJob = null
+        retry?.cancel()
+        recoveryRetryWaitingForOperation = false
+        recoveryRetryWaitingAttempt = 0
+        if (retry != null) trace("retry-superseded", "reason=$reason")
+    }
+
     private fun startPendingNetworkRecovery() = synchronized(operationLock) {
         val version = networkRecoveryGate.claimIfCanStart(connectJob == null)
         if (version == null) {
@@ -1367,9 +1467,20 @@ class ConnectionManager @Inject constructor(
             )
             return
         }
-        trace("handover-claimed", "version=$version network=${connectivity.activeNetwork}")
+        val targetRevision = lifecycle.current()?.token?.targetRevision
+        val attempt = if (handoverRetryVersion == version && handoverRetryTargetRevision == targetRevision) {
+            handoverRetryAttempt
+        } else {
+            // A newer network event (or a different desired host) is a fresh recovery, not a
+            // continuation of the previous network's backoff.
+            handoverRetryVersion = null
+            handoverRetryTargetRevision = null
+            handoverRetryAttempt = 0
+            0
+        }
+        trace("handover-claimed", "version=$version attempt=$attempt network=${connectivity.activeNetwork}")
         networkRecoveryAttemptVersion = version
-        if (!startRecovery(0)) {
+        if (!startRecovery(attempt)) {
             // The claim is provisional until the operation slot has actually been won.
             trace("handover-claim-released", "version=$version reason=recovery-not-started")
             networkRecoveryAttemptVersion = null
@@ -1396,7 +1507,13 @@ class ConnectionManager @Inject constructor(
                 "reason=network-not-internet-capable network=${connectivity.activeNetwork}" +
                     " foreground=$appInForeground retained=$keepConnectedInBackground",
             )
-            networkRecoveryGate.markPending()
+            synchronized(operationLock) {
+                // Releasing an in-flight claim already leaves that version pending. Do not create
+                // a synthetic newer event on each failed admission: that would reset its backoff.
+                if (networkRecoveryAttemptVersion == null && !networkRecoveryGate.isPending()) {
+                    networkRecoveryGate.markPending()
+                }
+            }
             // Battery saver/Doze can publish the only network callback before foreground recovery
             // marks this gate. Recheck from our own lifecycle-owned timer so RECONNECTING never
             // waits forever for a callback Android has already delivered.
@@ -1458,7 +1575,7 @@ class ConnectionManager @Inject constructor(
         }
     }
 
-    private fun schedulePendingNetworkRecoveryRecheck() {
+    private fun schedulePendingNetworkRecoveryRecheck(): Unit = synchronized(operationLock) {
         if (recoveryRetryJob?.isActive == true) return
         val recheckDelayMs = networkRecoveryRecheckDelayMs(appInForeground)
         trace(
@@ -1466,66 +1583,89 @@ class ConnectionManager @Inject constructor(
             "delayMs=$recheckDelayMs foreground=$appInForeground gatePending=${networkRecoveryGate.isPending()}" +
                 " network=${connectivity.activeNetwork}",
         )
-        recoveryRetryJob = scope.launch {
+        lateinit var recheck: Job
+        recheck = scope.launch(start = CoroutineStart.LAZY) {
             kotlinx.coroutines.delay(recheckDelayMs)
-            recoveryRetryJob = null
-            if (!shouldScheduleForegroundNetworkRecheck(appInForeground, networkRecoveryGate.isPending(), keepConnectedInBackground)) return@launch
-            val activeNetwork = connectivity.activeNetwork
-            val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
-            if (shouldStartNetworkRecovery(
-                    isActiveNetwork = activeNetwork != null && connectivity.activeNetwork == activeNetwork,
-                    hasInternetCapability = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
-                )) {
-                Log.d("ConnectionManager", "Foreground network recheck found an Internet-capable network")
-                trace("network-recheck", "result=internet-capable network=$activeNetwork")
-                startPendingNetworkRecovery()
-                if (networkRecoveryGate.isPending() && (appInForeground || keepConnectedInBackground) &&
-                    synchronized(operationLock) { connectJob?.isActive != true }
-                ) schedulePendingNetworkRecoveryRecheck()
-            } else {
-                // The callback could still be coalesced while power constrained; keep a bounded,
-                // lifecycle-owned recheck alive until foreground networking becomes usable.
-                schedulePendingNetworkRecoveryRecheck()
+            synchronized(operationLock) {
+                if (recoveryRetryJob !== recheck) return@launch
+                recoveryRetryJob = null
+                if (!shouldScheduleForegroundNetworkRecheck(appInForeground, networkRecoveryGate.isPending(), keepConnectedInBackground)) return@launch
+                val activeNetwork = connectivity.activeNetwork
+                val capabilities = activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
+                if (shouldStartNetworkRecovery(
+                        isActiveNetwork = activeNetwork != null && connectivity.activeNetwork == activeNetwork,
+                        hasInternetCapability = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true,
+                    )) {
+                    Log.d("ConnectionManager", "Foreground network recheck found an Internet-capable network")
+                    trace("network-recheck", "result=internet-capable network=$activeNetwork")
+                    startPendingNetworkRecovery()
+                    if (networkRecoveryGate.isPending() && (appInForeground || keepConnectedInBackground) &&
+                        connectJob == null
+                    ) schedulePendingNetworkRecoveryRecheck()
+                } else {
+                    // The callback can be coalesced while power constrained; keep checking until
+                    // a usable network arrives, without dropping this handover's retry attempt.
+                    schedulePendingNetworkRecoveryRecheck()
+                }
             }
         }
+        recoveryRetryJob = recheck
+        recheck.start()
+        Unit
     }
 
     private fun scheduleRetry(
         attempt: Int,
         failedToken: ConnectionLifecycleCoordinator.Token,
-    ) {
+        failedJob: Job?,
+        failedHandoverVersion: Long?,
+    ): Unit = synchronized(operationLock) {
+        // A cancelled predecessor must not cancel or overwrite a retry belonging to its successor.
+        if (failedJob == null || connectJob !== failedJob || !lifecycle.accepts(failedToken)) return
         recoveryRetryJob?.cancel()
-        val delayMs = recoveryRetryDelayMs(attempt)
+        if (failedHandoverVersion != null) {
+            handoverRetryVersion = failedHandoverVersion
+            handoverRetryTargetRevision = failedToken.targetRevision
+            handoverRetryAttempt = attempt
+        }
+        // A claimed version is excluded from isPending(), so any pending event was not handled
+        // by this operation. Do not impose the old network's backoff on that replacement.
+        val newerHandover = networkRecoveryGate.isPending()
+        val delayMs = if (newerHandover) 0L else recoveryRetryDelayMs(attempt)
         trace("retry-scheduled", "attempt=$attempt delayMs=$delayMs token=$failedToken")
-        recoveryRetryJob = scope.launch {
+        lateinit var retry: Job
+        retry = scope.launch(start = CoroutineStart.LAZY) {
             kotlinx.coroutines.delay(delayMs)
-            val current = lifecycle.current() ?: return@launch
-            if (!lifecycle.mayRun() || current.token != failedToken) return@launch
-            if (_state.value.authorizationPending != null) {
-                Log.d("ConnectionManager", "Scheduled recovery skipped during authorization")
-                trace("retry-skipped", "attempt=$attempt reason=authorization-pending")
-                return@launch
-            }
-            recoveryRetryJob = null
-            // Arm the retained retry under the same lock completion uses to consume it, so the
-            // operation cannot release its slot in between and drop the retry.
-            val operationInFlight = synchronized(operationLock) {
-                val inFlight = connectJob != null
-                if (inFlight) recoveryRetryWaitingForOperation = true
-                inFlight
-            }
-            if (operationInFlight) {
-                Log.d("ConnectionManager", "Recovery retry elapsed while prior operation is cleaning up; retry retained")
-                trace("retry-retained", "attempt=$attempt reason=operation-slot-busy")
-                return@launch
-            }
-            recoveryRetryWaitingForOperation = false
-            if (shouldUsePendingNetworkRecoveryOnRetry(networkRecoveryGate.isPending())) {
-                startPendingNetworkRecovery()
-            } else {
-                startRecovery(attempt)
+            synchronized(operationLock) {
+                if (recoveryRetryJob !== retry) return@launch
+                recoveryRetryJob = null
+                val current = lifecycle.current() ?: return@launch
+                if (!lifecycle.mayRun() || current.token != failedToken) return@launch
+                if (_state.value.authorizationPending != null) {
+                    Log.d("ConnectionManager", "Scheduled recovery skipped during authorization")
+                    trace("retry-skipped", "attempt=$attempt reason=authorization-pending")
+                    return@launch
+                }
+                // Arm and consume under the slot lock, so completion cannot miss the retry.
+                if (connectJob != null) {
+                    recoveryRetryWaitingForOperation = true
+                    recoveryRetryWaitingAttempt = attempt
+                    Log.d("ConnectionManager", "Recovery retry elapsed while prior operation is cleaning up; retry retained")
+                    trace("retry-retained", "attempt=$attempt reason=operation-slot-busy")
+                    return@launch
+                }
+                recoveryRetryWaitingForOperation = false
+                recoveryRetryWaitingAttempt = 0
+                if (shouldUsePendingNetworkRecoveryOnRetry(networkRecoveryGate.isPending())) {
+                    startPendingNetworkRecovery()
+                } else {
+                    startRecovery(attempt)
+                }
             }
         }
+        recoveryRetryJob = retry
+        retry.start()
+        Unit
     }
 
     /**
@@ -1546,18 +1686,28 @@ class ConnectionManager @Inject constructor(
         val foregroundStartedAt = foregroundTiming.start("foreground-resume")
         val retryWasCancelledOnBackground = foregroundRetryNeedsResume
         foregroundRetryNeedsResume = false
-        synchronized(lifecycleTransitionLock) {
+        val enteredForegroundEpoch = synchronized(lifecycleTransitionLock) {
             if (!shouldHandleLifecycleTransition(appInForeground, targetForeground = true) && !forceCheck) {
                 foregroundTiming.phase("foreground-resume", foregroundStartedAt, "ignored", "duplicate=true")
                 return
             }
-            if (!appInForeground) foregroundTransitionEpoch++
+            val entered = !appInForeground
+            if (entered) foregroundTransitionEpoch++
             appInForeground = true
             watchdogForegroundEpoch.value = foregroundTransitionEpoch
             if (verifyOnNextForeground) {
                 publishedGenerationNeedsProbe = true
                 verifyOnNextForeground = false
                 trace("foreground-verify-debt", "generation=${generation?.clientId} reason=background-hop")
+            }
+            foregroundTransitionEpoch.takeIf { entered }
+        }
+        if (enteredForegroundEpoch != null) synchronized(operationLock) {
+            synchronized(lifecycleTransitionLock) {
+                if (appInForeground && foregroundTransitionEpoch == enteredForegroundEpoch &&
+                    _state.value.phase != ConnectionPhase.CONNECTED && _state.value.authorizationPending == null &&
+                    connectJob == null && recoveryRetryJob != null
+                ) supersedeRecoveryRetryLocked("foreground-resume")
             }
         }
         if (shouldStartConnectionService(keepConnectedInBackground, appInForeground)) startService()

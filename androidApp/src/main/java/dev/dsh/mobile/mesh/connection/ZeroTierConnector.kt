@@ -15,6 +15,8 @@ import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.security.MessageDigest
+import java.util.UUID
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
@@ -26,6 +28,7 @@ import kotlin.coroutines.coroutineContext
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.Executors
@@ -46,6 +49,7 @@ class ZeroTierConnector @Inject constructor(
 ) : MeshConnector {
     private val executor = Executors.newCachedThreadPool()
     private val nativeDialPermits = NativeDialPermits(BuildConfig.ZERO_TIER_MAX_CONCURRENT_DIALS)
+    private val nextDiagnosticWaitId = AtomicLong()
     private val peerDiagnosticsInFlight = AtomicBoolean(false)
     private val lastPeerDiagnosticsNanos = AtomicLong(0L)
     private val lock = Any()
@@ -97,7 +101,7 @@ class ZeroTierConnector @Inject constructor(
                 require(nodeNetworkId == networkIdText) {
                     "Switching ZeroTier networks requires restarting the app process"
                 }
-                Log.d(TAG, "Reusing ZeroTier node for network $networkIdText (online=${isServiceOnline()})")
+                Log.d(TAG, "Reusing ZeroTier node (online=${isServiceOnline()})")
                 existing to checkNotNull(readiness)
             } else {
                 // A ZeroTier identity belongs to the network, not a particular DSH host.
@@ -124,7 +128,7 @@ class ZeroTierConnector @Inject constructor(
                 timing.phase("node-init-handler", handlerStart, "ok")
                 val startStart = timing.start("node-start")
                 checkResult(nextNode.start(), "start ZeroTier")
-                timing.phase("node-start", startStart, "ok", detail = "nodeId=${java.lang.Long.toUnsignedString(nextNode.id, 16)}")
+                timing.phase("node-start", startStart, "ok", detail = "nodeIdentityPresent=${nextNode.id != 0L}")
                 node = nextNode
                 readiness = nextReadiness
                 nodeNetworkId = networkIdText
@@ -147,7 +151,7 @@ class ZeroTierConnector @Inject constructor(
             networkId,
             resolveTarget(config),
             targetConnectTimeoutMs,
-            recoveryDialReadinessTimeoutMs(reused),
+            zeroTierReadinessTimeoutMs(reusedNode = reused),
         )
         timing.phase(
             "await-transport-ready",
@@ -237,7 +241,7 @@ class ZeroTierConnector @Inject constructor(
             networkId,
             resolveTarget(config),
             targetConnectTimeoutMs,
-            recoveryDialReadinessTimeoutMs(reused = true),
+            zeroTierReadinessTimeoutMs(reusedNode = true),
         )
         timing.phase(
             "await-transport-ready",
@@ -277,16 +281,6 @@ class ZeroTierConnector @Inject constructor(
         opened
     }
 
-    /**
-     * How long one recovery attempt waits for the retained node to carry a dial.
-     *
-     * The first attempts stay fast so a healthy handover resumes immediately; repeated failures
-     * mean the node is taking longer than that window, and only a longer wait can catch it.
-     */
-    private fun recoveryDialReadinessTimeoutMs(reused: Boolean): Long =
-        if (reused) zeroTierRecoveryReadinessTimeoutMs(consecutiveNotReady.get())
-        else zeroTierReadinessTimeoutMs(reusedNode = false)
-
     /** Durable snapshot of what the retained node could do at the start of one recovery attempt. */
     private fun recordMeshAttempt(phase: String, reused: Boolean, networkId: Long, targetConnectTimeoutMs: Int) {
         ConnectionTrace.record(
@@ -294,7 +288,7 @@ class ZeroTierConnector @Inject constructor(
             "phase=$phase reused=$reused consecutiveNotReady=${consecutiveNotReady.get()}" +
                 " online=${isServiceOnline()} addressAssigned=${hasAddress(networkId)}" +
                 " transportReady=${transportReady(networkId)}" +
-                " dialReadinessMs=${recoveryDialReadinessTimeoutMs(reused)} targetConnectMs=$targetConnectTimeoutMs",
+                " dialReadinessMs=${zeroTierReadinessTimeoutMs(reusedNode = reused)} targetConnectMs=$targetConnectTimeoutMs",
         )
     }
 
@@ -394,20 +388,47 @@ class ZeroTierConnector @Inject constructor(
         // call and closes any socket that finishes after this readiness generation is retired.
         val maxConcurrentDials = BuildConfig.ZERO_TIER_MAX_CONCURRENT_DIALS
         val permits = RecoveryDialPermits(SECOND_DIAL_AFTER_MILLIS, maxConcurrentDials, nativeDialPermits)
+        val waitId = nextDiagnosticWaitId.incrementAndGet()
+        val gateFinished = AtomicBoolean(false)
+        val scheduled = AtomicInteger()
+        val rejected = AtomicInteger()
+        val nativeFullObserved = AtomicInteger()
+        val localBusyObserved = AtomicInteger()
+        val globalFullLocalIdleObserved = AtomicInteger()
+        val executorRejected = AtomicInteger()
+        val peakNative = AtomicInteger(permits.nativeInFlight)
+        fun observeNative(count: Int) { peakNative.updateAndGet { maxOf(it, count) } }
+        recordZeroTierDiagnostic(
+            "zt-dial-wait-start",
+            "waitId=$waitId targetCount=${target?.first?.size ?: 0} readinessBudgetMs=$readinessTimeoutMs" +
+                " connectBudgetMs=$targetConnectTimeoutMs maxConcurrent=$maxConcurrentDials" +
+                " staggerMs=$SECOND_DIAL_AFTER_MILLIS nativeInFlight=${permits.nativeInFlight} scope=readiness",
+        )
         Log.d(TAG, "recovery dial policy maxConcurrent=$maxConcurrentDials secondAfterMs=$SECOND_DIAL_AFTER_MILLIS")
         val pendingDials = BoundedConnectRegistry<ZeroTierSocket> { socket -> runCatching { socket.close() } }
         val dialed = SingleClaim<DialedTarget> { (socket, _) -> runCatching { socket.close() } }
         var completedWait = false
+        var waitResult = "error"
         try {
             val signal = awaitZeroTierTransportReady(
                 awaitNodeOnline = {
                     state.awaitNodeOnline(readinessTimeoutMs, TimeUnit.MILLISECONDS) { current.isOnline() }
                 },
                 scheduleDial = { onConnected ->
+                    val localBefore = permits.inFlight
+                    val nativeBefore = permits.nativeInFlight
+                    observeNative(nativeBefore)
                     val slot = if (target != null) permits.tryAcquire() else null
                     if (slot != null && target != null) {
+                        scheduled.incrementAndGet()
+                        observeNative(permits.nativeInFlight)
                         val (addresses, port) = target
                         Log.d(TAG, "remote-dial started slot=$slot elapsedMs=${elapsedMsSince(startedAt)}")
+                        recordZeroTierDiagnostic(
+                            "zt-dial-slot-start",
+                            "waitId=$waitId slot=$slot elapsedMs=${elapsedMsSince(startedAt)}" +
+                                " nativeInFlight=${permits.nativeInFlight} localInFlight=${permits.inFlight}",
+                        )
                         runCatching {
                             executor.execute {
                                 try {
@@ -417,6 +438,9 @@ class ZeroTierConnector @Inject constructor(
                                         startedAt,
                                         targetConnectTimeoutMs,
                                         pendingDials,
+                                        waitId,
+                                        slot,
+                                        gateFinished,
                                     )
                                     if (connection != null) {
                                         Log.d(TAG, "remote-dial candidate slot=$slot elapsedMs=${elapsedMsSince(startedAt)}")
@@ -425,9 +449,31 @@ class ZeroTierConnector @Inject constructor(
                                     }
                                 } finally {
                                     permits.release()
+                                    if (gateFinished.get()) {
+                                        recordZeroTierDiagnostic(
+                                            "zt-dial-slot-late",
+                                            "waitId=$waitId slot=$slot elapsedMs=${elapsedMsSince(startedAt)}" +
+                                                " nativeInFlight=${permits.nativeInFlight}",
+                                        )
+                                    }
                                 }
                             }
-                        }.onFailure { permits.release() }
+                        }.onFailure {
+                            executorRejected.incrementAndGet()
+                            permits.release()
+                        }
+                    } else if (target != null) {
+                        rejected.incrementAndGet()
+                        // These are observations immediately around a rejected request, not a
+                        // claim about the exact winner of the concurrent permit race.
+                        val nativeAfter = permits.nativeInFlight
+                        val localAfter = permits.inFlight
+                        observeNative(nativeAfter)
+                        if (nativeBefore >= maxConcurrentDials || nativeAfter >= maxConcurrentDials) nativeFullObserved.incrementAndGet()
+                        if (localBefore > 0 || localAfter > 0) localBusyObserved.incrementAndGet()
+                        if (localBefore == 0 && localAfter == 0 &&
+                            nativeBefore >= maxConcurrentDials && nativeAfter >= maxConcurrentDials
+                        ) globalFullLocalIdleObserved.incrementAndGet()
                     }
                 },
                 dialAttempts = DIAL_ATTEMPTS,
@@ -447,13 +493,30 @@ class ZeroTierConnector @Inject constructor(
                 },
             )
             val selectedDial = dialed.claim()
+            waitResult = signal
             completedWait = true
             return signal to selectedDial
+        } catch (cancelled: CancellationException) {
+            waitResult = "cancelled"
+            throw cancelled
         } finally {
             // Native probes have explicit budgets; closing the registry fences late dials, and a
             // socket that finishes after cancellation is closed by the registry before publication.
+            gateFinished.set(true)
             if (!completedWait) dialed.claim()?.first?.let { runCatching { it.close() } }
             pendingDials.close()
+            val nativeAtEnd = permits.nativeInFlight
+            observeNative(nativeAtEnd)
+            recordZeroTierDiagnostic(
+                "zt-dial-wait-end",
+                "waitId=$waitId result=$waitResult elapsedMs=${elapsedMsSince(startedAt)}" +
+                    " scheduled=${scheduled.get()} rejected=${rejected.get()}" +
+                    " nativeFullObservedOnReject=${nativeFullObserved.get()} localBusyObservedOnReject=${localBusyObserved.get()}" +
+                    " globalFullLocalIdleOnReject=${globalFullLocalIdleObserved.get()}" +
+                    " executorRejected=${executorRejected.get()} peakNativeObserved=${peakNative.get()}" +
+                    " nativeInFlight=$nativeAtEnd localInFlight=${permits.inFlight}" +
+                    " maxConcurrent=$maxConcurrentDials scope=readiness",
+            )
         }
     }
 
@@ -469,15 +532,20 @@ class ZeroTierConnector @Inject constructor(
                 try {
                     val snapshot = ZeroTierNative.zts_peer_path_diagnostics(0L)
                     if (snapshot != null && snapshot.size == 7) {
-                        Log.d(TAG, "peer-diagnostics scope=all-leaf peers=${snapshot[0]}" +
+                        val detail = "scope=all-leaf peers=${snapshot[0]}" +
                             " directPeers=${snapshot[1]} paths=${snapshot[2]} preferredPaths=${snapshot[3]}" +
                             " latestReceiveAgeMs=${snapshot[4]} latestSendAgeMs=${snapshot[5]}" +
-                            " snapshotAgeMs=${snapshot[6]}")
+                            " snapshotAgeMs=${snapshot[6]}"
+                        Log.d(TAG, "peer-diagnostics $detail")
+                        // The JNI snapshot summarizes all leaf peers, not necessarily the target.
+                        recordZeroTierDiagnostic("zt-peer-summary", detail)
                     } else {
                         Log.d(TAG, "peer-diagnostics scope=all-leaf result=unavailable")
+                        recordZeroTierDiagnostic("zt-peer-summary", "scope=all-leaf result=unavailable")
                     }
                 } catch (error: Throwable) {
                     Log.d(TAG, "peer-diagnostics scope=all-leaf result=error type=${error.javaClass.simpleName}")
+                    recordZeroTierDiagnostic("zt-peer-summary", "scope=all-leaf result=error")
                 } finally {
                     peerDiagnosticsInFlight.set(false)
                 }
@@ -495,20 +563,59 @@ class ZeroTierConnector @Inject constructor(
         startedAt: Long,
         timeoutMs: Int,
         pendingDials: BoundedConnectRegistry<ZeroTierSocket>,
+        waitId: Long,
+        slot: Int,
+        gateFinished: AtomicBoolean,
     ): DialedTarget? {
         val connectStartedAt = System.nanoTime()
         for (address in addresses) {
             val remainingMs = remainingConnectTimeoutMs(timeoutMs, connectStartedAt, System.nanoTime())
-            if (remainingMs <= 0) break
+            val target = ZeroTierDiagnosticTargets.describe(address)
+            if (remainingMs <= 0) {
+                recordZeroTierDiagnostic(
+                    "zt-native-dial-end",
+                    "waitId=$waitId slot=$slot $target result=budget-exhausted" +
+                        " budgetMs=0 elapsedMs=${elapsedMsSince(startedAt)} retiredObserved=${gateFinished.get()}",
+                )
+                break
+            }
             val family = if (':' in address) ZeroTierNative.ZTS_AF_INET6 else ZeroTierNative.ZTS_AF_INET
+            recordZeroTierDiagnostic(
+                "zt-native-dial-start",
+                "waitId=$waitId slot=$slot $target budgetMs=$remainingMs" +
+                    " waitElapsedMs=${elapsedMsSince(startedAt)} nativeInFlight=${nativeDialPermits.inFlight}" +
+                    " retiredObserved=${gateFinished.get()} scope=readiness",
+            )
             val socket = runCatching { ZeroTierSocket(family, ZeroTierNative.ZTS_SOCK_STREAM, 0) }.getOrNull()
-                ?: continue
-            if (!pendingDials.register(socket)) return null
+            if (socket == null) {
+                recordZeroTierDiagnostic(
+                    "zt-native-dial-end",
+                    "waitId=$waitId slot=$slot $target result=socket-create-failed" +
+                        " budgetMs=$remainingMs retiredObserved=${gateFinished.get()}",
+                )
+                continue
+            }
+            if (!pendingDials.register(socket)) {
+                recordZeroTierDiagnostic(
+                    "zt-native-dial-end",
+                    "waitId=$waitId slot=$slot $target result=registry-closed" +
+                        " budgetMs=$remainingMs retiredObserved=${gateFinished.get()}",
+                )
+                return null
+            }
+            // This record must precede the blocking JNI call: if it never returns the exported
+            // timeline still identifies the occupied slot, target family and timeout budget.
+            recordZeroTierDiagnostic(
+                "zt-native-connect-start",
+                "waitId=$waitId slot=$slot $target budgetMs=$remainingMs" +
+                    " waitElapsedMs=${elapsedMsSince(startedAt)} nativeInFlight=${nativeDialPermits.inFlight}" +
+                    " retiredObserved=${gateFinished.get()} scope=readiness",
+            )
             val nativeStartedAt = System.nanoTime()
             val failure = runCatching { socket.connect(address, remotePort, remainingMs) }.exceptionOrNull()
             val nativeConnectMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - nativeStartedAt)
-            // Retain the historical field for existing log consumers; the explicit fields below
-            // distinguish a libzt API result from a socket errno.
+            // Only retain numeric native return codes, not the arbitrary exception message, which
+            // can include a host address or other private transport information.
             val nativeError = failure?.message?.let { message ->
                 Regex("\\((-?\\d+)\\)").find(message)?.groupValues?.get(1)
             }
@@ -516,35 +623,43 @@ class ZeroTierConnector @Inject constructor(
                 Regex("libztResult=(-?\\d+)").find(message)?.groupValues?.get(1)
             }
             val nativeErrno = failure?.message?.let { message ->
-                Regex("errno=(\\d+|unavailable)").find(message)?.groupValues?.get(1)
+                Regex("errno=(-?\\d+|unavailable)").find(message)?.groupValues?.get(1)
             }
-            Log.d(
-                TAG,
-                "remote-dial native-connect target=$address:$remotePort budgetMs=$remainingMs" +
-                    " elapsedMs=$nativeConnectMs result=${if (failure == null) "ok" else "error"}" +
-                    " errorType=${failure?.javaClass?.simpleName ?: "none"} errorCode=${nativeError ?: "none"}" +
-                    " libztResult=${nativeResult ?: "unavailable"} errno=${nativeErrno ?: "unavailable"}",
+            // Report the JNI return before finishing/closing the socket; a slow close must not
+            // look like a connect call that never returned.
+            recordZeroTierDiagnostic(
+                "zt-native-connect-return",
+                "waitId=$waitId slot=$slot $target result=${if (failure == null) "ok" else "failed"}" +
+                    " budgetMs=$remainingMs nativeElapsedMs=$nativeConnectMs" +
+                    " libztResult=${nativeResult ?: "unavailable"} errno=${nativeErrno ?: "unavailable"}" +
+                    " retiredObserved=${gateFinished.get()} scope=readiness",
             )
             var socketCloseMs: Long? = null
             val transferred = pendingDials.finish(socket, connected = failure == null) { elapsed ->
                 socketCloseMs = elapsed
             }
-            if (failure != null || !transferred) {
-                Log.d(
-                    TAG,
-                    "remote-dial result=failed target=$address:$remotePort" +
-                        " elapsedMs=${elapsedMsSince(startedAt)} nativeConnectMs=$nativeConnectMs" +
-                        " socketCloseMs=${socketCloseMs ?: "not-closed"} online=${isServiceOnline()}" +
-                        " reason=${failure?.javaClass?.simpleName ?: "cancelled"}",
-                )
-                continue
+            val result = when {
+                failure != null -> "failed"
+                !transferred -> "late-success-closed"
+                else -> "connected"
             }
+            recordZeroTierDiagnostic(
+                "zt-native-dial-end",
+                "waitId=$waitId slot=$slot $target result=$result budgetMs=$remainingMs" +
+                    " nativeElapsedMs=$nativeConnectMs waitElapsedMs=${elapsedMsSince(startedAt)}" +
+                    " libztResult=${nativeResult ?: "unavailable"} errno=${nativeErrno ?: "unavailable"}" +
+                    " errorType=${failure?.javaClass?.simpleName ?: "none"}" +
+                    " socketCloseMs=${socketCloseMs ?: "none"} retiredObserved=${gateFinished.get()}" +
+                    " nativeInFlight=${nativeDialPermits.inFlight} scope=readiness",
+            )
             Log.d(
                 TAG,
-                "remote-dial result=connected target=$address:$remotePort" +
-                    " elapsedMs=${elapsedMsSince(startedAt)} nativeConnectMs=$nativeConnectMs" +
-                    " socketCloseMs=${socketCloseMs ?: "not-closed"} online=${isServiceOnline()}",
+                "remote-dial native-connect $target budgetMs=$remainingMs" +
+                    " elapsedMs=$nativeConnectMs result=$result" +
+                    " errorType=${failure?.javaClass?.simpleName ?: "none"} errorCode=${nativeError ?: "none"}" +
+                    " libztResult=${nativeResult ?: "unavailable"} errno=${nativeErrno ?: "unavailable"}",
             )
+            if (failure != null || !transferred) continue
             return DialedTarget(socket, address)
         }
         return null
@@ -604,18 +719,21 @@ class ZeroTierConnector @Inject constructor(
             closeDialed(dialed)
             throw error
         }
-        Log.d(TAG, "Resolved ZeroTier relay target ${config.host} -> ${addresses.joinToString()}")
-        timing.phase("relay-resolve", resolveStart, "ok", detail = "target=${addresses.joinToString()}:$remotePort")
+        Log.d(TAG, "Resolved ZeroTier relay targetCount=${addresses.size}")
+        timing.phase(
+            "relay-resolve", resolveStart, "ok",
+            detail = "targetCount=${addresses.size} ipv6Count=${addresses.count { ':' in it }}",
+        )
         // This method owns `dialed` from here on: every path below adopts it into a relay or closes
         // it. A connection that already proved the path must never be dropped without an owner.
         // The relay only forwards to this target, so a reused relay can take the connection too.
         relay?.takeIf { it.canReuse(addresses, remotePort) }?.let {
             it.adopt(dialed, targetConnectTimeoutMs)
-            Log.d(TAG, "Reusing ZeroTier relay at ${it.localPort} to ${addresses.joinToString()}:$remotePort")
+            Log.d(TAG, "Reusing ZeroTier relay at ${it.localPort} targetCount=${addresses.size}")
             return it.relay
         }
         runCatching { relay?.close() }
-        Log.d(TAG, "Opening ZeroTier relay to ${addresses.joinToString()}:$remotePort")
+        Log.d(TAG, "Opening ZeroTier relay targetCount=${addresses.size}")
         val bindStart = timing.start("relay-bind")
         val nextRelay = try {
             ZeroTierRelay(addresses, remotePort, executor, targetConnectTimeoutMs, dialed)
@@ -791,6 +909,29 @@ internal class ZeroTierReadiness {
     }
 }
 
+/** Stable only within this app process; neither an IP address nor a network identity is logged. */
+private object ZeroTierDiagnosticTargets {
+    private val salt = runCatching { UUID.randomUUID().toString().toByteArray(Charsets.UTF_8) }.getOrNull()
+
+    fun describe(address: String): String {
+        val family = if (':' in address) "ipv6" else "ipv4"
+        val id = salt?.let { secret ->
+            runCatching {
+                val digest = MessageDigest.getInstance("SHA-256")
+                digest.update(secret)
+                digest.digest(address.toByteArray(Charsets.UTF_8)).take(8)
+                    .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            }.getOrNull()
+        } ?: "unavailable"
+        return "targetId=$id family=$family"
+    }
+}
+
+/** Diagnostics must never turn a native connection failure into an application failure. */
+private fun recordZeroTierDiagnostic(event: String, detail: String) {
+    runCatching { ConnectionTrace.record(event, detail) }
+}
+
 /** A ZeroTier TCP connection that already reached the relay's target, with the address it used. */
 private typealias DialedTarget = Pair<ZeroTierSocket, String>
 
@@ -831,7 +972,7 @@ private class ZeroTierRelay(
                         val acceptedAt = System.nanoTime()
                         val clientPort = runCatching { local.port }.getOrDefault(-1)
                         val relayPort = runCatching { local.localPort }.getOrDefault(-1)
-                        Log.d(TAG, "relay accepted clientPort=$clientPort relayPort=$relayPort peer=${runCatching { local.inetAddress?.hostAddress }.getOrNull() ?: "unknown"} targetPort=$remotePort")
+                        Log.d(TAG, "relay accepted clientPort=$clientPort relayPort=$relayPort")
                         try {
                             executor.execute { forward(local, acceptedAt, clientPort) }
                         } catch (_: java.util.concurrent.RejectedExecutionException) {
@@ -842,7 +983,7 @@ private class ZeroTierRelay(
                 } catch (error: Throwable) {
                     // This is an executor thread, not a coroutine: contain unexpected socket/JNI errors
                     // so a relay lifecycle race cannot terminate the application process.
-                    Log.w(TAG, "ZeroTier relay accept loop failed", error)
+                    Log.w(TAG, "ZeroTier relay accept loop failed type=${error.javaClass.simpleName}")
                 }
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
@@ -869,7 +1010,7 @@ private class ZeroTierRelay(
             Log.d(TAG, "ZeroTier TCP keepalive configured=$keepAliveConfigured idleSeconds=$TCP_KEEP_IDLE_SECONDS")
             val targetAddress = connected.second
             val localPort = runCatching { local.port }.getOrDefault(-1)
-            Log.d(TAG, "relay worker=$workerId connected clientPort=$clientPort localPort=$localPort target=$targetAddress:$remotePort connectMs=${TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)}")
+            Log.d(TAG, "relay worker=$workerId connected clientPort=$clientPort localPort=$localPort ${ZeroTierDiagnosticTargets.describe(targetAddress)} connectMs=${TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)}")
             // Patched libzt reports the timeout as SocketTimeoutException and a peer close as EOF.
             // The timeout bounds the read's wake-up after relay shutdown without racing native close.
             connectedRemote.setSoTimeout(NATIVE_READ_POLL_MILLIS)
@@ -892,7 +1033,7 @@ private class ZeroTierRelay(
                 onFinished = {
                     workers.remove(it)
                     val stats = it.diagnostics
-                    Log.d(TAG, "relay worker=$workerId finished clientPort=$clientPort localPort=$localPort target=$targetAddress:$remotePort elapsedMs=${TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)} requestClass=${stats.requestClass} endpoint=${stats.rpcEndpoint} responseStatus=${stats.responseStatus.takeIf { status -> status >= 0 } ?: "none"} localToNative=read:${stats.localToRemoteReadBytes},written:${stats.localToRemoteBytes},end:${stats.localToRemoteEnd} nativeToLocal=read:${stats.remoteToLocalReadBytes},written:${stats.remoteToLocalBytes},end:${stats.remoteToLocalEnd}")
+                    Log.d(TAG, "relay worker=$workerId finished clientPort=$clientPort localPort=$localPort ${ZeroTierDiagnosticTargets.describe(targetAddress)} elapsedMs=${TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)} requestClass=${stats.requestClass} endpoint=${stats.rpcEndpoint} responseStatus=${stats.responseStatus.takeIf { status -> status >= 0 } ?: "none"} localToNative=read:${stats.localToRemoteReadBytes},written:${stats.localToRemoteBytes},end:${stats.localToRemoteEnd} nativeToLocal=read:${stats.remoteToLocalReadBytes},written:${stats.remoteToLocalBytes},end:${stats.remoteToLocalEnd}")
                 },
             )
             workers.add(worker)
@@ -901,7 +1042,7 @@ private class ZeroTierRelay(
         } catch (error: Throwable) {
             // A libzt socket can fail while its relay is being replaced. This executor owns no
             // coroutine exception handler, so never let a native/JNI failure escape and kill the app.
-            Log.w(TAG, "ZeroTier forwarding worker setup failed", error)
+            Log.w(TAG, "ZeroTier forwarding worker setup failed type=${error.javaClass.simpleName}")
         } finally {
             if (!handedToWorker) {
                 runCatching { local.close() }
@@ -914,7 +1055,7 @@ private class ZeroTierRelay(
         // A readiness dial already proved this path, so reuse it instead of paying for a second
         // connect to the host. Any later stream, and any adoption that is never used, falls back.
         pending.claim()?.let { (socket, address) ->
-            Log.d(TAG, "ZeroTier relay adopted a proven connection to $address:$remotePort")
+            Log.d(TAG, "ZeroTier relay adopted a proven connection ${ZeroTierDiagnosticTargets.describe(address)}")
             return socket to address
         }
         val connectStartedAt = System.nanoTime()
@@ -926,14 +1067,14 @@ private class ZeroTierRelay(
             if (!connectingSockets.register(socket)) return null
             val failure = runCatching { socket.connect(address, remotePort, remainingMs) }.exceptionOrNull()
             if (failure == null && connectingSockets.finish(socket, connected = true)) {
-                Log.d(TAG, "ZeroTier relay connected to $address:$remotePort")
+                Log.d(TAG, "ZeroTier relay connected ${ZeroTierDiagnosticTargets.describe(address)}")
                 return socket to address
             }
             // `finish(false)` closes after the bounded native call returns. If relay shutdown won
             // the race, a late success is also closed instead of being handed to a dead forwarder.
             if (failure != null) {
                 connectingSockets.finish(socket, connected = false)
-                Log.w(TAG, "ZeroTier relay failed to connect to $address:$remotePort", failure)
+                Log.w(TAG, "ZeroTier relay failed to connect ${ZeroTierDiagnosticTargets.describe(address)} type=${failure.javaClass.simpleName}")
             }
         }
         return null

@@ -42,7 +42,7 @@ class ZeroTierConnectFastReturnTest {
         val dial = source.readText().substringAfter("private fun dialTarget(")
             .substringBefore("private fun resolveTarget(")
         assertTrue("log the exact timeout passed to native connect", dial.contains("budgetMs=") && dial.contains("remainingMs"))
-        assertTrue("log time spent inside native connect separately", dial.contains("nativeConnectMs=") && dial.contains("nativeConnectMs"))
+        assertTrue("log time spent inside native connect separately", dial.contains("nativeElapsedMs=") && dial.contains("nativeConnectMs"))
         assertTrue("log the native error code when present", dial.contains("errorCode=") && dial.contains("nativeError"))
         assertTrue("log socket close duration separately", dial.contains("socketCloseMs=") && dial.contains("socketCloseMs"))
     }

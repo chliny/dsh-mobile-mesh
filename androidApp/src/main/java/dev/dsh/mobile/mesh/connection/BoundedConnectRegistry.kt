@@ -58,17 +58,6 @@ internal const val ZERO_TIER_REUSED_READINESS_TIMEOUT_MS = 8_000L
 internal fun zeroTierReadinessTimeoutMs(reusedNode: Boolean): Long =
     if (reusedNode) ZERO_TIER_REUSED_READINESS_TIMEOUT_MS else ZERO_TIER_INITIAL_READINESS_TIMEOUT_MS
 
-// A Wi-Fi handover can take longer than the fast 8s window for the retained node to come back
-// online, and aborting every 8s repeats the same failed handshake without ever giving the node the
-// time it needed. After a few consecutive not-ready results the recovery wait uses the cold
-// bootstrap budget instead, so one attempt can span a slow rejoin.
-internal const val ZERO_TIER_PATIENT_READINESS_TIMEOUT_MS = ZERO_TIER_INITIAL_READINESS_TIMEOUT_MS
-internal const val ZERO_TIER_PATIENT_AFTER_FAILURES = 3
-
-internal fun zeroTierRecoveryReadinessTimeoutMs(consecutiveNotReady: Int): Long =
-    if (consecutiveNotReady >= ZERO_TIER_PATIENT_AFTER_FAILURES) ZERO_TIER_PATIENT_READINESS_TIMEOUT_MS
-    else ZERO_TIER_REUSED_READINESS_TIMEOUT_MS
-
 internal fun zeroTierTargetConnectTimeoutMs(recovery: Boolean): Int =
     if (recovery) ZERO_TIER_RECOVERY_TARGET_CONNECT_TIMEOUT_MS else ZERO_TIER_INITIAL_TARGET_CONNECT_TIMEOUT_MS
 
