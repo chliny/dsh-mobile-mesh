@@ -291,11 +291,15 @@ class ConnectionManager @Inject constructor(
     private var handoverRetryVersion: Long? = null
     private var handoverRetryTargetRevision: Long? = null
     private var handoverRetryAttempt = 0
+    /** If foreground resumes during a claimed recovery, its failure must schedule from the fresh round. */
+    private var foregroundRecoveryBackoffResetPending = false
     @Volatile private var probeRecoveryPending = false
     @Volatile private var appInForeground = false
     /** Identifies the foreground visit observed by the diagnostic collector, or null in background. */
     private val watchdogForegroundEpoch = MutableStateFlow<Long?>(null)
     @Volatile private var backgroundedAtMs = 0L
+    /** `elapsedRealtime - uptimeMillis` at background, so resume can report deep-sleep time. */
+    @Volatile private var backgroundSleepBaseMs = 0L
     private val lifecycleTransitionLock = Any()
     private val serviceStartGate = ForegroundServiceStartGate()
     @Volatile private var keepConnectedInBackground = false
@@ -741,7 +745,11 @@ class ConnectionManager @Inject constructor(
                 "operation-replace",
                 "operationId=$operationId host=${target.value.host.id} reconnect=$reconnect foregroundRestart=$foregroundRestart" +
                     " recoveryOperation=$recoveryOperation previousOperation=${previousOperation != null}" +
-                    " previousOperationAgeMs=$previousOperationAgeMs activeTransport=${meshTransport.activeTransport()}",
+                    " previousOperationAgeMs=$previousOperationAgeMs" +
+                    // Nothing in a healthy recovery should hold the slot this long; a stalled
+                    // native call or a frozen process is the only realistic explanation.
+                    " previousOperationStalled=${previousOperationAgeMs > OPERATION_STALL_SUSPECT_MS}" +
+                    " activeTransport=${meshTransport.activeTransport()}",
             )
             previousOperation?.cancel()
             if (previousOperation?.isActive == true) {
@@ -847,6 +855,7 @@ class ConnectionManager @Inject constructor(
                             handoverRetryAttempt = 0
                         }
                         networkRecoveryAttemptVersion = null
+                        foregroundRecoveryBackoffResetPending = false
                         networkRecoveryTransportSucceeded = false
                     }
                     true
@@ -1456,6 +1465,18 @@ class ConnectionManager @Inject constructor(
         if (retry != null) trace("retry-superseded", "reason=$reason")
     }
 
+    /** Caller owns operationLock; the next claim starts again from the fast first-attempt step. */
+    private fun resetRecoveryBackoffLocked(reason: String) {
+        // A claimed operation carries its retry attempt as a local value. If it is still in flight,
+        // remember that the following failure must restart at the first foreground step as well.
+        foregroundRecoveryBackoffResetPending = connectJob != null && networkRecoveryAttemptVersion != null
+        handoverRetryVersion = null
+        handoverRetryTargetRevision = null
+        handoverRetryAttempt = 0
+        recoveryRetryWaitingAttempt = 0
+        trace("recovery-backoff-reset", "reason=$reason")
+    }
+
     private fun startPendingNetworkRecovery() = synchronized(operationLock) {
         val version = networkRecoveryGate.claimIfCanStart(connectJob == null)
         if (version == null) {
@@ -1623,16 +1644,20 @@ class ConnectionManager @Inject constructor(
         // A cancelled predecessor must not cancel or overwrite a retry belonging to its successor.
         if (failedJob == null || connectJob !== failedJob || !lifecycle.accepts(failedToken)) return
         recoveryRetryJob?.cancel()
+        val retryAttempt = if (failedHandoverVersion != null && foregroundRecoveryBackoffResetPending) {
+            foregroundRecoveryBackoffResetPending = false
+            1
+        } else attempt
         if (failedHandoverVersion != null) {
             handoverRetryVersion = failedHandoverVersion
             handoverRetryTargetRevision = failedToken.targetRevision
-            handoverRetryAttempt = attempt
+            handoverRetryAttempt = retryAttempt
         }
         // A claimed version is excluded from isPending(), so any pending event was not handled
         // by this operation. Do not impose the old network's backoff on that replacement.
         val newerHandover = networkRecoveryGate.isPending()
-        val delayMs = if (newerHandover) 0L else recoveryRetryDelayMs(attempt)
-        trace("retry-scheduled", "attempt=$attempt delayMs=$delayMs token=$failedToken")
+        val delayMs = if (newerHandover) 0L else recoveryRetryDelayMs(retryAttempt, appInForeground)
+        trace("retry-scheduled", "attempt=$retryAttempt delayMs=$delayMs token=$failedToken")
         lateinit var retry: Job
         retry = scope.launch(start = CoroutineStart.LAZY) {
             kotlinx.coroutines.delay(delayMs)
@@ -1643,15 +1668,15 @@ class ConnectionManager @Inject constructor(
                 if (!lifecycle.mayRun() || current.token != failedToken) return@launch
                 if (_state.value.authorizationPending != null) {
                     Log.d("ConnectionManager", "Scheduled recovery skipped during authorization")
-                    trace("retry-skipped", "attempt=$attempt reason=authorization-pending")
+                    trace("retry-skipped", "attempt=$retryAttempt reason=authorization-pending")
                     return@launch
                 }
                 // Arm and consume under the slot lock, so completion cannot miss the retry.
                 if (connectJob != null) {
                     recoveryRetryWaitingForOperation = true
-                    recoveryRetryWaitingAttempt = attempt
+                    recoveryRetryWaitingAttempt = retryAttempt
                     Log.d("ConnectionManager", "Recovery retry elapsed while prior operation is cleaning up; retry retained")
-                    trace("retry-retained", "attempt=$attempt reason=operation-slot-busy")
+                    trace("retry-retained", "attempt=$retryAttempt reason=operation-slot-busy")
                     return@launch
                 }
                 recoveryRetryWaitingForOperation = false
@@ -1659,7 +1684,7 @@ class ConnectionManager @Inject constructor(
                 if (shouldUsePendingNetworkRecoveryOnRetry(networkRecoveryGate.isPending())) {
                     startPendingNetworkRecovery()
                 } else {
-                    startRecovery(attempt)
+                    startRecovery(retryAttempt)
                 }
             }
         }
@@ -1704,10 +1729,18 @@ class ConnectionManager @Inject constructor(
         }
         if (enteredForegroundEpoch != null) synchronized(operationLock) {
             synchronized(lifecycleTransitionLock) {
+                val recoveryPending = networkRecoveryAttemptVersion != null || networkRecoveryGate.isPending() ||
+                    networkLostWhileConnected || recoveryRetryWaitingForOperation || recoveryRetryJob?.isActive == true
                 if (appInForeground && foregroundTransitionEpoch == enteredForegroundEpoch &&
-                    _state.value.phase != ConnectionPhase.CONNECTED && _state.value.authorizationPending == null &&
-                    connectJob == null && recoveryRetryJob != null
-                ) supersedeRecoveryRetryLocked("foreground-resume")
+                    (_state.value.phase != ConnectionPhase.CONNECTED || recoveryPending) &&
+                    _state.value.authorizationPending == null &&
+                    (connectJob == null || networkRecoveryAttemptVersion != null)
+                ) {
+                    supersedeRecoveryRetryLocked("foreground-resume")
+                    // A resume is a fresh recovery round: keeping the background outage's backoff
+                    // would make the user wait up to the cap before the next attempt.
+                    resetRecoveryBackoffLocked("foreground-resume")
+                }
             }
         }
         if (shouldStartConnectionService(keepConnectedInBackground, appInForeground)) startService()
@@ -1902,9 +1935,16 @@ class ConnectionManager @Inject constructor(
         )
         foregroundTiming.phase("foreground-resume", foregroundStartedAt, "action", "phase=${current.phase} action=$action backgroundMs=$backgroundDuration")
         Log.d("ConnectionManager", "Foreground recovery requested: phase=${current.phase}, backgroundMs=$backgroundDuration, action=$action")
+        // Only meaningful across a real background hop; before the first one the base is unset.
+        val deepSleepDuringBackgroundMs = if (backgroundSleepBaseMs == 0L) {
+            0L
+        } else {
+            (SystemClock.elapsedRealtime() - SystemClock.uptimeMillis() - backgroundSleepBaseMs).coerceAtLeast(0L)
+        }
         trace(
             "foreground-resume-action",
             "action=$action phase=${current.phase} backgroundMs=$backgroundDuration" +
+                " deepSleepMs=$deepSleepDuringBackgroundMs" +
                 " recoveryInFlight=$recoveryInFlight retryWasCancelledOnBackground=$retryWasCancelledOnBackground" +
                 " ${describeNetwork(connectivity.activeNetwork)} gatePending=${networkRecoveryGate.isPending()}" +
                 " networkLostWhileConnected=$networkLostWhileConnected",
@@ -2267,6 +2307,7 @@ class ConnectionManager @Inject constructor(
             }
         }
         backgroundedAtMs = System.currentTimeMillis()
+        backgroundSleepBaseMs = SystemClock.elapsedRealtime() - SystemClock.uptimeMillis()
         val retryPendingBeforeBackground = recoveryRetryJob?.isActive == true &&
             _state.value.hasConnected && _state.value.phase != ConnectionPhase.CONNECTED
         val networkRecoveryNeedsResume = networkRecoveryGate.isPending() && _state.value.hasConnected
@@ -2490,6 +2531,8 @@ class ConnectionManager @Inject constructor(
         const val RECOVERY_SLOW_REPEAT_MS = 30_000L
         /** Bound the resume probe so fake green is replaced promptly, even for a black-holed TCP path. */
         const val FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS = 10_000L
+        /** An operation older than this cannot be explained by its own bounded waits. */
+        const val OPERATION_STALL_SUSPECT_MS = 60_000L
         const val AUTHORIZATION_RESUME_TIMEOUT_MS = ConnectionTimeoutPolicy.authorizationResumeMs
         const val TRANSPORT_READY_CALLBACK_TIMEOUT_MS = ConnectionTimeoutPolicy.transportReadyCallbackMs
     }

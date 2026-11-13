@@ -12,6 +12,7 @@ import androidx.datastore.preferences.core.edit
 import dev.dsh.mobile.mesh.core.wire.HostGeneration
 import dev.dsh.mobile.mesh.mockharness.MockHarness
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -133,6 +134,143 @@ class ConnectionManagerBackgroundRecoveryTest {
     }
 
     @Test
+    fun `foreground resume resets a retained handover retry to its fast first step`() = runBlocking {
+        val handover = AtomicBoolean(false)
+        val relayAttempts = AtomicInteger()
+        val failedAttemptTimesNanos = CopyOnWriteArrayList<Long>()
+        val thirdFailureStarted = CountDownLatch(1)
+        val releaseThirdFailure = CountDownLatch(1)
+        lateinit var networkCallback: ConnectivityManager.NetworkCallback
+
+        withConnectedHarness(
+            meshTransport = MeshTransport.ZERO_TIER,
+            relayAttempt = { port ->
+                if (handover.get()) {
+                    val attempt = relayAttempts.incrementAndGet()
+                    failedAttemptTimesNanos += System.nanoTime()
+                    if (attempt == 3) {
+                        thirdFailureStarted.countDown()
+                        check(releaseThirdFailure.await(10, TimeUnit.SECONDS)) {
+                            "Timed out waiting for the foreground handover flow to release the third relay attempt"
+                        }
+                    }
+                    throw MeshNotReady("handover path temporarily unavailable")
+                }
+                MeshRelay("127.0.0.1", port)
+            },
+            onManagerCallbacks = { callbacks -> networkCallback = callbacks.single() },
+        ) { manager, _, _, _, original ->
+            val context = RuntimeEnvironment.getApplication()
+            val connectivity = context.getSystemService(ConnectivityManager::class.java)
+            val shadow = shadowOf(connectivity)
+            val oldNetwork = requireNotNull(connectivity.activeNetwork)
+
+            manager.onAppBackgrounded()
+            handover.set(true)
+            networkCallback.onLost(oldNetwork)
+            val replacement = ShadowNetwork.newInstance(ConnectivityManager.TYPE_MOBILE)
+            val replacementInfo = ShadowNetworkInfo.newInstance(
+                NetworkInfo.DetailedState.CONNECTED, ConnectivityManager.TYPE_MOBILE, 0, true, true,
+            )
+            shadow.addNetwork(replacement, replacementInfo)
+            shadow.setNetworkCapabilities(replacement, ShadowNetworkCapabilities.newInstance().also {
+                shadowOf(it).addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            })
+            shadow.setActiveNetworkInfo(replacementInfo)
+            networkCallback.onAvailable(requireNotNull(connectivity.activeNetwork))
+
+            // Pause the third background relay operation while it is in flight. The lifecycle call
+            // then overlaps a real owned recovery operation, rather than racing an unobserved timer.
+            withTimeout(15_000) { while (thirdFailureStarted.count > 0L) delay(20) }
+            val observedBackgroundIntervalMs = TimeUnit.NANOSECONDS.toMillis(
+                failedAttemptTimesNanos[2] - failedAttemptTimesNanos[1],
+            )
+            assertTrue("Background failure attempts must be distinct", observedBackgroundIntervalMs > 0L)
+            try {
+                manager.recoverForForeground(forceCheck = true)
+            } finally {
+                releaseThirdFailure.countDown()
+            }
+
+            // The operation that was already running now fails. Its following real relay attempt
+            // must use the fresh foreground interval, not the inherited background attempt number.
+            withTimeout(8_000) { while (failedAttemptTimesNanos.size < 4) delay(20) }
+            val resumedRetryElapsedMs = TimeUnit.NANOSECONDS.toMillis(
+                failedAttemptTimesNanos[3] - failedAttemptTimesNanos[2],
+            )
+            assertTrue(
+                "After returning to foreground, retry should be faster than the observed background interval: " +
+                    "foreground=${resumedRetryElapsedMs}ms background=${observedBackgroundIntervalMs}ms",
+                resumedRetryElapsedMs < observedBackgroundIntervalMs,
+            )
+
+            // The following real attempt should restore the session over the mock HTTP/WebSocket host.
+            handover.set(false)
+            withTimeout(8_000) {
+                while (manager.state.value.phase != ConnectionPhase.CONNECTED || manager.connectedApi == null ||
+                    manager.generation === original
+                ) delay(20)
+            }
+        }
+    }
+
+    @Test
+    fun `foreground recovery keeps attempting during a prolonged relay outage`() = runBlocking {
+        val carrierUnavailable = AtomicBoolean(false)
+        val failureTimesNanos = CopyOnWriteArrayList<Long>()
+        lateinit var networkCallback: ConnectivityManager.NetworkCallback
+
+        withConnectedHarness(
+            meshTransport = MeshTransport.ZERO_TIER,
+            relayAttempt = { port ->
+                if (carrierUnavailable.get()) {
+                    failureTimesNanos += System.nanoTime()
+                    throw MeshNotReady("foreground relay remains unavailable")
+                }
+                MeshRelay("127.0.0.1", port)
+            },
+            onManagerCallbacks = { callbacks -> networkCallback = callbacks.single() },
+        ) { manager, _, _, _, original ->
+            val context = RuntimeEnvironment.getApplication()
+            val connectivity = context.getSystemService(ConnectivityManager::class.java)
+            val shadow = shadowOf(connectivity)
+            val oldNetwork = requireNotNull(connectivity.activeNetwork)
+
+            carrierUnavailable.set(true)
+            networkCallback.onLost(oldNetwork)
+            val replacement = ShadowNetwork.newInstance(ConnectivityManager.TYPE_MOBILE)
+            val replacementInfo = ShadowNetworkInfo.newInstance(
+                NetworkInfo.DetailedState.CONNECTED, ConnectivityManager.TYPE_MOBILE, 0, true, true,
+            )
+            shadow.addNetwork(replacement, replacementInfo)
+            shadow.setNetworkCapabilities(replacement, ShadowNetworkCapabilities.newInstance().also {
+                shadowOf(it).addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            })
+            shadow.setActiveNetworkInfo(replacementInfo)
+            networkCallback.onAvailable(requireNotNull(connectivity.activeNetwork))
+
+            // A real continued outage should keep the foreground overlay from waiting through the
+            // background's longer interval. Observe the sixth-to-seventh actual carrier failures:
+            // by then the retry is at its cap, so this measures the user-facing foreground bound.
+            withTimeout(55_000) { while (failureTimesNanos.size < 7) delay(20) }
+            val cappedIntervalMs = TimeUnit.NANOSECONDS.toMillis(
+                failureTimesNanos[6] - failureTimesNanos[5],
+            )
+            assertTrue(
+                "Foreground recovery should keep retrying within a visible wait budget; interval=${cappedIntervalMs}ms",
+                cappedIntervalMs < 12_000L,
+            )
+
+            carrierUnavailable.set(false)
+            withTimeout(12_000) {
+                while (manager.state.value.phase != ConnectionPhase.CONNECTED || manager.connectedApi == null ||
+                    manager.generation === original
+                ) delay(20)
+            }
+        }
+    }
+
+    @Test
     fun `backgrounding during replacement probe publishes the ready generation`() = runBlocking {
         val oldProbeStarted = CompletableDeferred<Unit>()
         val replacementProbeStarted = CompletableDeferred<Unit>()
@@ -225,6 +363,9 @@ class ConnectionManagerBackgroundRecoveryTest {
         networkId: Int = ConnectivityManager.TYPE_WIFI,
         onStoreReady: (DataStore<Preferences>) -> Unit = {},
         onBeforeClose: () -> Unit = {},
+        meshTransport: MeshTransport? = null,
+        relayAttempt: ((Int) -> MeshRelay)? = null,
+        onManagerCallbacks: (Set<ConnectivityManager.NetworkCallback>) -> Unit = {},
         block: suspend (ConnectionManager, MockHarness, Channel<HostGeneration>, AtomicInteger, HostGeneration) -> Unit,
     ) {
         val context = RuntimeEnvironment.getApplication()
@@ -249,13 +390,14 @@ class ConnectionManagerBackgroundRecoveryTest {
         onStoreReady(prefs)
         val http = OkHttpClient()
         val clientFactory = HarnessClientFactory(http, HarnessSessionStore(prefs, http))
-        val mesh = MeshTransportManager(
-            Mockito.mock(ZeroTierConnector::class.java), Mockito.mock(TailscaleConnector::class.java),
-        )
+        val zeroTier = Mockito.mock(ZeroTierConnector::class.java)
+        val tailscale = Mockito.mock(TailscaleConnector::class.java)
+        val mesh = MeshTransportManager(zeroTier, tailscale)
         val ssh = SshTunnelManager(context, Mockito.mock(SshSecretStore::class.java))
         val callbacksBefore = shadowConnectivity.networkCallbacks.toSet()
         val manager = ConnectionManager(context, clientFactory, hosts, mesh, ssh)
         val managerCallbacks = shadowConnectivity.networkCallbacks - callbacksBefore
+        onManagerCallbacks(managerCallbacks)
         val harness = MockHarness()
         val probes = AtomicInteger()
         harness.sessionHistory("settings/describe") {
@@ -263,6 +405,13 @@ class ConnectionManagerBackgroundRecoveryTest {
             JsonNull
         }
         val port = harness.start()
+        relayAttempt?.let { attempt ->
+            val matchConfig = HostConfig("mock", "mock", "127.0.0.1", port, meshTransport = meshTransport)
+            Mockito.doAnswer { attempt(port) }.`when`(zeroTier)
+                .start(Mockito.any(HostConfig::class.java) ?: matchConfig)
+            Mockito.doAnswer { attempt(port) }.`when`(zeroTier)
+                .renewRelay(Mockito.any(HostConfig::class.java) ?: matchConfig)
+        }
         val published = Channel<HostGeneration>(Channel.UNLIMITED)
         val collectorScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val collector = collectorScope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -270,7 +419,10 @@ class ConnectionManagerBackgroundRecoveryTest {
         }
         try {
             manager.recoverForForeground()
-            manager.connect(HostConfig("mock", "mock", "127.0.0.1", port, lastProtocol = HarnessProtocol.PARENT_CATALOG)) { }
+            manager.connect(HostConfig(
+                "mock", "mock", "127.0.0.1", port, meshTransport = meshTransport,
+                lastProtocol = HarnessProtocol.PARENT_CATALOG,
+            )) { }
             await { manager.state.value.phase == ConnectionPhase.CONNECTED && manager.generation != null }
             val original = requireNotNull(manager.generation)
             assertSame(original, withTimeout(10_000) { published.receive() })

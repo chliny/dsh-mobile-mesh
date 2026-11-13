@@ -107,8 +107,9 @@ internal fun shouldRestartStaleForegroundOperation(
     backgroundDurationMs >= FOREGROUND_VERIFY_AFTER_MS &&
     operationAgeMs >= FOREGROUND_VERIFY_AFTER_MS
 internal const val FOREGROUND_RECOVERY_RETRY_DELAY_MS = 500L
-/** Backoff cap: a silent recovery still retries often enough to notice a healed path quickly. */
+/** Backoff caps: the foreground user is watching a blocking overlay, so retries stay tighter. */
 internal const val FOREGROUND_RECOVERY_MAX_RETRY_DELAY_MS = 15_000L
+internal const val FOREGROUND_RECOVERY_FOREGROUND_MAX_RETRY_DELAY_MS = 8_000L
 internal const val FOREGROUND_NETWORK_RECHECK_INTERVAL_MS = 500L
 internal const val BACKGROUND_NETWORK_RECHECK_INTERVAL_MS = 1_000L
 
@@ -125,16 +126,25 @@ internal fun shouldReArmOnReplacementNetwork(
     !(operationInFlight && operationTargetsReplacementNetwork)
 
 /**
- * Consecutive recovery failures back off progressively: 0.5s, 1s, 2s, 4s, 8s, then 15s.
+ * Consecutive recovery failures back off progressively: 0.5s, 1s, 2s, 4s, 8s, then a cap.
  *
  * A long outage (unreachable mesh target, host offline) must not be hammered every 500ms, but it
  * also must not stall a single attempt for a long timeout: each attempt stays short and the gap
  * between attempts grows, so a healed path is picked up within one backoff step.
+ *
+ * The cap is lower while the app is foreground: the user is watching a blocking recovery overlay,
+ * so spending ten extra seconds between attempts is worse than a few more short attempts. In the
+ * background the wider 15s cap saves radio/wakeup churn without any visible latency.
  */
-internal fun recoveryRetryDelayMs(attempt: Int): Long {
+internal fun recoveryRetryDelayMs(attempt: Int, appInForeground: Boolean): Long {
     if (attempt <= 0) return FOREGROUND_RECOVERY_RETRY_DELAY_MS
     val doublings = attempt.coerceAtMost(5)
-    return (FOREGROUND_RECOVERY_RETRY_DELAY_MS shl doublings).coerceAtMost(FOREGROUND_RECOVERY_MAX_RETRY_DELAY_MS)
+    val cap = if (appInForeground) {
+        FOREGROUND_RECOVERY_FOREGROUND_MAX_RETRY_DELAY_MS
+    } else {
+        FOREGROUND_RECOVERY_MAX_RETRY_DELAY_MS
+    }
+    return (FOREGROUND_RECOVERY_RETRY_DELAY_MS shl doublings).coerceAtMost(cap)
 }
 
 internal fun shouldStartForegroundRecovery(

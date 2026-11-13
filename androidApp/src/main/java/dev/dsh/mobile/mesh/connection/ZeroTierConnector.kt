@@ -384,6 +384,8 @@ class ZeroTierConnector @Inject constructor(
         readinessTimeoutMs: Long,
     ): Pair<String, DialedTarget?> {
         val startedAt = System.nanoTime()
+        val waitElapsedRealtimeStart = android.os.SystemClock.elapsedRealtime()
+        val waitUptimeStart = android.os.SystemClock.uptimeMillis()
         // Native connect blocks, so dials run on the connector executor. The registry bounds each
         // call and closes any socket that finishes after this readiness generation is retired.
         val maxConcurrentDials = BuildConfig.ZERO_TIER_MAX_CONCURRENT_DIALS
@@ -507,9 +509,18 @@ class ZeroTierConnector @Inject constructor(
             pendingDials.close()
             val nativeAtEnd = permits.nativeInFlight
             observeNative(nativeAtEnd)
+            val waitElapsedMs = elapsedMsSince(startedAt)
+            val elapsedDeltaMs = android.os.SystemClock.elapsedRealtime() - waitElapsedRealtimeStart
+            val uptimeDeltaMs = android.os.SystemClock.uptimeMillis() - waitUptimeStart
+            // deepSleepMs only counts suspend-to-idle; a cgroup-frozen (Doze/OEM freezer) process
+            // shows up as overrunMs: the timer did not run for much longer than its own budget.
+            val deepSleepMs = (elapsedDeltaMs - uptimeDeltaMs).coerceAtLeast(0L)
+            val overrunMs = (waitElapsedMs - readinessTimeoutMs).coerceAtLeast(0L)
             recordZeroTierDiagnostic(
                 "zt-dial-wait-end",
-                "waitId=$waitId result=$waitResult elapsedMs=${elapsedMsSince(startedAt)}" +
+                "waitId=$waitId result=$waitResult elapsedMs=$waitElapsedMs" +
+                    " readinessBudgetMs=$readinessTimeoutMs overrunMs=$overrunMs deepSleepMs=$deepSleepMs" +
+                    " stalled=${overrunMs > 0L}" +
                     " scheduled=${scheduled.get()} rejected=${rejected.get()}" +
                     " nativeFullObservedOnReject=${nativeFullObserved.get()} localBusyObservedOnReject=${localBusyObserved.get()}" +
                     " globalFullLocalIdleOnReject=${globalFullLocalIdleObserved.get()}" +
