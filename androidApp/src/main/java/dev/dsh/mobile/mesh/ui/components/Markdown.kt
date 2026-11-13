@@ -17,6 +17,8 @@ fun MarkdownText(
     text: String,
     modifier: Modifier = Modifier,
     imageResolver: (suspend (String) -> String?)? = null,
+    onTap: (() -> Unit)? = null,
+    shouldSuppressTap: (() -> Boolean)? = null,
     onOpenLink: ((String) -> Unit)? = null,
 ) {
     val colors = DsTheme.colors
@@ -27,6 +29,8 @@ fun MarkdownText(
             text = text,
             modifier = modifier,
             imageResolver = imageResolver,
+            onTap = onTap,
+            shouldSuppressTap = shouldSuppressTap,
             onOpenLink = onOpenLink ?: uriHandler::openUri,
         )
         null -> MarkdownLoadingPreview(text, modifier)

@@ -23,6 +23,7 @@ import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ChatNode
 import dev.dsh.mobile.mesh.core.session.ContextMessageNode
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
+import dev.dsh.mobile.mesh.core.session.QuestionReplyNode
 import dev.dsh.mobile.mesh.core.session.ToolCallNode
 import dev.dsh.mobile.mesh.core.session.ToolResultNode
 import dev.dsh.mobile.mesh.core.session.UserMessageNode
@@ -118,6 +119,25 @@ private fun TrajectoryRow(node: ChatNode, siblings: List<ChatNode>, cwd: String?
                     snippet,
                     style = DsType.caption11,
                     color = colors.labelTertiary,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        is QuestionReplyNode -> {
+            val skipped = stringResource(R.string.questions_skip)
+            val summary = node.questions.joinToString(" · ") { question ->
+                val answer = node.answers.firstOrNull { it.id == question.id }
+                val values = answer?.selected.orEmpty() +
+                    listOfNotNull(answer?.custom?.trim()?.takeIf { it.isNotEmpty() })
+                "${question.header?.takeIf { it.isNotBlank() && it != question.question } ?: question.question}: " +
+                    values.joinToString(", ").ifEmpty { skipped }
+            }
+            if (summary.isNotBlank()) {
+                Text(
+                    "> $summary",
+                    style = DsType.caption11,
+                    color = colors.labelSecondary,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )

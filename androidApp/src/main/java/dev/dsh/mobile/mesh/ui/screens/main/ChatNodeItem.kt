@@ -56,6 +56,7 @@ import dev.dsh.mobile.mesh.core.session.GoalNode
 import dev.dsh.mobile.mesh.core.session.OtherNode
 import dev.dsh.mobile.mesh.core.session.PlanModeNode
 import dev.dsh.mobile.mesh.core.session.ProducedFilesNode
+import dev.dsh.mobile.mesh.core.session.QuestionReplyNode
 import dev.dsh.mobile.mesh.core.session.PresentedFilesNode
 import dev.dsh.mobile.mesh.core.session.RetryNode
 import dev.dsh.mobile.mesh.core.session.TurnEndNode
@@ -163,6 +164,8 @@ internal data class ChatNodeContext(
     val onFeedback: (Long, Boolean) -> Unit,
     val onActionFeedback: (String) -> Unit = {},
     val hasMore: Boolean = false,
+    /** Ignore prose taps that begin while the transcript is scrolling or being flung. */
+    val shouldSuppressMessageTap: () -> Boolean = { false },
 ) {
     /**
      * One disclosure row's open/closed flag.
@@ -216,6 +219,8 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
             val text = node.displayText()
             if (text.isNotBlank()) MarkdownUserBubble(text, onOpenLink)
         }
+
+        is QuestionReplyNode -> QuestionReplyBubble(node, onOpenLink)
 
         is ContextMessageNode -> ContextInjectionRow(node, context, onOpenLink)
 
@@ -347,6 +352,39 @@ private fun MarkdownUserBubble(text: String, onOpenLink: (String) -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         ) {
             MarkdownText(text, onOpenLink = onOpenLink)
+        }
+    }
+}
+
+@Composable
+private fun QuestionReplyBubble(node: QuestionReplyNode, onOpenLink: (String) -> Unit) {
+    val colors = DsTheme.colors
+    val skipped = stringResource(R.string.questions_skip)
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.CenterEnd,
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = minOf(525.dp, maxWidth * 0.82f))
+                .background(colors.userBubble, DsShapes.bubble)
+                .border(1.dp, colors.borderL3, DsShapes.bubble)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (node.questions.isEmpty()) {
+                MarkdownText(node.text, onOpenLink = onOpenLink)
+            } else node.questions.forEach { question ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    question.header?.takeIf { it.isNotBlank() && it != question.question }?.let { header ->
+                        Text(header, style = DsType.caption11, color = colors.labelSecondary)
+                    }
+                    Text(question.question, style = DsType.mdBody, color = colors.labelPrimary)
+                    val answer = node.answers.firstOrNull { it.id == question.id }
+                    val values = answer?.selected.orEmpty() + listOfNotNull(answer?.custom?.trim()?.takeIf { it.isNotEmpty() })
+                    Text(values.joinToString(", ").ifEmpty { skipped }, style = DsType.mdBody, color = colors.labelPrimary)
+                }
+            }
         }
     }
 }
@@ -492,7 +530,15 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
                         )
                     }
                 } else {
-                    MarkdownText(block.text.orEmpty(), imageResolver = imageResolver, onOpenLink = onOpenLink)
+                    // Prose is rendered in a WebView, which consumes taps before the message's
+                    // `clickable` sees them; this keeps a tap on the text toggling the actions.
+                    MarkdownText(
+                        block.text.orEmpty(),
+                        imageResolver = imageResolver,
+                        onTap = { actionsVisible = !actionsVisible },
+                        shouldSuppressTap = context.shouldSuppressMessageTap,
+                        onOpenLink = onOpenLink,
+                    )
                 }
                 // A streaming assistant message keeps re-rendering its blocks, so a reasoning block that has been
                 // opened has to be able to stay open across those renders as well as across a trip

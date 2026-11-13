@@ -11,6 +11,7 @@ import dev.dsh.mobile.mesh.core.session.GoalNode
 import dev.dsh.mobile.mesh.core.session.OtherNode
 import dev.dsh.mobile.mesh.core.session.PlanModeNode
 import dev.dsh.mobile.mesh.core.session.ProducedFilesNode
+import dev.dsh.mobile.mesh.core.session.QuestionReplyNode
 import dev.dsh.mobile.mesh.core.session.PresentedFilesNode
 import dev.dsh.mobile.mesh.core.session.RetryNode
 import dev.dsh.mobile.mesh.core.session.SubagentNode
@@ -69,6 +70,7 @@ internal fun ChatNode.rendersContent(): Boolean = when (this) {
 
     // Content that can still fold to nothing.
     is UserMessageNode -> blocks.any { it.kind == "image" || it.kind == "file" } || displayText().isNotBlank()
+    is QuestionReplyNode -> questions.isNotEmpty() || text.isNotBlank()
     is ContextMessageNode -> displayText().isNotBlank()
     is AssistantMessageNode -> interrupted || blocks.any { block ->
         when (block.kind) {

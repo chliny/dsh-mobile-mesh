@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -69,13 +72,65 @@ internal fun MarkdownCodeBlockCard(
                     .background(colors.bgModulePlatform)
                     .padding(8.dp),
             ) {
-                HighlightedCodeLines(
-                    code = code,
-                    language = normalizedLanguage ?: "text",
-                    textMate = textMate,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                if (normalizedLanguage.equals("diff", ignoreCase = true) ||
+                    normalizedLanguage.equals("patch", ignoreCase = true)
+                ) {
+                    val lines = diffTextLines(code)
+                    val lineKinds = markdownDiffLineKinds(lines)
+                    Column(Modifier.horizontalScroll(rememberScrollState())) {
+                        lines.forEachIndexed { index, line ->
+                            val kind = lineKinds[index]
+                            val foreground = when (kind) {
+                                '-' -> colors.error
+                                '+' -> colors.success
+                                '@' -> colors.accent
+                                else -> colors.labelPrimary
+                            }
+                            val background = when (kind) {
+                                '-' -> colors.errorTertiary
+                                '+' -> colors.successTertiary
+                                else -> Color.Transparent
+                            }
+                            Text(
+                                text = line.ifEmpty { "\u00a0" },
+                                style = DsType.mdCode,
+                                color = foreground,
+                                softWrap = false,
+                                modifier = Modifier.background(background),
+                            )
+                        }
+                    }
+                } else {
+                    HighlightedCodeLines(
+                        code = code,
+                        language = normalizedLanguage ?: "text",
+                        textMate = textMate,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
+        }
+    }
+}
+
+/** Classify file headers before hunks while treating `+++`/`---` inside a hunk as source lines. */
+internal fun markdownDiffLineKinds(lines: List<String>): List<Char> {
+    var inHunk = false
+    return lines.map { line ->
+        when {
+            line.startsWith("diff ") -> {
+                inHunk = false
+                '@'
+            }
+            line.startsWith("@@") -> {
+                inHunk = true
+                '@'
+            }
+            line.startsWith("index ") -> '@'
+            !inHunk && (line.startsWith("+++") || line.startsWith("---")) -> '@'
+            line.startsWith('+') -> '+'
+            line.startsWith('-') -> '-'
+            else -> ' '
         }
     }
 }

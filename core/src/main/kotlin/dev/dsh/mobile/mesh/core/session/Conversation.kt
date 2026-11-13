@@ -102,6 +102,18 @@ data class ToolResultNode(
     val meta: JsonElement? = null,
 ) : ChatNode
 
+/** A submitted ask_user_question batch, from an in-time tool result or a late user reply. */
+data class QuestionReplyNode(
+    override val seq: Long,
+    val callId: String,
+    val questions: List<QuestionReplyQuestion>,
+    val answers: List<QuestionReplyAnswer>,
+    val text: String,
+) : ChatNode
+
+data class QuestionReplyQuestion(val id: String, val question: String, val header: String? = null)
+data class QuestionReplyAnswer(val id: String, val selected: List<String>, val custom: String? = null)
+
 data class TodoNode(override val seq: Long, val todos: JsonElement) : ChatNode
 data class GoalNode(override val seq: Long, val data: JsonElement) : ChatNode
 data class PlanModeNode(override val seq: Long, val active: Boolean) : ChatNode

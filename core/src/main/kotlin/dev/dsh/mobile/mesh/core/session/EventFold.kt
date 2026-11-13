@@ -1,5 +1,6 @@
 package dev.dsh.mobile.mesh.core.session
 
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -35,6 +36,56 @@ import kotlinx.serialization.json.jsonPrimitive
 private fun JsonObject.primitiveText(key: String): String? = (get(key) as? JsonPrimitive)?.contentOrNull
 private fun JsonObject.primitiveInt(key: String): Int? = (get(key) as? JsonPrimitive)?.intOrNull
 private fun JsonObject.primitiveBoolean(key: String): Boolean? = (get(key) as? JsonPrimitive)?.booleanOrNull
+private fun JsonObject.string(key: String): String? = (get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+private fun jsonObject(text: String): JsonObject? = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+
+private fun replyQuestions(value: JsonObject?): List<QuestionReplyQuestion>? {
+    val array = value?.get("questions") as? JsonArray ?: return null
+    if (array.isEmpty()) return null
+    val questions = array.map { item ->
+        val obj = item as? JsonObject ?: return null
+        if ((obj["intent"] as? JsonObject)?.string("kind") == "plan-review") return null
+        QuestionReplyQuestion(obj.string("id") ?: return null, obj.string("question") ?: return null, obj.string("header"))
+    }
+    return questions.takeIf { list -> list.map { it.id }.toSet().size == list.size }
+}
+
+private fun replyAnswers(value: JsonObject?, questions: List<QuestionReplyQuestion>): List<QuestionReplyAnswer>? {
+    val array = value?.get("answers") as? JsonArray ?: return null
+    if (array.size != questions.size) return null
+    val ids = questions.map { it.id }.toMutableSet()
+    return array.map { item ->
+        val obj = item as? JsonObject ?: return null
+        val id = obj.string("id") ?: return null
+        if (!ids.remove(id)) return null
+        val selected = obj["selected"] as? JsonArray ?: return null
+        val choices = selected.map { (it as? JsonPrimitive)?.takeIf { choice -> choice.isString }?.content ?: return null }
+        if (obj.containsKey("custom") && obj.string("custom") == null) return null
+        QuestionReplyAnswer(id, choices, obj.string("custom"))
+    }
+}
+
+/** Late replies use the same question filtering as immediate tool results. */
+private fun lateReplyPairs(text: String): Pair<List<QuestionReplyQuestion>, List<QuestionReplyAnswer>>? {
+    val value = jsonObject(text) ?: return null
+    // Reuse the immediate path's schema/plan-review filtering. An unparseable answered payload must
+    // not fall through to a generic context row that exposes its serialized JSON to the user.
+    val questions = replyQuestions(value) ?: return null
+    val questionIds = questions.mapTo(mutableSetOf()) { it.id }
+    val answers = (value["answers"] as? JsonArray).orEmpty().mapNotNull { item ->
+        val obj = item as? JsonObject ?: return@mapNotNull null
+        val id = obj.string("id") ?: return@mapNotNull null
+        if (id !in questionIds) return@mapNotNull null
+        val selected = obj["selected"] as? JsonArray ?: return@mapNotNull null
+        QuestionReplyAnswer(
+            id,
+            selected.mapNotNull { (it as? JsonPrimitive)?.takeIf { choice -> choice.isString }?.content },
+            obj.string("custom"),
+        )
+    }
+    return questions to answers
+}
 
 private fun retryFailureText(data: JsonObject?): String? = data?.let { obj ->
     val failure = obj["failure"]
@@ -103,6 +154,18 @@ class EventFold(private val sessionId: String) {
             initial.nodes.filterNot { it is AssistantMessageNode && it.streaming }.forEach { node ->
                 val index = state.nodes.size
                 state.nodes.add(node)
+                if (node is ToolCallNode && node.name == "ask_user_question") {
+                    replyQuestions(jsonObject(node.arguments))?.let { state.questionCalls[node.callId] = it }
+                }
+                if (node is OtherNode && node.type == "tool/ptc-dispatch-start") {
+                    val data = node.data as? JsonObject
+                    if (data?.string("name") == "ask_user_question") {
+                        val callId = data.string("subCallId")
+                        val questions = replyQuestions(data["arguments"] as? JsonObject)
+                        if (callId != null && questions != null) state.questionCalls[callId] = questions
+                    }
+                }
+                if (node is QuestionReplyNode) state.completedQuestionReplyCalls.add(node.callId)
                 if (node is AssistantMessageNode) {
                     node.turn?.let { turn ->
                         state.assistantSeqs.add(node.seq)
@@ -156,6 +219,43 @@ private class FoldState(private val sessionId: String) {
     }
 
     private val openByKey = linkedMapOf<String, OpenAssistant>()
+    val questionCalls = mutableMapOf<String, List<QuestionReplyQuestion>>()
+    val completedQuestionReplyCalls = mutableSetOf<String>()
+
+    private fun addQuestionReply(
+        event: SessionEventEnvelope,
+        callId: String,
+        questions: List<QuestionReplyQuestion>,
+        answers: List<QuestionReplyAnswer>,
+        text: String,
+    ) {
+        if (completedQuestionReplyCalls.add(callId)) {
+            nodes.add(QuestionReplyNode(event.seq, callId, questions, answers, text))
+        }
+    }
+
+    private fun addQuestionResult(event: SessionEventEnvelope, callId: String?, content: JsonElement?, isError: Boolean): Boolean {
+        val questions = callId?.let(questionCalls::get) ?: return false
+        if (callId in completedQuestionReplyCalls) {
+            questionCalls.remove(callId)
+            return true
+        }
+        if (isError) {
+            // An errored result is terminal for this call. A pending result is not: the same call id
+            // may later receive the user's final answer in another result event.
+            questionCalls.remove(callId)
+            return false
+        }
+        val blocks = content as? JsonArray ?: return false
+        if (blocks.size != 1) return false
+        val text = (blocks.single() as? JsonObject)?.takeIf { it.string("type") == "text" }?.string("text") ?: return false
+        val value = jsonObject(text) ?: return false
+        if (value.primitiveBoolean("pending") == true) return false
+        val answers = replyAnswers(value, questions) ?: return false
+        questionCalls.remove(callId)
+        addQuestionReply(event, callId, questions, answers, text)
+        return true
+    }
     val compactionNodeById = mutableMapOf<String, Int>()
     /** Constant-time duplicate settlement guard and last assistant index per turn. */
     val assistantSeqs = HashSet<Long>()
@@ -244,6 +344,25 @@ private class FoldState(private val sessionId: String) {
                 val compactionCheckpointId = if (sourceKind == "compact-checkpoint") {
                     source?.primitiveText("compactionId")
                 } else null
+                if (sourceKind == "user-question-reply" && source?.string("outcome") == "answered") {
+                    val callId = source.string("callId")
+                    if (callId != null) {
+                        val text = blocks.firstOrNull { it.kind == "text" }?.text.orEmpty()
+                        // A late user/message is an alternate representation of the same answer,
+                        // not an additional one. If a final tool result already created the bubble,
+                        // keep just that node. Also consume the registration before returning so a
+                        // later duplicate tool result cannot re-add it.
+                        val reply = lateReplyPairs(text)
+                        questionCalls.remove(callId)
+                        if (reply != null) {
+                            addQuestionReply(event, callId, reply.first, reply.second, text)
+                        }
+                        return
+                    }
+                    // Never expose an answered question's serialized transport payload as generic
+                    // model context merely because its correlation id was malformed or absent.
+                    return
+                }
                 if (compactionCheckpointId != null) {
                     val lifecycle = compactionNodeById[compactionCheckpointId]
                         ?.let { nodes.getOrNull(it) as? CompactionNode }
@@ -352,6 +471,36 @@ private class FoldState(private val sessionId: String) {
                 val turn = data.jsonObject.primitiveInt("turn") ?: 0
                 val step = data.jsonObject.primitiveInt("step") ?: 0
                 nodes.add(ToolCallNode(event.seq, callId, name, args, turn, step))
+                if (name == "ask_user_question") {
+                    replyQuestions(jsonObject(args))?.let { questionCalls[callId] = it }
+                }
+            }
+
+            "tool/ptc-dispatch-start" -> {
+                nodes.add(OtherNode(event.seq, event.type, data))
+                if (data.jsonObject.string("name") == "ask_user_question") {
+                    val callId = data.jsonObject.string("subCallId")
+                    val questions = replyQuestions(data.jsonObject["arguments"] as? JsonObject)
+                    if (callId != null && questions != null) questionCalls[callId] = questions
+                }
+            }
+
+            "tool/ptc-dispatch" -> {
+                val isQuestionCall = data.jsonObject.string("name") == "ask_user_question"
+                val callId = data.jsonObject.string("subCallId")
+                // A bounded history page can begin after the dispatch-start event. The terminal
+                // PTC record carries the submitted arguments too, so rebuild only a missing call
+                // registration before folding its answer.
+                if (isQuestionCall && callId != null && callId !in questionCalls) {
+                    replyQuestions(data.jsonObject["arguments"] as? JsonObject)?.let { questionCalls[callId] = it }
+                }
+                val questionReplyHandled = isQuestionCall && addQuestionResult(
+                    event,
+                    callId,
+                    data.jsonObject["content"],
+                    data.jsonObject.primitiveBoolean("isError") == true,
+                )
+                if (!questionReplyHandled) nodes.add(OtherNode(event.seq, event.type, data))
             }
 
             "workspace/changes" -> {
@@ -390,6 +539,8 @@ private class FoldState(private val sessionId: String) {
                 val turn = data.jsonObject.primitiveInt("turn") ?: 0
                 val step = data.jsonObject.primitiveInt("step") ?: 0
                 nodes.add(ToolResultNode(event.seq, toolCallId.orEmpty(), content, isError, turn, step, data.jsonObject["meta"]))
+                val callId = (message?.get("source") as? JsonObject)?.string("callId") ?: toolCallId
+                addQuestionResult(event, callId, content, isError)
             }
 
             "todo/write" -> nodes.add(TodoNode(event.seq, data.jsonObject["todos"] ?: data))
@@ -514,7 +665,7 @@ private class FoldState(private val sessionId: String) {
         const val MAX_STREAM_BLOCK_INDEX = 1023
         val OBJECT_DATA_EVENTS = setOf(
             "turn/start", "turn/end", "user/message", "assistant/chunk", "assistant/message",
-            "assistant/attempt", "tool/call", "tool/result", "workspace/changes",
+            "assistant/attempt", "tool/call", "tool/result", "tool/ptc-dispatch-start", "tool/ptc-dispatch", "workspace/changes",
             "deliverables/presented", "todo/write", "plan/mode", "session/title",
         )
         val BLOCK_CHUNK_TYPES = setOf(

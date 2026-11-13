@@ -1,6 +1,8 @@
 package dev.dsh.mobile.mesh.ui.components
 
 import android.net.Uri
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -226,6 +228,8 @@ internal fun CommonMarkMarkdown(
     text: String,
     modifier: Modifier = Modifier,
     imageResolver: (suspend (String) -> String?)? = null,
+    onTap: (() -> Unit)? = null,
+    shouldSuppressTap: (() -> Boolean)? = null,
     onOpenLink: (String) -> Unit,
 ) {
     val colors = DsTheme.colors
@@ -239,6 +243,8 @@ internal fun CommonMarkMarkdown(
         imageResolver?.let { MarkdownImageResolutionCache(imageScope, it) }
     }
     webState.onOpenLink = onOpenLink
+    webState.onTap = onTap
+    webState.shouldSuppressTap = shouldSuppressTap
     // A no-resolver document has image destinations determined by its source text; other renderings
     // include the resolver's actual output in the key after those images have been resolved.
     val sourceOnlyCacheKey = if (imageResolver == null && text.length <= MAX_CACHEABLE_MARKDOWN_CHARS) {
@@ -532,17 +538,34 @@ internal fun decorateMarkdownCodeBlocks(
     return RENDERED_CODE_BLOCK.replace(fragment) { match ->
         val block = codeBlocks.getOrNull(codeIndex) ?: return@replace match.value
         val index = codeIndex++
-        val highlighted = highlightFencedCode(
-            block.code,
-            textMateGrammarAssetForLanguage(block.language),
-            themeAsset,
-            openAsset,
-        )
+        val highlightedHtml = if (block.language.equals("diff", ignoreCase = true) ||
+            block.language.equals("patch", ignoreCase = true)
+        ) {
+            val lines = diffTextLines(block.code)
+            val lineKinds = markdownDiffLineKinds(lines)
+            lines.mapIndexed { lineIndex, line ->
+                val className = when (lineKinds[lineIndex]) {
+                    '+' -> "diff-add"
+                    '-' -> "diff-remove"
+                    '@' -> "diff-header"
+                    else -> "diff-context"
+                }
+                val visibleLine = line.ifEmpty { "\u00a0" }
+                "<span class=\"$className\">${escapeMarkdownCodeText(visibleLine)}</span>"
+            }.joinToString("")
+        } else {
+            annotatedCodeToHtml(highlightFencedCode(
+                block.code,
+                textMateGrammarAssetForLanguage(block.language),
+                themeAsset,
+                openAsset,
+            ))
+        }
         renderMarkdownCodeBlockHtml(
             index = index,
             language = block.language,
             codeClass = match.groups[1]?.value,
-            highlightedCodeHtml = annotatedCodeToHtml(highlighted),
+            highlightedCodeHtml = highlightedHtml,
             copyLabel = copyLabel,
         )
     }
@@ -655,6 +678,10 @@ private fun wrapMarkdownHtml(fragment: String, colors: DsColors): String {
     val codeBackground = css(colors.inlineCode)
     val panelBackground = css(colors.codeBlockBg)
     val terminalBackground = css(colors.bgModulePlatform)
+    val diffAdd = css(colors.success)
+    val diffRemove = css(colors.error)
+    val diffAddBackground = css(colors.successTertiary)
+    val diffRemoveBackground = css(colors.errorTertiary)
     return """
         <!doctype html>
         <html><head>
@@ -681,6 +708,11 @@ private fun wrapMarkdownHtml(fragment: String, colors: DsColors): String {
            .markdown-code-header span { font-family: monospace; font-weight: 600; letter-spacing: .02em; }
           .markdown-copy-code { color: $accent; text-decoration: none; font-weight: 600; padding: 2px 7px; border: 1px solid $border; border-radius: 6px; }
           .markdown-code-block pre { margin: 0; border: 1px solid $border; border-radius: 8px; padding: 10px 12px; }
+          .markdown-code-block .diff-add, .markdown-code-block .diff-remove,
+          .markdown-code-block .diff-header, .markdown-code-block .diff-context { display: block; }
+          .markdown-code-block .diff-add { color: $diffAdd; background: $diffAddBackground; }
+          .markdown-code-block .diff-remove { color: $diffRemove; background: $diffRemoveBackground; }
+          .markdown-code-block .diff-header { color: $accent; }
           table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: auto; margin: .5em 0 1em; }
           th, td { border: 1px solid $border; padding: 6px 9px; text-align: left; vertical-align: top; }
           th { font-weight: 600; }
@@ -697,6 +729,10 @@ private fun wrapMarkdownHtml(fragment: String, colors: DsColors): String {
 private class CommonMarkWebState {
     var onOpenLink: (String) -> Unit = {}
     var onCopyCode: (Int) -> Unit = {}
+    /** A tap on rendered prose that did not land on a link or the copy-code control. */
+    var onTap: (() -> Unit)? = null
+    /** Whether the containing transcript is scrolling, sampled at gesture down and release. */
+    var shouldSuppressTap: (() -> Boolean)? = null
 }
 
 internal fun markdownWebViewContentHeight(contentHeightCssPx: Int, scale: Float): Int =
@@ -760,6 +796,39 @@ private class CommonMarkWebView(
     /** Last height this view reported; kept while a reload for a new width is pending. */
     private var lastMeasuredHeight = 1
 
+    /**
+     * Taps on rendered prose.
+     *
+     * A WebView consumes the touches it receives, so a `clickable` modifier around it never sees
+     * them: only the Compose-rendered parts of a message (code blocks, file chips) reacted to a
+     * tap. The detector resurrects the ordinary tap for prose while leaving link and copy-code
+     * taps to the WebView's own navigation handling.
+     */
+    private var gestureStartedWhileScrolling = false
+    private val messageTapDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(event: MotionEvent): Boolean {
+            // A down often cancels a parent LazyColumn fling before the matching up arrives. Keep
+            // the down-time value so that stopping a scroll is not mistaken for a prose selection.
+            gestureStartedWhileScrolling = state.shouldSuppressTap?.invoke() == true
+            return true
+        }
+
+        override fun onSingleTapUp(event: MotionEvent): Boolean {
+            val onTap = state.onTap ?: return false
+            // A tap on a link is handled by `shouldOverrideUrlLoading`; toggling the message
+            // actions for it would open the link and reveal the menu at the same time. Likewise,
+            // ignore taps that began while the transcript was scrolling, even if this up event
+            // stopped the fling and `isScrollInProgress` is now false.
+            if (gestureStartedWhileScrolling || state.shouldSuppressTap?.invoke() == true || isLinkHit()) return false
+            onTap()
+            return false
+        }
+    })
+
+    private fun isLinkHit(): Boolean = runCatching {
+        hitTestResult?.type in LINK_HIT_TEST_TYPES
+    }.getOrDefault(false)
+
     private fun layoutKeyFor(width: Int): Triple<Int, Int, Float> =
         Triple(width, resources.displayMetrics.densityDpi, resources.configuration.fontScale)
 
@@ -767,6 +836,12 @@ private class CommonMarkWebView(
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
         isVerticalScrollBarEnabled = false
         isHorizontalScrollBarEnabled = false
+        // The listener returns false so the WebView still handles scrolling and link navigation;
+        // it only observes events to recognize a completed tap.
+        setOnTouchListener { _, event ->
+            messageTapDetector.onTouchEvent(event)
+            false
+        }
         settings.apply {
             javaScriptEnabled = false
             allowFileAccess = false
@@ -929,6 +1004,19 @@ private class CommonMarkWebView(
          * comes back laid out for the old width.
          */
         const val WIDTH_RELOAD_DELAY_MS = 150L
+
+        /** Hit-test types the WebView turns into a navigation of its own. */
+        // The two legacy anchor types are still what older WebView providers report.
+        @Suppress("DEPRECATION")
+        val LINK_HIT_TEST_TYPES = setOf(
+            WebView.HitTestResult.ANCHOR_TYPE,
+            WebView.HitTestResult.SRC_ANCHOR_TYPE,
+            WebView.HitTestResult.IMAGE_ANCHOR_TYPE,
+            WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE,
+            WebView.HitTestResult.PHONE_TYPE,
+            WebView.HitTestResult.GEO_TYPE,
+            WebView.HitTestResult.EMAIL_TYPE,
+        )
     }
 }
 

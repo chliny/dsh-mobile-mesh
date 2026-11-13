@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onNodeWithText
@@ -23,7 +24,11 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import dev.dsh.mobile.mesh.ui.theme.DshTheme
 import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
+import dev.dsh.mobile.mesh.core.session.EventFold
+import dev.dsh.mobile.mesh.core.session.SessionEventEnvelope
 import dev.dsh.mobile.mesh.core.session.ChatBlock
 import dev.dsh.mobile.mesh.core.session.ContextMessageNode
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
@@ -557,6 +562,90 @@ class ChatTranscriptScrollTest {
             assertEquals(before, after.offset)
         }
     }
+
+    @Test
+    fun `PTC question answers replace handled rows while failures and other tools remain visible`() {
+        fun event(seq: Long, type: String, data: String) = SessionEventEnvelope(
+            type = type,
+            seq = seq,
+            time = seq,
+            data = Json.parseToJsonElement(data),
+        )
+        fun conversation(
+            name: String = "ask_user_question",
+            isError: Boolean = false,
+            includeStart: Boolean = true,
+        ): ConversationSnapshot {
+            val arguments = if (name == "ask_user_question") {
+                """{"questions":[{"id":"scope","question":"Which scope?","header":"Scope"}]}"""
+            } else {
+                """{"description":"Run script"}"""
+            }
+            val startPayload = """{"subCallId":"ask-1","name":"$name","arguments":$arguments}"""
+            val dispatch = if (isError) {
+                """{"subCallId":"ask-1","name":"$name","arguments":$arguments,"isError":true,"content":[{"type":"text","text":"failed"}]}"""
+            } else if (name == "ask_user_question") {
+                """{"subCallId":"ask-1","name":"$name","arguments":$arguments,"isError":false,"content":[{"type":"text","text":"{\"answers\":[{\"id\":\"scope\",\"selected\":[\"Current session\"]}]}"}]}"""
+            } else {
+                """{"subCallId":"ask-1","name":"$name","arguments":$arguments,"isError":false,"content":[{"type":"text","text":"done"}]}"""
+            }
+            val events = buildList {
+                if (includeStart) add(event(1, "tool/ptc-dispatch-start", startPayload))
+                add(event(if (includeStart) 2 else 1, "tool/ptc-dispatch", dispatch))
+            }
+            return EventFold("ptc-session").fold(events)
+        }
+
+        val snapshot = mutableStateOf(conversation(isError = false, includeStart = false))
+        val mode = mutableStateOf(TranscriptPresentation.Mode.Compact)
+        val disclosures = DisclosureScope(TranscriptDisclosures(), "ptc-session")
+        val listState = LazyListState()
+        val positions = TranscriptReadingPositions()
+        compose.setContent {
+            DshTheme {
+                Box(Modifier.height(520.dp)) {
+                    ChatTranscript(
+                        conversation = snapshot.value,
+                        loading = false,
+                        loadingOlder = false,
+                        loadOlderFailed = false,
+                        context = ChatNodeContext(
+                            nodes = snapshot.value.nodes,
+                            sessionId = "ptc-session",
+                            disclosures = disclosures,
+                            running = false,
+                            cwd = null,
+                            onOpenSubagent = {},
+                            onBranchFrom = {},
+                            onFeedback = { _, _ -> },
+                        ),
+                        presentation = TranscriptPresentation(mode.value),
+                        listState = listState,
+                        readingPositions = positions,
+                        onLoadOlder = { false },
+                        onRestoreOlder = {},
+                    )
+                }
+            }
+        }
+        for (presentationMode in listOf(TranscriptPresentation.Mode.Compact, TranscriptPresentation.Mode.Standard)) {
+            compose.runOnIdle { mode.value = presentationMode }
+            compose.waitForIdle()
+            compose.onNodeWithText("Which scope?").assertIsDisplayed()
+            compose.onNodeWithText("Current session").assertIsDisplayed()
+            compose.onNodeWithText("tool/ptc-dispatch").assertDoesNotExist()
+        }
+
+        compose.runOnIdle { snapshot.value = conversation(isError = true, includeStart = false) }
+        compose.waitForIdle()
+        compose.onNodeWithText("Which scope?").assertDoesNotExist()
+        compose.onNodeWithText("Current session").assertDoesNotExist()
+        compose.onNodeWithText("tool/ptc-dispatch").assertIsDisplayed()
+
+        compose.runOnIdle { snapshot.value = conversation(name = "bash") }
+        compose.waitForIdle()
+        compose.onNodeWithText("tool/ptc-dispatch").assertIsDisplayed()
+    }
 }
 
 /** Chromium finishes its visual layout later than Compose restores the list coordinate. */
@@ -574,9 +663,18 @@ class ReadingMarkdownWebViewShadow : ShadowWebView() {
         pending += { callback.onComplete(id) }
     }
 
+    /** The element under the touch, as the WebView's own hit test would report it. */
+    @Implementation protected override fun getHitTestResult(): WebView.HitTestResult? =
+        if (hitTestType == WebView.HitTestResult.UNKNOWN_TYPE) {
+            super.getHitTestResult()
+        } else {
+            ShadowWebView.createHitTestResult(hitTestType, "https://example.test/link")
+        }
+
     companion object {
         var contentHeight = 1800
         var autoFinishPage = true
+        var hitTestType = WebView.HitTestResult.UNKNOWN_TYPE
         val pageFinishes = mutableListOf<() -> Unit>()
         val pending = mutableListOf<() -> Unit>()
         fun finishPage(index: Int) {
@@ -586,6 +684,9 @@ class ReadingMarkdownWebViewShadow : ShadowWebView() {
             val callbacks = pending.toList()
             pending.clear()
             callbacks.forEach { it() }
+        }
+        fun resetTapRouting() {
+            hitTestType = WebView.HitTestResult.UNKNOWN_TYPE
         }
     }
 }

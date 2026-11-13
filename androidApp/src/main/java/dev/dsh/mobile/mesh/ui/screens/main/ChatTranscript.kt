@@ -789,7 +789,12 @@ internal fun ChatTranscript(
             items(rows, key = { it.key }) { row ->
                 when (row) {
                     is TranscriptRow.Node -> CompositionLocalProvider(LocalTranscriptContentExpanded provides onContentExpanded) {
-                        ChatNodeItem(node = row.node, context = context)
+                        ChatNodeItem(
+                            node = row.node,
+                            context = context.copy(
+                                shouldSuppressMessageTap = { userDragging || listState.isScrollInProgress },
+                            ),
+                        )
                     }
                     is TranscriptRow.Command -> CommandActivityRow(row.activity, context)
                     is TranscriptRow.Workflow -> WorkflowActivityRow(row.activity, context)

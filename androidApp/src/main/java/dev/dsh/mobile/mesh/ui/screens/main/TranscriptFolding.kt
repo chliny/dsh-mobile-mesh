@@ -4,6 +4,7 @@ import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ChatNode
 import dev.dsh.mobile.mesh.core.session.OtherNode
 import dev.dsh.mobile.mesh.core.session.PresentedFilesNode
+import dev.dsh.mobile.mesh.core.session.QuestionReplyNode
 import dev.dsh.mobile.mesh.core.session.TurnEndNode
 import dev.dsh.mobile.mesh.core.session.TurnErrorNode
 import dev.dsh.mobile.mesh.core.session.TurnStartNode
@@ -118,7 +119,7 @@ internal fun partitionTranscript(
             val live = end == null && endIndex == null
             val groupable = visible.takeWhile { i ->
                 val node = nodes[i]
-                node !is UserMessageNode && node !is OtherNode && node !is TurnErrorNode &&
+                node !is UserMessageNode && node !is QuestionReplyNode && node !is OtherNode && node !is TurnErrorNode &&
                     node !is PresentedFilesNode && node !is TodoNode &&
                     !(node is AssistantMessageNode && node.blocks.any { block ->
                         block.kind == "text" && !block.text.isNullOrBlank() || block.kind == "image"
@@ -155,7 +156,7 @@ internal fun partitionTranscript(
             }
         val processFlags = BooleanArray(turnNodes.size) { turnIndex ->
             val node = turnNodes[turnIndex]
-            safe && node !== final && node !is UserMessageNode && node !is PresentedFilesNode &&
+            safe && node !== final && node !is UserMessageNode && node !is QuestionReplyNode && node !is PresentedFilesNode &&
                 node !is TodoNode && !(node is AssistantMessageNode &&
                 (node.interrupted || node.blocks.any { it.kind == "text" && !it.text.isNullOrBlank() || it.kind == "image" }))
         }
