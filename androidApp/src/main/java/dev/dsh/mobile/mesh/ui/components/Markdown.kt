@@ -55,6 +55,57 @@ import org.intellij.markdown.parser.MarkdownParser
 private const val MARKDOWN_STREAM_REFRESH_MS = 120L
 
 /**
+ * The Markdown parser can leave strong delimiters literal when a CJK punctuation mark immediately
+ * precedes the closing `**`/`__` and CJK text follows it. A word-joiner inside the strong span
+ * makes the delimiter unambiguous without introducing a visible space. Fenced and inline code are
+ * kept untouched.
+ */
+private val INLINE_CODE_SPAN_IN_MARKDOWN = Regex("(`+)[^`]*\\1")
+private val CJK_STRONG_PUNCTUATION_BOUNDARY = Regex(
+    """(\*\*[^*\n]*\p{P})(\*\*)(?=[\p{IsHan}\p{IsHiragana}\p{IsKatakana}\p{IsHangul}])|(__[^_\n]*\p{P})(__)(?=[\p{IsHan}\p{IsHiragana}\p{IsKatakana}\p{IsHangul}])""",
+)
+
+private fun normalizeCjkStrongBoundaries(text: String): String {
+    if (!text.contains("**") && !text.contains("__")) return text
+    val out = StringBuilder(text.length + 8)
+    var inFence = false
+    var fenceMarker = ""
+    text.lineSequence().forEachIndexed { index, line ->
+        if (index > 0) out.append('\n')
+        val trimmed = line.trimStart()
+        if (inFence) {
+            out.append(line)
+            if (trimmed.startsWith(fenceMarker)) inFence = false
+            return@forEachIndexed
+        }
+        if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+            inFence = true
+            fenceMarker = trimmed.take(3)
+            out.append(line)
+            return@forEachIndexed
+        }
+        var cursor = 0
+        INLINE_CODE_SPAN_IN_MARKDOWN.findAll(line).forEach { match ->
+            out.append(normalizeCjkStrongFragment(line.substring(cursor, match.range.first)))
+            out.append(match.value)
+            cursor = match.range.last + 1
+        }
+        out.append(normalizeCjkStrongFragment(line.substring(cursor)))
+    }
+    return out.toString()
+}
+
+private fun normalizeCjkStrongFragment(fragment: String): String =
+    CJK_STRONG_PUNCTUATION_BOUNDARY.replace(fragment) { match ->
+        val strongText = match.groupValues[1]
+        if (strongText.isNotEmpty()) {
+            "$strongText\u2060${match.groupValues[2]}"
+        } else {
+            "${match.groupValues[3]}\u2060${match.groupValues[4]}"
+        }
+    }
+
+/**
  * Shared Markdown renderer for transcript content and workspace Markdown files.
  *
  * Rendering is pure Compose (mikepenz/multiplatform-markdown-renderer). Marked-up answers used to be
@@ -90,7 +141,7 @@ fun MarkdownText(
             }
         }
     }
-    val prepared = remember(text) { markdownHtmlAsMarkdown(text) }
+    val prepared = remember(text) { normalizeCjkStrongBoundaries(markdownHtmlAsMarkdown(text)) }
     val content = rememberStreamingMarkdown(prepared, streaming)
     // An inline image that cannot be read must fall back to its caption instead of reserving a
     // blank image slot; the annotator below swaps in the alt text once the load reports failure.
