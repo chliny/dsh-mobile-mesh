@@ -103,11 +103,19 @@ private val textMateGrammarExtensionByLanguage = mapOf(
     "cpp" to "cpp", "c++" to "cpp", "cc" to "cpp", "cxx" to "cpp", "hpp" to "cpp", "hh" to "cpp", "hxx" to "cpp",
     "cs" to "cs", "c#" to "cs", "objc" to "m", "objective-c" to "m", "objectivec" to "m",
     // Markup, data and build files.
+    // Vue/Svelte/Astro and template dialects are HTML-shaped in a fenced snippet; the HTML grammar
+    // colors tags, attributes, and embedded script/style blocks, which is the useful fallback when
+    // no dedicated grammar is bundled. Add a dedicated asset only if such code becomes common.
     "html" to "html", "htm" to "html", "xml" to "xml", "svg" to "xml", "css" to "css",
     "scss" to "scss", "less" to "less", "json" to "json", "jsonc" to "jsonc", "json5" to "json5",
-    "yaml" to "yaml", "yml" to "yaml", "toml" to "toml", "ini" to "ini", "properties" to "ini",
+    "yaml" to "yaml", "yml" to "yaml", "compose" to "yaml", "docker-compose" to "yaml",
+    "toml" to "toml", "ini" to "ini", "properties" to "ini",
     "dockerfile" to "dockerfile", "make" to "make", "makefile" to "make", "mk" to "make",
-    "sql" to "sql", "r" to "r",
+    "sql" to "sql", "r" to "r", "perl" to "pl", "pl" to "pl", "pm" to "pl",
+    "vue" to "html", "svelte" to "html", "astro" to "html",
+    "handlebars" to "html", "hbs" to "html", "mustache" to "html",
+    "jinja" to "html", "jinja2" to "html", "django" to "html", "jsp" to "html",
+    "env" to "sh", "dotenv" to "sh",
 )
 
 internal fun textMateGrammarAssetForLanguage(info: String?): String? {

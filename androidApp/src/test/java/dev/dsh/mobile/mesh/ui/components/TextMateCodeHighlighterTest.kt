@@ -117,12 +117,17 @@ class TextMateCodeHighlighterTest {
         assertEquals("textmate-ruby.tmLanguage.json", textMateGrammarAssetForLanguage("ruby"))
         assertEquals("textmate-rust.tmLanguage.json", textMateGrammarAssetForLanguage("rust"))
         assertEquals("textmate-shellscript.tmLanguage.json", textMateGrammarAssetForLanguage("console"))
+        assertEquals("textmate-html.tmLanguage.json", textMateGrammarAssetForLanguage("vue"))
+        assertEquals("textmate-html.tmLanguage.json", textMateGrammarAssetForLanguage("svelte"))
+        assertEquals("textmate-yaml.tmLanguage.json", textMateGrammarAssetForLanguage("docker-compose"))
+        assertEquals("textmate-perl.tmLanguage.json", textMateGrammarAssetForLanguage("perl"))
     }
 
     @Test fun `Markdown fenced Python and JavaScript code gets syntax colors`() {
         listOf(
             "python" to "def greet(name):\n    return f\"hi {name}\"",
             "js" to "const answer = 42; function greet(name) { return name; }",
+            "vue" to "<template><p>{{\u0020message\u0020}}</p></template>",
         ).forEach { (language, code) ->
             val grammar = textMateGrammarAssetForLanguage(language)
             assertTrue(language, grammar != null)
