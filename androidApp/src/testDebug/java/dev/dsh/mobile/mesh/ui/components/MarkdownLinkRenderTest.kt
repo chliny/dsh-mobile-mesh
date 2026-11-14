@@ -1,28 +1,30 @@
 package dev.dsh.mobile.mesh.ui.components
 
-import androidx.activity.ComponentActivity
+import android.app.Application
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.click
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
-import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.dsh.mobile.mesh.ui.theme.DshTheme
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /** A real link gesture in rendered Markdown must reach the app's link router. */
-@RunWith(AndroidJUnit4::class)
-class MarkdownLinkTouchDeviceTest {
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class)
+class MarkdownLinkRenderTest {
     @get:Rule
-    val compose = createAndroidComposeRule<ComponentActivity>()
+    val compose = createComposeRule()
 
     @Test
     fun tappingRenderedLinkOpensUri() {

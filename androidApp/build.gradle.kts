@@ -56,7 +56,6 @@ android {
         ndk { abiFilters += dshAndroidAbis }
         versionCode = dshVersionCode
         versionName = dshVersionName
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         externalNativeBuild { cmake { arguments += "-DTSNET_LIB_DIR=${layout.buildDirectory.dir("generated/tsnet-jniLibs").get().asFile.absolutePath}" } }
     }
@@ -152,14 +151,16 @@ dependencies {
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("org.mockito:mockito-core:5.14.2")
     testImplementation(project(":mock-harness"))
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
-    androidTestImplementation(libs.androidx.test.runner)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 
 tasks.named("preBuild").configure { dependsOn(buildTsnetAndroid) }
 tasks.matching { it.name.startsWith("configureCMake") || it.name.startsWith("externalNativeBuild") }.configureEach { dependsOn(buildTsnetAndroid) }
+
+// Device-instrumented tests are forbidden by project policy: the deploy/uninstall steps of
+// connectedDebugAndroidTest can wipe a persistent test device's app data, and CI has no device.
+// JVM/Robolectric tests cover the observable behaviour instead.
+tasks.matching { it.name.startsWith("connected") && it.name.contains("AndroidTest") }.configureEach {
+    enabled = false
+}

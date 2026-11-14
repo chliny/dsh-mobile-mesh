@@ -1,5 +1,6 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -15,9 +16,11 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.swipeDown
-import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.core.app.ApplicationProvider
 import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.android.testing.HiltAndroidRule
+import dagger.hilt.android.testing.HiltAndroidTest
+import dagger.hilt.android.testing.HiltTestApplication
 import dev.dsh.mobile.mesh.core.wire.dto.ModelCatalogModel
 import dev.dsh.mobile.mesh.core.wire.dto.ModelProviderGroup
 import dev.dsh.mobile.mesh.core.wire.dto.ModelSelection
@@ -30,32 +33,40 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
-@RunWith(AndroidJUnit4::class)
+@HiltAndroidTest
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = HiltTestApplication::class)
 class ModelsSheetGestureTest {
-    @get:Rule
-    val compose = createComposeRule()
+    @get:Rule(order = 0) val hiltRule = HiltAndroidRule(this)
+    @get:Rule(order = 1) val compose = createComposeRule()
 
     @Test
     fun downwardDragScrollsListBeforeDismissingSheetAtTop() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        val context = ApplicationProvider.getApplicationContext<Context>()
         val store = EntryPointAccessors.fromApplication(context, SessionStoreEntryPoint::class.java).sessionStore()
         val models = SessionModelsValue(
             current = ModelSelection(provider = "provider", model = "model-0"),
             routable = true,
-            groups = listOf(ModelProviderGroup(
-                id = "provider",
-                name = "Provider",
-                models = (0 until 30).map { ModelCatalogModel(id = "model-$it", name = "Model $it") },
-            )),
+            groups = listOf(
+                ModelProviderGroup(
+                    id = "provider",
+                    name = "Provider",
+                    models = (0 until 30).map { ModelCatalogModel(id = "model-$it", name = "Model $it") },
+                ),
+            ),
         )
         var dismissed = false
         compose.setContent {
             var open by androidx.compose.runtime.remember { mutableStateOf(true) }
             DshTheme {
-                if (open) ModelsSheet(models, store) {
-                    dismissed = true
-                    open = false
+                if (open) {
+                    ModelsSheet(models, store) {
+                        dismissed = true
+                        open = false
+                    }
                 }
             }
         }

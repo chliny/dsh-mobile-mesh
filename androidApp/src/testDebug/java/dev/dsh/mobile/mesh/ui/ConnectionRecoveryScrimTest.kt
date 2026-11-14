@@ -1,5 +1,6 @@
 package dev.dsh.mobile.mesh.ui
 
+import android.app.Application
 import androidx.activity.OnBackPressedDispatcher
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
@@ -10,11 +11,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * Regression for the global recovery scrim's system-Back blocker.
@@ -23,10 +25,10 @@ import org.junit.runner.RunWith
  * or a session's transcript is long after the application root first composed. An always-present
  * root-level callback therefore loses the gesture to those pages (`OnBackPressedDispatcher`
  * dispatches the most recently added enabled callback first), and Back navigated behind the scrim.
- * This runs on the device because the behavior is the framework dispatcher's, not a pure function.
  */
-@RunWith(AndroidJUnit4::class)
-class ConnectionRecoveryScrimDeviceTest {
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class)
+class ConnectionRecoveryScrimTest {
     @get:Rule val compose = createComposeRule()
 
     private var scrimVisible by mutableStateOf(false)
