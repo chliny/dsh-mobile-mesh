@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.CallSplit
 import androidx.compose.material.icons.filled.ContentCopy
@@ -164,8 +163,6 @@ internal data class ChatNodeContext(
     val onFeedback: (Long, Boolean) -> Unit,
     val onActionFeedback: (String) -> Unit = {},
     val hasMore: Boolean = false,
-    /** Ignore prose taps that begin while the transcript is scrolling or being flung. */
-    val shouldSuppressMessageTap: () -> Boolean = { false },
 ) {
     /**
      * One disclosure row's open/closed flag.
@@ -500,6 +497,8 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
     val imageResolver: suspend (String) -> String? = remember(workspaceFiles, context.sessionId, context.cwd, connectionPhase.phase) {
         { source -> context.sessionId?.let { resolveMarkdownImage(source, context.cwd, workspaceFiles, it) } }
     }
+    // Relative image paths mean different bytes in different workspaces; keep their caches apart.
+    val imageCacheScope = remember(context.sessionId, context.cwd) { "${context.sessionId}:${context.cwd}" }
     val colors = DsTheme.colors
     val uriHandler = LocalUriHandler.current
     val onOpenLink: (String) -> Unit = { target -> openMarkdownLink(context, target, uriHandler::openUri) }
@@ -519,27 +518,13 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
     ) {
         node.blocks.forEachIndexed { index, block ->
             when (block.kind) {
-                "text" -> if (streaming) {
-                    // Reloading a Markdown WebView for every delta collapses its height while the
-                    // next document loads. Keep the entire live answer stable until it settles.
-                    SelectionContainer {
-                        Text(
-                            text = block.text.orEmpty(),
-                            modifier = Modifier.fillMaxWidth(),
-                            style = DsType.mdBody.copy(color = colors.labelPrimary),
-                        )
-                    }
-                } else {
-                    // Prose is rendered in a WebView, which consumes taps before the message's
-                    // `clickable` sees them; this keeps a tap on the text toggling the actions.
-                    MarkdownText(
-                        block.text.orEmpty(),
-                        imageResolver = imageResolver,
-                        onTap = { actionsVisible = !actionsVisible },
-                        shouldSuppressTap = context.shouldSuppressMessageTap,
-                        onOpenLink = onOpenLink,
-                    )
-                }
+                "text" -> MarkdownText(
+                    block.text.orEmpty(),
+                    imageResolver = imageResolver,
+                    imageCacheScope = imageCacheScope,
+                    streaming = streaming,
+                    onOpenLink = onOpenLink,
+                )
                 // A streaming assistant message keeps re-rendering its blocks, so a reasoning block that has been
                 // opened has to be able to stay open across those renders as well as across a trip
                 // away from the transcript.
@@ -554,7 +539,7 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
                         streaming = streaming,
                     )
                     AnimatedVisibility(visible = reasoning.expanded) {
-                        MarkdownText(block.text.orEmpty(), onOpenLink = onOpenLink)
+                        MarkdownText(block.text.orEmpty(), streaming = streaming, onOpenLink = onOpenLink)
                     }
                 }
                 // Tool calls arrive as their own nodes and render as cards; the inline block is a

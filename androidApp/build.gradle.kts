@@ -141,10 +141,8 @@ dependencies {
     }
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.work.runtime.ktx)
-    implementation(libs.commonmark)
-    implementation(libs.commonmark.ext.gfm.tables)
-    implementation(libs.commonmark.ext.gfm.strikethrough)
-    implementation(libs.commonmark.ext.task.list.items)
+    implementation(libs.markdown.renderer.m3)
+    implementation(libs.androidsvg)
     testImplementation(libs.junit)
     testDebugImplementation(platform(libs.androidx.compose.bom))
     testDebugImplementation(libs.androidx.compose.ui.test.junit4)

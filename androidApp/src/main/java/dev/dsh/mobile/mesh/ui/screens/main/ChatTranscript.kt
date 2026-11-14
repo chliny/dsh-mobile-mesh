@@ -408,7 +408,7 @@ internal fun ChatTranscript(
     )
 
     // Only explicit reader gestures change follow intent. Layout remeasurement (large changed-file
-    // lists, WebView text, keyboard resizing) must never initiate a programmatic scroll.
+    // lists, loading images, keyboard resizing) must never initiate a programmatic scroll.
     var followTail by remember(sessionId) {
         mutableStateOf(sessionId?.let(readingPositions::get)?.atBottom ?: true)
     }
@@ -485,8 +485,8 @@ internal fun ChatTranscript(
         // Rows can finish measuring after the transcript settled: a Markdown document that is not in
         // the render cache starts at a placeholder height, and growing a row pushes the last row
         // below the viewport without any reader gesture or data change. That is exactly what a
-        // finished answer does — its WebView replaces the streaming text and reports its real height
-        // a frame later. A restored tail re-checks every layout pass; a reader who is only following
+        // finished answer does — a Markdown image finishes loading and reports its real height a
+        // frame later. A restored tail re-checks every layout pass; a reader who is only following
         // the tail is corrected only while the same first row is still on screen, so a paging
         // re-anchor or any other programmatic scroll that moves the viewport is never fought.
         var tailFirstKey: Any? = null
@@ -789,12 +789,7 @@ internal fun ChatTranscript(
             items(rows, key = { it.key }) { row ->
                 when (row) {
                     is TranscriptRow.Node -> CompositionLocalProvider(LocalTranscriptContentExpanded provides onContentExpanded) {
-                        ChatNodeItem(
-                            node = row.node,
-                            context = context.copy(
-                                shouldSuppressMessageTap = { userDragging || listState.isScrollInProgress },
-                            ),
-                        )
+                        ChatNodeItem(node = row.node, context = context)
                     }
                     is TranscriptRow.Command -> CommandActivityRow(row.activity, context)
                     is TranscriptRow.Workflow -> WorkflowActivityRow(row.activity, context)

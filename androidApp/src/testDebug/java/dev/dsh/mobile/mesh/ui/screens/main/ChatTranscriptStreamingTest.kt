@@ -6,13 +6,14 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeUp
-import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
@@ -36,6 +37,9 @@ class ChatTranscriptStreamingTest {
     @get:Rule(order = 0) val hiltRule = HiltAndroidRule(this)
     @get:Rule(order = 1) val compose = createComposeRule()
 
+    private fun markdownVisible(fragment: String): Boolean =
+        compose.onAllNodesWithText(fragment, substring = true).fetchSemanticsNodes().isNotEmpty()
+
     @Test
     fun `a finished assistant message can still be forked from its action menu`() {
         val nodes = listOf(AssistantMessageNode(42, null, 1, 1, listOf(ChatBlock("text", "A finished assistant response"))))
@@ -56,13 +60,14 @@ class ChatTranscriptStreamingTest {
                 )
             }
         }
+        compose.waitUntil(timeoutMillis = 5_000) { markdownVisible("A finished assistant response") }
         compose.onNodeWithText("A finished assistant response").performClick()
         compose.onNodeWithContentDescription("Branch from here").performClick()
         compose.runOnIdle { assertEquals(42L, forkedFrom) }
     }
 
     @Test
-    fun `assistant revisions remain complete literal text while streaming`() {
+    fun `assistant revisions keep the whole streamed answer readable`() {
         val first = "# Streaming answer\n\n" + "A long paragraph with **bold text**. ".repeat(300)
         val second = first + "\n\n## Final section\n\nThe final streamed tail."
         val text = mutableStateOf(first)
@@ -86,24 +91,21 @@ class ChatTranscriptStreamingTest {
                 )
             }
         }
-        compose.onNodeWithText(first, substring = false).assertExists()
+        compose.waitUntil(timeoutMillis = 10_000) { markdownVisible("Streaming answer") }
+        assertTrue("the streamed paragraph stays complete", markdownVisible("A long paragraph with bold text."))
         compose.runOnIdle { text.value = second }
-        compose.onNodeWithText(second, substring = false).assertExists()
+        compose.waitUntil(timeoutMillis = 10_000) { markdownVisible("The final streamed tail.") }
     }
 
+    /** The finished answer grows from a short streaming placeholder into a tall table. */
     @Test
-    @Config(shadows = [ReadingMarkdownWebViewShadow::class])
-    fun `a finished answer that settles into a taller markdown view keeps the reader at the tail`() {
-        ReadingMarkdownWebViewShadow.pending.clear()
-        // The settled document is much taller than the streaming text it replaces.
-        ReadingMarkdownWebViewShadow.contentHeight = 5200
-        val text = "| Item | Value |\n| --- | --- |\n" +
-            (1..120).joinToString("\n") { "| Streaming row $it | Value $it |" }
-        val nodes = listOf(AssistantMessageNode(71, null, 1, 1, listOf(ChatBlock("text", text))))
+    fun `a finished answer that grows keeps the reader at the tail`() {
+        val text = mutableStateOf("Working")
         val running = mutableStateOf(true)
         val listState = LazyListState()
         val disclosures = DisclosureScope(TranscriptDisclosures(), "settled-tail")
         compose.setContent {
+            val nodes = listOf(AssistantMessageNode(71, null, 1, 1, listOf(ChatBlock("text", text.value))))
             Box(Modifier.height(520.dp)) {
                 ChatTranscript(
                     conversation = ConversationSnapshot("settled-tail", nodes = nodes, blank = false),
@@ -117,30 +119,26 @@ class ChatTranscriptStreamingTest {
                 )
             }
         }
-        compose.waitForIdle()
-
-        // A reader who once scrolled in this session is no longer restoring; the tail must still
-        // stay pinned when the finished answer replaces its text with a taller Markdown view.
-        compose.onRoot().performTouchInput { swipeDown() }
-        compose.waitForIdle()
-        repeat(8) {
+        compose.waitUntil(timeoutMillis = 10_000) { markdownVisible("Working") }
+        repeat(2) {
             compose.onRoot().performTouchInput { swipeUp() }
             compose.waitForIdle()
         }
         compose.runOnIdle { assertTrue("Reader must be at the tail", !listState.canScrollForward) }
 
-        compose.runOnIdle { running.value = false }
-        compose.waitUntil(timeoutMillis = 10_000) {
-            compose.waitForIdle(); ReadingMarkdownWebViewShadow.pending.isNotEmpty()
+        val table = "| Item | Value |\n| --- | --- |\n" +
+            (1..120).joinToString("\n") { "| Streaming row $it | Value $it |" }
+        compose.runOnIdle {
+            text.value = table
+            running.value = false
         }
-        compose.runOnIdle { ReadingMarkdownWebViewShadow.completeLayout() }
-        compose.waitUntil(timeoutMillis = 5_000) { compose.waitForIdle(); !listState.canScrollForward }
+        compose.waitUntil(timeoutMillis = 10_000) { markdownVisible("Streaming row 120") }
+        compose.waitUntil(timeoutMillis = 10_000) { !listState.canScrollForward }
         compose.runOnIdle {
             assertTrue(
                 "A finished answer that grows must keep the reader at the tail",
                 !listState.canScrollForward,
             )
         }
-        ReadingMarkdownWebViewShadow.contentHeight = 1800
     }
 }

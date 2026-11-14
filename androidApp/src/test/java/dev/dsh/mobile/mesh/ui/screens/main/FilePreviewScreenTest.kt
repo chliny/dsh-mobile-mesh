@@ -15,12 +15,11 @@ class FilePreviewScreenTest {
     }
 
     @Test
-    fun `CommonMark renders markdown and raw html images`() {
-        val markdownImage = dev.dsh.mobile.mesh.ui.components.renderCommonMarkFragment("![logo](assets/logo.svg)")
-        val htmlImage = dev.dsh.mobile.mesh.ui.components.renderCommonMarkFragment("<img src=\"assets/logo.svg\" alt=\"logo\">")
-
-        assertTrue(markdownImage.contains("<img src=\"assets/logo.svg\" alt=\"logo\""))
-        assertTrue(htmlImage.contains("<img src=\"assets/logo.svg\" alt=\"logo\">"))
+    fun `raw html images become markdown images and destination cleanup is preserved`() {
+        val converted = dev.dsh.mobile.mesh.ui.components.markdownHtmlAsMarkdown(
+            "<p>logo</p><img src=\"assets/logo.svg\" alt=\"logo\">",
+        )
+        assertEquals("logo\n\n![logo](assets/logo.svg)", converted.trim())
         assertEquals("assets/logo.svg", dev.dsh.mobile.mesh.ui.components.markdownImagePath("<assets/logo.svg>"))
         assertEquals("assets/logo.svg", dev.dsh.mobile.mesh.ui.components.markdownImagePath("assets/logo.svg?size=2#icon"))
         assertEquals(

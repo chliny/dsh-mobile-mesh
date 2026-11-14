@@ -173,6 +173,7 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
                                 preview.value.text,
                                 modifier = Modifier.fillMaxWidth(),
                                 imageResolver = imageResolver,
+                                imageCacheScope = "preview:$workspaceKey:$sessionId:$path",
                                 onOpenLink = { target ->
                                     resolveMarkdownFileTarget(path, target)?.let { linkedPath ->
                                         onOpenFile(linkedPath, linkedPath.substringAfterLast('/'), markdownFileLineTarget(target)?.line)
