@@ -110,6 +110,26 @@ class TextMateCodeHighlighterTest {
         assertEquals("textmate-shellscript.tmLanguage.json", textMateGrammarAssetForLanguage("plaintext"))
         assertEquals("textmate-powershell.tmLanguage.json", textMateGrammarAssetForLanguage("powershell"))
         assertEquals("textmate-scss.tmLanguage.json", textMateGrammarAssetForLanguage("scss"))
+        // Common Markdown fence aliases must resolve to the same grammar as their canonical name.
+        assertEquals("textmate-python.tmLanguage.json", textMateGrammarAssetForLanguage("python"))
+        assertEquals("JavaScript.tmLanguage.json", textMateGrammarAssetForLanguage("js"))
+        assertEquals("kotlin.tmLanguage.json", textMateGrammarAssetForLanguage("kt"))
+        assertEquals("textmate-ruby.tmLanguage.json", textMateGrammarAssetForLanguage("ruby"))
+        assertEquals("textmate-rust.tmLanguage.json", textMateGrammarAssetForLanguage("rust"))
+        assertEquals("textmate-shellscript.tmLanguage.json", textMateGrammarAssetForLanguage("console"))
+    }
+
+    @Test fun `Markdown fenced Python and JavaScript code gets syntax colors`() {
+        listOf(
+            "python" to "def greet(name):\n    return f\"hi {name}\"",
+            "js" to "const answer = 42; function greet(name) { return name; }",
+        ).forEach { (language, code) ->
+            val grammar = textMateGrammarAssetForLanguage(language)
+            assertTrue(language, grammar != null)
+            val rendered = highlightFencedCode(code, grammar!!, "textmate-light.json") { assets.resolve(it).inputStream() }
+            assertEquals(code, rendered.text)
+            assertTrue(language, rendered.spanStyles.isNotEmpty())
+        }
     }
 
     @Test fun `Markdown fenced Kotlin code gets syntax colors and oversized code stays plain`() {

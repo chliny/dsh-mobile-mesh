@@ -74,32 +74,45 @@ internal fun textMateGrammarAsset(path: String?): String? {
     }
 }
 
+/**
+ * Map a Markdown fence language (or file extension) to a bundled TextMate grammar.
+ *
+ * This table maps every accepted spelling to the extension [textMateGrammarAsset] recognizes.
+ * Keeping the canonical extension here matters: a fence tagged `python` must resolve to the
+ * `py` grammar, not to an asset named `code.python`, otherwise the block silently falls back to
+ * the limited keyword highlighter and loses most token colors.
+ */
+private val textMateGrammarExtensionByLanguage = mapOf(
+    // Plain text and shell-like output.
+    "text" to "sh", "plaintext" to "sh", "txt" to "sh", "console" to "sh", "shellsession" to "sh",
+    "shell" to "sh", "shellscript" to "sh", "bash" to "sh", "zsh" to "sh", "fish" to "sh", "sh" to "sh",
+    // JVM / JavaScript / TypeScript.
+    "kotlin" to "kt", "kts" to "kt", "kt" to "kt",
+    "javascript" to "js", "node" to "js", "js" to "js", "mjs" to "js", "cjs" to "js",
+    "typescript" to "ts", "ts" to "ts", "mts" to "ts", "cts" to "ts",
+    "tsx" to "tsx", "jsx" to "jsx", "java" to "java", "scala" to "scala", "groovy" to "groovy",
+    "gradle" to "gradle",
+    // Scripting and other common fence languages.
+    "python" to "py", "python3" to "py", "py" to "py", "pyw" to "py", "pyi" to "py",
+    "ruby" to "rb", "rb" to "rb", "rake" to "rb", "gemspec" to "rb",
+    "rust" to "rs", "rs" to "rs", "php" to "php", "phtml" to "php",
+    "lua" to "lua", "dart" to "dart", "swift" to "swift", "go" to "go",
+    "powershell" to "ps1", "ps1" to "ps1", "psm1" to "ps1", "psd1" to "ps1",
+    // C family.
+    "c" to "c", "h" to "c",
+    "cpp" to "cpp", "c++" to "cpp", "cc" to "cpp", "cxx" to "cpp", "hpp" to "cpp", "hh" to "cpp", "hxx" to "cpp",
+    "cs" to "cs", "c#" to "cs", "objc" to "m", "objective-c" to "m", "objectivec" to "m",
+    // Markup, data and build files.
+    "html" to "html", "htm" to "html", "xml" to "xml", "svg" to "xml", "css" to "css",
+    "scss" to "scss", "less" to "less", "json" to "json", "jsonc" to "jsonc", "json5" to "json5",
+    "yaml" to "yaml", "yml" to "yaml", "toml" to "toml", "ini" to "ini", "properties" to "ini",
+    "dockerfile" to "dockerfile", "make" to "make", "makefile" to "make", "mk" to "make",
+    "sql" to "sql", "r" to "r",
+)
+
 internal fun textMateGrammarAssetForLanguage(info: String?): String? {
     val language = info?.trim()?.substringBefore(' ')?.lowercase()?.removePrefix("language-")
-    val extension = when (language) {
-        // Treat explicitly plain-text fences like shell snippets so they still receive
-        // useful token colors instead of rendering as an unstyled block.
-        "text", "plaintext", "txt" -> "sh"
-        "kotlin" -> "kt"
-        "javascript", "node" -> "js"
-        "typescript" -> "ts"
-        "tsx", "jsx", "json", "jsonc", "json5", "html", "xml", "css", "scss", "less",
-        "java", "python", "ruby", "rust", "swift", "dart", "php", "sql", "go", "lua",
-        "scala", "groovy", "c", "cpp", "cs", "sh", "dockerfile", "ini", "make", "yaml", "yml", "toml" -> language
-        "bash", "powershell", "makefile" -> when (language) {
-            "bash" -> "sh"
-            "powershell" -> "ps1"
-            else -> "make"
-        }
-        "py" -> "py"
-        "rb" -> "rb"
-        "shell", "zsh" -> "sh"
-        "c++" -> "cpp"
-        "c#" -> "cs"
-        "objc", "objective-c" -> "m"
-        "ps1" -> "ps1"
-        else -> return null
-    }
+    val extension = textMateGrammarExtensionByLanguage[language] ?: return null
     return textMateGrammarAsset("code.$extension")
 }
 
