@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.compose.Markdown
 import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.MarkdownCodeBlock
@@ -30,8 +31,13 @@ import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
 import com.mikepenz.markdown.compose.elements.MarkdownTable
 import com.mikepenz.markdown.compose.elements.MarkdownTableHeader
 import com.mikepenz.markdown.compose.elements.MarkdownTableRow
+import com.mikepenz.markdown.compose.extendedspans.ExtendedSpans
+import com.mikepenz.markdown.compose.extendedspans.RoundedCornerSpanPainter
+import com.mikepenz.markdown.compose.extendedspans.RoundedCornerSpanPainter.TextPaddingValues
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
+import com.mikepenz.markdown.model.DefaultMarkdownExtendedSpans
+import com.mikepenz.markdown.model.MarkdownExtendedSpans
 import com.mikepenz.markdown.model.State
 import com.mikepenz.markdown.model.markdownAnnotator
 import com.mikepenz.markdown.utils.MARKDOWN_TAG_IMAGE_URL
@@ -104,6 +110,33 @@ private fun normalizeCjkStrongFragment(fragment: String): String =
             "${match.groupValues[3]}\u2060${match.groupValues[4]}"
         }
     }
+
+/**
+ * Inline code is rendered as `SpanStyle(background = …)` by the Markdown renderer. Compose paints
+ * span backgrounds in the text draw pass, which runs after the selection highlight, so a selected
+ * code chip stayed opaque while the prose around it turned blue. Drawing the same rectangles in a
+ * draw-behind layer keeps them below the highlight, so a selection covers them like any other text.
+ *
+ * The painter's padding and rounding are zeroed so the painted chip keeps exactly the geometry of
+ * the span background it replaces; anything larger would stick out past the selection rectangle.
+ */
+@Composable
+private fun inlineCodeChipExtendedSpans(): MarkdownExtendedSpans = remember {
+    DefaultMarkdownExtendedSpans(
+        extendedSpans = {
+            remember {
+                ExtendedSpans(
+                    RoundedCornerSpanPainter(
+                        cornerRadius = 0.sp,
+                        padding = TextPaddingValues(horizontal = 0.sp, vertical = 0.sp),
+                        topMargin = 0.sp,
+                        bottomMargin = 0.sp,
+                    ),
+                )
+            }
+        },
+    )
+}
 
 /**
  * Shared Markdown renderer for transcript content and workspace Markdown files.
@@ -235,6 +268,7 @@ fun MarkdownText(
     val parsedState = remember(content, streaming) {
         MarkdownStateCache.getOrParse(content, cacheable = !streaming)
     }
+    val inlineCodeSpans = inlineCodeChipExtendedSpans()
     androidx.compose.runtime.CompositionLocalProvider(LocalUriHandler provides linkHandler) {
         Markdown(
             state = parsedState,
@@ -251,6 +285,7 @@ fun MarkdownText(
             dimens = markdownDimens(tableCellPadding = 10.dp),
             imageTransformer = imageTransformer,
             annotator = imageAnnotator,
+            extendedSpans = inlineCodeSpans,
             components = components,
             loading = { loadingModifier ->
                 MarkdownPlainFallback(markdownLoadingPreviewText(content), colors, loadingModifier)
