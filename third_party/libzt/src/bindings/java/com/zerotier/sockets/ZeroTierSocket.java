@@ -28,11 +28,16 @@ public class ZeroTierSocket {
 
     // High 32 bits: unmodified libzt result. Low 32 bits: calling-thread socket errno, or 0
     // when unavailable/not applicable. The original ZeroTierNative JNI entry point is unchanged.
-    private static native long connectWithError(int fd, String address, int port, int timeoutMs);
+    private static native long connectWithError(int fd, String address, int port, int timeoutMs, long token);
 
     private static void connectChecked(int fd, String address, int port, int timeoutMs) throws IOException
     {
-        long outcome = connectWithError(fd, address, port, timeoutMs);
+        connectChecked(fd, address, port, timeoutMs, 0);
+    }
+
+    private static void connectChecked(int fd, String address, int port, int timeoutMs, long token) throws IOException
+    {
+        long outcome = connectWithError(fd, address, port, timeoutMs, token);
         int result = (int)(outcome >> 32);
         int socketErrno = (int)outcome;
         if (result < 0) {
@@ -47,17 +52,28 @@ public class ZeroTierSocket {
     }
 
     // File descriptor from lower native layer
-    private int _zfd = -1;
+    private volatile int _zfd = -1;
     private int _family = -1;
     private int _type = -1;
     private int _protocol = -1;
 
+    // State shared by close(), cancelConnect(), and connect() setup/teardown.
+    private final Object _connectStateLock = new Object();
+    private long _activeConnectToken = 0;
+    private boolean _closeRequested = false;
+    private int _closeRequestedFd = -1;
+
     // State flags
-    private boolean _isClosed = false;
-    private boolean _isConnected = false;
+    private volatile boolean _isClosed = false;
+    private volatile boolean _isConnected = false;
     private boolean _isBound = false;
     private boolean _inputHasBeenShutdown = false;
     private boolean _outputHasBeenShutdown = false;
+
+    // A socket whose owner no longer needs the connection is cancelled, never closed while the
+    // native connect may still be running. Attempt registration is serialized with this flag so a
+    // cancellation either prevents start or targets the exact token before the native call begins.
+    private volatile boolean _connectCancelled = false;
 
     // Input and Output streams
     private ZeroTierInputStream _inputStream = new ZeroTierInputStream();
@@ -154,9 +170,6 @@ public class ZeroTierSocket {
      */
     public void connect(InetAddress remoteAddr, int remotePort, int timeoutMs) throws IOException
     {
-        if (_zfd < 0) {
-            throw new IOException("Invalid socket (fd < 0)");
-        }
         if (timeoutMs < 0) {
             throw new IOException("Invalid connect timeout");
         }
@@ -166,8 +179,69 @@ public class ZeroTierSocket {
         if ((remoteAddr instanceof Inet6Address) && _family != ZeroTierNative.ZTS_AF_INET6) {
             throw new IOException("Invalid address type. Socket is of type AF_INET6");
         }
-        connectChecked(_zfd, remoteAddr.getHostAddress(), remotePort, timeoutMs);
-        _isConnected = true;
+
+        final int fd;
+        final long token;
+        synchronized (_connectStateLock) {
+            if (_zfd < 0 || _isClosed) {
+                throw new IOException("Invalid socket (fd < 0)");
+            }
+            if (_connectCancelled) {
+                throw cancelledException();
+            }
+            if (_activeConnectToken != 0) {
+                throw new IOException("A connect is already in progress");
+            }
+            fd = _zfd;
+            // Register before releasing the same lock used by cancelConnect(). A cancellation can
+            // therefore either prevent registration or target this exact token; it cannot fall
+            // between a Java flag check and native connect startup.
+            token = ZeroTierNative.zts_connect_begin(fd);
+            if (token == 0) throw new IOException("Unable to register native connect attempt");
+            _activeConnectToken = token;
+        }
+
+        try {
+            connectChecked(fd, remoteAddr.getHostAddress(), remotePort, timeoutMs, token);
+            synchronized (_connectStateLock) {
+                if (_isClosed) throw new IOException("Socket closed while connect was in flight");
+                if (_connectCancelled) throw cancelledException();
+                _isConnected = true;
+            }
+        } finally {
+            synchronized (_connectStateLock) {
+                ZeroTierNative.zts_connect_end(token);
+                if (_activeConnectToken == token) _activeConnectToken = 0;
+                if (_closeRequested) closeNativeLocked();
+            }
+        }
+    }
+
+    /**
+     * Ask this socket's connect to return early.
+     *
+     * Safe to call from any thread, including while {@link #connect} is blocked inside the native
+     * TCP handshake. Never closes the socket: the owner keeps ownership and closes it once the
+     * bounded connect returns. A cancelled socket must not be reused.
+     */
+    public void cancelConnect()
+    {
+        synchronized (_connectStateLock) {
+            _connectCancelled = true;
+            if (!_isClosed && _activeConnectToken != 0) {
+                ZeroTierNative.zts_connect_cancel(_activeConnectToken);
+            }
+        }
+    }
+
+    /** Report a pre-start cancellation exactly like a native one, so diagnostics stay uniform. */
+    private static IOException cancelledException()
+    {
+        // Linux errno ECANCELED. Reported through the same "libztResult/errno" shape that a real
+        // native cancellation produces, so callers can classify both the same way.
+        final int cancelled = 125;
+        return new IOException("Connect cancelled before native handshake (" + cancelled + ")" +
+            " libztResult=-1 errno=" + cancelled);
     }
 
     /**
@@ -285,11 +359,34 @@ public class ZeroTierSocket {
      */
     public void close() throws IOException
     {
-        if (_zfd < 0) {
-            throw new IOException("Invalid socket (fd < 0)");
+        synchronized (_connectStateLock) {
+            if (_isClosed) return;
+            if (_zfd < 0) throw new IOException("Invalid socket (fd < 0)");
+            _isClosed = true;
+            if (_activeConnectToken != 0) {
+                // Do not release/recycle the native fd while its connect still owns it. The
+                // connect's finally block closes it after the token is retired.
+                _closeRequested = true;
+                _closeRequestedFd = _zfd;
+                setNativeFileDescriptor(-1);
+                _connectCancelled = true;
+                ZeroTierNative.zts_connect_cancel(_activeConnectToken);
+                return;
+            }
+            closeNativeLocked();
         }
-        ZeroTierNative.zts_bsd_close(_zfd);
+    }
+
+    /** Caller holds _connectStateLock. */
+    private void closeNativeLocked()
+    {
+        final int fd = _closeRequestedFd >= 0 ? _closeRequestedFd : _zfd;
+        _closeRequested = false;
+        _closeRequestedFd = -1;
+        if (fd < 0) return;
+        setNativeFileDescriptor(-1);
         _isClosed = true;
+        ZeroTierNative.zts_bsd_close(fd);
     }
 
     /**

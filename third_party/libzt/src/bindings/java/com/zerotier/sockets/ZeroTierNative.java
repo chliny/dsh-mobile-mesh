@@ -470,6 +470,12 @@ public class ZeroTierNative {
     public static native int zts_moon_orbit(long moon_roots_id, long moon_seed);
     public static native int zts_moon_deorbit(long moon_roots_id);
     public static native int zts_connect(int fd, String ipstr, int port, int timeout_ms);
+    /** Register one cancellable attempt before calling ZeroTierSocket.connect. */
+    public static native long zts_connect_begin(int fd);
+    /** Cancel the exact registered attempt; tokens are not reused across native descriptors. */
+    public static native void zts_connect_cancel(long token);
+    /** Release the attempt token after the native connect call returns. */
+    public static native void zts_connect_end(long token);
     public static native int zts_bind(int fd, String ipstr, int port);
     // public static native int zts_accept(int fd, String remote_addr, int len, int* port);
     public static native int zts_set_no_delay(int fd, int enabled);

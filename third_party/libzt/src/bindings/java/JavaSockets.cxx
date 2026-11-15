@@ -865,7 +865,7 @@ JNIEXPORT jint JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1connect(
 // this separate JNI entry point to obtain both the libzt result and the calling thread's errno.
 // Packing them into one return avoids a global error slot and remains safe with concurrent dials.
 JNIEXPORT jlong JNICALL Java_com_zerotier_sockets_ZeroTierSocket_connectWithError(
-    JNIEnv* jenv, jclass clazz, jint fd, jstring ipstr, jint port, jint timeout_ms)
+    JNIEnv* jenv, jclass clazz, jint fd, jstring ipstr, jint port, jint timeout_ms, jlong token)
 {
     int retval = ZTS_ERR_ARG;
     int saved_errno = 0;
@@ -873,7 +873,9 @@ JNIEXPORT jlong JNICALL Java_com_zerotier_sockets_ZeroTierSocket_connectWithErro
         const char* utf_string = jenv->GetStringUTFChars(ipstr, NULL);
         if (utf_string) {
             errno = 0;
-            retval = zts_connect(fd, utf_string, port, timeout_ms);
+            retval = token == 0
+                ? zts_connect(fd, utf_string, port, timeout_ms)
+                : zts_connect_with_token(fd, utf_string, port, timeout_ms, static_cast<uint64_t>(token));
             // Only ZTS_ERR_SOCKET has an errno; other negative values are libzt API errors.
             // Capture before calling back into JNI, which may itself change errno.
             saved_errno = retval == ZTS_ERR_SOCKET ? errno : 0;
@@ -885,6 +887,25 @@ JNIEXPORT jlong JNICALL Java_com_zerotier_sockets_ZeroTierSocket_connectWithErro
     const uint64_t packed = (static_cast<uint64_t>(static_cast<uint32_t>(retval)) << 32)
         | static_cast<uint32_t>(saved_errno);
     return static_cast<jlong>(packed);
+}
+
+JNIEXPORT jlong JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1connect_1begin(
+    JNIEnv* jenv, jclass clazz, jint fd)
+{
+    return static_cast<jlong>(zts_connect_begin(fd));
+}
+
+// Cancellation is keyed by a unique attempt token, never by a descriptor that lwIP may reuse.
+JNIEXPORT void JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1connect_1cancel(
+    JNIEnv* jenv, jclass clazz, jlong token)
+{
+    zts_connect_cancel(static_cast<uint64_t>(token));
+}
+
+JNIEXPORT void JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1connect_1end(
+    JNIEnv* jenv, jclass clazz, jlong token)
+{
+    zts_connect_end(static_cast<uint64_t>(token));
 }
 
 JNIEXPORT jint JNICALL

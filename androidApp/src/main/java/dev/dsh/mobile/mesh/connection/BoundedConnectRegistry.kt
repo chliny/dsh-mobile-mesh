@@ -5,12 +5,15 @@ import java.io.Closeable
 /**
  * Tracks sockets while a blocking native connect is in flight.
  *
- * Closing the registry fences late completions but does not call close concurrently with native
- * connect. Callers must use a finite native connect timeout, then call [finish]; timed-out or
- * cancelled sockets are closed when that bounded call returns. A successful finish transfers
- * ownership to the caller.
+ * Closing the registry fences late completions and asks in-flight connects to return early via
+ * [cancelResource]; it never closes a socket concurrently with its own native connect, because
+ * closing one mid-handshake races the native TCP stack. Timed-out or cancelled sockets are closed
+ * when that bounded call returns. A successful finish transfers ownership to the caller.
  */
-internal class BoundedConnectRegistry<T>(private val closeResource: (T) -> Unit) : Closeable {
+internal class BoundedConnectRegistry<T>(
+    private val cancelResource: (T) -> Unit = {},
+    private val closeResource: (T) -> Unit,
+) : Closeable {
     private val lock = Any()
     private val connecting = linkedSetOf<T>()
     private var closed = false
@@ -37,9 +40,16 @@ internal class BoundedConnectRegistry<T>(private val closeResource: (T) -> Unit)
         return transferred
     }
 
-    /** In-flight resources close themselves when their bounded native connect returns. */
+    /**
+     * Retire this generation. In-flight resources stay open and are only asked to stop waiting;
+     * each one closes itself when its bounded native call returns.
+     */
     override fun close() {
-        synchronized(lock) { closed = true }
+        val inFlight = synchronized(lock) {
+            closed = true
+            connecting.toList()
+        }
+        inFlight.forEach { resource -> runCatching { cancelResource(resource) } }
     }
 
     private fun closeQuietly(resource: T) {

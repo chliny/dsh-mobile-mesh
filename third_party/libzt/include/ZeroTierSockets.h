@@ -20,6 +20,8 @@
 #ifndef ZTS_SOCKETS_H
 #define ZTS_SOCKETS_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -2436,6 +2438,38 @@ ZTS_API int ZTCALL zts_socket(int family, int type, int protocol);
  *     problem, `ZTS_ERR_ARG` if invalid argument. Sets `zts_errno`
  */
 ZTS_API int ZTCALL zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms);
+
+/**
+ * Register one cancellable connect attempt before entering the native connect call.
+ * The returned token identifies this attempt and is never reused while live. Pair it with
+ * zts_connect_with_token(), then call zts_connect_end() after that call returns.
+ *
+ * @param fd Socket file descriptor
+ * @return unique attempt token, or 0 if fd is invalid
+ */
+ZTS_API uint64_t ZTCALL zts_connect_begin(int fd);
+
+/**
+ * Perform a connect associated with a token returned by zts_connect_begin(). Cancellation that
+ * arrives after registration but before this call starts is preserved. When the explicit-timeout
+ * implementation is polling, cancellation returns ZTS_ERR_SOCKET with errno ECANCELED within one
+ * poll slice. A native stack call already in progress cannot be asynchronously interrupted.
+ * This function never closes the socket.
+ *
+ * @param fd Socket file descriptor
+ * @param ipstr Human-readable IP string
+ * @param port Port
+ * @param timeout_ms Same timeout semantics as zts_connect(); zero selects libzt's default retry budget
+ * @param token Token returned by zts_connect_begin() for this socket
+ */
+ZTS_API int ZTCALL zts_connect_with_token(
+    int fd, const char* ipstr, unsigned short port, int timeout_ms, uint64_t token);
+
+/** Ask the matching registered connect attempt to stop waiting. Does not close or identify by fd. */
+ZTS_API void ZTCALL zts_connect_cancel(uint64_t token);
+
+/** Release a connect token after its native call has returned. */
+ZTS_API void ZTCALL zts_connect_end(uint64_t token);
 
 /**
  * @brief Bind a socket to a local address

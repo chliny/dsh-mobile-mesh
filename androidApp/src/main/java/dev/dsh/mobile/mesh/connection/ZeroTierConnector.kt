@@ -387,7 +387,8 @@ class ZeroTierConnector @Inject constructor(
         val waitElapsedRealtimeStart = android.os.SystemClock.elapsedRealtime()
         val waitUptimeStart = android.os.SystemClock.uptimeMillis()
         // Native connect blocks, so dials run on the connector executor. The registry bounds each
-        // call and closes any socket that finishes after this readiness generation is retired.
+        // call, asks a retired generation's in-flight dial to stop waiting, and closes any socket
+        // that finishes after this readiness generation is retired.
         val maxConcurrentDials = BuildConfig.ZERO_TIER_MAX_CONCURRENT_DIALS
         val permits = RecoveryDialPermits(SECOND_DIAL_AFTER_MILLIS, maxConcurrentDials, nativeDialPermits)
         val waitId = nextDiagnosticWaitId.incrementAndGet()
@@ -407,7 +408,10 @@ class ZeroTierConnector @Inject constructor(
                 " staggerMs=$SECOND_DIAL_AFTER_MILLIS nativeInFlight=${permits.nativeInFlight} scope=readiness",
         )
         Log.d(TAG, "recovery dial policy maxConcurrent=$maxConcurrentDials secondAfterMs=$SECOND_DIAL_AFTER_MILLIS")
-        val pendingDials = BoundedConnectRegistry<ZeroTierSocket> { socket -> runCatching { socket.close() } }
+        val pendingDials = BoundedConnectRegistry<ZeroTierSocket>(
+            closeResource = { socket -> runCatching { socket.close() } },
+            cancelResource = { socket -> runCatching { socket.cancelConnect() } },
+        )
         val dialed = SingleClaim<DialedTarget> { (socket, _) -> runCatching { socket.close() } }
         var completedWait = false
         var waitResult = "error"
@@ -502,8 +506,9 @@ class ZeroTierConnector @Inject constructor(
             waitResult = "cancelled"
             throw cancelled
         } finally {
-            // Native probes have explicit budgets; closing the registry fences late dials, and a
-            // socket that finishes after cancellation is closed by the registry before publication.
+            // Native probes have explicit budgets; closing the registry cancels in-flight dials so
+            // a superseded wait does not hold a dial slot, and fences late ones: a socket that
+            // finishes after cancellation is closed by the registry before publication.
             gateFinished.set(true)
             if (!completedWait) dialed.claim()?.first?.let { runCatching { it.close() } }
             pendingDials.close()
@@ -955,7 +960,10 @@ private class ZeroTierRelay(
 ) : Closeable {
     private val server = ServerSocket(0, 32, InetAddress.getByName("127.0.0.1"))
     private val workers = ConcurrentHashMap.newKeySet<ZeroTierForwardWorker>()
-    private val connectingSockets = BoundedConnectRegistry<ZeroTierSocket> { socket -> runCatching { socket.close() } }
+    private val connectingSockets = BoundedConnectRegistry<ZeroTierSocket>(
+        closeResource = { socket -> runCatching { socket.close() } },
+        cancelResource = { socket -> runCatching { socket.cancelConnect() } },
+    )
     private val pending = SingleClaim<DialedTarget> { (socket, _) -> runCatching { socket.close() } }
         .apply { dialed?.let(::publish) }
     @Volatile private var targetConnectTimeoutMs = targetConnectTimeoutMs

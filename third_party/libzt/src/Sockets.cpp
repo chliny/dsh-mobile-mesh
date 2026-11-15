@@ -25,12 +25,64 @@
 #include "lwip/netdb.h"
 #include <chrono>
 #include <cerrno>
+#include <atomic>
+#include <mutex>
+#include <unordered_map>
 
 #if defined(__ANDROID__)
 #include <sys/endian.h>
 #endif
 
 int zts_errno;
+
+namespace {
+
+// A bounded connect waits in poll slices so a retirement/cancellation is observed promptly instead
+// of only when the timeout budget expires. Slices stay short enough to feel immediate, yet long
+// enough that idle polling costs nothing measurable.
+const int CONNECT_CANCEL_POLL_SLICE_MS = 100;
+
+/*
+ * Cooperative cancellation for one registered connect attempt. Tokens, not recyclable socket
+ * descriptors, identify attempts so a late cancellation can never affect a newer socket using the
+ * same lwIP slot.
+ */
+struct ConnectCancellationEntry {
+    int fd;
+    bool requested;
+};
+
+struct ConnectCancellation {
+    std::mutex mutex;
+    std::unordered_map<uint64_t, ConnectCancellationEntry> attempts;
+    std::atomic<uint64_t> nextToken{1};
+};
+
+ConnectCancellation& connectCancellation()
+{
+    static ConnectCancellation state;
+    return state;
+}
+
+bool connectCancellationMatches(uint64_t token, int fd, bool* requested = nullptr)
+{
+    if (token == 0) return false;
+    ConnectCancellation& state = connectCancellation();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    const auto entry = state.attempts.find(token);
+    if (entry == state.attempts.end() || entry->second.fd != fd) return false;
+    if (requested != nullptr) *requested = entry->second.requested;
+    return true;
+}
+
+bool connectCancellationRequested(uint64_t token, int fd)
+{
+    if (token == 0) return false;
+    bool requested = false;
+    return !connectCancellationMatches(token, fd, &requested) || requested;
+}
+
+} // namespace
 
 namespace ZeroTier {
 
@@ -400,13 +452,21 @@ int zts_socket(int family, int type, int protocol)
     return zts_bsd_socket(family, type, protocol);
 }
 
-int zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms)
+static int zts_connect_impl(int fd, const char* ipstr, unsigned short port, int timeout_ms, uint64_t token)
 {
     if (! transport_ok()) {
         return ZTS_ERR_SERVICE;
     }
     if (timeout_ms < 0) {
         return ZTS_ERR_ARG;
+    }
+    if (token != 0) {
+        bool cancelled = false;
+        if (! connectCancellationMatches(token, fd, &cancelled)) return ZTS_ERR_ARG;
+        if (cancelled) {
+            errno = ECANCELED;
+            return ZTS_ERR_SOCKET;
+        }
     }
     const bool explicit_timeout = timeout_ms > 0;
     if (timeout_ms == 0) {
@@ -447,18 +507,29 @@ int zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms)
             err = zts_bsd_connect(fd, sa, addrlen);
             if (err < 0 && (errno == EINPROGRESS || errno == EALREADY || errno == EWOULDBLOCK)) {
                 for (;;) {
+                    // Bail out before starting a poll that a retirement would have to wait out.
+                    if (connectCancellationRequested(token, fd)) {
+                        err = ZTS_ERR_SOCKET;
+                        errno = ECANCELED;
+                        break;
+                    }
                     const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
                         deadline - std::chrono::steady_clock::now()).count();
                     if (remaining <= 0) {
                         errno = ETIMEDOUT;
                         break;
                     }
+                    // Poll one slice at a time so cancellation is honoured promptly; when nothing
+                    // cancels, the loop keeps waiting until the same deadline as before.
+                    const int slice = remaining > CONNECT_CANCEL_POLL_SLICE_MS
+                        ? CONNECT_CANCEL_POLL_SLICE_MS
+                        : static_cast<int>(remaining);
                     struct zts_pollfd pollfd = { fd, ZTS_POLLOUT, 0 };
                     errno = 0;
-                    const int ready = zts_bsd_poll(&pollfd, 1, static_cast<int>(remaining));
+                    const int ready = zts_bsd_poll(&pollfd, 1, slice);
                     if (ready == 0) {
-                        errno = ETIMEDOUT;
-                        break;
+                        // This slice elapsed; the deadline check above decides the timeout.
+                        continue;
                     }
                     if (ready < 0) {
                         if (ready == ZTS_ERR_SOCKET && errno == EINTR) continue;
@@ -487,11 +558,12 @@ int zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms)
                 }
             }
             const int saved_errno = errno;
+            int restored = 0;
             if (restore_blocking) {
                 errno = 0;
-                const int restored = zts_bsd_fcntl(fd, ZTS_F_SETFL, original_flags);
-                if (restored < 0) return restored;
+                restored = zts_bsd_fcntl(fd, ZTS_F_SETFL, original_flags);
             }
+            if (restored < 0) return restored;
             errno = saved_errno;
             return err;
         }
@@ -500,12 +572,18 @@ int zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms)
         if (blocking < 0) return blocking;
         if (blocking) {
             do {
+                // A blocking handshake cannot be interrupted, but stop retrying once cancelled.
+                if (connectCancellationRequested(token, fd)) {
+                    err = ZTS_ERR_SOCKET;
+                    errno = ECANCELED;
+                    break;
+                }
                 errno = 0;
                 err = zts_bsd_connect(fd, sa, addrlen);
                 // A successful TCP handshake is already usable. Sleeping before returning adds
                 // 250ms to every connection, including foreground recovery's readiness dial.
                 if (err >= 0) {
-                    return err;
+                    break;
                 }
                 // errno is thread-local; the global zts_errno can be overwritten by another
                 // connection, and sleeping must not replace the failure we report to JNI.
@@ -519,6 +597,53 @@ int zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms)
         return err;
     }
     return ZTS_ERR_ARG;
+}
+
+uint64_t zts_connect_begin(int fd)
+{
+    if (fd < 0) {
+        errno = EBADF;
+        return 0;
+    }
+    ConnectCancellation& state = connectCancellation();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    uint64_t token = 0;
+    do {
+        token = state.nextToken.fetch_add(1, std::memory_order_relaxed);
+    } while (token == 0 || state.attempts.find(token) != state.attempts.end());
+    state.attempts.emplace(token, ConnectCancellationEntry{fd, false});
+    return token;
+}
+
+int zts_connect_with_token(int fd, const char* ipstr, unsigned short port, int timeout_ms, uint64_t token)
+{
+    if (token == 0 || ! connectCancellationMatches(token, fd)) {
+        errno = EINVAL;
+        return ZTS_ERR_ARG;
+    }
+    return zts_connect_impl(fd, ipstr, port, timeout_ms, token);
+}
+
+void zts_connect_cancel(uint64_t token)
+{
+    if (token == 0) return;
+    ConnectCancellation& state = connectCancellation();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    const auto entry = state.attempts.find(token);
+    if (entry != state.attempts.end()) entry->second.requested = true;
+}
+
+void zts_connect_end(uint64_t token)
+{
+    if (token == 0) return;
+    ConnectCancellation& state = connectCancellation();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    state.attempts.erase(token);
+}
+
+int zts_connect(int fd, const char* ipstr, unsigned short port, int timeout_ms)
+{
+    return zts_connect_impl(fd, ipstr, port, timeout_ms, 0);
 }
 
 int zts_bind(int fd, const char* ipstr, unsigned short port)
