@@ -321,7 +321,9 @@ fun ChatListDrawer(
             onBack = { schedulesOpen = false },
             onNewTask = {
                 schedulesOpen = false
-                scope.launch { store.createSession(); onClose() }
+                // Scheduling a task is an auxiliary blank session; a conversation draft typed
+                // from the session list belongs to that flow, not to this one.
+                scope.launch { store.createSession(ownsNewSessionDraft = false); onClose() }
             },
             onOpenSession = { sessionId ->
                 schedulesOpen = false

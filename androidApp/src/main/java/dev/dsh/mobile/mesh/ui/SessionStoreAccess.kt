@@ -9,6 +9,7 @@ import dev.dsh.mobile.mesh.data.ChatDraftStore
 import dev.dsh.mobile.mesh.data.SessionStore
 import dev.dsh.mobile.mesh.data.TerminalInventoryStore
 import dev.dsh.mobile.mesh.data.WorkspaceFilesStore
+import dev.dsh.mobile.mesh.ui.screens.main.NewSessionDraftStore
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -27,6 +28,7 @@ import dagger.hilt.components.SingletonComponent
 interface SessionStoreEntryPoint {
     fun sessionStore(): SessionStore
     fun chatDraftStore(): ChatDraftStore
+    fun newSessionDraftStore(): NewSessionDraftStore
     fun workspaceFilesStore(): WorkspaceFilesStore
     fun terminalInventoryStore(): TerminalInventoryStore
     fun hostsStore(): HostsStore
@@ -39,6 +41,20 @@ internal fun rememberChatDraftStore(): ChatDraftStore {
     val context = LocalContext.current.applicationContext
     return remember {
         EntryPointAccessors.fromApplication(context, SessionStoreEntryPoint::class.java).chatDraftStore()
+    }
+}
+
+/**
+ * Resolves the process-scoped new-session draft store once per composition.
+ *
+ * It outlives the chat surface: the session list removes that whole screen from composition, and
+ * the draft has to be waiting when "New session" opens the same workspace again.
+ */
+@Composable
+internal fun rememberNewSessionDraftStore(): NewSessionDraftStore {
+    val context = LocalContext.current.applicationContext
+    return remember {
+        EntryPointAccessors.fromApplication(context, SessionStoreEntryPoint::class.java).newSessionDraftStore()
     }
 }
 

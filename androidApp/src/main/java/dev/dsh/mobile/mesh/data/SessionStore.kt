@@ -188,6 +188,18 @@ data class SessionRow(
     val subagentTiming: SubagentTimingProjection? = null,
 )
 
+/**
+ * The Host workspace a brand-new (blank) session was created for.
+ *
+ * New-session composer drafts are scoped by this, never by the session id: the Host is free to
+ * answer `session/create` with a different reusable blank session, and a draft typed in one
+ * workspace must never appear in another.
+ */
+data class NewSessionDraftScope(
+    val hostId: String,
+    val workspaceId: String?,
+)
+
 /** One renderable workspace row. */
 data class WorkspaceRow(
     val workspaceId: String,
@@ -458,6 +470,16 @@ class SessionStore @Inject constructor(
 
     private val _currentSessionId = MutableStateFlow<String?>(null)
     val currentSessionId: StateFlow<String?> = _currentSessionId.asStateFlow()
+
+    /**
+     * Blank sessions created through this process and the workspace each belongs to.
+     *
+     * A draft is only restored into a session while its entry is still here; the entry is dropped
+     * as soon as the session starts a turn, because from then on it is an ordinary session and its
+     * per-session composer draft owns the text.
+     */
+    private val _newSessionDraftScopes = MutableStateFlow<Map<String, NewSessionDraftScope>>(emptyMap())
+    val newSessionDraftScopes: StateFlow<Map<String, NewSessionDraftScope>> = _newSessionDraftScopes.asStateFlow()
 
     private val _searchResults = MutableStateFlow<List<Pair<String, String>>>(emptyList())
     val searchResults: StateFlow<List<Pair<String, String>>> = _searchResults.asStateFlow()
@@ -919,6 +941,7 @@ class SessionStore @Inject constructor(
         jobFollowSessionId = null
         jobOutputBuffers.clear()
         _jobOutputById.value = emptyMap()
+        _newSessionDraftScopes.value = emptyMap()
         jobListUnsupportedGeneration = null
         jobListSupportedGeneration = null
         legacyJobRosters = emptyMap()
@@ -1997,6 +2020,9 @@ class SessionStore @Inject constructor(
             }
             emitSessionsLocked()
         }
+        if (!item.blank && _newSessionDraftScopes.value.containsKey(item.sessionId)) {
+            _newSessionDraftScopes.update { it - item.sessionId }
+        }
     }
 
     private fun onSessionRemoved(sessionId: String) {
@@ -2017,6 +2043,7 @@ class SessionStore @Inject constructor(
             pendingQuestionsBySession.update { it - sessionId }
             emitSessionsLocked()
         }
+        _newSessionDraftScopes.update { it - sessionId }
     }
 
     private fun setRunning(sessionId: String, running: Boolean) {
@@ -2060,6 +2087,12 @@ class SessionStore @Inject constructor(
             sessionRows[sessionId]?.let { if (it.blank != blank) sessionRows[sessionId] = it.copy(blank = blank) }
             if (sessionId == currentId) currentBlank = blank
             emitSessionsLocked()
+        }
+        // Once the first turn starts the session is no longer a new-session draft target: drop the
+        // scope so a later draft cannot be attached to it, and so the composer can clear the
+        // workspace draft as soon as it observes the scope disappear.
+        if (!blank && _newSessionDraftScopes.value.containsKey(sessionId)) {
+            _newSessionDraftScopes.update { it - sessionId }
         }
     }
 
@@ -3032,13 +3065,35 @@ class SessionStore @Inject constructor(
         historyPagePublication.value += 1
     }
 
-    suspend fun createSession(cwd: String? = null, workspaceId: String? = null) {
+    suspend fun createSession(
+        cwd: String? = null,
+        workspaceId: String? = null,
+        /**
+         * Whether this blank session owns a workspace new-session draft. Auxiliary entry points
+         * (scheduling a task) create a blank session too, but must not surface a draft the user
+         * typed while starting a conversation from the session list.
+         */
+        ownsNewSessionDraft: Boolean = true,
+    ) {
         // The Host decides whether a named blank session can be reused; never select one from
         // possibly stale workspace and session projections on this client.
         val api = apiOrNull() ?: return
         when (val r = api.sessionCreate(SessionCreateRequest(workspaceId = workspaceId, cwd = cwd))) {
             is RpcResult.Ok -> {
+                // Record what the session was created for before opening it: the first composition
+                // of the chat screen uses this to pick the workspace draft, even before the
+                // workspace projection has caught up with the new session id. Without a Host
+                // identity there is no safe scope, so the draft stays per-session (fail closed).
+                val hostId = connectionManager.state.value.host?.id ?: connectionHostId
                 val generation = connectionManager.generation
+                if (ownsNewSessionDraft && hostId != null) {
+                    val scope = NewSessionDraftScope(hostId = hostId, workspaceId = workspaceId)
+                    _newSessionDraftScopes.update { current ->
+                        // A newer blank session for the same workspace supersedes any older
+                        // mapping; the draft itself stays in the UI store, keyed by scope.
+                        current.filterValues { it != scope } + (r.value.sessionId to scope)
+                    }
+                }
                 if (generation != null) triggerBaseline(
                     generation.clientId,
                     force = true,

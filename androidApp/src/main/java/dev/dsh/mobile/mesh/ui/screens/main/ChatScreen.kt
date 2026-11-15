@@ -63,6 +63,7 @@ import dev.dsh.mobile.mesh.ui.components.planReviewOf
 import dev.dsh.mobile.mesh.ui.components.QuestionsPanel
 import dev.dsh.mobile.mesh.ui.components.rememberDsToast
 import dev.dsh.mobile.mesh.ui.rememberChatDraftStore
+import dev.dsh.mobile.mesh.ui.rememberNewSessionDraftStore
 import dev.dsh.mobile.mesh.ui.rememberSessionStore
 import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
@@ -109,6 +110,7 @@ internal fun ChatScreen(
 ) {
     val store = rememberSessionStore()
     val draftStore = rememberChatDraftStore()
+    val newSessionDraftStore = rememberNewSessionDraftStore()
     val scope = rememberCoroutineScope()
     val colors = DsTheme.colors
     val context = LocalContext.current
@@ -119,6 +121,7 @@ internal fun ChatScreen(
 
     val conversation by store.currentConversation.collectAsStateWithLifecycle()
     val currentSessionId by store.currentSessionId.collectAsStateWithLifecycle()
+    val newSessionDraftScopes by store.newSessionDraftScopes.collectAsStateWithLifecycle()
     val sessions by store.sessions.collectAsStateWithLifecycle()
     val models by store.models.collectAsStateWithLifecycle()
     val skills by store.skills.collectAsStateWithLifecycle()
@@ -157,21 +160,98 @@ internal fun ChatScreen(
         ?: currentSession?.cwd?.let { basename(it) }
         ?: currentSessionId.orEmpty()
 
-    var draft by remember(currentSessionId) { mutableStateOf(currentSessionId?.let(draftStore::get).orEmpty()) }
+    // New sessions are drafted per workspace, not per session id: the Host may hand back another
+    // reusable blank session, and the session list removes this screen from composition entirely.
+    // The scope is frozen at first composition; only the projection reporting that the session
+    // already has a transcript retires the workspace draft. Merely losing the Host-side mapping
+    // (a blank session being replaced or the connection being prepared) must not discard it.
+    val sessionStarted =
+        currentSession?.blank == false || visibleConversation?.blank == false
+    val initialNewSessionScope = remember(currentSessionId) {
+        if (sessionStarted) null else currentSessionId?.let { newSessionDraftScopes[it] }
+    }
+    val activeNewSessionScope = initialNewSessionScope?.takeIf { !sessionStarted }
+    val restoredNewSessionDraft = remember(currentSessionId) {
+        initialNewSessionScope?.let(newSessionDraftStore::get)
+    }
+
+    var draft by remember(currentSessionId) {
+        mutableStateOf(
+            if (initialNewSessionScope != null) {
+                // The workspace draft is authoritative for a new session. Falling back to the
+                // per-session store here would re-introduce a draft when the Host reuses a blank
+                // session id that was once used for a different workspace.
+                restoredNewSessionDraft?.text.orEmpty()
+            } else {
+                currentSessionId?.let(draftStore::get).orEmpty()
+            },
+        )
+    }
     var mode by rememberSaveable(currentSessionId) { mutableStateOf("queue") }
     var tab by rememberSaveable { mutableStateOf(ChatTab.Chat) }
     val attachmentsBySession = remember { mutableStateMapOf<String, List<PendingAttachment>>() }
+    // A restored file chip can only cite a receipt minted in its own blank session. When the Host
+    // answers with a different one, Ready no longer means anything: upload the same content URI
+    // again before letting a send through.
+    val reuploadFileIds = remember(currentSessionId) {
+        if (restoredNewSessionDraft == null) emptySet()
+        else restoredNewSessionDraft.attachments
+            .filterIsInstance<PendingAttachment.File>()
+            .filter { file ->
+                file.state !is FileUploadState.Ready ||
+                    restoredNewSessionDraft.sessionId != currentSessionId
+            }
+            .mapTo(HashSet()) { it.id }
+    }
     val attachments = remember(currentSessionId) {
         mutableStateListOf<PendingAttachment>().apply {
-            currentSessionId?.let { addAll(attachmentsBySession[it].orEmpty()) }
+            if (initialNewSessionScope == null) {
+                currentSessionId?.let { addAll(attachmentsBySession[it].orEmpty()) }
+            } else {
+                restoredNewSessionDraft?.attachments.orEmpty().forEach { attachment ->
+                    add(
+                        if (attachment is PendingAttachment.File && attachment.id in reuploadFileIds) {
+                            attachment.copy(state = FileUploadState.Uploading(0))
+                        } else {
+                            attachment
+                        },
+                    )
+                }
+            }
         }
     }
-    LaunchedEffect(currentSessionId, attachments) {
-        val sessionId = currentSessionId ?: return@LaunchedEffect
-        snapshotFlow { attachments.toList() }.collect { pending ->
+
+    /**
+     * Mirror the composer into the right draft bucket.
+     *
+     * [activeNewSessionScope] is the workspace draft while the session is still blank; once the
+     * first turn starts it becomes null and the ordinary per-session stores take over without
+     * re-reading them, so text typed while the first message was in flight is not dropped.
+     */
+    fun persistComposerState(text: String, pending: List<PendingAttachment>) {
+        val sessionId = currentSessionId ?: return
+        val scope = activeNewSessionScope
+        if (scope != null) {
+            newSessionDraftStore.set(scope, NewSessionDraft(text, pending, sessionId))
+        } else {
+            // Never mirror a blank session into the session-keyed store: a Host that later reuses
+            // that id for another workspace would otherwise find the old draft waiting there.
+            draftStore.set(sessionId, text)
             if (pending.isEmpty()) attachmentsBySession.remove(sessionId)
             else attachmentsBySession[sessionId] = pending
         }
+    }
+    LaunchedEffect(currentSessionId, activeNewSessionScope, attachments) {
+        if (currentSessionId == null) return@LaunchedEffect
+        snapshotFlow { draft to attachments.toList() }.collect { (text, pending) ->
+            persistComposerState(text, pending)
+        }
+    }
+    // Retire the workspace draft once the first turn made this an ordinary session. The switch to
+    // the per-session stores happens in the collector above; this only removes the workspace copy.
+    LaunchedEffect(currentSessionId, initialNewSessionScope, sessionStarted) {
+        val scope = initialNewSessionScope ?: return@LaunchedEffect
+        if (sessionStarted) newSessionDraftStore.clear(scope)
     }
 
     var sheet by remember { mutableStateOf<ChatSheet?>(null) }
@@ -320,6 +400,17 @@ internal fun ChatScreen(
                 }
             }
         }
+    }
+
+    // A draft restored into a different blank session still holds the picked documents. Re-stage
+    // them in the session that is actually open now; until then their chips stay uploading and the
+    // composer refuses to send a receipt this session never minted.
+    LaunchedEffect(currentSessionId) {
+        if (reuploadFileIds.isEmpty()) return@LaunchedEffect
+        attachments
+            .filterIsInstance<PendingAttachment.File>()
+            .filter { it.id in reuploadFileIds }
+            .forEach { startUpload(it) }
     }
 
     var documentPickerLease by remember { mutableStateOf<AutoCloseable?>(null) }
@@ -695,7 +786,7 @@ internal fun ChatScreen(
                 draft = draft,
                 onDraftChange = {
                     draft = it
-                    currentSessionId?.let { sessionId -> draftStore.set(sessionId, it) }
+                    persistComposerState(it, attachments.toList())
                 },
                 attachments = attachments,
                 onRemoveAttachment = { index -> attachments.removeAt(index) },
