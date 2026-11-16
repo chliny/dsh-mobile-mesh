@@ -1,5 +1,6 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,11 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -169,6 +175,9 @@ internal fun ScheduleScreen(onBack: () -> Unit, onNewTask: () -> Unit, onOpenSes
     var clearBusy by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
     val selected = records?.firstOrNull { it.id == selectedId }
+    BackHandler(enabled = creating || selectedId != null) {
+        if (creating) creating = false else selectedId = null
+    }
     val unavailableText = stringResource(R.string.schedule_unavailable)
     val offlineText = stringResource(R.string.schedule_offline)
     val unsupportedText = stringResource(R.string.schedule_newapi_unsupported)
@@ -249,6 +258,7 @@ internal fun ScheduleScreen(onBack: () -> Unit, onNewTask: () -> Unit, onOpenSes
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ScheduleTargetPicker(
     generationId: String?, kind: String, sessionId: String?,
@@ -269,11 +279,30 @@ private fun ScheduleTargetPicker(
             })
         }
         if (kind == "session") {
-            Text(stringResource(R.string.schedule_newapi_select_session))
-            if (generationId != null && baseline == generationId) {
-                sessions.forEach { row ->
-                    FilterChip(selected = row.sessionId == sessionId, onClick = { onSessionChange(row.sessionId) },
-                        label = { Text(row.title?.takeIf { it.isNotBlank() } ?: row.sessionId) })
+            var expanded by remember { mutableStateOf(false) }
+            var query by remember { mutableStateOf("") }
+            val availableSessions = if (generationId != null && baseline == generationId) sessions else emptyList()
+            val selectedSession = availableSessions.firstOrNull { it.sessionId == sessionId }
+            ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                OutlinedTextField(
+                    value = if (expanded) query else selectedSession?.let { it.title?.takeIf(String::isNotBlank) ?: it.sessionId }.orEmpty(),
+                    onValueChange = { query = it; expanded = true },
+                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryEditable, enabled = true),
+                    label = { Text(stringResource(R.string.schedule_newapi_select_session)) },
+                    placeholder = { Text(stringResource(R.string.chatlist_search_hint)) },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    singleLine = true,
+                )
+                ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    availableSessions.filter { row ->
+                        val label = row.title?.takeIf(String::isNotBlank) ?: row.sessionId
+                        query.isBlank() || label.contains(query, ignoreCase = true) || row.sessionId.contains(query, ignoreCase = true)
+                    }.forEach { row ->
+                        DropdownMenuItem(
+                            text = { Text(row.title?.takeIf(String::isNotBlank) ?: row.sessionId) },
+                            onClick = { onSessionChange(row.sessionId); query = ""; expanded = false },
+                        )
+                    }
                 }
             }
         }
