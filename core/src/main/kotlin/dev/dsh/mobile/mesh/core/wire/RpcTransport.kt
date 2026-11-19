@@ -232,18 +232,42 @@ class OkHttpRpcTransport(
         .writeTimeout(writeTimeoutMs, TimeUnit.MILLISECONDS)
         .build()
 
+    /** Package lookups and mutations can run pnpm repeatedly; ordinary RPCs keep their short deadline. */
+    private val pluginOperationClient: OkHttpClient by lazy {
+        httpClient.newBuilder().readTimeout(10, TimeUnit.MINUTES).build()
+    }
+
     override suspend fun post(path: String, body: String): RpcHttpResponse =
         suspendCancellableCoroutine { continuation ->
             val target = base.resolve(path)
                 ?: throw RpcTransportException(0, "cannot resolve $path against $base")
+            val jsonBody = body.toRequestBody(JSON_MEDIA_TYPE)
+            // A plugin request ID correlates outcomes; it does not deduplicate mutations.
+            val requestBody = if (path.startsWith("/api/pluginManager/") || path == "/api/settings/mutate") {
+                object : RequestBody() {
+                    override fun contentType() = jsonBody.contentType()
+                    override fun contentLength() = jsonBody.contentLength()
+                    override fun isOneShot() = true
+                    override fun writeTo(sink: BufferedSink) = jsonBody.writeTo(sink)
+                }
+            } else jsonBody
             val request = Request.Builder()
                 .url(target)
                 .header("Host", hostHeader)
                 .header("Content-Type", "application/json")
                 .cookied(cookie)
-                .post(body.toRequestBody(JSON_MEDIA_TYPE))
+                .post(requestBody)
                 .build()
-            val call = httpClient.newCall(request)
+            val operation = path in setOf(
+                "/api/pluginManager/inspect",
+                "/api/pluginManager/listVersions",
+                "/api/pluginManager/installBundle",
+                "/api/pluginManager/waitForInstall",
+                "/api/pluginManager/cancelInstall",
+                "/api/pluginManager/updateBundle",
+                "/api/pluginManager/removeBundle",
+            )
+            val call = (if (operation) pluginOperationClient else httpClient).newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
@@ -255,31 +279,29 @@ class OkHttpRpcTransport(
                 }
 
                 override fun onResponse(call: Call, response: Response) {
-                    response.use { resp ->
-                        if (!resp.isSuccessful) {
-                            continuation.resumeWithException(
-                                RpcTransportException(resp.code, carrierMessage(resp.code)),
-                            )
-                            return
-                        }
-                        val contentType = resp.header("Content-Type")
-                        val multipart = contentType
-                            ?.substringBefore(';')
-                            ?.trim()
-                            ?.equals("multipart/form-data", ignoreCase = true) == true
-                        if (multipart) {
-                            val parsed = parseMultipartRpcResponse(contentType, resp.body?.bytes() ?: ByteArray(0))
-                            if (parsed == null) {
-                                continuation.resumeWithException(
-                                    RpcTransportException(resp.code, "malformed multipart Remote response"),
-                                )
+                    // OkHttp does not call onFailure again if the body fails after headers arrive.
+                    val reply = try {
+                        response.use { resp ->
+                            if (!resp.isSuccessful) throw RpcTransportException(resp.code, carrierMessage(resp.code))
+                            val contentType = resp.header("Content-Type")
+                            val multipart = contentType?.substringBefore(';')?.trim()
+                                ?.equals("multipart/form-data", ignoreCase = true) == true
+                            if (multipart) {
+                                val parsed = parseMultipartRpcResponse(contentType, resp.body?.bytes() ?: ByteArray(0))
+                                    ?: throw RpcTransportException(resp.code, "malformed multipart Remote response")
+                                RpcHttpResponse(resp.code, parsed.metadata, parsed.parts)
                             } else {
-                                continuation.resume(RpcHttpResponse(resp.code, parsed.metadata, parsed.parts))
+                                RpcHttpResponse(resp.code, resp.body?.string().orEmpty())
                             }
-                        } else {
-                            continuation.resume(RpcHttpResponse(resp.code, resp.body?.string().orEmpty()))
                         }
+                    } catch (e: RpcTransportException) {
+                        continuation.resumeWithException(e)
+                        return
+                    } catch (e: IOException) {
+                        onFailure(call, e)
+                        return
                     }
+                    continuation.resume(reply)
                 }
             })
         }

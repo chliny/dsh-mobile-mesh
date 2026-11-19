@@ -50,13 +50,14 @@ class PluginInventoryDecodeTest {
     fun `a full row decodes`() = runTest {
         val snapshot = listOrFail(
             """{"entries":[{"entryId":"e1","moduleName":"@deepseek-ai/dsh-client-ui-plan",""" +
-                """"enabled":true,"fiberPhase":"active"}]}""",
+                """"enabled":true,"fiberPhase":"active"}],"managementAvailable":true}""",
         )
         val entry = snapshot.entries.single()
         assertEquals("e1", entry.entryId)
         assertEquals("@deepseek-ai/dsh-client-ui-plan", entry.moduleName)
         assertTrue(entry.enabled)
         assertEquals(PluginFiberPhase.ACTIVE, entry.fiberPhase)
+        assertTrue(snapshot.managementAvailable)
     }
 
     /** A disabled row never mounts, so the host sends no phase at all. */
@@ -64,6 +65,7 @@ class PluginInventoryDecodeTest {
     fun `an absent phase decodes as null rather than failing`() = runTest {
         val snapshot = listOrFail("""{"entries":[{"entryId":"e1","moduleName":"m","enabled":false}]}""")
         assertNull(snapshot.entries.single().fiberPhase)
+        assertEquals(false, snapshot.managementAvailable)
     }
 
     @Test

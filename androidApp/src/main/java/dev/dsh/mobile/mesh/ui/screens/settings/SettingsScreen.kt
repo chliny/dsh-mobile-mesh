@@ -191,7 +191,8 @@ fun SettingsScreen(
         }
     }
     var pluginsOpen by remember { mutableStateOf(false) }
-    BackHandler(onBack = onClose)
+    var pluginManagerOpen by remember { mutableStateOf(false) }
+    BackHandler { if (pluginManagerOpen) pluginManagerOpen = false else onClose() }
 
     // Fetched on open rather than kept live: the inventory only changes when the harness is
     // restarted with a different composition, and nothing pushes that over the wire.
@@ -312,10 +313,12 @@ fun SettingsScreen(
                     )
                 }
 
-                // Its own card rather than an addition to the harness one above: that card's
-                // read-only banner is scoped to the facts it shows, and plugins are a different
-                // subject that happens to also be read-only.
-                plugins?.let { PluginsCard(it) { pluginsOpen = true } }
+                // Plugin management is its own page; the harness facts above remain read-only.
+                plugins?.let { inventory ->
+                    PluginsCard(inventory) {
+                        if (inventory.managementAvailable) pluginManagerOpen = true else pluginsOpen = true
+                    }
+                }
 
                 SettingsCard(stringResource(R.string.settings_debug)) {
                     ToggleRow(
@@ -371,9 +374,10 @@ fun SettingsScreen(
         }
     }
 
-    plugins?.takeIf { pluginsOpen }?.let {
-        PluginsSheet(inventory = it, onDismiss = { pluginsOpen = false })
+    plugins?.takeIf { pluginsOpen }?.let { inventory ->
+        PluginsSheet(inventory = inventory, onDismiss = { pluginsOpen = false })
     }
+    if (pluginManagerOpen) PluginManagerScreen(onClose = { pluginManagerOpen = false })
 
     pendingImport?.let { payload ->
         AlertDialog(
@@ -610,16 +614,14 @@ private fun SettingsCard(title: String, content: @Composable () -> Unit) {
  * that buries everything below it and gives the list no room of its own; the count is the part
  * worth seeing without asking, so the card carries that and the rest lives in [PluginsSheet].
  *
- * Read-only, because that is all the harness offers a client: `pluginInventory/list` has no
- * counterpart that changes anything, and the `settings.*` calls behind the web UI's configurable
- * plugin cards are loopback-pinned and answer 403 over the network. Enabling or disabling one means
- * editing `cordis.patch.yml` on the harness computer.
+ * The inventory itself is read-only. When the Host has a managed profile, its Web plugin manager
+ * provides the authoritative actions and dynamically registered configuration screens.
  */
 @Composable
 private fun PluginsCard(inventory: PluginInventorySnapshot, onOpen: () -> Unit) {
     val colors = DsTheme.colors
     SettingsCard(stringResource(R.string.settings_plugins)) {
-        if (inventory.entries.isEmpty()) {
+        if (inventory.entries.isEmpty() && !inventory.managementAvailable) {
             Text(
                 stringResource(R.string.plugins_empty),
                 style = DsType.caption11,

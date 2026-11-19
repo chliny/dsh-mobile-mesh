@@ -32,6 +32,8 @@ data class SettingsNamespaceView(
     @SerialName("applies") val applies: String,
     @SerialName("secrets") val secrets: List<SettingsSecretView> = emptyList(),
     @SerialName("revision") val revision: Long,
+    /** Whether Web generates a generic page when no custom page is registered. */
+    @SerialName("autoGenerate") val autoGenerate: Boolean = false,
 )
 
 /** Value of `settings.describe`. */

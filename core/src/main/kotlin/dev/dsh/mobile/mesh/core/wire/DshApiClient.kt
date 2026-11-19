@@ -22,6 +22,16 @@ import dev.dsh.mobile.mesh.core.wire.dto.ModelCatalog
 import dev.dsh.mobile.mesh.core.wire.dto.ModsBandSnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.PluginInventoryEntry
 import dev.dsh.mobile.mesh.core.wire.dto.PluginInventorySnapshot
+import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerBundleInfo
+import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerPluginInfo
+import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerChangeResult
+import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerInstallOptions
+import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerInstallCancellation
+import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerRegistries
+import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerSpecInspection
+import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerVersionList
+import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerUpdateResult
+import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerVersionExemptions
 import dev.dsh.mobile.mesh.core.wire.dto.REMOTE_EVENT_RESULT_ENDPOINT
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventOutcome
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventResult
@@ -116,6 +126,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -913,7 +924,7 @@ class DshApiClient(
     suspend fun settingsMutate(
         ns: String,
         ops: List<SettingsPathOpView>,
-        expectedRevision: Int? = null,
+        expectedRevision: Long? = null,
     ): RpcResult<SettingsNamespaceView> =
         call(
             "settings/mutate",
@@ -1161,11 +1172,134 @@ class DshApiClient(
                                 decodeFromJsonElement(PluginInventoryEntry.serializer(), row)
                             }.getOrNull()
                         },
+                        managementAvailable = ((result.value as? JsonObject)?.get("managementAvailable")
+                            as? JsonPrimitive)?.booleanOrNull == true,
                     ),
                 )
             }
             is RpcResult.Err -> result
         }
+
+    /** Host-authoritative managed profile; the same RPCs serve every connection transport. */
+    suspend fun listPluginManagerBundles(): RpcResult<List<PluginManagerBundleInfo>> =
+        callEmpty("pluginManager/listBundles")
+
+    suspend fun listPluginManagerPlugins(): RpcResult<List<PluginManagerPluginInfo>> =
+        callEmpty("pluginManager/listPlugins")
+
+    suspend fun setPluginManagerBundleEnabled(name: String, enabled: Boolean): RpcResult<PluginManagerChangeResult> =
+        call("pluginManager/setBundleEnabled", args {
+            put("name", JsonPrimitive(name))
+            put("enabled", JsonPrimitive(enabled))
+        })
+
+    /** id is the entryId from listPlugins, not its patchId. */
+    suspend fun setPluginManagerPluginEnabled(entryId: String, enabled: Boolean): RpcResult<PluginManagerChangeResult> =
+        call("pluginManager/setPluginEnabled", args {
+            put("id", JsonPrimitive(entryId))
+            put("enabled", JsonPrimitive(enabled))
+        })
+
+    /** Read the Host's configured/fallback registries and pnpm's resolved registry without guessing locally. */
+    suspend fun pluginManagerRegistries(): RpcResult<PluginManagerRegistries> =
+        callEmpty("pluginManager/registries")
+
+    /** Registry is absent by default; usePnpmRegistry sends explicit JSON null instead. */
+    private fun pluginManagerRegistryOptions(registry: String?, usePnpmRegistry: Boolean): JsonObject =
+        buildJsonObject {
+            if (usePnpmRegistry) put("registry", JsonNull)
+            else if (registry != null) put("registry", JsonPrimitive(registry))
+        }
+
+    /** Inspect a spec through the Host before requesting installation; inspection is not approval. */
+    suspend fun inspectPluginManagerBundle(
+        spec: String,
+        registry: String? = null,
+        usePnpmRegistry: Boolean = false,
+    ): RpcResult<PluginManagerSpecInspection> = call("pluginManager/inspect", args {
+        put("spec", JsonPrimitive(spec))
+        val options = pluginManagerRegistryOptions(registry, usePnpmRegistry)
+        if (options.isNotEmpty()) put("options", options)
+    })
+
+    /**
+     * Host-authoritative installation; the call returns its final ChangeResult, not a pending id.
+     * A caller-provided requestId allows concurrent cancellation and lost-reply recovery. The
+     * caller must never populate approvedBuilds without explicit approval of Host pendingBuilds.
+     */
+    suspend fun installPluginManagerBundle(
+        spec: String,
+        options: PluginManagerInstallOptions = PluginManagerInstallOptions(),
+    ): RpcResult<PluginManagerChangeResult> = call("pluginManager/installBundle", args {
+        put("spec", JsonPrimitive(spec))
+        val wireOptions = buildJsonObject {
+            if (options.enabled != null) put("enabled", JsonPrimitive(options.enabled))
+            if (options.saveExact != null) put("saveExact", JsonPrimitive(options.saveExact))
+            if (options.requestId != null) put("requestId", JsonPrimitive(options.requestId))
+            if (options.approvedBuilds != null) put(
+                "approvedBuilds",
+                encodeToJsonElement(ListSerializer(String.serializer()), options.approvedBuilds),
+            )
+            if (options.usePnpmRegistry) put("registry", JsonNull)
+            else if (options.registry != null) put("registry", JsonPrimitive(options.registry))
+        }
+        if (wireOptions.isNotEmpty()) put("options", wireOptions)
+    })
+
+    /** Recover a settled installation after a lost reply; null means the Host knows no result for this id. */
+    suspend fun waitForPluginManagerInstall(requestId: String): RpcResult<PluginManagerChangeResult?> =
+        call("pluginManager/waitForInstall", args { put("requestId", JsonPrimitive(requestId)) })
+
+    /** Cancellation is final only if the Host answers status=cancelled after restoring files. */
+    suspend fun cancelPluginManagerInstall(requestId: String): RpcResult<PluginManagerInstallCancellation> =
+        call("pluginManager/cancelInstall", args { put("requestId", JsonPrimitive(requestId)) })
+
+    suspend fun removePluginManagerBundle(name: String): RpcResult<PluginManagerChangeResult> =
+        call("pluginManager/removeBundle", args { put("name", JsonPrimitive(name)) })
+
+    suspend fun listPluginManagerVersions(
+        name: String,
+        registry: String? = null,
+        usePnpmRegistry: Boolean = false,
+    ): RpcResult<PluginManagerVersionList> = call("pluginManager/listVersions", args {
+        put("name", JsonPrimitive(name))
+        val options = pluginManagerRegistryOptions(registry, usePnpmRegistry)
+        if (options.isNotEmpty()) put("options", options)
+    })
+
+    /** Version and eligibility come from listVersions, but the Host remains final authority. */
+    suspend fun updatePluginManagerBundle(
+        name: String,
+        version: String,
+        registry: String? = null,
+        requestId: String? = null,
+        usePnpmRegistry: Boolean = false,
+    ): RpcResult<PluginManagerUpdateResult> = call("pluginManager/updateBundle", args {
+        put("name", JsonPrimitive(name))
+        put("version", JsonPrimitive(version))
+        val options = buildJsonObject {
+            if (usePnpmRegistry) put("registry", JsonNull)
+            else if (registry != null) put("registry", JsonPrimitive(registry))
+            if (requestId != null) put("requestId", JsonPrimitive(requestId))
+        }
+        if (options.isNotEmpty()) put("options", options)
+    })
+
+    suspend fun listPluginManagerVersionExemptions(): RpcResult<PluginManagerVersionExemptions> =
+        callEmpty("pluginManager/listVersionExemptions")
+
+    /** Only explicit per-version risk consent may set acceptRisk=true for enabling an exemption. */
+    suspend fun setPluginManagerVersionExemption(
+        packageVersion: String,
+        runtimeVersion: String,
+        enabled: Boolean,
+        acceptRisk: Boolean = false,
+    ): RpcResult<PluginManagerChangeResult> = call("pluginManager/setVersionExemption", args {
+        put("packageVersion", JsonPrimitive(packageVersion))
+        put("runtimeVersion", JsonPrimitive(runtimeVersion))
+        put("enabled", JsonPrimitive(enabled))
+        if (acceptRisk) put("acceptRisk", JsonPrimitive(true))
+    })
 
     /** Permission preset catalog, introduced after the legacy projection bundled its options. */
     suspend fun permissionPresetsCatalog(): RpcResult<JsonElement> = callEmpty("permissionPresets/catalog")
