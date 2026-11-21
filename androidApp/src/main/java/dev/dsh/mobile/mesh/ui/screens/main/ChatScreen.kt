@@ -189,6 +189,10 @@ internal fun ChatScreen(
     }
     var mode by rememberSaveable(currentSessionId) { mutableStateOf("queue") }
     var tab by rememberSaveable { mutableStateOf(ChatTab.Chat) }
+    val visibleTab = if (transcriptPresentation.codeWorkViewEnabled) tab else ChatTab.Chat
+    LaunchedEffect(transcriptPresentation.codeWorkViewEnabled) {
+        if (!transcriptPresentation.codeWorkViewEnabled) tab = ChatTab.Chat
+    }
     val attachmentsBySession = remember { mutableStateMapOf<String, List<PendingAttachment>>() }
     // A restored file chip can only cite a receipt minted in its own blank session. When the Host
     // answers with a different one, Ready no longer means anything: upload the same content URI
@@ -574,7 +578,8 @@ internal fun ChatScreen(
                 subagentCount = subagents.size,
                 jobCount = jobs.size,
                 detailsOpen = detailsOpen,
-                tab = tab,
+                tab = visibleTab,
+                trajectoryAvailable = transcriptPresentation.codeWorkViewEnabled,
                 onOpenDrawer = onOpenDrawer,
                 onOpenPresets = {
                     scope.launch { store.refreshAgentPresets() }
@@ -628,7 +633,7 @@ internal fun ChatScreen(
             )
 
             AnimatedContent(
-                targetState = tab,
+                targetState = visibleTab,
                 transitionSpec = {
                     val forward = targetState.ordinal > initialState.ordinal
                     (
@@ -889,7 +894,9 @@ internal fun ChatScreen(
             )
         }
         ChatSheet.Presets -> PresetsSheet(
-            presets = agentPresets,
+            presets = if (transcriptPresentation.codeWorkViewEnabled) agentPresets else agentPresets?.let { catalog ->
+                catalog.copy(presets = catalog.presets.filterNot { it.isShippedPreset() && it.id in setOf("ptc", "minimal") })
+            },
             currentPreset = currentSession?.agentPreset,
             sessionBlank = currentSession?.blank ?: false,
             store = store,

@@ -4,6 +4,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.SettingsDescribeValue
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.booleanOrNull
 import java.util.concurrent.atomic.AtomicLong
 
 /** Discard an earlier Host read after a newer settings invalidation starts. */
@@ -17,9 +18,13 @@ internal class TranscriptPresentationReadFence {
 data class TranscriptPresentation(
     val mode: Mode = Mode.Detailed,
     val collapseTiming: CollapseTiming = CollapseTiming.Completion,
+    val foldedReplies: FoldedReplies = FoldedReplies.All,
+    /** Missing ui-settings retains Web's full-interface default, including older Hosts. */
+    val codeWorkViewEnabled: Boolean = true,
 ) {
     enum class Mode { Compact, Standard, Detailed, Verbose }
     enum class CollapseTiming { Completion, NextInput }
+    enum class FoldedReplies { All, Final }
 
     val foldCompletedTurns: Boolean get() = mode != Mode.Verbose
     val groupLiveSteps: Boolean get() = mode == Mode.Compact || mode == Mode.Standard
@@ -41,5 +46,11 @@ fun transcriptPresentationOf(describe: SettingsDescribeValue): TranscriptPresent
         "next-input" -> TranscriptPresentation.CollapseTiming.NextInput
         else -> TranscriptPresentation.CollapseTiming.Completion
     }
-    return TranscriptPresentation(mode, timing)
+    val replies = when (section?.get("foldedReplies")?.jsonPrimitive?.contentOrNull) {
+        "final" -> TranscriptPresentation.FoldedReplies.Final
+        else -> TranscriptPresentation.FoldedReplies.All
+    }
+    val codeWork = (describe.namespaces.firstOrNull { it.ns == "ui-settings" }?.value as? JsonObject)
+        ?.get("enabled")?.jsonPrimitive?.booleanOrNull ?: true
+    return TranscriptPresentation(mode, timing, replies, codeWork)
 }

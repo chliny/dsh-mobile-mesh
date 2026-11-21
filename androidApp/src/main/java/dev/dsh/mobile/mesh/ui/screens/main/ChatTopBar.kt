@@ -75,6 +75,7 @@ internal fun ChatTopBar(
     jobCount: Int,
     detailsOpen: Boolean,
     tab: ChatTab,
+    trajectoryAvailable: Boolean = true,
     onOpenDrawer: () -> Unit,
     onOpenPresets: () -> Unit,
     onOpenSubagents: () -> Unit,
@@ -145,14 +146,17 @@ internal fun ChatTopBar(
             }
         }
 
-        ChatTabRow(
-            tab = tab,
-            subagentCount = subagentCount,
-            jobCount = jobCount,
-            onTabChange = onTabChange,
-            onOpenSubagents = onOpenSubagents,
-            onOpenJobs = onOpenJobs,
-        )
+        if (trajectoryAvailable || subagentCount > 0 || jobCount > 0) {
+            ChatTabRow(
+                tab = tab,
+                trajectoryAvailable = trajectoryAvailable,
+                subagentCount = subagentCount,
+                jobCount = jobCount,
+                onTabChange = onTabChange,
+                onOpenSubagents = onOpenSubagents,
+                onOpenJobs = onOpenJobs,
+            )
+        }
     }
 }
 
@@ -288,6 +292,7 @@ private fun MetaChip(
 @Composable
 private fun ChatTabRow(
     tab: ChatTab,
+    trajectoryAvailable: Boolean,
     subagentCount: Int,
     jobCount: Int,
     onTabChange: (ChatTab) -> Unit,
@@ -305,17 +310,17 @@ private fun ChatTabRow(
         // completely differently — a right-aligned bubble in Chat, a `> line` of caption text in
         // the Trajectory ledger — so a reader who cannot tell at a glance concludes the chat itself
         // is broken.
-        DsSegmented(
-            segments = listOf(
-                DsSegment(TAB_CHAT, stringResource(R.string.chat_tab)),
-                DsSegment(TAB_TRAJECTORY, stringResource(R.string.trajectory_title)),
-            ),
-            selectedKey = if (tab == ChatTab.Chat) TAB_CHAT else TAB_TRAJECTORY,
-            onSelect = { key ->
-                onTabChange(if (key == TAB_CHAT) ChatTab.Chat else ChatTab.Trajectory)
-            },
-            role = Role.Tab,
-        )
+        if (trajectoryAvailable) {
+            DsSegmented(
+                segments = listOf(
+                    DsSegment(TAB_CHAT, stringResource(R.string.chat_tab)),
+                    DsSegment(TAB_TRAJECTORY, stringResource(R.string.trajectory_title)),
+                ),
+                selectedKey = if (tab == ChatTab.Chat) TAB_CHAT else TAB_TRAJECTORY,
+                onSelect = { key -> onTabChange(if (key == TAB_CHAT) ChatTab.Chat else ChatTab.Trajectory) },
+                role = Role.Tab,
+            )
+        }
         if (subagentCount > 0) {
             Spacer(Modifier.width(DsSpacing.small))
             MetaChip(

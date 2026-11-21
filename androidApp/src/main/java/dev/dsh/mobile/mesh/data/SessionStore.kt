@@ -1384,7 +1384,7 @@ class SessionStore @Inject constructor(
             }
             "api-session/error" -> setConnectionError(str(1))
             "schedule/changed" -> { scheduleRevision.value += 1 }
-            "settings/document-updated" -> if (str(0) == "ui-chat") {
+            "settings/document-updated" -> if (str(0) == "ui-chat" || str(0) == "ui-settings") {
                 val clientId = connectionManager.generation?.clientId
                 if (clientId != null) scope.launch { refreshTranscriptPresentation(clientId) }
             }

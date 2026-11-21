@@ -53,6 +53,8 @@ App 同时接受旧版 projection 响应（只有 `asOfSeq`、`values`，没有 
 Android 会话列表现可打开 Host 管理的自动化任务。只读 `schedule/catalog` 请求检查能力；只有缺路由响应才将不支持 Schedule 的 Host 判为不可用。`v0.2.2-rc.1` 将任务变更迁移到 `schedule/edit`，并让 catalog 行携带投递 `target`、`active`/`paused`/`ended` 状态与 `updatedAt` 修订号。App 先尝试新版 edit 路由，仅在 Host 明确报告该路由不存在时回退到 `schedule/update` 与 `schedule/delete`，并在当前连接代内记住结果：新版路径把观测到的 `updatedAt` 作为 `expectedUpdatedAt` 发送、按行内 target 打开会话并展示新状态；旧版路径继续以完整观测规则作为 `expected`。两种 catalog 行形状都可解码，因此新旧 Host 渲染同一份列表。当 Host 提供新版管理路由时，App 直接通过 `schedule/create` 创建任务——可投递到现有会话、首次投递时创建的一个会话，或每次投递新建会话——通过 `schedule/edit` 暂停与恢复，用 `schedule/run` 立即执行一次且不改变原计划，并通过一次确认的 `schedule/deleteInactive` 删除已结束任务；`schedule/deliveryLimits` 提供 Host 为新会话设定的最小间隔。每类失败都按证据区分：缺路由只影响对应操作并提示不支持，Host 的业务拒绝原样展示其消息，只有传输层失败才提示结果未知、需刷新后再试。相关路由不存在时，新建任务仍与网页端相同先启动会话，再由 Agent 创建提醒。Host 尚无目录搜索或状态过滤 API，因此 Android 不自行实现另一套客户端筛选。
 
 
+Android 通过现有连接读取 `settings/describe`，展示 Host 的对话、默认权限、代码工作视图、Agent 预设及内置插件设置；修改时调用 `settings/mutate` 并对比已读取的 settings revision。网页搜索密钥通过 `credentials/describe` 和 `credentials/set` 管理。账号资料和余额仅通过 `account/getState`、`account/getProfile`、`account/getBalance` 只读展示，不执行登录或更改账号。旧 Host 未发布的设置不可写，权限由 Host 决定。 模型管理通过 Host 的 `llm/listConfigurableProviders`、`llm/listProviders` 展示提供商，通过 `llm/discoverModels` 发现模型。模型设置经 `settings/mutate` 写入，API 密钥走凭据接口；缺少所需服务时不开放编辑。
+
 ## 参考
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)

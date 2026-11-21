@@ -105,7 +105,15 @@ data class LlmConfigurableProvider(
     @SerialName("active") val active: Boolean = false,
     /** Present when the adapter draws a shipped-vs-declared distinction. */
     @SerialName("declared") val declared: Boolean? = null,
+    /** Optional catalog metadata published by 0.2.2-rc.1 Hosts. */
+    @SerialName("defaultBaseURL") val defaultBaseURL: String? = null,
+    @SerialName("baseURLEnv") val baseURLEnv: List<String> = emptyList(),
+    @SerialName("nativeAuth") val nativeAuth: LlmNativeAuth? = null,
+    @SerialName("error") val error: String? = null,
 )
+
+@Serializable
+data class LlmNativeAuth(val env: List<String> = emptyList(), val oauth: Boolean = false)
 
 /**
  * The draft `llm/discoverModels` interrogates.
@@ -136,4 +144,5 @@ data class LlmDiscoveredModel(
     @SerialName("contextWindow") val contextWindow: Int? = null,
     /** Maximum output tokens, when disclosed. */
     @SerialName("maxTokens") val maxTokens: Int? = null,
+    @SerialName("inputModalities") val inputModalities: List<String>? = null,
 )

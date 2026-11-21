@@ -27,6 +27,24 @@ class TranscriptPresentationTest {
         assertEquals(listOf(false, true, true, false), actual.map { it.liveProcessDetail })
     }
 
+    @Test fun `Host settings switch folded replies and code view without removing chat capabilities`() {
+        val current = SettingsDescribeValue(writable = true, hasDocument = true, namespaces = listOf(
+            SettingsNamespaceView("ui-chat", Json.parseToJsonElement("{}"),
+                Json.parseToJsonElement("""{"transcriptView":"standard","foldedReplies":"final"}"""),
+                applies = "live", revision = 1),
+            SettingsNamespaceView("ui-settings", Json.parseToJsonElement("{}"),
+                Json.parseToJsonElement("""{"enabled":false}"""), applies = "live", revision = 2),
+        ))
+        val presented = transcriptPresentationOf(current)
+        assertEquals(TranscriptPresentation.FoldedReplies.Final, presented.foldedReplies)
+        assertFalse(presented.codeWorkViewEnabled)
+        assertTrue(presented.foldCompletedTurns)
+        assertTrue(presented.groupLiveSteps)
+        assertTrue(transcriptPresentationOf(describe(null)).codeWorkViewEnabled)
+        assertEquals(TranscriptPresentation.FoldedReplies.All,
+            transcriptPresentationOf(describe(null)).foldedReplies)
+    }
+
     @Test fun `older settings read cannot overwrite a newer server invalidation`() {
         val fence = TranscriptPresentationReadFence()
         val first = fence.begin()

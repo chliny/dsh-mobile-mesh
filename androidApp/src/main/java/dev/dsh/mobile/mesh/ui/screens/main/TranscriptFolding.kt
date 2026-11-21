@@ -158,38 +158,37 @@ internal fun partitionTranscript(
             val node = turnNodes[turnIndex]
             safe && node !== final && node !is UserMessageNode && node !is QuestionReplyNode && node !is PresentedFilesNode &&
                 node !is TodoNode && !(node is AssistantMessageNode &&
-                (node.interrupted || node.blocks.any { it.kind == "text" && !it.text.isNullOrBlank() || it.kind == "image" }))
+                (node.interrupted || (presentation.foldedReplies == TranscriptPresentation.FoldedReplies.All &&
+                    node.blocks.any { it.kind == "text" && !it.text.isNullOrBlank() || it.kind == "image" })))
         }
-        val processCount = processFlags.count { it }
         val firstProcess = processFlags.indexOfFirst { it }
         val lastProcess = processFlags.indexOfLast { it }
-        val interleaved = firstProcess >= 0 && (firstProcess..lastProcess).any { !processFlags[it] }
-        if (processCount == 0 || interleaved) {
+        // A user/question/presented-file interruption is not a work reply: keep this turn flat.
+        // Assistant replies, by contrast, remain visible between folded work spans in "all" mode.
+        val interleavedInput = firstProcess >= 0 && (firstProcess..lastProcess).any { i ->
+            !processFlags[i] && turnNodes[i] !is AssistantMessageNode
+        }
+        if (firstProcess < 0 || interleavedInput) {
             turnNodes.forEach { result.add(TranscriptPart.Node(it)) }
         } else {
-            // Keep all user input and the final answer in their original relative positions.
-            // The disclosure occupies the first process node's position; expansion puts every
-            // process row back in its original order, with its original seq key.
-            var inserted = false
-            turnNodes.forEachIndexed { turnIndex, node ->
-                if (processFlags[turnIndex]) {
-                    if (!inserted) {
-                        result.add(
-                            TranscriptPart.Process(
-                                startSeq = start.seq,
-                                source = source,
-                                startIndex = turnSourceIndexes[firstProcess],
-                                endExclusive = turnSourceIndexes[lastProcess] + 1,
-                                nodeCount = processCount,
-                                defaultExpanded = presentation.collapseTiming == TranscriptPresentation.CollapseTiming.NextInput &&
-                                    endIndex == nodes.lastIndex,
-                            ),
-                        )
-                        inserted = true
-                    }
-                } else {
-                    result.add(TranscriptPart.Node(node))
+            var turnIndex = 0
+            while (turnIndex < turnNodes.size) {
+                if (!processFlags[turnIndex]) {
+                    result.add(TranscriptPart.Node(turnNodes[turnIndex++]))
+                    continue
                 }
+                val first = turnIndex
+                while (turnIndex < turnNodes.size && processFlags[turnIndex]) turnIndex++
+                // Each span needs a distinct LazyColumn key; the first keeps the existing turn key.
+                result.add(TranscriptPart.Process(
+                    startSeq = if (first == firstProcess) start.seq else turnNodes[first].seq,
+                    source = source,
+                    startIndex = turnSourceIndexes[first],
+                    endExclusive = turnSourceIndexes[turnIndex - 1] + 1,
+                    nodeCount = turnIndex - first,
+                    defaultExpanded = presentation.collapseTiming == TranscriptPresentation.CollapseTiming.NextInput &&
+                        endIndex == nodes.lastIndex,
+                ))
             }
         }
         index = endIndex + 1

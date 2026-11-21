@@ -16,6 +16,8 @@ import dev.dsh.mobile.mesh.connection.ZeroTierPlanetStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -64,6 +66,12 @@ class SettingsViewModel @Inject constructor(
         SharingStarted.Eagerly,
         ConnectionUiState()
     )
+
+    internal val accountConnection = merge(
+        connectionManager.state.map { Unit },
+        connectionManager.connectedGenerations.map { Unit },
+    ).map { connectionManager.hostSettingsConnection() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(replayExpirationMillis = 0), null)
 
     init {
         viewModelScope.launch {

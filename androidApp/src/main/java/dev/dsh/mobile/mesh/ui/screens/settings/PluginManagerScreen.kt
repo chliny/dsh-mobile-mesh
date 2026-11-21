@@ -1,5 +1,6 @@
 package dev.dsh.mobile.mesh.ui.screens.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -58,16 +59,47 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import java.util.Locale
 
+// Stock templates and standalone tools are also excluded from the Web experimental directory.
+private val WEB_HIDDEN_BUNDLES = setOf(
+    "@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-headless",
+    "@deepseek-ai/dsh-sdk-app", "@deepseek-ai/dsh-acp-app", "@deepseek-ai/dsh-sdk-minimal",
+    "@deepseek-ai/dsh-experimental-terminal-bundle", "@deepseek-ai/dsh-experimental-tool-worktree",
+)
+
+private enum class PluginDirectory { BuiltIn, Experimental }
+
 /** Server-owned management state; toggles and settings edits never optimistically change the UI. */
 @Composable
 fun PluginManagerScreen(onClose: () -> Unit, viewModel: PluginManagerViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var tab by remember { mutableIntStateOf(0) }
+    var directory by remember { mutableStateOf<PluginDirectory?>(null) }
+    val experimentalOpen = directory == PluginDirectory.Experimental
+    val builtInOpen = directory == PluginDirectory.BuiltIn
     var searchQuery by remember { mutableStateOf("") }
-    val search = searchQuery.trim().lowercase(Locale.ROOT)
-    // Presentation-only search over the Host's current lists; never replace their authoritative state.
-    val shownBundles = remember(state.bundles, search) {
-        if (search.isEmpty()) state.bundles else state.bundles.filter { bundle ->
+    var experimentalQuery by remember { mutableStateOf("") }
+    var builtInQuery by remember { mutableStateOf("") }
+    BackHandler(enabled = directory != null) { directory = null }
+    val activeQuery = when (directory) {
+        PluginDirectory.Experimental -> experimentalQuery
+        PluginDirectory.BuiltIn -> builtInQuery
+        null -> searchQuery
+    }
+    val search = activeQuery.trim().lowercase(Locale.ROOT)
+    // The Web experimental directory is the visible official catalog, not its beta badge set.
+    // Project it for display only; enablement, eligibility and settings still come from the Host.
+    val bundles = remember(state.bundles, state.plugins, experimentalOpen) {
+        if (!experimentalOpen) state.bundles else {
+            val running = state.plugins.filter { it.enabled }.mapTo(hashSetOf()) { it.entryId }
+            state.bundles.filter { bundle ->
+                bundle.official && bundle.name !in WEB_HIDDEN_BUNDLES &&
+                    (bundle.listedByDefault != false || bundle.enabled || bundle.installed ||
+                        bundle.rows.any { it.entryId?.let(running::contains) == true })
+            }
+        }
+    }
+    val shownBundles = remember(bundles, search) {
+        if (search.isEmpty()) bundles else bundles.filter { bundle ->
             bundle.name.lowercase(Locale.ROOT).contains(search) ||
                 bundle.description?.lowercase(Locale.ROOT)?.contains(search) == true ||
                 bundle.rows.any { it.moduleName.lowercase(Locale.ROOT).contains(search) }
@@ -81,6 +113,19 @@ fun PluginManagerScreen(onClose: () -> Unit, viewModel: PluginManagerViewModel =
     }
     var suggestedInstall by remember { mutableStateOf<Pair<Int, String>?>(null) }
     val listState = rememberLazyListState()
+    val experimentalListState = rememberLazyListState()
+    val builtInListState = rememberLazyListState()
+    val activeListState = when (directory) {
+        PluginDirectory.Experimental -> experimentalListState
+        PluginDirectory.BuiltIn -> builtInListState
+        null -> listState
+    }
+    val title = when (directory) {
+        PluginDirectory.Experimental -> R.string.plugins_native_experimental
+        PluginDirectory.BuiltIn -> R.string.plugins_native_builtin
+        null -> R.string.plugins_native_title
+    }
+    val builtInCards = if (builtInOpen) builtInPluginCards(state.settings?.namespaces.orEmpty(), search) else emptyList()
     LaunchedEffect(suggestedInstall) {
         if (suggestedInstall != null) listState.animateScrollToItem(0)
     }
@@ -89,19 +134,27 @@ fun PluginManagerScreen(onClose: () -> Unit, viewModel: PluginManagerViewModel =
     Surface(Modifier.fillMaxSize(), color = colors.bgBase) {
         Column(Modifier.fillMaxSize().safeDrawingPadding()) {
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                DsIconButton(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back), onClick = onClose)
-                Text(stringResource(R.string.plugins_native_title), Modifier.weight(1f), style = DsType.large20)
+                DsIconButton(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back), onClick = {
+                    if (directory != null) directory = null else onClose()
+                })
+                Text(stringResource(title), Modifier.weight(1f), style = DsType.large20)
                 TextButton(onClick = viewModel::refresh, enabled = !state.busy && !state.loading) {
                     Text(stringResource(R.string.plugins_native_refresh))
                 }
             }
-            TabRow(selectedTabIndex = tab) {
+            if (directory == null) TabRow(selectedTabIndex = tab) {
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.plugins_native_bundles)) })
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.plugins_native_plugins)) })
             }
             OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
+                value = activeQuery,
+                onValueChange = {
+                    when (directory) {
+                        PluginDirectory.Experimental -> experimentalQuery = it
+                        PluginDirectory.BuiltIn -> builtInQuery = it
+                        null -> searchQuery = it
+                    }
+                },
                 label = { Text(stringResource(R.string.plugins_native_search)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -115,11 +168,29 @@ fun PluginManagerScreen(onClose: () -> Unit, viewModel: PluginManagerViewModel =
                 TextButton(onClick = viewModel::clearMessage) { Text(stringResource(R.string.plugins_native_dismiss)) }
             } }
             state.error?.let { Text(it, Modifier.padding(12.dp), color = colors.error) }
-            LazyColumn(Modifier.fillMaxSize(), state = listState,
+            LazyColumn(Modifier.fillMaxSize(), state = activeListState,
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (tab == 0) {
-                    item {
+                if (builtInOpen) {
+                    if (builtInCards.isEmpty() && !state.loading) item {
+                        Text(stringResource(if (search.isEmpty()) R.string.plugins_native_empty_builtin else R.string.plugins_native_search_empty),
+                            color = colors.labelSecondary)
+                    }
+                    items(builtInCards, key = { it.kind.name }) { card ->
+                        BuiltInPluginCard(card, state.busy || state.loading || state.settings?.writable != true, viewModel)
+                    }
+                } else if (tab == 0 || experimentalOpen) {
+                    if (!experimentalOpen) item {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            OutlinedButton(onClick = { directory = PluginDirectory.BuiltIn }, modifier = Modifier.fillMaxWidth()) {
+                                Text(stringResource(R.string.plugins_native_builtin))
+                            }
+                            OutlinedButton(onClick = { directory = PluginDirectory.Experimental }, modifier = Modifier.fillMaxWidth()) {
+                                Text(stringResource(R.string.plugins_native_experimental))
+                            }
+                        }
+                    }
+                    if (!experimentalOpen) item {
                         Column(Modifier.fillMaxWidth().border(1.dp, colors.borderL1).padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(stringResource(R.string.plugins_native_install_section), style = DsType.large20)
@@ -132,15 +203,22 @@ fun PluginManagerScreen(onClose: () -> Unit, viewModel: PluginManagerViewModel =
                         }
                     }
                     if (shownBundles.isEmpty() && !state.loading) item {
-                        Text(stringResource(if (search.isEmpty()) R.string.plugins_native_empty_bundles
-                            else R.string.plugins_native_search_empty), color = colors.labelSecondary)
+                        Text(stringResource(when {
+                            search.isNotEmpty() -> R.string.plugins_native_search_empty
+                            experimentalOpen -> R.string.plugins_native_empty_experimental
+                            else -> R.string.plugins_native_empty_bundles
+                        }), color = colors.labelSecondary)
                     }
                     items(shownBundles, key = { it.name }) { bundle ->
                         BundleCard(bundle, state.busy || state.loading, { viewModel.toggleBundle(bundle) },
                             state.settings?.namespaces.orEmpty().filter { ns -> bundle.rows.any { it.entryId != null && it.rowId == ns.ns } },
                             state.settings?.writable == true, viewModel::updateSetting, viewModel::resetSetting) {
-                            bundle.installTarget?.takeIf { !bundle.installed && bundle.readOnlyReason == null }?.let { target ->
+                            bundle.installTarget?.takeIf {
+                                bundle.availability == "missing" && !bundle.installed &&
+                                    bundle.readOnlyReason == null && bundle.error?.code != "unsupported-platform"
+                            }?.let { target ->
                                 OutlinedButton(onClick = {
+                                    directory = null
                                     suggestedInstall = ((suggestedInstall?.first ?: 0) + 1) to target.spec
                                 }, enabled = !state.busy && !state.loading) {
                                     Text(stringResource(R.string.plugins_native_install))
@@ -163,7 +241,7 @@ fun PluginManagerScreen(onClose: () -> Unit, viewModel: PluginManagerViewModel =
                                 { version, registry -> viewModel.updateBundle(bundle, version, registry) })
                         }
                     }
-                    item {
+                    if (!experimentalOpen) item {
                         PluginExemptionControls(state.versionExemptions?.exemptions.orEmpty(),
                             state.versionExemptions?.warnings.orEmpty(), state.versionExemptions != null,
                             state.busy || state.loading,
@@ -200,11 +278,13 @@ private fun BundleCard(bundle: PluginManagerBundleInfo, busy: Boolean, onToggle:
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(bundle.name, Modifier.weight(1f), style = DsType.large20)
             Switch(checked = bundle.enabled, onCheckedChange = { onToggle() },
-                enabled = !busy && bundle.readOnlyReason == null)
+                modifier = Modifier.semantics { contentDescription = bundle.name },
+                enabled = !busy && bundle.readOnlyReason == null &&
+                    (bundle.enabled || (bundle.availability != "missing" && bundle.error == null)))
         }
         bundle.description?.let { Text(it, color = colors.labelSecondary) }
-        Text(stringResource(if (bundle.installed) R.string.plugins_native_installed else R.string.plugins_native_not_installed),
-            color = colors.labelSecondary)
+        Text(stringResource(if (bundle.installed || bundle.availability == "installation") R.string.plugins_native_installed
+            else R.string.plugins_native_not_installed), color = colors.labelSecondary)
         bundle.version?.let { Text(it, color = colors.labelSecondary) }
         bundle.readOnlyReason?.let { Text(it, color = colors.labelSecondary) }
         bundle.error?.let { Text(it.diagnostic ?: it.code, color = colors.error) }
@@ -282,15 +362,23 @@ private class SettingsSchema(schema: JsonElement) {
 
 /** Schemastery uses `dict` for object children and `inner` for array/dictionary elements. */
 @Composable
-private fun SchemaFields(namespace: SettingsNamespaceView, busy: Boolean,
+internal fun SchemaFields(namespace: SettingsNamespaceView, busy: Boolean,
     onUpdate: (SettingsNamespaceView, List<String>, JsonElement) -> Unit,
     onReset: (SettingsNamespaceView, List<String>) -> Unit,
+    hiddenFields: Set<String> = emptySet(),
+    allowedFields: Set<String>? = null,
+    labels: Map<String, Int> = emptyMap(),
 ) {
     val schema = remember(namespace.schema) { SettingsSchema(namespace.schema) }
     val fields = schema.root?.get("dict") as? JsonObject
     if ((schema.root?.get("type") as? JsonPrimitive)?.contentOrNull == "object" && !fields.isNullOrEmpty()) {
         fields.forEach { (key, field) ->
-            SettingField(namespace, listOf(key), schema, field, (namespace.value as? JsonObject)?.get(key), busy, onUpdate, onReset)
+            if (key !in hiddenFields && (allowedFields == null || key in allowedFields)) {
+                SettingField(namespace, listOf(key), schema, field,
+                    (namespace.value as? JsonObject)?.get(key), busy, onUpdate, onReset,
+                    atomicCollection = namespace.ns == SUBAGENT_MODEL_SETTINGS && key == "allowedModels",
+                    titleOverride = labels[key]?.let { stringResource(it) })
+            }
         }
     } else Text(stringResource(R.string.plugins_native_no_settings), color = DsTheme.colors.labelSecondary)
 }
@@ -301,6 +389,8 @@ private fun SettingField(namespace: SettingsNamespaceView, path: List<String>, s
     onUpdate: (SettingsNamespaceView, List<String>, JsonElement) -> Unit,
     onReset: (SettingsNamespaceView, List<String>) -> Unit,
     collection: String? = null,
+    atomicCollection: Boolean = false,
+    titleOverride: String? = null,
 ) {
     val node = schema.resolve(field) ?: return
     // Host schema references may be recursive, including where there is no configured value.
@@ -308,7 +398,7 @@ private fun SettingField(namespace: SettingsNamespaceView, path: List<String>, s
     val colors = DsTheme.colors
     val type = (node["type"] as? JsonPrimitive)?.contentOrNull
     val meta = node["meta"] as? JsonObject
-    val title = (node["title"] as? JsonPrimitive)?.contentOrNull ?: path.last()
+    val title = titleOverride ?: (node["title"] as? JsonPrimitive)?.contentOrNull ?: path.last()
     val description = (meta?.get("description") as? JsonPrimitive)?.contentOrNull
         ?: (node["description"] as? JsonPrimitive)?.contentOrNull
     val secret = namespace.secrets.any { it.path == path } ||
@@ -343,7 +433,7 @@ private fun SettingField(namespace: SettingsNamespaceView, path: List<String>, s
     val dictionary = value as? JsonObject
     val array = value as? JsonArray
     // Only send index ops when the raw override and displayed list agree.
-    val isArray = type == "array" && !secret && inner != null && array != null && array == rawOverride
+    val isArray = !atomicCollection && type == "array" && !secret && inner != null && array != null && array == rawOverride
     // Direct secret dictionary entries can be absent from value, but their keys are still editable.
     val dictionaryKeys = if (isDictionary) dictionary.orEmpty().keys + namespace.secrets.mapNotNull {
         it.path.getOrNull(path.size)?.takeIf { _ -> it.path.take(path.size) == path }

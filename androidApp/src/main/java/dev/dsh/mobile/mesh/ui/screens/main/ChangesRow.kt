@@ -67,6 +67,8 @@ internal fun buildDiffHighlightPlan(hunks: List<ChangesDiffHunk>, maxLines: Int 
 
 @Composable
 internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
+    // Web hides only the code-diff card in the reduced view; presented files stay visible.
+    if (!context.presentation.codeWorkViewEnabled) return
     val store = context.store ?: return
     val sessionId = context.sessionId ?: return
     // Seeded from what the harness already answered for this event, so a row rebuilt by coming back

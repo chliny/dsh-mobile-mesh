@@ -48,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -192,7 +193,14 @@ fun SettingsScreen(
     }
     var pluginsOpen by remember { mutableStateOf(false) }
     var pluginManagerOpen by remember { mutableStateOf(false) }
-    BackHandler { if (pluginManagerOpen) pluginManagerOpen = false else onClose() }
+    var hostSection by remember { mutableStateOf<HostSettingsSection?>(null) }
+    BackHandler {
+        when {
+            hostSection != null -> hostSection = null
+            pluginManagerOpen -> pluginManagerOpen = false
+            else -> onClose()
+        }
+    }
 
     // Fetched on open rather than kept live: the inventory only changes when the harness is
     // restarted with a different composition, and nothing pushes that over the wire.
@@ -306,11 +314,14 @@ fun SettingsScreen(
                             host.home,
                         )
                     }
-                    Text(
-                        stringResource(R.string.settings_readonly_banner),
-                        style = DsType.caption11,
-                        color = colors.warnLabel,
-                    )
+                    if (connectionState.phase == ConnectionPhase.CONNECTED) {
+                        HostSettingsSection.entries.forEach { section ->
+                            DsButton(
+                                text = stringResource(section.title), onClick = { hostSection = section },
+                                variant = DsButtonVariant.Outline, modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
                 }
 
                 // Plugin management is its own page; the harness facts above remain read-only.
@@ -378,6 +389,20 @@ fun SettingsScreen(
         PluginsSheet(inventory = inventory, onDismiss = { pluginsOpen = false })
     }
     if (pluginManagerOpen) PluginManagerScreen(onClose = { pluginManagerOpen = false })
+    when (hostSection) {
+        HostSettingsSection.Display -> HostPreferencesSettings(onClose = { hostSection = null })
+        HostSettingsSection.Defaults -> HostDefaultsSettings(onClose = { hostSection = null })
+        HostSettingsSection.Models -> HostModelsSettings(onClose = { hostSection = null })
+        HostSettingsSection.Account -> {
+            val accountConnection by viewModel.accountConnection.collectAsStateWithLifecycle()
+            HostSettingsPage(stringResource(R.string.account_host_title), onClose = { hostSection = null }) {
+                val connected = accountConnection
+                if (connected != null) key(connected.generation) { HostAccountSettings(connected.api) }
+                else Text(stringResource(R.string.plugins_native_connection_unavailable), color = colors.labelSecondary)
+            }
+        }
+        null -> Unit
+    }
 
     pendingImport?.let { payload ->
         AlertDialog(
@@ -502,6 +527,13 @@ fun SettingsScreen(
             },
         )
     }
+}
+
+private enum class HostSettingsSection(@StringRes val title: Int) {
+    Display(R.string.host_preferences_title),
+    Defaults(R.string.host_defaults_title),
+    Models(R.string.models_title),
+    Account(R.string.account_host_title),
 }
 
 @Composable

@@ -24,6 +24,21 @@ class TranscriptFoldingTest {
         assertEquals(listOf(2L, 8L), processes.map { it.startSeq })
     }
 
+    @Test fun `Host folded reply choice changes what a reader sees after work collapses`() {
+        val events = listOf(TurnStartNode(1, 1), thought(2, 1), answer(3, 1).copy(step = 1),
+            ToolCallNode(4, "call", "bash", "{}", 1, 2), answer(5, 1).copy(step = 3),
+            TurnEndNode(6, 1, "completed"))
+        val all = partitionTranscript(events, TranscriptPresentation(foldedReplies = TranscriptPresentation.FoldedReplies.All))
+        val final = partitionTranscript(events, TranscriptPresentation(foldedReplies = TranscriptPresentation.FoldedReplies.Final))
+
+        assertEquals(listOf(3L, 5L), nodes(all))
+        assertEquals(listOf(listOf(2L), listOf(4L)), all.filterIsInstance<TranscriptPart.Process>()
+            .map { part -> part.materializeNodes().map(ChatNode::seq) })
+        assertEquals(listOf(5L), nodes(final))
+        assertEquals(listOf(2L, 3L, 4L), final.filterIsInstance<TranscriptPart.Process>().single()
+            .materializeNodes().map(ChatNode::seq))
+    }
+
     @Test fun `pagination fragments and unfinished turns never fold`() {
         val events = listOf(ToolCallNode(1, "a", "bash", "{}", 1, 0), answer(2, 1), TurnEndNode(3, 1, "completed"),
             TurnStartNode(4, 2), thought(5, 2), answer(6, 2))
