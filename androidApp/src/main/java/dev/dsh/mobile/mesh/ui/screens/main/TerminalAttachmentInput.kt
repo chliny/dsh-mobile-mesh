@@ -19,19 +19,25 @@ internal class TerminalAttachmentInput(private val stream: RemoteStream) {
     private var frameOverheadBytes = 0
 
     @Synchronized
-    fun snapshot(writable: Boolean, inputWindow: JsonObject?) {
-        this.writable = writable
+    fun snapshot(writable: Boolean, inputWindow: JsonObject?, control: String? = null): Boolean {
+        this.writable = allowsInput(writable, control)
         maxFrameBytes = inputWindow?.get("maxBytes")?.toString()?.toIntOrNull()
         frameOverheadBytes = inputWindow?.get("frameOverheadBytes")?.toString()?.toIntOrNull() ?: 0
-        if (!writable) reject()
+        if (!this.writable) reject()
+        return this.writable
     }
 
     @Synchronized
-    fun state(writable: Boolean) {
-        this.writable = writable
-        if (!writable) reject()
+    fun state(writable: Boolean, control: String? = null): Boolean {
+        this.writable = allowsInput(writable, control)
+        if (!this.writable) reject()
         else pending?.second?.complete(null)
+        return this.writable
     }
+
+    /** The WebView cannot distinguish protocol replies from intentional takeover input. */
+    private fun allowsInput(writable: Boolean, control: String?): Boolean =
+        writable && (control == null || control == "user")
 
     @Synchronized
     fun acknowledge(sequence: Int, refusal: String?) {

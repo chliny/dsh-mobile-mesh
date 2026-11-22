@@ -100,6 +100,7 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
     var terminals by remember(sessionId) { mutableStateOf<List<WebTerminalInfo>>(emptyList()) }
     var selected by remember(sessionId) { mutableStateOf<String?>(null) }
     var status by remember(sessionId) { mutableStateOf("") }
+    var agentControl by remember(sessionId) { mutableStateOf(false) }
     var maxDimensions by remember(sessionId) { mutableStateOf(500 to 200) }
     var maxInputBytes by remember(sessionId) { mutableStateOf(65_536) }
     var modernAttachment by remember(sessionId) { mutableStateOf<Boolean?>(null) }
@@ -153,10 +154,10 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
             if (version == refreshVersion) status = failure.message.orEmpty()
         }
     }
-    fun updateTerminalInfo(raw: JsonElement?) {
-        val info = raw as? JsonObject ?: return
-        runCatching { WireJson.decodeFromJsonElement(WebTerminalInfo.serializer(), info) }
-            .onSuccess(inventory::update)
+    fun updateTerminalInfo(raw: JsonElement?): WebTerminalInfo? {
+        val info = raw as? JsonObject ?: return null
+        return runCatching { WireJson.decodeFromJsonElement(WebTerminalInfo.serializer(), info) }
+            .onSuccess(inventory::update).getOrNull()
     }
     fun render(name: String, text: String) {
         // JSON string encoding is a valid JavaScript string literal (quotes, controls and emojis).
@@ -252,6 +253,10 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                         resizeJob = launch { resize.drain() }
                         resize.offer(dimensions.first to dimensions.second)
                     }
+                    fun readControlInfo(frame: JsonObject): WebTerminalInfo? =
+                        updateTerminalInfo(frame["info"]).also { info ->
+                            agentControl = info?.control?.let { it != "user" } == true
+                        }
                     var sequence: Int? = null
                     while (isActive) {
                         val raw = stream.receive() ?: break
@@ -260,17 +265,22 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
                             "snapshot" -> {
                                 sequence = frame["sequence"]?.jsonPrimitive?.intOrNull
                                 render("terminalReset", frame["screen"]?.jsonPrimitive?.content.orEmpty())
-                                updateTerminalInfo(frame["info"])
-                                input.snapshot(frame["writable"]?.jsonPrimitive?.content == "true", frame["inputWindow"] as? kotlinx.serialization.json.JsonObject)
-                                if (frame["writable"]?.jsonPrimitive?.content == "true") installQueues()
+                                val info = readControlInfo(frame)
+                                if (input.snapshot(
+                                        info != null && frame["writable"]?.jsonPrimitive?.content == "true",
+                                        frame["inputWindow"] as? JsonObject,
+                                        info?.control,
+                                    )) installQueues()
                                 status = ""
                             }
                             "ack" -> input.acknowledge(frame["sequence"]?.jsonPrimitive?.intOrNull ?: -1,
                                 frame["refusal"]?.jsonPrimitive?.content)
                             "state" -> {
-                                val writable = frame["writable"]?.jsonPrimitive?.content == "true"
-                                input.state(writable)
-                                updateTerminalInfo(frame["info"])
+                                val info = readControlInfo(frame)
+                                val writable = input.state(
+                                    info != null && frame["writable"]?.jsonPrimitive?.content == "true",
+                                    info?.control,
+                                )
                                 if (!writable) {
                                     inputQueue?.close()
                                     inputQueue = null
@@ -368,6 +378,7 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
             catch (failure: Exception) { status = failure.message.orEmpty() }
             finally {
                 modernInput?.close()
+                agentControl = false
                 inputQueue?.close()
                 inputQueue = null
                 resizeQueue?.close()
@@ -406,6 +417,7 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
             }
         }
         if (status.isNotEmpty()) Text(status)
+        else if (agentControl) Text(stringResource(R.string.terminal_input_unavailable))
         AndroidView(
             factory = {
                 WebView(it).apply {

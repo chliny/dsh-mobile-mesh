@@ -29,6 +29,8 @@ import dev.dsh.mobile.mesh.core.wire.dto.SessionPromptValue
 import dev.dsh.mobile.mesh.core.wire.dto.SessionWireEvent
 import dev.dsh.mobile.mesh.core.wire.dto.SessionSelectModelRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SessionSelectModelValue
+import dev.dsh.mobile.mesh.ui.screens.main.safePreviewPath
+import dev.dsh.mobile.mesh.ui.screens.main.sessionFileScope
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -266,6 +268,52 @@ class SessionStoreControlModelProjectionTest {
                 true,
                 store.currentConversation.value?.nodes?.any { it.seq == 1L },
             )
+        } finally {
+            val scope = SessionStore::class.java.getDeclaredField("scope").apply { isAccessible = true }
+            (scope.get(store) as CoroutineScope).cancel()
+            mux.close()
+        }
+    }
+
+    @Test
+    fun `a Host checkout move opens the new file without reusing the old listing`() = runBlocking {
+        lateinit var channel: FakeChannel
+        val mux = RemoteStreamMux { sink -> FakeChannel(sink).also { channel = it } }
+        mux.start()
+        mux.awaitOpen()
+        val manager = Mockito.mock(ConnectionManager::class.java)
+        val api = Mockito.mock(DshApiClient::class.java)
+        val generation = HostGeneration(HostDescription("/home"), "g1", mux)
+        Mockito.`when`(manager.state).thenReturn(MutableStateFlow(ConnectionUiState(
+            phase = ConnectionPhase.CONNECTED, host = HostConfig("host", "Host", "localhost", 3080),
+        )))
+        Mockito.`when`(manager.generation).thenReturn(generation)
+        Mockito.`when`(manager.connectedApi).thenReturn(api)
+        Mockito.`when`(manager.connectedGenerations).thenReturn(MutableSharedFlow<HostGeneration>())
+        Mockito.`when`(manager.eventFrames).thenReturn(MutableSharedFlow<RemoteEventFrame>())
+        Mockito.`when`(manager.harnessProtocolChanges).thenReturn(MutableStateFlow<HarnessProtocol?>(null))
+        Mockito.`when`(api.sessionList(null)).thenReturn(RpcResult.Ok(SessionListValue()))
+        Mockito.`when`(api.agentPresetList()).thenReturn(RpcResult.Ok(AgentPresetListValue()))
+        val store = SessionStore(manager)
+        val original = "/projects/main"
+        val checkout = "/projects/checkout"
+        fun fileScope() = sessionFileScope("s", store.currentConversation.value, original)
+        try {
+            awaitCondition { channel.streams.containsKey("session/control") }
+            store.openSession("s")
+            awaitCondition { channel.streams.containsKey("session/follow") }
+            channel.emit("session/follow", """{"type":"snapshot","header":{"version":2,"id":"s","createdAt":1,"cwd":"$original","isSeeded":false},"cursor":1,"records":[],"hasMore":false,"projections":{"asOfSeq":1,"values":{}}}""")
+            awaitCondition { store.currentConversation.value?.sessionId == "s" }
+            val originalScope = fileScope()
+            assertEquals("$original/README.md", safePreviewPath("$original/README.md", originalScope.workingDirectory))
+
+            channel.emit("session/control", """{"type":"projection","sessionId":"s","seq":2,"changes":[{"key":"workingDirectory","val":"$checkout"}]}""")
+            awaitCondition { fileScope().workingDirectory == checkout }
+            val movedScope = fileScope()
+            assertEquals("s", movedScope.sessionId)
+            assertFalse(movedScope.cacheKey == originalScope.cacheKey)
+            assertEquals("$checkout/README.md", safePreviewPath("$checkout/README.md", movedScope.workingDirectory))
+            assertEquals(null, safePreviewPath("$original/README.md", movedScope.workingDirectory))
         } finally {
             val scope = SessionStore::class.java.getDeclaredField("scope").apply { isAccessible = true }
             (scope.get(store) as CoroutineScope).cancel()

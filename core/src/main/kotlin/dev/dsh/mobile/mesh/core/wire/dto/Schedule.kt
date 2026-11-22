@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * Host-owned automation-task wire types, ported from `packages/schedule/schedule/src/types.ts`
- * (protocol baseline: v0.2.2-rc.1).
+ * (see [dev.dsh.mobile.mesh.core.DshCore.PROTOCOL_BASELINE]).
  *
  * Harness 0.2.2 redesigned the Schedule surface. A catalog row no longer embeds the receiving
  * session id: it carries a delivery [ScheduleTarget], the sessions involved in the task, a

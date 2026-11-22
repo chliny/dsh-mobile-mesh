@@ -26,49 +26,52 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
+import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
+import dev.dsh.mobile.mesh.data.WORKING_DIRECTORY_PROJECTION
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonPrimitive
 
-internal fun safePreviewPath(path: String, cwd: String?): String? {
-    val clean = path.replace('\\', '/')
-    if (clean.isEmpty()) return null
-    val root = cwd?.replace('\\', '/')?.let { value ->
-        if (value == "/" || value.matches(Regex("^[A-Za-z]:/$"))) value else value.trimEnd('/')
-    }
-    val isWindowsRoot = root?.matches(Regex("^[A-Za-z]:/.*")) == true
-    val insideRoot = !root.isNullOrEmpty() && clean.startsWith(root, ignoreCase = isWindowsRoot) &&
-        (clean.length == root.length || root.endsWith('/') || clean[root.length] == '/')
-    if (clean.startsWith('/') || clean.matches(Regex("^[A-Za-z]:/.*"))) {
-        if (!root.isNullOrEmpty() && !insideRoot) return null
-    }
-    val relative = if (insideRoot) clean.substring(root!!.length).trimStart('/') else clean.trimStart('/')
-    return relative.takeIf { it.isNotEmpty() && it != "." && !hasUnsafePreviewSegment(it) }
+private fun isAbsolutePreviewPath(path: String): Boolean = path.startsWith('/') || path.matches(Regex("^[A-Za-z]:/.*"))
+
+private fun cleanPreviewPath(path: String): String? = path.replace('\\', '/').takeIf { clean ->
+    clean.isNotEmpty() && clean != "." && !clean.startsWith("//") &&
+        clean.none { it.isISOControl() } && clean.split('/').none { it == ".." }
 }
 
-private fun hasUnsafePreviewSegment(path: String): Boolean =
-    path.split('/').any { it == ".." }
+internal fun safePreviewPath(path: String, cwd: String?): String? {
+    val clean = cleanPreviewPath(path) ?: return null
+    if (!isAbsolutePreviewPath(clean)) return clean
+    val root = cwd?.replace('\\', '/')?.let { value ->
+        if (value == "/" || value.matches(Regex("^[A-Za-z]:/$"))) value else value.trimEnd('/')
+    }?.takeIf { it.isNotEmpty() } ?: return null
+    val isWindowsRoot = root.matches(Regex("^[A-Za-z]:/.*"))
+    if (!clean.startsWith(root, ignoreCase = isWindowsRoot) ||
+        clean.length <= root.length || (!root.endsWith('/') && clean[root.length] != '/')) return null
+    // Old Hosts may report a moved working directory but still resolve relative file paths
+    // from the original header directory. Preserve explicit paths and let the Host read them.
+    return clean
+}
 
-/** The workspace-files API is workspace-relative; `.` is the only valid root request. */
-internal fun workspaceFilesRootPath(sessionCwd: String?, workspacePath: String?): String = "."
+/** A selected Session's file requests must not share a cache with a different checkout. */
+internal data class SessionFileScope(val sessionId: String, val workingDirectory: String?) {
+    val cacheKey: String get() = "session:${sessionId.length}:$sessionId:${workingDirectory.orEmpty()}"
+}
 
-internal fun workspaceFilesScopeSessionId(
-    currentSessionId: String,
-    workspaceSessionIds: List<String>?,
-    sessions: List<dev.dsh.mobile.mesh.data.SessionRow>,
-    workspacePath: String?,
-): String {
-    val candidates = workspaceSessionIds.orEmpty()
-        .asSequence()
-        .mapNotNull { id -> sessions.firstOrNull { it.sessionId == id } }
-        .filter { !it.cwd.isNullOrBlank() }
-    val normalizedWorkspace = workspacePath?.trim()?.trimEnd('/', '\\')
-    return candidates.firstOrNull { row ->
-        row.sessionId != currentSessionId &&
-            normalizedWorkspace != null && row.cwd?.trim()?.trimEnd('/', '\\') == normalizedWorkspace
-    }?.sessionId
-        ?: candidates.firstOrNull { it.sessionId == currentSessionId }?.sessionId
-        ?: candidates.firstOrNull()?.sessionId
-        ?: currentSessionId
+internal fun sessionFileScope(
+    sessionId: String,
+    conversation: ConversationSnapshot?,
+    originalDirectory: String?,
+): SessionFileScope {
+    // The baseline/control value is an absolute path or null. Only absence permits a
+    // legacy fallback; null means the Host has no recorded directory for this Session.
+    val directory = conversationForSelectedSession(conversation, sessionId)?.projections?.get(WORKING_DIRECTORY_PROJECTION)
+    val workingDirectory = when (directory) {
+        null -> originalDirectory
+        is JsonPrimitive -> directory.content.takeIf { directory.isString && it.isNotBlank() }
+        else -> null
+    }
+    return SessionFileScope(sessionId, workingDirectory)
 }
 
 private sealed interface MainPage {
@@ -96,6 +99,7 @@ internal data class MainPageRoute(
     val added: Int = 0,
     val deleted: Int = 0,
     val line: Int? = null,
+    val sessionId: String? = null,
 ) : java.io.Serializable
 
 private fun MainPage.toRoute(): MainPageRoute = when (this) {
@@ -149,10 +153,6 @@ internal fun MainScreen(
 ) {
     var savedPageRoute by rememberSaveable { mutableStateOf(MainPageRoute()) }
     var page by remember(savedPageRoute) { mutableStateOf(savedPageRoute.toPage()) }
-    fun navigate(next: MainPage) {
-        page = next
-        savedPageRoute = next.toRoute()
-    }
 
     var detailsOpen by remember { mutableStateOf(false) }
     var subagentParentSessionId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -164,43 +164,39 @@ internal fun MainScreen(
     val terminalAvailable by connectionManager.terminalAvailable.collectAsStateWithLifecycle()
     val navigationState = dev.dsh.mobile.mesh.ui.rememberAppNavigationState()
     val sessionId by store.currentSessionId.collectAsStateWithLifecycle()
+    fun navigate(next: MainPage) {
+        page = next
+        savedPageRoute = next.toRoute().copy(sessionId = sessionId.takeUnless { next == MainPage.Chat })
+    }
     val visibleChatSessionId = sessionId.takeIf { page == MainPage.Chat }
     DisposableEffect(navigationState, visibleChatSessionId) {
         navigationState.setVisibleChatSession(visibleChatSessionId)
         onDispose { navigationState.setVisibleChatSession(null) }
     }
     val sessions by store.sessions.collectAsStateWithLifecycle()
-    val workspaces by store.workspaces.collectAsStateWithLifecycle()
-    val currentWorkspace = sessionId?.let { sid -> workspaces.firstOrNull { sid in it.sessionIds } }
-    val workspaceKey = currentWorkspace?.workspaceId ?: sessionId?.let { "session:$it" }
-    val scopeSessionId = sessionId?.let { sid ->
-        workspaceFilesScopeSessionId(sid, currentWorkspace?.sessionIds, sessions, currentWorkspace?.path)
+    val conversation by store.currentConversation.collectAsStateWithLifecycle()
+    val fileScope = sessionId?.let { sid ->
+        sessionFileScope(sid, conversation, sessions.firstOrNull { it.sessionId == sid }?.cwd)
     }
-    val currentSession = sessions.firstOrNull { it.sessionId == sessionId }
-    val currentCwd = currentSession?.cwd
-    val currentWorkspacePath = workspaces.firstOrNull { sessionId != null && sessionId in it.sessionIds }?.path
-    val rootPath = workspaceFilesRootPath(currentCwd, currentWorkspacePath)
-    // The files API accepts `.` as the workspace root; never pass a blank session cwd through the UI.
-    val rootDirectoryName = (currentCwd ?: currentWorkspacePath)
-        ?.trimEnd('/')
-        ?.substringAfterLast('/')
-        ?.takeIf { it.isNotBlank() }
+    val currentCwd = fileScope?.workingDirectory
+    val rootDirectoryName = currentCwd?.let(::basename)?.takeIf { it.isNotBlank() }
     if (page != MainPage.Chat) {
-        val sid = sessionId
-        if (sid == null) {
+        if (fileScope == null || savedPageRoute.sessionId != fileScope.sessionId) {
+            // A saved relative path must never be reinterpreted in a newly selected Session.
             navigate(MainPage.Chat)
         } else {
+            val sid = fileScope.sessionId
             when (val current = page) {
                 MainPage.Terminal -> TerminalScreen(sessionId = sid, onBack = { navigate(MainPage.Chat) })
                 is MainPage.Files -> WorkspaceFilesScreen(
-                    workspaceKey = workspaceKey ?: "session:$sid",
-                    sessionId = scopeSessionId ?: sid,
+                    workspaceKey = fileScope.cacheKey,
+                    sessionId = sid,
                     initialPath = current.path,
                     rootPath = current.rootPath,
-                    rootTitle = current.rootTitle,
+                    rootTitle = rootDirectoryName,
                     onBack = { navigate(MainPage.Chat) },
                     onOpenFile = { path, title, parentPath ->
-                        safePreviewPath(path, sessions.firstOrNull { it.sessionId == sid }?.cwd)?.let { safePath ->
+                        safePreviewPath(path, currentCwd)?.let { safePath ->
                             navigate(MainPage.Preview(
                                 safePath,
                                 title,
@@ -210,14 +206,14 @@ internal fun MainScreen(
                     },
                 )
                 is MainPage.Preview -> FilePreviewScreen(
-                    workspaceKey = workspaceKey ?: "session:$sid",
+                    workspaceKey = fileScope.cacheKey,
                     sessionId = sid,
                     path = current.path,
                     title = current.title,
                     line = current.line,
                     onBack = { navigate(current.returnPage) },
                     onOpenFile = { linkedPath, linkedTitle, line ->
-                        val safePath = safePreviewPath(linkedPath, sessions.firstOrNull { it.sessionId == sid }?.cwd)
+                        val safePath = safePreviewPath(linkedPath, currentCwd)
                         if (safePath != null) navigate(MainPage.Preview(safePath, linkedTitle, current, line))
                     },
                 )
@@ -320,18 +316,23 @@ internal fun MainScreen(
                     }
                 },
                 terminalAvailable = terminalAvailable,
+                fileScope = fileScope,
                 onOpenTerminal = { navigate(MainPage.Terminal) },
-                onOpenFiles = {
-                    navigate(MainPage.Files(path = rootPath, rootTitle = rootDirectoryName, rootPath = rootPath))
-                },
+                onOpenFiles = { navigate(MainPage.Files()) },
                 onOpenFile = { path, title ->
-                    safePreviewPath(path, sessions.firstOrNull { it.sessionId == sessionId }?.cwd)?.let { safePath ->
+                    safePreviewPath(path, currentCwd)?.let { safePath ->
                         navigate(MainPage.Preview(safePath, title, MainPage.Chat))
                     }
                 },
                 onOpenFileAtLine = { path, title, line ->
-                    safePreviewPath(path, sessions.firstOrNull { it.sessionId == sessionId }?.cwd)?.let { safePath ->
+                    safePreviewPath(path, currentCwd)?.let { safePath ->
                         navigate(MainPage.Preview(safePath, title, MainPage.Chat, line))
+                    }
+                },
+                onOpenChangedFile = { hostPath, title ->
+                    // Unlike user/model links, this absolute address comes from a Host change record.
+                    cleanPreviewPath(hostPath)?.takeIf(::isAbsolutePreviewPath)?.let { path ->
+                        navigate(MainPage.Preview(path, title, MainPage.Chat))
                     }
                 },
                 onOpenChangedDiff = { seq, index, path, title, added, deleted ->

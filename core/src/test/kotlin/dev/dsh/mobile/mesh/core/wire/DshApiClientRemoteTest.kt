@@ -223,7 +223,20 @@ class DshApiClientRemoteTest {
 
         assertEquals("/api/changes.summary?sessionId=session%2F7&seq=42", transport.lastDownloadPath)
         assertEquals(3, (result as RpcResult.Ok).value.turn)
-        assertEquals("src/A.kt", result.value.files.single().path)
+        assertEquals("src/A.kt", result.value.previewPath(result.value.files.single()))
+    }
+
+    @Test
+    fun `historical changes preview the original file after the working directory moves`() = runTest {
+        val transport = RecordingTransport { _, _ -> error("not used") }
+        val api = client(transport)
+        transport.rawBody = """{"turn":3,"cwd":"/project/first","files":[{"path":"src/A.kt","display":"src/A.kt","added":2,"deleted":1}],"total":1,"added":2,"deleted":1}"""
+        val beforeMove = (api.changesSummary("session-7", 42) as RpcResult.Ok).value
+        transport.rawBody = """{"turn":4,"cwd":"/project/second","files":[{"path":"src/A.kt","display":"src/A.kt","added":2,"deleted":1}],"total":1,"added":2,"deleted":1}"""
+        val afterMove = (api.changesSummary("session-7", 53) as RpcResult.Ok).value
+
+        assertEquals("/project/first/src/A.kt", beforeMove.previewPath(beforeMove.files.single()))
+        assertEquals("/project/second/src/A.kt", afterMove.previewPath(afterMove.files.single()))
     }
 
     @Test

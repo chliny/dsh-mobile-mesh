@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonElement
 
 /**
  * Shapes carried by the host's live state, ported from `packages/api/session-controller`
- * and `packages/interaction/user-questions` (protocol baseline: v0.2.2-rc.1).
+ * and `packages/interaction/user-questions` (see [dev.dsh.mobile.mesh.core.DshCore.PROTOCOL_BASELINE]).
  *
  * This file used to hold the two downlink frame unions as well. Harness 0.1.2 deleted both
  * sockets they belonged to: session queue, jobs and projections now arrive as

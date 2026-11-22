@@ -19,7 +19,7 @@ import kotlinx.serialization.json.JsonPrimitive
 /**
  * Sessions-domain DTOs, ported from `packages/api/session-controller/src/types.ts`,
  * `packages/attachment/attachment/src/types.ts` and `packages/client/file-upload/src/types.ts`
- * (protocol baseline: v0.2.2-rc.1). Includes the request/response values of the `session` namespace methods
+ * (see [dev.dsh.mobile.mesh.core.DshCore.PROTOCOL_BASELINE]). Includes the request/response values of the `session` namespace methods
  * (list/search/create/rename/fork/selectModel/prompt/attachment/updateQueue/cancel), the
  * model-catalog shapes (including the 0.2.2 model badge), and the image and file attachment shapes.
  */

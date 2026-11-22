@@ -70,6 +70,24 @@ class TerminalAttachmentInputTest {
         assertEquals(1, stream.sent.size)
     }
 
+    @Test fun `agent controlled terminal sends no input until the Host reports user control`() = runTest {
+        val stream = Stream()
+        val input = TerminalAttachmentInput(stream)
+        // A writable attachment is not the same as permission to send to the agent's PTY.
+        input.snapshot(true, null, control = "agent")
+        val blocked = async { runCatching { input.write("\u001b[0n") }.exceptionOrNull() }
+        testScheduler.runCurrent()
+        assertTrue(stream.sent.isEmpty())
+        assertTrue(blocked.await() is IllegalStateException)
+
+        input.state(true, control = "user")
+        val command = async { input.write("hello") }
+        testScheduler.runCurrent()
+        assertEquals(JsonPrimitive("hello"), stream.sent.single().jsonObject["data"])
+        input.acknowledge(1, null)
+        command.await()
+    }
+
     @Test fun `encoded command larger than carrier window is not sent`() = runTest {
         val stream = Stream()
         val input = TerminalAttachmentInput(stream)

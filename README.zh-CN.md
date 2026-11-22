@@ -32,7 +32,9 @@ DeepSeek Harness 可以在主机上执行命令和读写文件。请优先使用
 
 ## 兼容版本与协议基线
 
-Android App 协议 DTO 基线跟踪 DeepSeek Harness `v0.2.2-rc.1`（提交 `66491b05e3`）。线协议类型同时对照了上游 `master` 的 `fcc0ad4621`（该发布之后另有 811 个提交，本身不是发布版本）；若该分支已经改动了 App 调用的形状，App 会同时保留新旧两种形态。设置页与连接详情面板显示的协议基线为 `v0.2.2-rc.1` 发布版本。连接时通过现有只读 `session/list` 和 `session/projections` 探测接口，并缓存观测到的能力供自动重连使用；不会根据服务器版本字符串推断能力。没有 projection 接口的旧 Host 仍走旧版 subagent API。
+设置页和连接详情显示的 Android 协议基线是 DeepSeek Harness `v0.2.3-alpha.2`（提交 `4b399c39a6`）。App 读取 `pluginManager/listBundles` 返回的 `update: registry` 或旧版 `updatable` 标志来决定是否提供版本选择；Git 安装的包不走这个流程。连接时通过现有只读 `session/list` 和 `session/projections` 探测接口，并缓存观测到的能力供自动重连使用；不会根据服务器版本字符串推断能力。没有 projection 接口的旧 Host 仍走旧版 subagent API。Android 可以查看由 Agent 控制的终端，但不会接管；旧 Host 的终端输入仍通过 `terminal/environment` 选择现有的 attach 或 follow 协议。
+
+浏览和预览文件沿用同一个会话作用域。Host 提供该轮目录时，从历史变更打开文件会按该目录定位，切换工作树后也不会误开同名文件。
 
 `v0.2.2-rc.1` 保留了 App 已调用的全部路由，但改动了三处请求/流形状。`session/attachment` 改为接收完整 `ImageAttachmentRef`，不再接受单独的 `attachmentId`；Android 同时发送两个字段，新旧 Host 都会丢弃自己未声明的请求字段，因此图片读取不需要额外能力探测。`session/follow` 只有请求显式设置 `activate` 才会恢复 prepared 的普通会话；Android 始终请求激活，使新 Host 恢复 0.2.2 之前的后台提升行为，旧 Host 会忽略该字段，而子代理 transcript 保持被动。`session/control` 的投影帧可在一个已提交事件中携带多个键变更；App 会把旧版单键帧归一化，两种形状都接受。收窄后的 `session/list` 投影摘要不再重复 `imageLimits` 这类全 Host 共用的值；App 改从 `session/projections` 与控制基线读取，且绝不会把摘要键缺失当作能力缺失。Host 提供的子代理 catalog `name` 会与现有 `label` 一起展示；旧 Host 未提供时维持原有显示。catalog 中的模型 badge 会显示在模型名旁；当前阅读语言缺失时使用 Host 提供的英文文本。启动失败的插件条目会显示 Host 上报的诊断原文。当前会话 `agentTeam` 投影中的 Agent Team 任务板会在详情面板按 Host 顺序展示，包含 Host 计算的就绪状态、写入范围警告，以及更新被拒绝后仅剩最后有效状态时的显著提示；旧 Host 没有该投影时不显示任务板。
 

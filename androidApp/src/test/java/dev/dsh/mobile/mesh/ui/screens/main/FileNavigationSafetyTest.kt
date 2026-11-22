@@ -14,15 +14,15 @@ class FileNavigationSafetyTest {
     }
 
     @Test
-    fun `keeps relative paths and strips the session cwd`() {
+    fun `keeps relative paths without rewriting absolute host addresses`() {
         assertEquals("src/Main.kt", safePreviewPath("src/Main.kt", "/home/me/project"))
-        assertEquals("src/Main.kt", safePreviewPath("/home/me/project/src/Main.kt", "/home/me/project"))
-        assertEquals(" folder / report .md ", safePreviewPath("/home/me/project/ folder / report .md ", "/home/me/project"))
+        assertEquals("/home/me/project/src/Main.kt", safePreviewPath("/home/me/project/src/Main.kt", "/home/me/project"))
+        assertEquals("/home/me/project/ folder / report .md ", safePreviewPath("/home/me/project/ folder / report .md ", "/home/me/project"))
         assertEquals(" ", safePreviewPath(" ", "/home/me/project"))
     }
 
     @Test
-    fun `workspace path click normalizes absolute path before opening`() {
+    fun `workspace path click keeps the absolute address when opening`() {
         var opened: Pair<String, String>? = null
         val context = ChatNodeContext(
             nodes = emptyList(),
@@ -37,12 +37,11 @@ class FileNavigationSafetyTest {
 
         openWorkspacePath(context, "/home/me/project/src/Main.kt", "Main.kt", context.onOpenFile)
 
-        assertEquals("src/Main.kt", opened?.first)
-        assertEquals("Main.kt", opened?.second)
+        assertEquals("/home/me/project/src/Main.kt" to "Main.kt", opened)
         opened = null
         openWorkspacePath(context, "/home/me/project2/secret.txt", "secret.txt", context.onOpenFile)
         assertNull(opened)
         openWorkspacePath(context, "/home/me/project/ report .md ", " report .md ", context.onOpenFile)
-        assertEquals(" report .md " to " report .md ", opened)
+        assertEquals("/home/me/project/ report .md " to " report .md ", opened)
     }
 }

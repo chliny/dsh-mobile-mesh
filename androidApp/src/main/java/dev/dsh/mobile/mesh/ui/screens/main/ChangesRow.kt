@@ -98,8 +98,16 @@ internal fun ChangesRow(node: ChangesNode, context: ChatNodeContext) {
                 expanded.onToggle()
             },
         ) {
-            summary?.files?.forEachIndexed { index, file ->
-                ChangedFileRow(store, sessionId, node.seq, index, file.path, file.display, file.added, file.deleted, context.onOpenFile, onOpenDiff = { context.onOpenChangedDiff?.invoke(node.seq, index, file.path, file.display, file.added, file.deleted) }, disclosure = context.disclosure(DisclosureKeys.changedFile(node.seq, index)))
+            summary?.let { changes ->
+                val openFile = if (changes.cwd.isNullOrEmpty()) context.onOpenFile else context.onOpenChangedFile
+                changes.files.forEachIndexed { index, file ->
+                    ChangedFileRow(
+                        store, sessionId, node.seq, index, file.path, file.display, file.added, file.deleted,
+                        onOpenFile = if (openFile == null) null else { _, title -> openFile(changes.previewPath(file), title) },
+                        onOpenDiff = { context.onOpenChangedDiff?.invoke(node.seq, index, file.path, file.display, file.added, file.deleted) },
+                        disclosure = context.disclosure(DisclosureKeys.changedFile(node.seq, index)),
+                    )
+                }
             }
         }
     }

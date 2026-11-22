@@ -149,6 +149,29 @@ class PluginSettingsWorkflowTest {
         compose.onNodeWithText("An experimental tool from the Host").assertExists()
     }
 
+    @Test fun `registry bundles from both Host generations can open versions but Git bundles cannot`() {
+        val legacy = WireJson.decodeFromString<PluginManagerBundleInfo>(
+            """{"name":"legacy-bundle","official":true,"availability":"profile","enabled":true,"updatable":true}""")
+        val current = WireJson.decodeFromString<PluginManagerBundleInfo>(
+            """{"name":"registry-bundle","official":true,"availability":"profile","enabled":true,"update":"registry"}""")
+        val git = WireJson.decodeFromString<PluginManagerBundleInfo>(
+            """{"name":"git-bundle","official":true,"availability":"profile","enabled":true,"update":"git"}""")
+        val state = MutableStateFlow(PluginManagerUiState(bundles = listOf(git)))
+        val viewModel = Mockito.mock(PluginManagerViewModel::class.java)
+        Mockito.`when`(viewModel.state).thenReturn(state)
+        compose.setContent {
+            DshTheme { PluginManagerScreen(onClose = {}, initialDirectory = PluginDirectory.Experimental, viewModel = viewModel) }
+        }
+
+        compose.onNodeWithText(git.name).assertExists()
+        compose.onNode(hasText("Update") and hasClickAction()).assertDoesNotExist()
+        compose.runOnIdle { state.value = state.value.copy(bundles = listOf(legacy)) }
+        compose.onNode(hasText("Update") and hasClickAction()).assertIsEnabled()
+        compose.runOnIdle { state.value = state.value.copy(bundles = listOf(current)) }
+        compose.onNode(hasText("Update") and hasClickAction()).assertIsEnabled().performClick()
+        Mockito.verify(viewModel).loadVersions(current.name)
+    }
+
     @Test fun `built-in web search switches both providers with the current Host revision`() {
         val settings = WireJson.decodeFromString<SettingsDescribeValue>("""
             {"writable":true,"hasDocument":true,"namespaces":[

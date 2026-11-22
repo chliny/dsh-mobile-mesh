@@ -248,7 +248,7 @@ internal fun PluginManagerScreen(onClose: () -> Unit, initialDirectory: PluginDi
                             val versions = state.versionList.takeIf { state.versionListBundleName == bundle.name }
                             PluginBundleOperations(bundle.name, bundle.version,
                                 bundle.removable && bundle.readOnlyReason == null,
-                                bundle.updatable && bundle.readOnlyReason == null,
+                                bundle.supportsRegistryUpdate && bundle.readOnlyReason == null,
                                 state.busy || state.loading, state.busy && versions == null,
                                 versions?.reason ?: versions?.problem ?: state.error.takeIf {
                                     versions == null && state.versionListBundleName == bundle.name

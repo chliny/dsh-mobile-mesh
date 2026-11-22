@@ -26,7 +26,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Session journal wire types, ported from `packages/api/session-controller/src/types.ts`
- * (protocol baseline: v0.2.2-rc.1).
+ * (see [dev.dsh.mobile.mesh.core.DshCore.PROTOCOL_BASELINE]).
  *
  * Harness 0.1.2 split reading a transcript into a live `session/follow` stream and a
  * `session/page` unary read, and the two are not independent: a page must be pinned to the follow

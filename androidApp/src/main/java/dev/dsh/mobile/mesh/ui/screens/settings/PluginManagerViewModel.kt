@@ -162,7 +162,7 @@ class PluginManagerViewModel @Inject constructor(
     }
 
     fun updateBundle(bundle: PluginManagerBundleInfo, version: String, registry: String? = null) {
-        if (!bundle.updatable || bundle.readOnlyReason != null) return
+        if (!bundle.supportsRegistryUpdate || bundle.readOnlyReason != null) return
         viewModelScope.launch {
             operations.withLock {
                 if (!sameHost()) {

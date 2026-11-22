@@ -103,8 +103,10 @@ internal fun ChatScreen(
     onOpenFiles: () -> Unit = {},
     onOpenTerminal: () -> Unit = {},
     terminalAvailable: Boolean = false,
+    fileScope: SessionFileScope? = null,
     onOpenFile: (String, String) -> Unit = { _, _ -> },
     onOpenFileAtLine: (String, String, Int) -> Unit = { _, _, _ -> },
+    onOpenChangedFile: (String, String) -> Unit = { _, _ -> },
     onOpenChangedDiff: (Long, Int, String, String, Int, Int) -> Unit = { _, _, _, _, _, _ -> },
     onOpenSubagent: (String) -> Unit = {},
 ) {
@@ -272,10 +274,9 @@ internal fun ChatScreen(
 
     val workspaceFiles = rememberWorkspaceFilesStore()
     val fileState by workspaceFiles.state.collectAsStateWithLifecycle()
-    val workspaces by store.workspaces.collectAsStateWithLifecycle()
-    val workspaceKey = currentSessionId?.let { sid ->
-        workspaces.firstOrNull { sid in it.sessionIds }?.workspaceId
-    } ?: currentSessionId?.let { "session:$it" }
+    val selectedFileScope = fileScope?.takeIf { it.sessionId == currentSessionId }
+    val workspaceKey = selectedFileScope?.cacheKey
+    val workingDirectory = selectedFileScope?.workingDirectory
     // The caret can sit before or after unrelated text, so the composer owns the active @ query.
     var mentionQuery by remember(currentSessionId) { mutableStateOf<String?>(null) }
     val currentReferences = fileState.takeIf {
@@ -613,9 +614,10 @@ internal fun ChatScreen(
                 store = store,
                 onOpenFile = onOpenFile,
                 onOpenFileAtLine = onOpenFileAtLine,
+                onOpenChangedFile = onOpenChangedFile,
                 onOpenChangedDiff = onOpenChangedDiff,
                 running = visibleConversation?.running == true,
-                cwd = currentSession?.cwd,
+                cwd = workingDirectory,
                 presentation = transcriptPresentation,
                 onOpenSubagent = onOpenSubagent,
                 onBranchFrom = { seq ->
@@ -662,7 +664,7 @@ internal fun ChatScreen(
                         conversation = visibleConversation,
                         stats = sessionStats,
                         usage = tokenUsage,
-                        cwd = currentSession?.cwd,
+                        cwd = workingDirectory,
                         listState = trajectoryListState,
                         disclosureScope = disclosureScope,
                     )

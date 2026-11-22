@@ -36,6 +36,12 @@ data class WebTerminalInfo(
     @SerialName("exitCode") val exitCode: Int?,
     @SerialName("error") val error: String? = null,
     @SerialName("controllerId") val controllerId: String? = null,
+    /** Who created the terminal; older Hosts omit this field. */
+    @SerialName("origin") val origin: String? = null,
+    /** Host input owner (`agent` or `user`), distinct from the writable attachment. */
+    @SerialName("control") val control: String? = null,
+    /** Agent terminal's launch policy; absent on a user terminal or a legacy Host. */
+    @SerialName("sandboxMode") val sandboxMode: String? = null,
 )
 
 /** Caller-minted identity and initial PTY dimensions for `terminal/create`. */

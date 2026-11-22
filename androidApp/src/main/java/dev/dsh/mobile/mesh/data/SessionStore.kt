@@ -305,6 +305,9 @@ data class ScheduleMutationOutcome(val reload: Boolean, val message: String?)
 internal fun nextHasMore(freshCount: Int, hostHasMore: Boolean, overDelivered: Boolean): Boolean =
     freshCount > 0 && (hostHasMore || overDelivered)
 
+/** Host-projected effective absolute workspace directory, or null when not recorded. */
+internal const val WORKING_DIRECTORY_PROJECTION = "workingDirectory"
+
 internal fun requiresApiPublication(phase: ConnectionPhase, apiPresent: Boolean): Boolean =
     phase == ConnectionPhase.CONNECTED && !apiPresent
 
@@ -2605,11 +2608,11 @@ class SessionStore @Inject constructor(
                     currentHasMore = cachedSnapshot?.hasMore ?: false
                     currentBlank = cachedSnapshot?.blank ?: (sessionRows[sessionId]?.blank ?: true)
                     currentProjections.clear()
-                    cachedSnapshot?.projections?.forEach { (key, value) ->
-                        // A transcript cache does not retain the catalog's actual projection watermark.
-                        // Let follow/control install it instead of inventing a sequence from lastSeq.
-                        if (key != "subagentCatalog") {
-                            currentProjections[key] = ProjectionValue(cachedSnapshot.lastSeq.toInt(), value)
+                    // The transcript cache does not carry projection watermarks. Do not restore
+                    // the catalog or use its cached working directory to authorize/route new reads.
+                    cachedSnapshot?.let { snapshot ->
+                        (snapshot.projections - "subagentCatalog" - WORKING_DIRECTORY_PROJECTION).forEach { (key, value) ->
+                            currentProjections[key] = ProjectionValue(snapshot.lastSeq.toInt(), value)
                         }
                     }
                     currentQueue = queueBySession[sessionId] ?: cachedSnapshot?.queue ?: emptyList()
@@ -2628,7 +2631,10 @@ class SessionStore @Inject constructor(
                     // previous session's fold or a transient null while the follow stream opens.
                     publishSelectedConversation(
                         _currentSessionId, _currentConversation, sessionId,
-                        cachedSnapshot?.copy(queue = currentQueue),
+                        cachedSnapshot?.copy(
+                            queue = currentQueue,
+                            projections = cachedSnapshot.projections - WORKING_DIRECTORY_PROJECTION,
+                        ),
                     )
                 } else {
                     _currentSessionId.value = sessionId

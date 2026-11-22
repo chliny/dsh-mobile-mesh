@@ -157,6 +157,8 @@ internal data class ChatNodeContext(
     val home: String? = null,
     val onOpenFile: ((String, String) -> Unit)? = null,
     val onOpenFileAtLine: ((String, String, Int) -> Unit)? = null,
+    /** Preview only an absolute address supplied by a Host change record, not Markdown links. */
+    val onOpenChangedFile: ((String, String) -> Unit)? = null,
     val onOpenChangedDiff: ((Long, Int, String, String, Int, Int) -> Unit)? = null,
     val onOpenSubagent: (String) -> Unit,
     val onBranchFrom: (Long) -> Unit,
@@ -495,7 +497,8 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
     val workspaceFiles = rememberWorkspaceFilesStore()
     val connectionPhase by rememberConnectionManager().state.collectAsStateWithLifecycle()
     val imageResolver: suspend (String) -> String? = remember(workspaceFiles, context.sessionId, context.cwd, connectionPhase.phase) {
-        { source -> context.sessionId?.let { resolveMarkdownImage(source, context.cwd, workspaceFiles, it) } }
+        // The Host resolves relative transcript images against this Session's file root.
+        { source -> context.sessionId?.let { resolveMarkdownImage(source, null, workspaceFiles, it) } }
     }
     // Relative image paths mean different bytes in different workspaces; keep their caches apart.
     val imageCacheScope = remember(context.sessionId, context.cwd) { "${context.sessionId}:${context.cwd}" }

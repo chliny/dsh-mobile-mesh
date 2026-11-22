@@ -21,7 +21,20 @@ data class ChangesSummary(
     val total: Int,
     val added: Int,
     val deleted: Int,
-)
+    /** Host working directory at turn start, not the session's current workspace root. */
+    val cwd: String? = null,
+) {
+    /** Keep absolute paths intact; old Hosts that omit cwd still resolve relative previews. */
+    fun previewPath(file: ChangedFile): String {
+        val path = file.path
+        val directory = cwd?.takeUnless(String::isEmpty) ?: return path
+        if (path.startsWith('/') || path.startsWith("\\\\") || Regex("^[A-Za-z]:[/\\\\]").containsMatchIn(path)) {
+            return path
+        }
+        val base = if (directory.startsWith('/')) directory.trimEnd('/') else directory.trimEnd('/', '\\')
+        return "$base/${path.removePrefix("./")}"
+    }
+}
 
 /** One unified-diff hunk. */
 @Serializable

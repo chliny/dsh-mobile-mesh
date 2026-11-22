@@ -77,12 +77,18 @@ data class PluginManagerBundleInfo(
     val installed: Boolean = false,
     val optional: Boolean = false,
     val removable: Boolean = false,
+    /** Legacy Hosts report registry update support with this flag. */
     val updatable: Boolean = false,
+    /** Newer Hosts report `registry` or `git`; only registry packages have a version list. */
+    val update: String? = null,
     val readOnlyReason: String? = null,
     val error: PluginManagerManagementError? = null,
     val rows: List<PluginManagerBundleRow> = emptyList(),
     val overrides: List<String> = emptyList(),
-)
+) {
+    val supportsRegistryUpdate: Boolean
+        get() = update?.let { it == "registry" } ?: updatable
+}
 
 @Serializable
 data class PluginManagerBundleRow(

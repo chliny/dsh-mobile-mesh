@@ -26,12 +26,11 @@ import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Subagents-domain DTOs, ported from `packages/subagent/subagent/src/control-types.ts` and
- * `packages/subagent/subagent/src/types.ts` (protocol baseline: v0.2.2-rc.1).
+ * `packages/subagent/subagent/src/types.ts` (see [dev.dsh.mobile.mesh.core.DshCore.PROTOCOL_BASELINE]).
  *
- * Two adjacent changes are handled by the client rather than these types: unreleased upstream
- * `master` renamed the interrupt route to `subagents/interruptByUser` (see `DshApiClient`), and
+ * Newer Hosts use the `subagents/interruptByUser` route (see `DshApiClient`), and
  * the prompt request dropped `parentSessionId`/`mode`, which current Hosts discard as undeclared
- * members — the client keeps sending them so older Hosts still read the released shape.
+ * members; the client still sends them for older Hosts.
  */
 
 /**
