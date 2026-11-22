@@ -240,13 +240,13 @@ fun SettingsScreen(
                 }
 
                 SettingsCard(stringResource(R.string.settings_connection)) {
+                    ConnectionSection(connectionState, onDisconnect = { showDisconnectDialog = true })
                     DsButton(
                         text = stringResource(R.string.settings_open_connection),
                         onClick = onOpenConnections,
                         variant = DsButtonVariant.Outline,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    ConnectionSection(connectionState, onDisconnect = { showDisconnectDialog = true })
                     DsButton(
                         text = stringResource(R.string.settings_connections_export),
                         onClick = { exportLauncher.launch("dsh-connections.json") },
