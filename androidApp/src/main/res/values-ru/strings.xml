@@ -577,7 +577,6 @@
     <string name="host_models_endpoint">Адрес API</string>
     <string name="host_models_protocol">Протокол API</string>
     <string name="host_models_discover">Найти модели</string>
-    <string name="host_models_use_selected">Использовать выбранные модели</string>
     <string name="host_models_catalog">Каталог моделей</string>
     <string name="host_models_move_up">Переместить выше</string>
     <string name="host_models_move_down">Переместить ниже</string>

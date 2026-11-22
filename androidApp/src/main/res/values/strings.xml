@@ -706,7 +706,6 @@
     <string name="host_models_endpoint">API address</string>
     <string name="host_models_protocol">API protocol</string>
     <string name="host_models_discover">Discover models</string>
-    <string name="host_models_use_selected">Use selected models</string>
     <string name="host_models_catalog">Model catalog</string>
     <string name="host_models_move_up">Move up</string>
     <string name="host_models_move_down">Move down</string>

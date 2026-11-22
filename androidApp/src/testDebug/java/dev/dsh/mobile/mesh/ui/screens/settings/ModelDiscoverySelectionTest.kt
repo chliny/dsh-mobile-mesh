@@ -2,15 +2,17 @@ package dev.dsh.mobile.mesh.ui.screens.settings
 
 import android.app.Application
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import dev.dsh.mobile.mesh.core.wire.dto.CredentialInfo
@@ -34,39 +36,49 @@ import org.robolectric.annotation.Config
 class ModelDiscoverySelectionTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun `discovery without catalog matches starts with no models selected`() {
-        discoverModels()
+    @Test fun `checking a discovered model adds it immediately and unchecking removes it`() {
+        val (viewModel, state) = openProvider()
+        discoverModels(state, LlmDiscoveredModel("first"), LlmDiscoveredModel("second"))
 
-        val useSelected = compose.onNodeWithText("Use selected models")
-        useSelected.assertIsNotEnabled()
-        compose.onNodeWithText("Select all models").assertIsOff().performScrollTo().performClick()
-        useSelected.assertIsEnabled()
-        compose.onNodeWithText("Deselect all models").assertIsOn().performClick()
-        useSelected.assertIsNotEnabled()
-    }
-
-    @Test fun `applying discovered models without changing selection keeps only existing matches`() {
-        discoverModels(catalog = """[{"id":"first","name":"Existing model"}]""")
-
-        compose.onNodeWithText("Use selected models").assertIsEnabled().performScrollTo().performClick()
-        compose.onNodeWithText("Existing model").assertExists()
-        compose.onNodeWithText("second").assertDoesNotExist()
-    }
-
-    @Test fun `applying discovery follows the returned order for old and new models`() {
-        val (viewModel, state) = openProvider(catalog = """
-            [{"id":"second","name":"Priority model"},{"id":"first","name":"Fallback model"},{"id":"retired"}]
-        """.trimIndent())
-        discoverModels(state, LlmDiscoveredModel("new"), LlmDiscoveredModel("first"), LlmDiscoveredModel("second"))
-        compose.onNodeWithText("Select all models").performScrollTo().performClick()
-        compose.onNodeWithText("Use selected models").performClick()
+        discoveryRow("first").assertIsOff().performScrollTo().performSemanticsAction(SemanticsActions.OnClick)
+        discoveryRow("second").assertIsOff().performSemanticsAction(SemanticsActions.OnClick)
+        discoveryRow("first").assertIsOn().performSemanticsAction(SemanticsActions.OnClick)
+        discoveryRow("first").assertIsOff()
         compose.onNodeWithText("Save").performClick()
 
         val row = state.value.providers.single()
         Mockito.verify(viewModel).saveProvider(requireNotNull(row.namespace), row, "example", mapOf(
-            "models" to Json.parseToJsonElement("""
-                [{"id":"new"},{"id":"first","name":"Fallback model"},{"id":"second","name":"Priority model"}]
-            """.trimIndent()),
+            "models" to Json.parseToJsonElement("""[{"id":"second"}]"""),
+        ), null)
+    }
+
+    @Test fun `select all adds the full discovery and deselect all removes it again`() {
+        val (viewModel, state) = openProvider(catalog = """[{"id":"first","name":"Existing model"}]""")
+        discoverModels(state, LlmDiscoveredModel("first"), LlmDiscoveredModel("second"))
+
+        compose.onNodeWithText("Select all models").performScrollTo().performClick()
+        compose.onNodeWithText("Deselect all models").assertIsOn().performClick()
+        compose.onNodeWithText("Select all models").assertIsOff().performClick()
+        compose.onNodeWithText("Save").performClick()
+
+        val row = state.value.providers.single()
+        Mockito.verify(viewModel).saveProvider(requireNotNull(row.namespace), row, "example", mapOf(
+            "models" to Json.parseToJsonElement("""[{"id":"first"},{"id":"second"}]"""),
+        ), null)
+    }
+
+    @Test fun `deselect all removes every discovered model from the catalog`() {
+        val (viewModel, state) = openProvider(catalog = """
+            [{"id":"second","name":"Second model"},{"id":"first","name":"First model"}]
+        """.trimIndent())
+        discoverModels(state, LlmDiscoveredModel("first"), LlmDiscoveredModel("second"))
+
+        compose.onNodeWithText("Deselect all models").assertIsOn().performScrollTo().performClick()
+        compose.onNodeWithText("Save").performClick()
+
+        val row = state.value.providers.single()
+        Mockito.verify(viewModel).saveProvider(requireNotNull(row.namespace), row, "example", mapOf(
+            "models" to Json.parseToJsonElement("[]"),
         ), null)
     }
 
@@ -107,10 +119,9 @@ class ModelDiscoverySelectionTest {
         ), null)
     }
 
-    private fun discoverModels(catalog: String = "[]") {
-        val (_, state) = openProvider(catalog)
-        discoverModels(state, LlmDiscoveredModel("first"), LlmDiscoveredModel("second"))
-    }
+    // The provider dialog is taller than Robolectric's default screen, so its inner scroll viewport
+    // cannot be touch-probed there; activating the row's own click action exercises the same path.
+    private fun discoveryRow(id: String) = compose.onNode(hasText(id) and isToggleable())
 
     private fun discoverModels(state: MutableStateFlow<HostModelsState>, vararg results: LlmDiscoveredModel) {
         compose.onNodeWithText("Discover models").performClick()

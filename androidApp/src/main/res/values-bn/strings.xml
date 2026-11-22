@@ -577,7 +577,6 @@
     <string name="host_models_endpoint">API ঠিকানা</string>
     <string name="host_models_protocol">API প্রোটোকল</string>
     <string name="host_models_discover">মডেল খুঁজুন</string>
-    <string name="host_models_use_selected">নির্বাচিত মডেল ব্যবহার করুন</string>
     <string name="host_models_catalog">মডেল তালিকা</string>
     <string name="host_models_move_up">উপরে সরান</string>
     <string name="host_models_move_down">নিচে সরান</string>

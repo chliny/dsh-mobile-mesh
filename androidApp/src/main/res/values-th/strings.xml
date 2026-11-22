@@ -577,7 +577,6 @@
     <string name="host_models_endpoint">ที่อยู่ API</string>
     <string name="host_models_protocol">โปรโตคอล API</string>
     <string name="host_models_discover">ค้นหาโมเดลที่ใช้ได้</string>
-    <string name="host_models_use_selected">ใช้โมเดลที่เลือก</string>
     <string name="host_models_catalog">แคตตาล็อกโมเดล</string>
     <string name="host_models_move_up">เลื่อนขึ้น</string>
     <string name="host_models_move_down">เลื่อนลง</string>

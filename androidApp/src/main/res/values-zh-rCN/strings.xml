@@ -643,7 +643,6 @@
     <string name="host_models_endpoint">API 地址</string>
     <string name="host_models_protocol">API 协议</string>
     <string name="host_models_discover">获取可用模型</string>
-    <string name="host_models_use_selected">使用所选模型</string>
     <string name="host_models_catalog">模型目录</string>
     <string name="host_models_move_up">上移</string>
     <string name="host_models_move_down">下移</string>

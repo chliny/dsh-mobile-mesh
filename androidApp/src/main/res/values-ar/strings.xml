@@ -577,7 +577,6 @@
     <string name="host_models_endpoint">عنوان API</string>
     <string name="host_models_protocol">بروتوكول API</string>
     <string name="host_models_discover">اكتشاف النماذج</string>
-    <string name="host_models_use_selected">استخدام النماذج المحددة</string>
     <string name="host_models_catalog">دليل النماذج</string>
     <string name="host_models_move_up">نقل لأعلى</string>
     <string name="host_models_move_down">نقل لأسفل</string>

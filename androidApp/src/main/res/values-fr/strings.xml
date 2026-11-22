@@ -579,7 +579,6 @@
     <string name="host_models_endpoint">Adresse de l’API</string>
     <string name="host_models_protocol">Protocole de l’API</string>
     <string name="host_models_discover">Découvrir les modèles</string>
-    <string name="host_models_use_selected">Utiliser les modèles sélectionnés</string>
     <string name="host_models_catalog">Catalogue de modèles</string>
     <string name="host_models_move_up">Monter</string>
     <string name="host_models_move_down">Descendre</string>

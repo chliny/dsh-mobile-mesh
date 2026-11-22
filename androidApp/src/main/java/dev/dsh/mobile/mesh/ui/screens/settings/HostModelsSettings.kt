@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.selection.triStateToggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -194,11 +195,6 @@ private fun ProviderSettingsEditor(namespace: SettingsNamespaceView, row: HostMo
     var models by remember(namespace, row) {
         mutableStateOf(((row?.profile?.get("models") as? JsonArray) ?: defaultModels).orEmpty().filterIsInstance<JsonObject>())
     }
-    var discoveryAttempt by remember(namespace, row) { mutableStateOf(0) }
-    var selection by remember(namespace, row, discoveryAttempt, discovered) {
-        val catalogIds = models.mapNotNull { it.modelString("id") }.toSet()
-        mutableStateOf(discovered.orEmpty().mapNotNull { it.id.takeIf(catalogIds::contains) }.toSet())
-    }
     var search by remember(discovered) { mutableStateOf("") }
     var showDiscovery by remember(namespace, row) { mutableStateOf(false) }
     var editIndex by remember(namespace, row) { mutableStateOf<Int?>(null) }
@@ -241,7 +237,6 @@ private fun ProviderSettingsEditor(namespace: SettingsNamespaceView, row: HostMo
                 }
                 OutlinedButton(onClick = {
                     showDiscovery = true
-                    discoveryAttempt++
                     viewModel.clearDiscovery()
                     viewModel.discover(namespace, row, effectiveEndpoint.takeIf { it.isNotBlank() },
                         protocol.takeIf { it.isNotBlank() }, key.trim().takeIf { it.isNotEmpty() })
@@ -251,39 +246,51 @@ private fun ProviderSettingsEditor(namespace: SettingsNamespaceView, row: HostMo
                 if (showDiscovery && discovered != null) {
                     if (discovered.isEmpty()) Text(stringResource(R.string.common_none))
                     else {
-                        val allSelected = discovered.all { it.id in selection }
+                        // Selecting a discovered model edits the provider catalog directly: a check
+                        // adds it and an uncheck removes it, so no separate apply step is needed.
+                        val catalogIds = models.mapNotNull { it.modelString("id") }.toSet()
+                        val discoveredIds = discovered.mapTo(mutableSetOf()) { it.id }
+                        val allSelected = discovered.all { it.id in catalogIds }
                         val checkState = when {
                             allSelected -> ToggleableState.On
-                            selection.isEmpty() -> ToggleableState.Off
+                            discovered.none { it.id in catalogIds } -> ToggleableState.Off
                             else -> ToggleableState.Indeterminate
                         }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DsSpacing.small),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Row(Modifier.weight(1f).triStateToggleable(
-                                state = checkState, enabled = enabled, role = Role.Checkbox,
-                                onClick = { selection = if (allSelected) emptySet() else discovered.mapTo(mutableSetOf()) { it.id } },
-                            ).heightIn(min = DsSpacing.touchTarget), verticalAlignment = Alignment.CenterVertically) {
-                                TriStateCheckbox(state = checkState, onClick = null, enabled = enabled)
-                                Text(stringResource(if (allSelected) R.string.host_models_deselect_all else R.string.host_models_select_all),
-                                    Modifier.padding(start = DsSpacing.tiny), style = DsType.small13)
+                        fun setDiscoveredEnabled(value: Boolean) {
+                            models = if (value) {
+                                models + discovered.filter { it.id !in catalogIds }.map { it.toSettings(modalityField) }
+                            } else {
+                                models.filterNot { it.modelString("id") in discoveredIds }
                             }
-                            ModelProviderAction(R.string.host_models_use_selected, enabled && selection.isNotEmpty(), Modifier.weight(1f)) {
-                                val prior = models.associateBy { it.modelString("id") }
-                                models = discovered.filter { it.id in selection }
-                                    .map { prior[it.id] ?: it.toSettings(modalityField) }
-                                modelsOverride = true
-                                showDiscovery = false
-                            }
+                            modelsOverride = true
+                        }
+                        Row(Modifier.fillMaxWidth().triStateToggleable(
+                            state = checkState, enabled = enabled, role = Role.Checkbox,
+                            onClick = { setDiscoveredEnabled(!allSelected) },
+                        ).heightIn(min = DsSpacing.touchTarget), verticalAlignment = Alignment.CenterVertically) {
+                            TriStateCheckbox(state = checkState, onClick = null, enabled = enabled)
+                            Text(stringResource(if (allSelected) R.string.host_models_deselect_all else R.string.host_models_select_all),
+                                Modifier.padding(start = DsSpacing.tiny), style = DsType.small13)
                         }
                         ModelTextField(R.string.common_search, search, enabled) { search = it }
                         Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
                             discovered.filter { it.id.contains(search, ignoreCase = true) || it.name?.contains(search, ignoreCase = true) == true }
-                                .forEach { model -> Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(checked = model.id in selection, onCheckedChange = {
-                                        selection = if (it) selection + model.id else selection - model.id
-                                    }, enabled = enabled)
-                                    Text(model.name ?: model.id, style = DsType.std14)
-                                } }
+                                .forEach { model ->
+                                    val selected = model.id in catalogIds
+                                    Row(Modifier.fillMaxWidth()
+                                        .toggleable(value = selected, enabled = enabled, role = Role.Checkbox) { checked ->
+                                            models = when {
+                                                checked && !selected -> models + model.toSettings(modalityField)
+                                                !checked -> models.filterNot { it.modelString("id") == model.id }
+                                                else -> models
+                                            }
+                                            modelsOverride = true
+                                        }
+                                        .heightIn(min = DsSpacing.touchTarget), verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(checked = selected, onCheckedChange = null, enabled = enabled)
+                                        Text(model.name ?: model.id, style = DsType.std14)
+                                    }
+                                }
                         }
                     }
                 }
@@ -299,11 +306,16 @@ private fun ProviderSettingsEditor(namespace: SettingsNamespaceView, row: HostMo
                         modelsOverride = true
                     },
                 )
-                TextButton(onClick = { editIndex = models.size }, enabled = enabled) { Text(stringResource(R.string.host_models_add_model)) }
-                if (row != null && modelsOverride && (!custom || !defaultModels.isNullOrEmpty())) TextButton(onClick = {
+                OutlinedButton(onClick = { editIndex = models.size }, enabled = enabled,
+                    modifier = Modifier.fillMaxWidth(), contentPadding = ModelActionPadding) {
+                    Text(stringResource(R.string.host_models_add_model), style = DsType.std14)
+                }
+                if (row != null && modelsOverride && (!custom || !defaultModels.isNullOrEmpty())) OutlinedButton(onClick = {
                     models = defaultModels.orEmpty().filterIsInstance<JsonObject>()
                     modelsOverride = false
-                }, enabled = enabled) { Text(stringResource(R.string.plugins_native_reset)) }
+                }, enabled = enabled, modifier = Modifier.fillMaxWidth(), contentPadding = ModelActionPadding) {
+                    Text(stringResource(R.string.plugins_native_reset), style = DsType.std14)
+                }
             }
         } }, confirmButton = {
             TextButton(enabled = writable && valid, onClick = {
@@ -516,6 +528,8 @@ private fun ModelTextField(label: Int, value: String, enabled: Boolean, placehol
         visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         modifier = Modifier.fillMaxWidth())
 }
+
+private val ModelActionPadding = PaddingValues(horizontal = DsSpacing.comfortable, vertical = DsSpacing.small)
 
 @Composable
 private fun ModelProviderAction(label: Int, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
