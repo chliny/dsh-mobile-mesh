@@ -1,6 +1,9 @@
 package dev.dsh.mobile.mesh.ui.screens.settings
 
 import android.app.Application
+import android.content.res.Configuration
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
@@ -9,6 +12,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -23,6 +29,7 @@ import dev.dsh.mobile.mesh.core.wire.RemoteStreamMux
 import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.WireJson
 import dev.dsh.mobile.mesh.core.wire.dto.HostDescription
+import dev.dsh.mobile.mesh.core.wire.dto.ModelCatalog
 import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerBundleInfo
 import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerBundleRow
 import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerPluginInfo
@@ -32,6 +39,8 @@ import dev.dsh.mobile.mesh.core.wire.dto.SettingsPathOpView
 import dev.dsh.mobile.mesh.ui.theme.DshTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.robolectric.RuntimeEnvironment
 import org.junit.Rule
@@ -40,6 +49,7 @@ import org.junit.runner.RunWith
 import org.mockito.Mockito
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.Locale
 
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [35], qualifiers = "en-rUS")
@@ -49,14 +59,15 @@ class PluginSettingsWorkflowTest {
     @Test fun `a scoped plugin opens settings and shows an editable field from its Host schema`() {
         openSettings()
         compose.onNodeWithText("Panel heading").assertExists()
-        compose.onNodeWithText("\"Current heading\"").assertExists()
-        compose.onNode(hasText("Save", ignoreCase = true) and hasClickAction()).assertIsEnabled()
+        compose.onNodeWithText("Current heading").assertExists()
+        compose.onNodeWithContentDescription("Edit: heading").assertIsEnabled()
     }
 
     @Test fun `inherited object is replaceable but cannot receive unsafe child edits`() {
         openSettings(inherited = """"base":{"display":{"heading":"Current heading"}},""")
         compose.onNodeWithText("Panel heading").assertDoesNotExist()
-        compose.onNode(hasText("Edit JSON", ignoreCase = true) and hasClickAction()).assertIsEnabled()
+        // A composite keeps the wholesale replacement editor, now under the shared Edit action.
+        compose.onNodeWithContentDescription("Edit: display").assertIsEnabled()
     }
 
     @Test fun `redacted secret dictionary is not treated as a writable raw object`() {
@@ -85,9 +96,8 @@ class PluginSettingsWorkflowTest {
         val state = MutableStateFlow(PluginManagerUiState(bundles = listOf(thirdParty, experimental)))
         val viewModel = Mockito.mock(PluginManagerViewModel::class.java)
         Mockito.`when`(viewModel.state).thenReturn(state)
-        compose.setContent { DshTheme { PluginManagerScreen(onClose = {}, viewModel = viewModel) } }
+        compose.setContent { DshTheme { PluginManagerScreen(onClose = {}, initialDirectory = PluginDirectory.Experimental, viewModel = viewModel) } }
 
-        compose.onNode(hasText("Experimental plugins") and hasClickAction()).performClick()
         compose.onNodeWithText(thirdParty.name).assertDoesNotExist()
         val toggle = compose.onNodeWithContentDescription(experimental.name)
         toggle.assertIsOff().assertIsEnabled().performTouchInput { click() }
@@ -105,13 +115,38 @@ class PluginSettingsWorkflowTest {
               "2":{"type":"string"}}},"value":{"reviewMode":"manual"},"applies":"live","revision":1
             }]}
         """.trimIndent())
-        compose.runOnIdle { state.value = state.value.copy(bundles = listOf(thirdParty, enabled), settings = settings) }
+        val loadedPlugin = WireJson.decodeFromString<PluginManagerPluginInfo>(
+            """{"entryId":"include:auto-review","moduleName":"auto-review-host","enabled":true}""")
+        compose.runOnIdle { state.value = state.value.copy(
+            bundles = listOf(thirdParty, enabled), plugins = listOf(loadedPlugin), settings = settings) }
         toggle.assertIsOn()
+        // Contained plugins are configuration: they stay hidden until the package's settings open.
+        compose.onNodeWithContentDescription("auto-review-host").assertDoesNotExist()
         compose.onNodeWithText("Settings", ignoreCase = true).performClick()
-        compose.onNodeWithText("reviewMode").assertExists()
+        compose.onNodeWithContentDescription("auto-review-host").assertIsOn()
+        compose.onNodeWithText("reviewMode:").assertExists()
         toggle.performTouchInput { click() }
         compose.waitForIdle()
         Mockito.verify(viewModel).toggleBundle(enabled)
+    }
+
+    @Test fun `experimental directory shows the Host title for the app language and falls back to English description`() {
+        val bundle = WireJson.decodeFromString<PluginManagerBundleInfo>("""
+            {"name":"example-experimental","official":true,"availability":"installation","enabled":false,
+             "meta":{"title":{"en":"Example tool","es":"Herramienta de ejemplo"},
+                     "description":{"en":"An experimental tool from the Host"}}}
+        """.trimIndent())
+        val viewModel = Mockito.mock(PluginManagerViewModel::class.java)
+        Mockito.`when`(viewModel.state).thenReturn(MutableStateFlow(PluginManagerUiState(bundles = listOf(bundle))))
+        compose.setContent {
+            val configuration = Configuration(LocalConfiguration.current).apply { setLocale(Locale.forLanguageTag("es-MX")) }
+            CompositionLocalProvider(LocalConfiguration provides configuration) {
+                DshTheme { PluginManagerScreen(onClose = {}, initialDirectory = PluginDirectory.Experimental, viewModel = viewModel) }
+            }
+        }
+
+        compose.onNodeWithText("Herramienta de ejemplo").assertExists()
+        compose.onNodeWithText("An experimental tool from the Host").assertExists()
     }
 
     @Test fun `built-in web search switches both providers with the current Host revision`() {
@@ -135,8 +170,7 @@ class PluginSettingsWorkflowTest {
                 .thenReturn(RpcResult.Ok(settings.namespaces.first()))
         }
         val viewModel = viewModelFor(settings, api)
-        compose.setContent { DshTheme { PluginManagerScreen(onClose = {}, viewModel = viewModel) } }
-        compose.onNode(hasText("Built-in plugin settings") and hasClickAction()).performClick()
+        compose.setContent { DshTheme { PluginManagerScreen(onClose = {}, initialDirectory = PluginDirectory.BuiltIn, viewModel = viewModel) } }
         compose.onNodeWithText("Web search").assertExists()
         compose.onNodeWithText("Shell").assertDoesNotExist()
         compose.onNodeWithText("Settings", ignoreCase = true).performClick()
@@ -145,31 +179,120 @@ class PluginSettingsWorkflowTest {
         runBlocking { Mockito.verify(api).settingsMutate("web", edits, 12L) }
     }
 
-    @Test fun `built-in settings do not clear the last allowed model while selection is on`() {
+    @Test fun `built-in setting edits only after opening the field and resets independently`() {
         val settings = WireJson.decodeFromString<SettingsDescribeValue>("""
             {"writable":true,"hasDocument":true,"namespaces":[{
-              "ns":"subagent-model-selection-settings","schema":{"uid":1,"refs":{
-                "1":{"type":"object","dict":{"enabled":2,"allowedModels":3}},"2":{"type":"boolean"},
-                "3":{"type":"array","inner":4},"4":{"type":"object","dict":{"provider":5,"model":5}},"5":{"type":"string"}
-              }},"value":{"enabled":true,"allowedModels":[{"provider":"example","model":"model"}]},
-              "base":{"enabled":false,"allowedModels":[]},"applies":"live","revision":2
-             }]}
+              "ns":"web-search-deepseek","schema":{"type":"object","dict":{"maxUses":{"type":"number"}}},
+              "value":{"maxUses":3},"applies":"live","revision":7
+            }]}
+        """.trimIndent())
+        val viewModel = Mockito.mock(PluginManagerViewModel::class.java)
+        Mockito.`when`(viewModel.state).thenReturn(MutableStateFlow(PluginManagerUiState(settings = settings)))
+        compose.setContent { DshTheme { PluginManagerScreen(onClose = {}, initialDirectory = PluginDirectory.BuiltIn, viewModel = viewModel) } }
+        compose.onNodeWithText("Settings", ignoreCase = true).performClick()
+
+        val field = compose.onNode(hasText("Max searches per request") and hasSetTextAction())
+        field.assertDoesNotExist()
+        compose.onNodeWithContentDescription("Edit: Max searches per request").performClick()
+        field.performTextReplacement("5")
+        compose.onNodeWithContentDescription("Save: Max searches per request").performClick()
+        field.assertDoesNotExist()
+        val namespace = settings.namespaces.single()
+        Mockito.verify(viewModel).updateSetting(namespace, listOf("maxUses"), JsonPrimitive(5))
+        compose.onNodeWithContentDescription("Reset: Max searches per request").performClick()
+        Mockito.verify(viewModel).resetSetting(namespace, listOf("maxUses"))
+    }
+
+    @Test fun `subagent picker enables on first selection and clearing all disables it safely`() {
+        val settings = WireJson.decodeFromString<SettingsDescribeValue>("""
+            {"writable":true,"hasDocument":true,"namespaces":[{
+              "ns":"subagent-model-selection-settings","schema":{"type":"object","dict":{}},
+              "value":{"enabled":false,"allowedModels":[]},"applies":"live","revision":2
+            }]}
+        """.trimIndent())
+        val catalog = WireJson.decodeFromString<ModelCatalog>("""
+            {"default":{"provider":"example","model":"alpha"},"groups":[{"id":"example","name":"Example","models":[
+              {"id":"alpha","name":"Alpha"},{"id":"beta","name":"Beta"}
+            ]}]}
         """.trimIndent())
         val api = Mockito.mock(DshApiClient::class.java)
-        runBlocking {
-            Mockito.`when`(api.settingsMutate(Mockito.anyString(), Mockito.anyList<SettingsPathOpView>(), Mockito.anyLong()))
-                .thenReturn(RpcResult.Ok(settings.namespaces.single()))
-        }
         val viewModel = viewModelFor(settings, api)
-        compose.setContent { DshTheme { PluginManagerScreen(onClose = {}, viewModel = viewModel) } }
-        compose.onNode(hasText("Built-in plugin settings") and hasClickAction()).performClick()
-        compose.onNodeWithText("Subagents").assertExists()
+        val section = settings.namespaces.single()
+        val allowed = Json.parseToJsonElement("""[{"provider":"example","model":"alpha"},{"provider":"example","model":"beta"}]""")
+        val enabled = section.copy(revision = 3, value = JsonObject(mapOf("enabled" to JsonPrimitive(true), "allowedModels" to allowed)))
+        val cleared = section.copy(revision = 4)
+        var current = settings
+        runBlocking {
+            Mockito.`when`(api.sessionModelCatalog()).thenReturn(RpcResult.Ok(catalog))
+            Mockito.`when`(api.settingsDescribe()).thenAnswer { RpcResult.Ok(current) }
+            Mockito.`when`(api.settingsMutate(Mockito.anyString(), Mockito.anyList<SettingsPathOpView>(), Mockito.anyLong()))
+                .thenAnswer { request ->
+                    val result = if (request.getArgument<Long>(2) == 2L) enabled else cleared
+                    current = current.copy(namespaces = listOf(result))
+                    RpcResult.Ok(result)
+                }
+        }
+        compose.setContent { DshTheme { PluginManagerScreen(onClose = {}, initialDirectory = PluginDirectory.BuiltIn, viewModel = viewModel) } }
         compose.onNodeWithText("Settings", ignoreCase = true).performClick()
-        compose.onNode(hasText("example / model") and hasClickAction()).performScrollTo().performTouchInput { click() }
-        compose.onNodeWithText("Add at least one allowed model before enabling model selection.").assertExists()
+        compose.onNodeWithText("Select all models").assertDoesNotExist()
+        compose.onNode(hasText("Allow subagent model selection") and hasClickAction()).performClick()
         runBlocking {
             Mockito.verify(api, Mockito.never()).settingsMutate(Mockito.anyString(), Mockito.anyList<SettingsPathOpView>(), Mockito.anyLong())
         }
+        compose.onNode(hasText("Search") and hasSetTextAction()).performScrollTo().performTextInput("Alpha")
+        compose.onNodeWithText("Example / Alpha (alpha)").assertIsOff()
+        compose.onNodeWithText("Example / Beta (beta)").assertDoesNotExist()
+        compose.onNodeWithText("Select all models").performScrollTo().performClick()
+        compose.onNodeWithText("Example / Alpha (alpha)").assertIsOn()
+        compose.onNodeWithText("Deselect all models").performScrollTo().performClick()
+        compose.onNodeWithText("Example / Alpha (alpha)").assertIsOff()
+        runBlocking {
+            Mockito.verify(api).settingsMutate(section.ns, listOf(
+                SettingsPathOpView.Set(listOf("enabled"), JsonPrimitive(true)),
+                SettingsPathOpView.Set(listOf("allowedModels"), allowed),
+            ), 2L)
+            Mockito.verify(api).settingsMutate(section.ns, listOf(
+                SettingsPathOpView.Set(listOf("enabled"), JsonPrimitive(false)),
+                SettingsPathOpView.Set(listOf("allowedModels"), (cleared.value as JsonObject).getValue("allowedModels")),
+            ), 3L)
+        }
+    }
+
+    @Test fun `the plugin list itself no longer links to the managed directories`() {
+        val viewModel = Mockito.mock(PluginManagerViewModel::class.java)
+        Mockito.`when`(viewModel.state).thenReturn(MutableStateFlow(PluginManagerUiState()))
+        compose.setContent { DshTheme { PluginManagerScreen(onClose = {}, viewModel = viewModel) } }
+
+        compose.onNode(hasText("Built-in plugins") and hasClickAction()).assertDoesNotExist()
+        compose.onNode(hasText("Experimental plugins") and hasClickAction()).assertDoesNotExist()
+    }
+
+    @Test fun `a built-in card shows its plugins with localized names and its own switches`() {
+        val settings = WireJson.decodeFromString<SettingsDescribeValue>("""
+            {"writable":true,"hasDocument":true,"namespaces":[{
+              "ns":"subagent","schema":{"type":"object","dict":{}},"value":{},"applies":"live","revision":1
+            }]}
+        """.trimIndent())
+        val row = PluginManagerBundleRow("subagent", "subagent-host", entryId = "include:subagent")
+        val bundle = PluginManagerBundleInfo(name = "@deepseek-ai/dsh-subagent", availability = "profile",
+            enabled = true, rows = listOf(row))
+        val plugin = WireJson.decodeFromString<PluginManagerPluginInfo>("""
+            {"entryId":"include:subagent","moduleName":"subagent-host","enabled":true,"patchId":"subagent",
+             "meta":{"title":{"en":"Subagent tool","es":"Herramienta subagente"}}}
+        """.trimIndent())
+        val viewModel = Mockito.mock(PluginManagerViewModel::class.java)
+        Mockito.`when`(viewModel.state).thenReturn(MutableStateFlow(PluginManagerUiState(
+            bundles = listOf(bundle), plugins = listOf(plugin), settings = settings)))
+        compose.setContent { DshTheme { PluginManagerScreen(onClose = {}, initialDirectory = PluginDirectory.BuiltIn, viewModel = viewModel) } }
+
+        compose.onNodeWithText("Subagents").assertExists()
+        compose.onNodeWithText("subagent-host").assertDoesNotExist()
+        // Contained plugins are configuration: hidden until the group's settings are opened.
+        compose.onNodeWithText("Subagent tool").assertDoesNotExist()
+        compose.onNodeWithText("Settings", ignoreCase = true).performClick()
+        compose.onNodeWithText("Subagent tool").assertExists()
+        compose.onNodeWithContentDescription("Subagent tool").assertIsOn().assertIsEnabled().performTouchInput { click() }
+        Mockito.verify(viewModel).togglePlugin(plugin)
     }
 
     private fun viewModelFor(settings: SettingsDescribeValue, api: DshApiClient): PluginManagerViewModel {

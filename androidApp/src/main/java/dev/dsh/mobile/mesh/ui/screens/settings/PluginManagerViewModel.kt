@@ -442,33 +442,25 @@ class PluginManagerViewModel @Inject constructor(
         ))
     }
 
-    /** Select an advertised model or remove an existing (possibly no longer advertised) route. */
-    fun toggleSubagentModel(namespace: SettingsNamespaceView, provider: String, model: String) {
-        if (namespace.ns != SUBAGENT_MODEL_SETTINGS || provider.isBlank() || model.isBlank()) return
-        val current = (namespace.value as? JsonObject)?.get("allowedModels") as? JsonArray ?: JsonArray(emptyList())
-        if (!current.hasUniqueModelRoutes()) return
-        val selected = current.any { route ->
-            val fields = route as? JsonObject
-            (fields?.get("provider") as? JsonPrimitive)?.content == provider &&
-                (fields?.get("model") as? JsonPrimitive)?.content == model
+    /** Commit the allowance and its mode together; an empty selection must turn the mode off. */
+    fun setSubagentModels(namespace: SettingsNamespaceView, selected: Set<Pair<String, String>>) {
+        if (namespace.ns != SUBAGENT_MODEL_SETTINGS || selected.any { (provider, model) -> provider.isBlank() || model.isBlank() }) return
+        val current = (namespace.value as? JsonObject)?.get("allowedModels") ?: JsonArray(emptyList())
+        if (current !is JsonArray || !current.hasUniqueModelRoutes()) return
+        val existing = current.associateBy { route ->
+            val fields = route as JsonObject
+            (fields.getValue("provider") as JsonPrimitive).content to (fields.getValue("model") as JsonPrimitive).content
         }
-        val catalogHasRoute = _state.value.modelCatalog?.groups?.any { group ->
-            group.id == provider && group.models.any { it.id == model }
-        } == true
-        if (!selected && !catalogHasRoute) return
-        val next = JsonArray(if (selected) current.filterNot { route ->
-            val fields = route as? JsonObject
-            (fields?.get("provider") as? JsonPrimitive)?.content == provider &&
-                (fields?.get("model") as? JsonPrimitive)?.content == model
-        } else current + JsonObject(mapOf("provider" to JsonPrimitive(provider), "model" to JsonPrimitive(model))))
-        val enabled = (namespace.value as? JsonObject)?.get("enabled") == JsonPrimitive(true)
-        // Leave the mode unchanged: users must explicitly turn it off before clearing the list.
-        if (enabled && next.isEmpty()) {
-            _state.update { it.copy(error = context.getString(R.string.plugins_native_builtin_subagent_models_required)) }
-            return
-        }
+        val advertised = _state.value.modelCatalog?.groups.orEmpty().flatMap { group ->
+            group.models.map { group.id to it.id }
+        }.toSet()
+        val additions = selected - existing.keys
+        if (!advertised.containsAll(additions)) return
+        val next = JsonArray(existing.filterKeys { it in selected }.values.toList() + additions.map { (provider, model) ->
+            JsonObject(mapOf("provider" to JsonPrimitive(provider), "model" to JsonPrimitive(model)))
+        })
         mutateSettings(namespace, listOf(
-            SettingsPathOpView.Set(listOf("enabled"), JsonPrimitive(enabled)),
+            SettingsPathOpView.Set(listOf("enabled"), JsonPrimitive(next.isNotEmpty())),
             SettingsPathOpView.Set(listOf("allowedModels"), next),
         ))
     }

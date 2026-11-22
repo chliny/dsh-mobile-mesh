@@ -35,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
@@ -193,11 +194,15 @@ fun SettingsScreen(
     }
     var pluginsOpen by remember { mutableStateOf(false) }
     var pluginManagerOpen by remember { mutableStateOf(false) }
+    var pluginDirectory by remember { mutableStateOf<PluginDirectory?>(null) }
     var hostSection by remember { mutableStateOf<HostSettingsSection?>(null) }
     BackHandler {
         when {
             hostSection != null -> hostSection = null
-            pluginManagerOpen -> pluginManagerOpen = false
+            pluginManagerOpen -> {
+                pluginManagerOpen = false
+                pluginDirectory = null
+            }
             else -> onClose()
         }
     }
@@ -304,17 +309,8 @@ fun SettingsScreen(
                     ) { viewModel.set { it.copy(keepConnectedInBackground = !it.keepConnectedInBackground) } }
                 }
 
-                SettingsCard(stringResource(R.string.settings_harness)) {
-                    connectionState.description?.let { host ->
-                        // Only the home directory survives from `host.describe`; the version and
-                        // attached-session count are not published by 0.1.2 at all. About already
-                        // shows the protocol baseline, so it is not repeated here.
-                        LabelledValue(
-                            stringResource(R.string.settings_host_info),
-                            host.home,
-                        )
-                    }
-                    if (connectionState.phase == ConnectionPhase.CONNECTED) {
+                if (connectionState.phase == ConnectionPhase.CONNECTED) {
+                    SettingsCard(stringResource(R.string.settings_harness)) {
                         HostSettingsSection.entries.forEach { section ->
                             DsButton(
                                 text = stringResource(section.title), onClick = { hostSection = section },
@@ -324,11 +320,23 @@ fun SettingsScreen(
                     }
                 }
 
+                if (connectionState.phase == ConnectionPhase.CONNECTED && hostSection == null &&
+                    !pluginManagerOpen && !pluginsOpen) {
+                    val accountConnection by viewModel.accountConnection.collectAsStateWithLifecycle()
+                    accountConnection?.let { connected ->
+                        SettingsCard(stringResource(R.string.account_host_title)) {
+                            key(connected.generation) { HostAccountSettings(connected.api) }
+                        }
+                    }
+                }
+
                 // Plugin management is its own page; the harness facts above remain read-only.
                 plugins?.let { inventory ->
-                    PluginsCard(inventory) {
-                        if (inventory.managementAvailable) pluginManagerOpen = true else pluginsOpen = true
-                    }
+                    PluginsCard(
+                        inventory,
+                        onOpenList = { if (inventory.managementAvailable) pluginManagerOpen = true else pluginsOpen = true },
+                        onOpenDirectory = { pluginDirectory = it; pluginManagerOpen = true },
+                    )
                 }
 
                 SettingsCard(stringResource(R.string.settings_debug)) {
@@ -388,19 +396,16 @@ fun SettingsScreen(
     plugins?.takeIf { pluginsOpen }?.let { inventory ->
         PluginsSheet(inventory = inventory, onDismiss = { pluginsOpen = false })
     }
-    if (pluginManagerOpen) PluginManagerScreen(onClose = { pluginManagerOpen = false })
+    if (pluginManagerOpen) PluginManagerScreen(
+        onClose = {
+            pluginManagerOpen = false
+            pluginDirectory = null
+        },
+        initialDirectory = pluginDirectory,
+    )
     when (hostSection) {
-        HostSettingsSection.Display -> HostPreferencesSettings(onClose = { hostSection = null })
-        HostSettingsSection.Defaults -> HostDefaultsSettings(onClose = { hostSection = null })
+        HostSettingsSection.Agent -> AgentSettings(onClose = { hostSection = null })
         HostSettingsSection.Models -> HostModelsSettings(onClose = { hostSection = null })
-        HostSettingsSection.Account -> {
-            val accountConnection by viewModel.accountConnection.collectAsStateWithLifecycle()
-            HostSettingsPage(stringResource(R.string.account_host_title), onClose = { hostSection = null }) {
-                val connected = accountConnection
-                if (connected != null) key(connected.generation) { HostAccountSettings(connected.api) }
-                else Text(stringResource(R.string.plugins_native_connection_unavailable), color = colors.labelSecondary)
-            }
-        }
         null -> Unit
     }
 
@@ -530,10 +535,32 @@ fun SettingsScreen(
 }
 
 private enum class HostSettingsSection(@StringRes val title: Int) {
-    Display(R.string.host_preferences_title),
-    Defaults(R.string.host_defaults_title),
+    Agent(R.string.host_agent_settings_title),
     Models(R.string.models_title),
-    Account(R.string.account_host_title),
+}
+
+@Composable
+private fun AgentSettings(onClose: () -> Unit) {
+    HostSettingsPage(stringResource(R.string.host_agent_settings_title), onClose) {
+        SettingsBlock {
+            HostPreferencesContentScreen()
+            HostDefaultsContentScreen()
+        }
+    }
+}
+
+@Composable
+private fun HostPreferencesContentScreen(viewModel: HostPreferencesViewModel = hiltViewModel()) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(viewModel) { viewModel.refresh() }
+    HostPreferencesContent(state, viewModel)
+}
+
+@Composable
+private fun HostDefaultsContentScreen(viewModel: HostDefaultsSettingsViewModel = hiltViewModel()) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(viewModel) { viewModel.refresh() }
+    HostDefaultsContent(state, viewModel)
 }
 
 @Composable
@@ -622,35 +649,34 @@ private fun showDateTimePicker(context: Context, currentEpochMs: Long, onSelecte
 
 /** One settings group as a raised card, so groups read as blocks rather than a running list. */
 @Composable
-private fun SettingsCard(title: String, content: @Composable () -> Unit) {
-    val colors = DsTheme.colors
+internal fun SettingsCard(title: String, content: @Composable () -> Unit) {
     Column(Modifier.fillMaxWidth().animateContentSize()) {
         SectionHeader(title)
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(DsShapes.block)
-                .background(colors.bgLayer1)
-                .padding(horizontal = DsSpacing.medium, vertical = DsSpacing.small),
-            verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall),
-        ) {
-            content()
-        }
+        SettingsBlock(content)
     }
 }
 
+@Composable
+internal fun SettingsBlock(content: @Composable () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(DsShapes.block).background(DsTheme.colors.bgLayer1)
+            .padding(horizontal = DsSpacing.medium, vertical = DsSpacing.small),
+        verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall),
+    ) { ProvideTextStyle(DsType.std14, content) }
+}
+
 /**
- * The host's composed plugins, as one row that opens the list.
+ * The host's composed plugins, with the managed profile's directories one tap away.
  *
- * A stock web composition mounts around forty of them. Inlined into a page that already scrolls,
+ * A stock web composition mounts around forty plugins. Inlined into a page that already scrolls,
  * that buries everything below it and gives the list no room of its own; the count is the part
- * worth seeing without asking, so the card carries that and the rest lives in [PluginsSheet].
+ * worth seeing without asking, so the card carries that and the rest lives behind its entries.
  *
  * The inventory itself is read-only. When the Host has a managed profile, its Web plugin manager
  * provides the authoritative actions and dynamically registered configuration screens.
  */
 @Composable
-private fun PluginsCard(inventory: PluginInventorySnapshot, onOpen: () -> Unit) {
+private fun PluginsCard(inventory: PluginInventorySnapshot, onOpenList: () -> Unit, onOpenDirectory: (PluginDirectory) -> Unit) {
     val colors = DsTheme.colors
     SettingsCard(stringResource(R.string.settings_plugins)) {
         if (inventory.entries.isEmpty() && !inventory.managementAvailable) {
@@ -661,11 +687,25 @@ private fun PluginsCard(inventory: PluginInventorySnapshot, onOpen: () -> Unit) 
             )
             return@SettingsCard
         }
+        if (inventory.managementAvailable) {
+            DsButton(
+                text = stringResource(R.string.plugins_native_builtin),
+                onClick = { onOpenDirectory(PluginDirectory.BuiltIn) },
+                variant = DsButtonVariant.Outline,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            DsButton(
+                text = stringResource(R.string.plugins_native_experimental),
+                onClick = { onOpenDirectory(PluginDirectory.Experimental) },
+                variant = DsButtonVariant.Outline,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(DsShapes.row)
-                .clickable(onClick = onOpen)
+                .clickable(onClick = onOpenList)
                 .padding(vertical = DsSpacing.small),
             verticalAlignment = Alignment.CenterVertically,
         ) {

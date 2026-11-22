@@ -1,13 +1,25 @@
 package dev.dsh.mobile.mesh.ui.screens.settings
 
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.triStateToggleable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -16,15 +28,33 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -33,6 +63,8 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.LlmDiscoveredModel
 import dev.dsh.mobile.mesh.core.wire.dto.SettingsNamespaceView
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
+import dev.dsh.mobile.mesh.ui.theme.DsSpacing
+import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -66,45 +98,53 @@ internal fun HostModelsSettings(onClose: () -> Unit, viewModel: HostModelsViewMo
         state.failure?.let { Text(it, color = DsTheme.colors.error) }
         if (state.settings?.writable == false) Text(stringResource(R.string.plugins_native_read_only))
         if (state.settings != null && available.isEmpty()) Text(stringResource(R.string.common_none))
-        if (catalog.isNotEmpty()) OutlinedButton(onClick = { catalogOpen = true }, enabled = writable) {
-            Text(stringResource(R.string.host_models_add_provider))
-        }
-        if (custom != null && custom.providerPathIsAddressable(listOf("providers")) &&
-            ModelSettingsSchema(custom.schema).protocols(listOf("providers", "probe")).isNotEmpty()
-        ) {
-            OutlinedButton(onClick = { viewModel.clearDiscovery(); creatingAt = custom }, enabled = writable) {
-                Text(stringResource(R.string.host_models_custom_provider))
+        Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
+            if (catalog.isNotEmpty()) OutlinedButton(onClick = { catalogOpen = true }, enabled = writable,
+                modifier = Modifier.weight(1f)) {
+                Text(stringResource(R.string.host_models_add_provider), style = DsType.std14)
+            }
+            if (custom != null && custom.providerPathIsAddressable(listOf("providers")) &&
+                ModelSettingsSchema(custom.schema).protocols(listOf("providers", "probe")).isNotEmpty()
+            ) {
+                OutlinedButton(onClick = { viewModel.clearDiscovery(); creatingAt = custom }, enabled = writable,
+                    modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.host_models_custom_provider), style = DsType.std14)
+                }
             }
         }
         available.forEach { row ->
-            HorizontalDivider()
-            Text(row.entry.displayName)
-            Text(row.entry.provider, color = DsTheme.colors.labelSecondary)
-            row.entry.error?.let { Text(it, color = DsTheme.colors.error) }
-            row.credential?.let {
-                Text(stringResource(R.string.plugins_native_web_key_status) + ": " + stringResource(
-                    if (it.configured) R.string.plugins_native_web_key_configured else R.string.plugins_native_web_key_missing,
-                ))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (row.editable) TextButton(onClick = { viewModel.clearDiscovery(); editing = row }, enabled = writable) {
-                    Text(stringResource(R.string.common_edit))
+            SettingsBlock {
+                Text(row.entry.displayName, style = DsType.std14Strong)
+                Text(row.entry.provider, style = DsType.caption11, color = DsTheme.colors.labelSecondary)
+                row.entry.error?.let { Text(it, style = DsType.caption11, color = DsTheme.colors.error) }
+                row.credential?.let {
+                    Text(stringResource(R.string.plugins_native_web_key_status) + ": " + stringResource(
+                        if (it.configured) R.string.plugins_native_web_key_configured else R.string.plugins_native_web_key_missing,
+                    ), style = DsType.caption11, color = DsTheme.colors.labelSecondary)
                 }
-                if (row.removable) TextButton(onClick = { deleting = row }, enabled = writable) {
-                    Text(stringResource(R.string.common_delete))
+                if (row.editable || row.removable || row.clearableCredential) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
+                        if (row.editable) ModelProviderAction(R.string.common_edit, writable, Modifier.weight(1f)) {
+                            viewModel.clearDiscovery(); editing = row
+                        }
+                        if (row.removable) ModelProviderAction(R.string.common_delete, writable, Modifier.weight(1f)) {
+                            deleting = row
+                        }
+                        if (row.clearableCredential) ModelProviderAction(R.string.host_models_clear_key, writable, Modifier.weight(1.5f)) {
+                            clearing = row
+                        }
+                    }
                 }
-            }
-            if (row.clearableCredential) {
-                TextButton(onClick = { clearing = row }, enabled = writable) { Text(stringResource(R.string.host_models_clear_key)) }
             }
         }
     }
     if (catalogOpen) AlertDialog(onDismissRequest = { catalogOpen = false },
         title = { Text(stringResource(R.string.host_models_add_provider)) },
-        text = { Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+        text = { Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(DsSpacing.tiny)) {
             catalog.forEach { row ->
                 TextButton(onClick = { catalogOpen = false; viewModel.clearDiscovery(); editing = row }, enabled = writable) {
-                    Text(row.entry.displayName)
+                    Text(row.entry.displayName, style = DsType.std14)
                 }
             }
         } }, confirmButton = { TextButton(onClick = { catalogOpen = false }) { Text(stringResource(R.string.common_close)) } })
@@ -141,6 +181,9 @@ private fun ProviderSettingsEditor(namespace: SettingsNamespaceView, row: HostMo
     var route by remember(namespace, row) { mutableStateOf(row?.entry?.provider.orEmpty()) }
     var name by remember(namespace, row) { mutableStateOf(row?.raw.modelString("displayName").orEmpty()) }
     var endpoint by remember(namespace, row) { mutableStateOf(row?.raw.modelString("baseURL").orEmpty()) }
+    var editingName by remember(namespace, row) { mutableStateOf(false) }
+    var editingEndpoint by remember(namespace, row) { mutableStateOf(false) }
+    var editingKey by remember(namespace, row) { mutableStateOf(false) }
     var protocol by remember(namespace, row) {
         mutableStateOf(row?.raw.modelString("api") ?: row?.profile.modelString("api") ?: protocols.firstOrNull().orEmpty())
     }
@@ -151,28 +194,55 @@ private fun ProviderSettingsEditor(namespace: SettingsNamespaceView, row: HostMo
     var models by remember(namespace, row) {
         mutableStateOf(((row?.profile?.get("models") as? JsonArray) ?: defaultModels).orEmpty().filterIsInstance<JsonObject>())
     }
-    var selection by remember(discovered) { mutableStateOf(discovered.orEmpty().mapTo(mutableSetOf()) { it.id }.toSet()) }
+    var discoveryAttempt by remember(namespace, row) { mutableStateOf(0) }
+    var selection by remember(namespace, row, discoveryAttempt, discovered) {
+        val catalogIds = models.mapNotNull { it.modelString("id") }.toSet()
+        mutableStateOf(discovered.orEmpty().mapNotNull { it.id.takeIf(catalogIds::contains) }.toSet())
+    }
     var search by remember(discovered) { mutableStateOf("") }
     var showDiscovery by remember(namespace, row) { mutableStateOf(false) }
     var editIndex by remember(namespace, row) { mutableStateOf<Int?>(null) }
-    val effectiveEndpoint = endpoint.trim().ifEmpty { inherited.modelString("baseURL") ?: row?.entry?.defaultBaseURL.orEmpty() }
-    val valid = (row != null || providerRoutePattern.matches(route)) &&
-        (endpoint.isBlank() && !custom || modelEndpointValid(effectiveEndpoint)) &&
+    val canEditName = custom || schema.field(path + "displayName") != null
+    val savedName = row?.profile.modelString("displayName")?.takeIf { it.isNotBlank() } ?: row?.entry?.displayName
+    val fallbackEndpoint = inherited.modelString("baseURL")?.takeIf { it.isNotBlank() }
+        ?: row?.entry?.defaultBaseURL?.takeIf { it.isNotBlank() }
+    val savedEndpoint = row?.profile.modelString("baseURL")?.takeIf { it.isNotBlank() } ?: fallbackEndpoint
+    val effectiveEndpoint = if (editingEndpoint) endpoint.trim().ifEmpty { fallbackEndpoint.orEmpty() } else savedEndpoint.orEmpty()
+    val validEndpoint = (!editingEndpoint && row != null) || (!custom && endpoint.isBlank()) || modelEndpointValid(effectiveEndpoint)
+    val valid = (row != null || providerRoutePattern.matches(route)) && validEndpoint &&
         (!custom || (protocol in protocols && models.isNotEmpty())) &&
         models.mapNotNull { it.modelString("id") }.distinct().size == models.size
+    val editorScroll = rememberScrollState()
+    var editorViewport by remember { mutableStateOf(Rect.Zero) }
     AlertDialog(onDismissRequest = { if (enabled) { key = ""; onClose() } },
         title = { Text(row?.entry?.displayName ?: stringResource(R.string.host_models_custom_provider)) },
-        text = {
-            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        text = { Box(Modifier.onGloballyPositioned { editorViewport = it.boundsInRoot() }) {
+            Column(Modifier.heightIn(max = 560.dp).verticalScroll(editorScroll),
+                verticalArrangement = Arrangement.spacedBy(DsSpacing.tiny)) {
                 if (row == null) ModelTextField(R.string.host_models_provider_id, route, enabled) { route = it }
-                if (custom) ModelTextField(R.string.host_models_display_name, name, enabled) { name = it }
-                ModelTextField(R.string.host_models_endpoint, endpoint, enabled, placeholder = inherited.modelString("baseURL") ?: row?.entry?.defaultBaseURL) { endpoint = it }
-                if (custom && protocols.isNotEmpty()) ModelChoice(R.string.host_models_protocol, protocol, protocols, enabled) { protocol = it }
-                if (row == null || row.credential?.writable == true) {
-                    ModelTextField(R.string.plugins_native_web_key_input, key, enabled, password = true) { key = it }
+                ModelSettingRow(R.string.host_models_display_name, savedName ?: stringResource(R.string.common_none),
+                    writable && canEditName && !editingName, onEdit = if (canEditName) ({ editingName = true }) else null)
+                if (editingName) {
+                    ModelTextField(R.string.host_models_display_name, name, writable, placeholder = savedName) { name = it }
+                }
+                ModelSettingRow(R.string.host_models_endpoint, savedEndpoint.orEmpty(), writable && !editingEndpoint,
+                    onEdit = { editingEndpoint = true })
+                if (editingEndpoint) {
+                    ModelTextField(R.string.host_models_endpoint, endpoint, writable, placeholder = fallbackEndpoint) { endpoint = it }
+                }
+                if (custom && protocols.isNotEmpty()) ModelChoice(R.string.host_models_protocol, protocol, protocols, writable) { protocol = it }
+                val canEditKey = row == null || row.credential?.writable == true
+                if (row == null || row.credential != null) {
+                    ModelSettingRow(R.string.plugins_native_web_key_status, "***", writable && canEditKey && !editingKey,
+                        onEdit = if (canEditKey) ({ editingKey = true }) else null)
+                }
+                if (editingKey) {
+                    ModelTextField(R.string.plugins_native_web_key_input, key, writable, password = true) { key = it }
                 }
                 OutlinedButton(onClick = {
                     showDiscovery = true
+                    discoveryAttempt++
+                    viewModel.clearDiscovery()
                     viewModel.discover(namespace, row, effectiveEndpoint.takeIf { it.isNotBlank() },
                         protocol.takeIf { it.isNotBlank() }, key.trim().takeIf { it.isNotEmpty() })
                 }, enabled = enabled && (row != null || modelEndpointValid(effectiveEndpoint))) {
@@ -181,54 +251,68 @@ private fun ProviderSettingsEditor(namespace: SettingsNamespaceView, row: HostMo
                 if (showDiscovery && discovered != null) {
                     if (discovered.isEmpty()) Text(stringResource(R.string.common_none))
                     else {
+                        val allSelected = discovered.all { it.id in selection }
+                        val checkState = when {
+                            allSelected -> ToggleableState.On
+                            selection.isEmpty() -> ToggleableState.Off
+                            else -> ToggleableState.Indeterminate
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DsSpacing.small),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.weight(1f).triStateToggleable(
+                                state = checkState, enabled = enabled, role = Role.Checkbox,
+                                onClick = { selection = if (allSelected) emptySet() else discovered.mapTo(mutableSetOf()) { it.id } },
+                            ).heightIn(min = DsSpacing.touchTarget), verticalAlignment = Alignment.CenterVertically) {
+                                TriStateCheckbox(state = checkState, onClick = null, enabled = enabled)
+                                Text(stringResource(if (allSelected) R.string.host_models_deselect_all else R.string.host_models_select_all),
+                                    Modifier.padding(start = DsSpacing.tiny), style = DsType.small13)
+                            }
+                            ModelProviderAction(R.string.host_models_use_selected, enabled && selection.isNotEmpty(), Modifier.weight(1f)) {
+                                val prior = models.associateBy { it.modelString("id") }
+                                models = discovered.filter { it.id in selection }
+                                    .map { prior[it.id] ?: it.toSettings(modalityField) }
+                                modelsOverride = true
+                                showDiscovery = false
+                            }
+                        }
                         ModelTextField(R.string.common_search, search, enabled) { search = it }
-                        Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
+                        Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
                             discovered.filter { it.id.contains(search, ignoreCase = true) || it.name?.contains(search, ignoreCase = true) == true }
                                 .forEach { model -> Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(checked = model.id in selection, onCheckedChange = {
                                         selection = if (it) selection + model.id else selection - model.id
                                     }, enabled = enabled)
-                                    Text(model.name ?: model.id)
+                                    Text(model.name ?: model.id, style = DsType.std14)
                                 } }
                         }
-                        TextButton(onClick = {
-                            val prior = models.associateBy { it.modelString("id") }
-                            models = discovered.filter { it.id in selection }.map { prior[it.id] ?: it.toSettings(modalityField) }
-                            modelsOverride = true
-                            showDiscovery = false
-                        }, enabled = enabled && selection.isNotEmpty()) { Text(stringResource(R.string.host_models_use_selected)) }
                     }
                 }
                 Text(stringResource(R.string.host_models_catalog))
-                models.forEachIndexed { index, model ->
-                    Text(model.modelString("name") ?: model.modelString("id").orEmpty())
-                    Row {
-                        TextButton(onClick = { editIndex = index }, enabled = enabled) { Text(stringResource(R.string.common_edit)) }
-                        TextButton(onClick = { models = models.filterIndexed { i, _ -> i != index }; modelsOverride = true }, enabled = enabled) {
-                            Text(stringResource(R.string.common_remove))
-                        }
-                        TextButton(onClick = {
-                            models = models.toMutableList().apply { add(index - 1, removeAt(index)) }
-                            modelsOverride = true
-                        }, enabled = enabled && index > 0) { Text(stringResource(R.string.host_models_move_up)) }
-                    }
-                }
+                ReorderableModelCatalog(models, writable, editorScroll, editorViewport,
+                    onEdit = { editIndex = it },
+                    onRemove = { index ->
+                        models = models.filterIndexed { i, _ -> i != index }
+                        modelsOverride = true
+                    },
+                    onMove = { from, to ->
+                        models = models.toMutableList().apply { add(to, removeAt(from)) }
+                        modelsOverride = true
+                    },
+                )
                 TextButton(onClick = { editIndex = models.size }, enabled = enabled) { Text(stringResource(R.string.host_models_add_model)) }
                 if (row != null && modelsOverride && (!custom || !defaultModels.isNullOrEmpty())) TextButton(onClick = {
                     models = defaultModels.orEmpty().filterIsInstance<JsonObject>()
                     modelsOverride = false
                 }, enabled = enabled) { Text(stringResource(R.string.plugins_native_reset)) }
             }
-        }, confirmButton = {
+        } }, confirmButton = {
             TextButton(enabled = writable && valid, onClick = {
                 val value = key.trim().takeIf { it.isNotEmpty() }
                 key = ""
                 val updates = buildMap<String, JsonElement?> {
-                    put("baseURL", endpoint.trim().takeIf { it.isNotEmpty() }?.let(::JsonPrimitive))
-                    if (custom) {
-                        put("displayName", name.trim().takeIf { it.isNotEmpty() }?.let(::JsonPrimitive))
-                        put("api", JsonPrimitive(protocol))
-                    }
+                    if (editingEndpoint) put("baseURL", endpoint.trim().takeIf { it.isNotEmpty() }?.let(::JsonPrimitive))
+                    if (editingName) put("displayName", name.trim().takeIf { it.isNotEmpty() }?.let(::JsonPrimitive))
+                    if (custom) put("api", JsonPrimitive(protocol))
                     put("models", JsonArray(models).takeIf { modelsOverride })
                 }
                 viewModel.saveProvider(namespace, row, route, updates, value)
@@ -241,6 +325,107 @@ private fun ProviderSettingsEditor(namespace: SettingsNamespaceView, row: HostMo
             modelsOverride = true
             editIndex = null
         }) }
+}
+
+private data class CatalogDrag(val index: Int, val scrollStart: Int, val pointerStartY: Float)
+
+@Composable
+private fun ReorderableModelCatalog(
+    models: List<JsonObject>, writable: Boolean, scroll: ScrollState, viewport: Rect,
+    onEdit: (Int) -> Unit, onRemove: (Int) -> Unit, onMove: (Int, Int) -> Unit,
+) {
+    val canReorder = writable && models.size > 1
+    val rowPositions = remember { mutableMapOf<Int, LayoutCoordinates>() }
+    val move by rememberUpdatedState(onMove)
+    var drag by remember(models, canReorder) { mutableStateOf<CatalogDrag?>(null) }
+    var deltaY by remember { mutableStateOf(0f) }
+    val edge = with(LocalDensity.current) { DsSpacing.touchTarget.toPx() }
+    val step = with(LocalDensity.current) { DsSpacing.small.toPx() }
+    val scrollDirection = drag?.let {
+        val pointerY = it.pointerStartY + deltaY
+        when {
+            viewport.height <= 0f -> 0
+            pointerY < viewport.top + edge && deltaY < 0f -> -1
+            pointerY > viewport.bottom - edge && deltaY > 0f -> 1
+            else -> 0
+        }
+    } ?: 0
+    LaunchedEffect(drag?.index, scrollDirection) {
+        if (scrollDirection != 0) {
+            while (true) {
+                withFrameNanos { }
+                if (scroll.scrollBy(scrollDirection * step) == 0f) break
+            }
+        }
+    }
+
+    val moveUp = stringResource(R.string.host_models_move_up)
+    val moveDown = stringResource(R.string.host_models_move_down)
+    Column(Modifier.fillMaxWidth()) {
+        models.forEachIndexed { index, model ->
+            val modifier = if (!canReorder) Modifier else Modifier
+                .onGloballyPositioned { rowPositions[index] = it }
+                .pointerInput(models, index) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { start ->
+                            val coordinates = rowPositions[index]?.takeIf { it.isAttached }
+                            if (coordinates != null) {
+                                deltaY = 0f
+                                drag = CatalogDrag(index, scroll.value, coordinates.localToRoot(start).y)
+                            }
+                        },
+                        onDrag = { change, amount ->
+                            if (drag?.index == index) {
+                                change.consume()
+                                deltaY += amount.y
+                            }
+                        },
+                        onDragCancel = { drag = null },
+                        onDragEnd = {
+                            val active = drag
+                            drag = null
+                            val source = rowPositions[index]?.takeIf { it.isAttached }
+                            if (active?.index == index && source != null) {
+                                val center = source.positionInParent().y + source.size.height / 2f +
+                                    deltaY + scroll.value - active.scrollStart
+                                val target = models.indices.count { other ->
+                                    val coordinates = rowPositions[other]
+                                    other != index && coordinates != null && coordinates.isAttached &&
+                                        coordinates.positionInParent().y + coordinates.size.height / 2f < center
+                                }
+                                if (target != index) move(index, target)
+                            }
+                        },
+                    )
+                }
+                .semantics {
+                    customActions = buildList {
+                        if (index > 0) add(CustomAccessibilityAction(moveUp) { move(index, index - 1); true })
+                        if (index < models.lastIndex) add(CustomAccessibilityAction(moveDown) { move(index, index + 1); true })
+                    }
+                }
+            val active = drag?.takeIf { it.index == index }
+            Box(Modifier.fillMaxWidth().zIndex(if (active != null) 1f else 0f).then(modifier)) {
+                Column(Modifier.fillMaxWidth().graphicsLayer {
+                    translationY = if (active != null) deltaY + scroll.value - active.scrollStart else 0f
+                }.then(if (active != null) Modifier.background(DsTheme.colors.bgLayer1) else Modifier)
+                    .padding(vertical = DsSpacing.tiny)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(model.modelString("name") ?: model.modelString("id").orEmpty(), style = DsType.std14Strong)
+                            Text(model.modelString("id").orEmpty(), style = DsType.caption11, color = DsTheme.colors.labelSecondary)
+                        }
+                        if (canReorder) Icon(Icons.Default.DragHandle, contentDescription = null,
+                            modifier = Modifier.size(DsSpacing.large), tint = DsTheme.colors.labelSecondary)
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DsSpacing.tiny)) {
+                        ModelProviderAction(R.string.common_edit, writable, Modifier.weight(1f)) { onEdit(index) }
+                        ModelProviderAction(R.string.common_remove, writable, Modifier.weight(1f)) { onRemove(index) }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -325,19 +510,50 @@ private fun LlmDiscoveredModel.toSettings(modalityField: String): JsonObject = J
 private fun ModelTextField(label: Int, value: String, enabled: Boolean, placeholder: String? = null,
     password: Boolean = false, edit: (String) -> Unit,
 ) {
-    OutlinedTextField(value, onValueChange = edit, label = { Text(stringResource(label)) },
-        placeholder = placeholder?.let { { Text(it) } }, enabled = enabled, singleLine = true,
+    OutlinedTextField(value, onValueChange = edit, textStyle = DsType.std14,
+        label = { Text(stringResource(label), style = DsType.std14) },
+        placeholder = placeholder?.let { { Text(it, style = DsType.std14) } }, enabled = enabled, singleLine = true,
         visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         modifier = Modifier.fillMaxWidth())
 }
 
 @Composable
+private fun ModelProviderAction(label: Int, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, modifier = modifier, enabled = enabled,
+        contentPadding = PaddingValues(horizontal = DsSpacing.tiny, vertical = DsSpacing.tiny)) {
+        Text(stringResource(label), style = DsType.small13, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    }
+}
+
+@Composable
+private fun ModelSettingRow(label: Int, value: String, enabled: Boolean, onEdit: (() -> Unit)?) {
+    val fieldLabel = stringResource(label)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text("$fieldLabel:", Modifier.weight(0.8f), style = DsType.small13)
+        Text(value, Modifier.weight(1.2f), style = DsType.small13, color = DsTheme.colors.labelSecondary)
+        if (onEdit != null) {
+            val editLabel = stringResource(R.string.common_edit)
+            OutlinedButton(onClick = onEdit, enabled = enabled,
+                modifier = Modifier.semantics { contentDescription = "$editLabel: $fieldLabel" },
+                contentPadding = PaddingValues(horizontal = DsSpacing.small, vertical = DsSpacing.tiny)) {
+                Text(editLabel, style = DsType.small13)
+            }
+        }
+    }
+}
+
+@Composable
 private fun ModelChoice(label: Int, current: String, options: List<String>, enabled: Boolean, select: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    androidx.compose.foundation.layout.Box {
-        OutlinedButton(onClick = { expanded = true }, enabled = enabled) { Text(stringResource(label) + ": " + current) }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { option -> DropdownMenuItem(text = { Text(option) }, onClick = { expanded = false; select(option) }) }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DsSpacing.small),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(stringResource(label) + ":", Modifier.weight(1f), style = DsType.small13)
+        androidx.compose.foundation.layout.Box(Modifier.weight(1.5f, fill = false)) {
+            OutlinedButton(onClick = { expanded = true }, enabled = enabled) { Text(current, style = DsType.small13) }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { option -> DropdownMenuItem(text = { Text(option) }, onClick = { expanded = false; select(option) }) }
+            }
         }
     }
 }

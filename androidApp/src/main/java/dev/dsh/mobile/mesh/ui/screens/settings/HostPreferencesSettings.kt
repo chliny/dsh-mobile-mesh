@@ -19,7 +19,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,12 +28,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.SettingsNamespaceView
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
-import dev.dsh.mobile.mesh.ui.components.SectionHeader
 import dev.dsh.mobile.mesh.ui.components.ToggleRow
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
@@ -42,18 +40,12 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 
 @Composable
-internal fun HostPreferencesSettings(onClose: () -> Unit, viewModel: HostPreferencesViewModel = hiltViewModel()) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
+internal fun HostPreferencesContent(state: HostPreferencesState, viewModel: HostPreferencesViewModel) {
     val settings = state.settings
     val transcript = settings.namespace("ui-chat")
     val workView = settings.namespace("ui-settings")
     val writable = settings?.writable == true && !state.busy && !state.loading
-    LaunchedEffect(viewModel) { viewModel.refresh() }
-    HostSettingsPage(stringResource(R.string.host_preferences_title), onClose, action = {
-        TextButton(onClick = { viewModel.refresh() }, enabled = !state.loading && !state.busy) {
-            Text(stringResource(R.string.plugins_native_refresh))
-        }
-    }) {
+    Column(verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
         if (state.loading) Text(stringResource(R.string.common_loading), color = DsTheme.colors.labelSecondary)
         state.error?.let { Text(it, color = DsTheme.colors.error) }
         if (!state.loading && state.error == null && transcript == null && workView == null) {
@@ -61,7 +53,6 @@ internal fun HostPreferencesSettings(onClose: () -> Unit, viewModel: HostPrefere
         }
         if (settings?.writable == false) Text(stringResource(R.string.plugins_native_read_only), color = DsTheme.colors.labelSecondary)
         if (transcript != null) {
-            SectionHeader(stringResource(R.string.host_preferences_transcript))
             val display = when (val value = transcript.stringValue("transcriptView")) {
                 null, "normal", "expanded" -> "detailed"
                 else -> value
@@ -116,8 +107,10 @@ private fun HostPreferenceChoice(label: Int, current: String, writable: Boolean,
     val currentLabel = options.firstOrNull { it.first == current }?.second?.let { stringResource(it) } ?: current
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(stringResource(label), Modifier.weight(1f).padding(end = DsSpacing.small))
-        Box {
-            OutlinedButton(onClick = { expanded = true }, enabled = writable) { Text(currentLabel) }
+        Box(Modifier.weight(1f, fill = false)) {
+            OutlinedButton(onClick = { expanded = true }, enabled = writable) {
+                Text(currentLabel, style = DsType.small13)
+            }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 options.forEach { (value, text) ->
                     DropdownMenuItem(text = { Text(stringResource(text)) }, onClick = {
@@ -135,13 +128,17 @@ internal fun HostSettingsPage(title: String, onClose: () -> Unit, action: @Compo
     val colors = DsTheme.colors
     Surface(Modifier.fillMaxSize(), color = colors.bgBase) {
         Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-            Row(Modifier.fillMaxWidth().padding(DsSpacing.medium), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = DsSpacing.comfortable).padding(top = DsSpacing.medium),
+                verticalAlignment = Alignment.CenterVertically) {
                 DsIconButton(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back), onClick = onClose)
                 Text(title, Modifier.weight(1f), style = DsType.large20, color = colors.labelPrimary)
                 action()
             }
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(DsSpacing.medium),
-                verticalArrangement = Arrangement.spacedBy(DsSpacing.medium)) { content() }
+            CompositionLocalProvider(LocalTextStyle provides DsType.std14) {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(horizontal = DsSpacing.comfortable).padding(top = DsSpacing.comfortable, bottom = DsSpacing.xlarge),
+                    verticalArrangement = Arrangement.spacedBy(DsSpacing.comfortable)) { content() }
+            }
         }
     }
 }
