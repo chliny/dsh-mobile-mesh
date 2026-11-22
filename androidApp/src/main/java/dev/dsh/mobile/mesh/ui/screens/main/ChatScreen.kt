@@ -548,9 +548,9 @@ internal fun ChatScreen(
                     // ride the same call as receipts; a receipt the host refuses stays staged,
                     // so restoring the chips is enough to try again.
                     val outcome = if (pending.isEmpty()) {
-                        store.prompt(text, mode)
+                        store.prompt(text, sendMode)
                     } else {
-                        store.promptWithAttachments(text, mode, images.map { it.encoded() }, receipts)
+                        store.promptWithAttachments(text, sendMode, images.map { it.encoded() }, receipts)
                     }
                     sessionId?.let { promptSubmissionGate.release(it, text) }
                     if (outcome is PromptOutcome.Rejected) {
@@ -823,7 +823,9 @@ internal fun ChatScreen(
                 sessionCandidates = sessionCandidates,
                 referenceSessionId = currentSessionId,
                 onFileQueryChange = ::queryFileReferences,
-                onSend = { text, submittedAttachments -> send(text, submittedAttachments) },
+                onSend = { text, submittedAttachments, sendMode ->
+                    send(text, submittedAttachments, sendMode ?: mode)
+                },
                 onStop = { scope.launch { store.cancelTurn() } },
             )
 

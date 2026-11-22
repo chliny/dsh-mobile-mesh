@@ -14,6 +14,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +48,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -60,6 +62,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -79,6 +84,8 @@ import dev.dsh.mobile.mesh.core.wire.dto.PermissionSelect
 import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
 import dev.dsh.mobile.mesh.ui.screens.main.permissionPresetLabel
 import dev.dsh.mobile.mesh.ui.components.ContextMeter
+import dev.dsh.mobile.mesh.ui.components.DsMenu
+import dev.dsh.mobile.mesh.ui.components.MenuItem
 import dev.dsh.mobile.mesh.ui.components.skeleton
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
 import dev.dsh.mobile.mesh.ui.theme.DsShapes
@@ -194,7 +201,7 @@ internal fun Composer(
     sessionCandidates: List<dev.dsh.mobile.mesh.core.wire.dto.SessionReferenceCandidate> = emptyList(),
     referenceSessionId: String? = null,
     onFileQueryChange: (String?) -> Unit = {},
-    onSend: (String, List<PendingAttachment>) -> Unit,
+    onSend: (String, List<PendingAttachment>, String?) -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -412,25 +419,23 @@ internal fun Composer(
 
                 // Send and stop occupy the same slot: the affordance changes meaning during a turn
                 // rather than the row re-flowing around a second button appearing.
+                val showStop = running && !canSend
                 AnimatedContent(
-                    targetState = running to canSend,
+                    targetState = showStop,
                     transitionSpec = {
                         (fadeIn(DsAnimations.fade) + scaleIn(initialScale = 0.85f))
                             .togetherWith(fadeOut(DsAnimations.fade) + scaleOut(targetScale = 0.85f))
                     },
                     label = "sendStop",
-                ) { (isRunning, canSubmit) ->
-                    // A running turn keeps Stop only while the composer is empty. Once there is a
-                    // message, the primary action becomes Send and uses the selected queue/steer
-                    // mode, matching the web input bar.
-                    if (isRunning && !canSubmit) {
+                ) { stop ->
+                    if (stop) {
                         CircleAction(
                             icon = null,
                             contentDescription = stringResource(R.string.chat_composer_stop),
                             size = 36,
                             background = colors.error,
                             tint = Color.White,
-                            enabled = true,
+                            enabled = showStop,
                             onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onStop()
@@ -444,20 +449,35 @@ internal fun Composer(
                             )
                         }
                     } else {
-                        CircleAction(
-                            icon = Icons.Filled.ArrowUpward,
-                            contentDescription = stringResource(R.string.chat_composer_send),
-                            size = 36,
-                            background = if (canSend) colors.buttonInfoFill else colors.buttonPrimaryDimmed,
-                            tint = if (canSend) Color.White else colors.labelTertiary,
-                            enabled = canSend,
-                            onClick = {
-                                val text = currentDraft
-                                currentOnDraftChange("")
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                currentOnSend(text, attachments.toList())
-                            },
-                        )
+                        val submit: (String?) -> Unit = { sendMode ->
+                            val text = currentDraft
+                            currentOnDraftChange("")
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            currentOnSend(text, attachments.toList(), sendMode)
+                        }
+                        val canChooseMode = running && canSend
+                        // Discard an open menu when its turn ends or the user changes sessions.
+                        key(referenceSessionId, canChooseMode) {
+                            DsMenu(
+                                anchor = { open ->
+                                    CircleAction(
+                                        icon = Icons.Filled.ArrowUpward,
+                                        contentDescription = stringResource(R.string.chat_composer_send),
+                                        size = 36,
+                                        background = if (canSend) colors.buttonInfoFill else colors.buttonPrimaryDimmed,
+                                        tint = if (canSend) Color.White else colors.labelTertiary,
+                                        enabled = canSend,
+                                        onClick = { submit(null) },
+                                        onLongClick = open.takeIf { canChooseMode },
+                                        onLongClickLabel = stringResource(R.string.chat_composer_mode),
+                                    )
+                                },
+                                items = listOf(
+                                    MenuItem(stringResource(R.string.chat_composer_steer)) { submit("steer") },
+                                    MenuItem(stringResource(R.string.chat_composer_queue)) { submit("queue") },
+                                ),
+                            )
+                        }
                     }
                 }
             }
@@ -739,21 +759,32 @@ private fun CircleAction(
     tint: Color,
     enabled: Boolean,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    onLongClickLabel: String? = null,
     content: (@Composable () -> Unit)? = null,
 ) {
     Surface(
-        onClick = onClick,
         modifier = Modifier.size(size.dp),
-        enabled = enabled,
         shape = CircleShape,
         color = background,
     ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.fillMaxSize()
+                .semantics { this.contentDescription = contentDescription }
+                .combinedClickable(
+                    enabled = enabled,
+                    role = Role.Button,
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                    onLongClickLabel = onLongClickLabel,
+                ),
+        ) {
             when {
                 content != null -> content()
                 icon != null -> Icon(
                     icon,
-                    contentDescription = contentDescription,
+                    contentDescription = null,
                     tint = tint,
                     modifier = Modifier.size((size * 0.46f).dp),
                 )
