@@ -462,7 +462,7 @@ internal fun ChatScreen(
         }
     }
 
-    fun send(text: String, submittedAttachments: List<PendingAttachment> = attachments.toList()) {
+    fun send(text: String, submittedAttachments: List<PendingAttachment>, sendMode: String) {
         val pending = submittedAttachments
         val sessionId = currentSessionId
         if (text.isBlank() && pending.isEmpty()) return
