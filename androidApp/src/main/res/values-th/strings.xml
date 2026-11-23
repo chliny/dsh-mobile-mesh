@@ -382,7 +382,6 @@
     <string name="presets_broken">ไม่พร้อมใช้งาน: %1$s</string>
     <string name="presets_empty">ไม่มีพรีเซ็ตเอเจนต์</string>
     <string name="settings_connection">การเชื่อมต่อ</string>
-    <string name="settings_connection_status">สถานะ</string>
     <string name="settings_connection_host">เชื่อมต่อกับ</string>
     <string name="settings_connection_disconnect">ตัดการเชื่อมต่อ</string>
     <string name="settings_connection_disconnect_confirm">ตัดการเชื่อมต่อจาก Harness หรือไม่</string>

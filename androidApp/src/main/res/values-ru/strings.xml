@@ -382,7 +382,6 @@
     <string name="presets_broken">Недоступен: %1$s</string>
     <string name="presets_empty">Нет пресетов агента</string>
     <string name="settings_connection">Подключение</string>
-    <string name="settings_connection_status">Состояние</string>
     <string name="settings_connection_host">Подключено к</string>
     <string name="settings_connection_disconnect">Отключиться</string>
     <string name="settings_connection_disconnect_confirm">Отключиться от Harness?</string>

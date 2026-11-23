@@ -77,6 +77,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.PluginInventorySnapshot
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
 import dev.dsh.mobile.mesh.ui.components.DsButton
+import dev.dsh.mobile.mesh.ui.components.DsButtonSize
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
 import dev.dsh.mobile.mesh.ui.components.DsDialog
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
@@ -865,35 +866,41 @@ private fun moduleShortName(moduleName: String): String {
 }
 
 @Composable
-private fun LabelledValue(label: String, value: String) {
-    val colors = DsTheme.colors
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = DsType.std14, color = colors.labelSecondary, modifier = Modifier.weight(1f))
-        Text(
-            value,
-            style = DsType.caption11,
-            color = colors.labelTertiary,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1.4f),
-        )
-    }
-}
-
-@Composable
 private fun ConnectionSection(connectionState: ConnectionUiState, onDisconnect: () -> Unit) {
     val colors = DsTheme.colors
     val isConnected = connectionState.phase == ConnectionPhase.CONNECTED ||
         connectionState.phase == ConnectionPhase.RECONNECTING
 
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            stringResource(R.string.settings_connection_status),
-            style = DsType.std14,
-            color = colors.labelSecondary,
-            modifier = Modifier.weight(1f),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    if (isConnected && connectionState.host != null) {
+        // Connected: the "connected to <host>" line is itself the status, so there is no separate
+        // status row. The disconnect action sits on that line's right edge — not a full-width button
+        // of its own — so it cannot be mistaken for the connection list entries beneath it.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.settings_connection_host),
+                    style = DsType.caption11,
+                    color = colors.labelTertiary,
+                )
+                Text(
+                    connectionState.host.authority,
+                    style = DsType.std14,
+                    color = colors.labelPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(DsSpacing.small))
+            DsButton(
+                text = stringResource(R.string.settings_connection_disconnect),
+                onClick = onDisconnect,
+                variant = DsButtonVariant.Outline,
+                size = DsButtonSize.Small,
+            )
+        }
+    } else {
+        // Not connected: no "connected to" line to carry the state, so show the dot and its label.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             StateDot(
                 when (connectionState.phase) {
                     ConnectionPhase.CONNECTED -> StateDotState.Done
@@ -913,19 +920,6 @@ private fun ConnectionSection(connectionState: ConnectionUiState, onDisconnect: 
                 color = colors.labelTertiary,
             )
         }
-    }
-
-    if (isConnected && connectionState.host != null) {
-        LabelledValue(
-            stringResource(R.string.settings_connection_host),
-            connectionState.host.authority,
-        )
-        DsButton(
-            text = stringResource(R.string.settings_connection_disconnect),
-            onClick = onDisconnect,
-            variant = DsButtonVariant.Outline,
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }
 

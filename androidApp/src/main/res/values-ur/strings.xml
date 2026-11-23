@@ -382,7 +382,6 @@
     <string name="presets_broken">دستیاب نہیں: %1$s</string>
     <string name="presets_empty">کوئی ایجنٹ پری سیٹ نہیں</string>
     <string name="settings_connection">کنکشن</string>
-    <string name="settings_connection_status">حیثیت</string>
     <string name="settings_connection_host">منسلک ہے</string>
     <string name="settings_connection_disconnect">کنکشن ختم کریں</string>
     <string name="settings_connection_disconnect_confirm">Harness سے کنکشن ختم کریں؟</string>

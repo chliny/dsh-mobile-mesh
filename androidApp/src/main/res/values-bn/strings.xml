@@ -382,7 +382,6 @@
     <string name="presets_broken">অনুপলব্ধ: %1$s</string>
     <string name="presets_empty">কোনো এজেন্ট প্রিসেট নেই</string>
     <string name="settings_connection">সংযোগ</string>
-    <string name="settings_connection_status">অবস্থা</string>
     <string name="settings_connection_host">যুক্ত আছে</string>
     <string name="settings_connection_disconnect">সংযোগ বিচ্ছিন্ন করুন</string>
     <string name="settings_connection_disconnect_confirm">Harness থেকে সংযোগ বিচ্ছিন্ন করবেন?</string>

@@ -382,7 +382,6 @@
     <string name="presets_broken">Indisponível: %1$s</string>
     <string name="presets_empty">Nenhuma predefinição de agente</string>
     <string name="settings_connection">Conexão</string>
-    <string name="settings_connection_status">Status</string>
     <string name="settings_connection_host">Conectado a</string>
     <string name="settings_connection_disconnect">Desconectar</string>
     <string name="settings_connection_disconnect_confirm">Desconectar do Harness?</string>

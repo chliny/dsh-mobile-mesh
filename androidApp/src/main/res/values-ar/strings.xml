@@ -382,7 +382,6 @@
     <string name="presets_broken">غير متاح: %1$s</string>
     <string name="presets_empty">لا توجد إعدادات وكيل مسبقة</string>
     <string name="settings_connection">الاتصال</string>
-    <string name="settings_connection_status">الحالة</string>
     <string name="settings_connection_host">متصل بـ</string>
     <string name="settings_connection_disconnect">قطع الاتصال</string>
     <string name="settings_connection_disconnect_confirm">قطع الاتصال بـ Harness؟</string>

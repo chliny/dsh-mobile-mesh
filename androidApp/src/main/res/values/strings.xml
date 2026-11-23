@@ -463,7 +463,6 @@
     <string name="settings_connections_transport_direct">Direct</string>
     <string name="settings_connections_ssh_enabled">SSH enabled</string>
     <string name="settings_connections_ssh_disabled">SSH disabled</string>
-    <string name="settings_connection_status">Status</string>
     <string name="settings_connection_host">Connected to</string>
     <string name="settings_connection_disconnect">Disconnect</string>
     <string name="settings_connection_disconnect_confirm">Disconnect from harness?</string>
