@@ -4,7 +4,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,13 +28,7 @@ import dev.dsh.mobile.mesh.core.forge.forgeSubmitReviewRequest
 import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewData
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.launch
 
 /** Submit or discard the signed-in user's pending GitHub review. */
@@ -46,7 +44,6 @@ internal fun ForgeSubmitReviewSheet(
 ) {
     val store = rememberForgeStore()
     val context = LocalContext.current
-    val colors = DsTheme.colors
     val scope = rememberCoroutineScope()
     val pending = data.pendingReview
     var event by remember { mutableStateOf("comment") }
@@ -133,25 +130,25 @@ internal fun ForgeSubmitReviewSheet(
         if (pending != null) {
             Text(
                 stringResource(R.string.forge_review_pending_count, pending.comments),
-                style = DsType.small13,
-                color = colors.labelSecondary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            DsPill(
-                text = stringResource(R.string.forge_review_event_comment),
+            FilterChip(
                 selected = event == "comment",
                 onClick = { event = "comment" },
+                label = { Text(stringResource(R.string.forge_review_event_comment)) },
             )
-            DsPill(
-                text = stringResource(R.string.forge_review_event_approve),
+            FilterChip(
                 selected = event == "approve",
                 onClick = { event = "approve" },
+                label = { Text(stringResource(R.string.forge_review_event_approve)) },
             )
-            DsPill(
-                text = stringResource(R.string.forge_review_event_request_changes),
+            FilterChip(
                 selected = event == "request-changes",
                 onClick = { event = "request-changes" },
+                label = { Text(stringResource(R.string.forge_review_event_request_changes)) },
             )
         }
         OutlinedTextField(
@@ -164,21 +161,19 @@ internal fun ForgeSubmitReviewSheet(
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             if (pending != null) {
-                DsButton(
-                    text = stringResource(R.string.forge_review_discard),
+                TextButton(
                     onClick = { confirmDiscard = true },
                     enabled = !busy,
-                    variant = DsButtonVariant.Danger,
-                    size = DsButtonSize.Small,
-                )
+                ) {
+                    Text(
+                        stringResource(R.string.forge_review_discard),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
-            DsButton(
-                text = stringResource(R.string.forge_review_submit),
-                onClick = ::submit,
-                enabled = !busy,
-                variant = DsButtonVariant.Primary,
-                size = DsButtonSize.Small,
-            )
+            Button(onClick = ::submit, enabled = !busy) {
+                Text(stringResource(R.string.forge_review_submit))
+            }
         }
     }
 

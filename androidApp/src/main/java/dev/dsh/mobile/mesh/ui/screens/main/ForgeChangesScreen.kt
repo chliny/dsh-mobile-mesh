@@ -6,7 +6,10 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,10 +26,22 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -39,6 +54,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -61,19 +77,11 @@ import dev.dsh.mobile.mesh.core.wire.dto.ForgePanelChangeRequest
 import dev.dsh.mobile.mesh.core.wire.dto.ForgePanelState
 import dev.dsh.mobile.mesh.core.wire.dto.latestSnapshot
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsCard
-import dev.dsh.mobile.mesh.ui.components.DsIconButton
-import dev.dsh.mobile.mesh.ui.components.DsMenu
-import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
-import dev.dsh.mobile.mesh.ui.components.MenuItem
 import dev.dsh.mobile.mesh.ui.components.rememberDsToast
 import dev.dsh.mobile.mesh.ui.components.DsToastHost
+import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.launch
 
@@ -152,7 +160,7 @@ internal fun forgeErrorTextValue(context: Context, error: RpcError): String = wh
 internal fun forgeErrorText(error: RpcError): String = forgeErrorTextValue(LocalContext.current, error)
 
 /** Branch, worktree and change-request changes view for the current Session. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun ForgeChangesScreen(
     sessionId: String,
@@ -187,7 +195,6 @@ internal fun ForgeChangesScreen(
             else -> ForgeLocalScope.branch(baseRef, commits)
         }
     }
-    val colors = DsTheme.colors
     val scopeCoroutine = rememberCoroutineScope()
     val context = LocalContext.current
     val (toastMessage, showToast) = rememberDsToast()
@@ -241,21 +248,26 @@ internal fun ForgeChangesScreen(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            DsIconButton(
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = stringResource(R.string.common_back),
-                onClick = onBack,
-                tint = colors.labelSecondary,
-                iconSize = 18.dp,
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.common_back),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                stringResource(R.string.forge_changes),
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f).padding(start = 4.dp),
             )
-            Text(stringResource(R.string.forge_changes), style = DsType.large20, modifier = Modifier.weight(1f).padding(start = 4.dp))
-            DsIconButton(
-                icon = Icons.Filled.Refresh,
-                contentDescription = stringResource(R.string.forge_refresh),
-                onClick = ::refresh,
-                tint = colors.labelSecondary,
-                iconSize = 18.dp,
-            )
+            IconButton(onClick = ::refresh) {
+                Icon(
+                    Icons.Filled.Refresh,
+                    contentDescription = stringResource(R.string.forge_refresh),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         PullToRefreshBox(
             isRefreshing = loadingDiff,
@@ -269,7 +281,7 @@ internal fun ForgeChangesScreen(
             ) {
                 if (available == false || streamError?.code == "gateway/invocation-unavailable") {
                     item(key = "unavailable") {
-                        Text(stringResource(R.string.forge_plugin_disabled), style = DsType.std14, color = colors.labelSecondary)
+                        Text(stringResource(R.string.forge_plugin_disabled), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     return@LazyColumn
                 }
@@ -278,8 +290,8 @@ internal fun ForgeChangesScreen(
                         Text(
                             if (streamLoading) stringResource(R.string.common_loading)
                             else streamError?.let { forgeErrorText(it) } ?: stringResource(R.string.common_loading),
-                            style = DsType.std14,
-                            color = colors.labelSecondary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     return@LazyColumn
@@ -287,7 +299,7 @@ internal fun ForgeChangesScreen(
 
                 streamError?.let { failure ->
                     item(key = "stream-error") {
-                        Text(forgeErrorText(failure), style = DsType.caption11, color = colors.warnLabel)
+                        Text(forgeErrorText(failure), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                     }
                 }
                 item(key = "checkout") { ForgeCheckoutRow(panel) }
@@ -295,13 +307,13 @@ internal fun ForgeChangesScreen(
                 val checkoutState = panel.checkout.state
                 if (checkoutState == "pending") {
                     item(key = "checkout-pending") {
-                        Text(stringResource(R.string.forge_checkout_pending), style = DsType.std14, color = colors.labelSecondary)
+                        Text(stringResource(R.string.forge_checkout_pending), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     return@LazyColumn
                 }
                 if (checkoutState == "none") {
                     item(key = "not-git") {
-                        Text(stringResource(R.string.forge_not_checkout), style = DsType.std14, color = colors.labelSecondary)
+                        Text(stringResource(R.string.forge_not_checkout), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     return@LazyColumn
                 }
@@ -309,8 +321,8 @@ internal fun ForgeChangesScreen(
                     item(key = "checkout-failed") {
                         Text(
                             panel.checkout.message?.takeIf { it.isNotBlank() } ?: stringResource(R.string.forge_checkout_failed),
-                            style = DsType.std14,
-                            color = colors.warnLabel,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
                         )
                     }
                     return@LazyColumn
@@ -318,32 +330,35 @@ internal fun ForgeChangesScreen(
 
                 item(key = "scopes") {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            DsPill(
-                                text = stringResource(forgeScopeLabelKey(scopeKind)),
-                                selected = true,
+                            AssistChip(
                                 onClick = { scopeSheetOpen = true },
+                                label = { Text(stringResource(forgeScopeLabelKey(scopeKind))) },
+                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null) },
                             )
                             if (scopeKind == ForgeLocalScope.BRANCH) {
                                 val automaticBase = localDiff?.base ?: panel.local?.base
                                 val label = baseName ?: baseRef?.substringAfter("refs/heads/")?.substringAfter("refs/remotes/")
                                     ?: automaticBase
                                     ?: stringResource(R.string.forge_base_default)
-                                DsPill(
-                                    text = stringResource(R.string.forge_base_pill, label),
+                                AssistChip(
                                     onClick = { baseSheetOpen = true },
+                                    label = { Text(stringResource(R.string.forge_base_pill, label)) },
+                                    trailingIcon = { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null) },
                                 )
-                                DsPill(
-                                    text = commits?.let(::commitsLabel) ?: stringResource(R.string.forge_commits_all_pill),
+                                AssistChip(
                                     onClick = { commitSheetOpen = true },
+                                    label = { Text(commits?.let(::commitsLabel) ?: stringResource(R.string.forge_commits_all_pill)) },
+                                    trailingIcon = { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null) },
                                 )
                             }
-                            DsPill(
-                                text = stringResource(R.string.forge_files_filter),
+                            AssistChip(
                                 onClick = { lensSheetOpen = true },
+                                label = { Text(stringResource(R.string.forge_files_filter)) },
                             )
                         }
                         val allFiles = filterForgeFiles(localDiff?.files.orEmpty(), lens, hideTests)
@@ -365,23 +380,23 @@ internal fun ForgeChangesScreen(
                                     allFiles.sumOf { it.additions },
                                     allFiles.sumOf { it.deletions },
                                 ),
-                                style = DsType.caption11,
-                                color = colors.labelTertiary,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             if (commits != null) {
                                 Spacer(Modifier.width(6.dp))
                                 Text(
                                     stringResource(R.string.forge_commits_selected, commitsLabel(commits)),
-                                    style = DsType.caption11,
-                                    color = colors.accent,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
                                 )
                             }
                             if (allFiles.isNotEmpty()) {
                                 Spacer(Modifier.width(6.dp))
                                 Text(
                                     stringResource(R.string.forge_viewed_progress, reviewed, allFiles.size),
-                                    style = DsType.caption11,
-                                    color = colors.labelTertiary,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
@@ -391,34 +406,28 @@ internal fun ForgeChangesScreen(
                 if (diffError != null && diffError?.code == "forgePanel/no-fork-point") {
                     item(key = "no-fork") {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(stringResource(R.string.forge_no_fork_point), style = DsType.small13, color = colors.warnLabel)
-                            DsButton(
-                                text = stringResource(R.string.forge_use_default_base),
-                                onClick = { onBaseChange(null) },
-                                variant = DsButtonVariant.Outline,
-                                size = DsButtonSize.Small,
-                            )
+                            Text(stringResource(R.string.forge_no_fork_point), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            OutlinedButton(onClick = { onBaseChange(null) }) {
+                                Text(stringResource(R.string.forge_use_default_base))
+                            }
                         }
                     }
                 } else if (diffError != null) {
                     item(key = "diff-error") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(forgeErrorText(diffError!!), style = DsType.small13, color = colors.warnLabel, modifier = Modifier.weight(1f))
-                            DsButton(
-                                text = stringResource(R.string.common_retry),
-                                onClick = { refreshNonce++ },
-                                variant = DsButtonVariant.Outline,
-                                size = DsButtonSize.Small,
-                            )
+                            Text(forgeErrorText(diffError!!), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
+                            OutlinedButton(onClick = { refreshNonce++ }) {
+                                Text(stringResource(R.string.common_retry))
+                            }
                         }
                     }
                 } else if (loadingDiff && localDiff == null) {
                     item(key = "diff-loading") {
-                        Text(stringResource(R.string.common_loading), style = DsType.std14, color = colors.labelSecondary)
+                        Text(stringResource(R.string.common_loading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else if (visibleLocalFiles(localDiff?.files, lens, hideTests).isEmpty()) {
                     item(key = "diff-empty") {
-                        Text(stringResource(R.string.forge_files_empty), style = DsType.std14, color = colors.labelSecondary)
+                        Text(stringResource(R.string.forge_files_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
                     items(visibleLocalFiles(localDiff?.files, lens, hideTests), key = { "file:${it.path}" }) { file ->
@@ -456,8 +465,8 @@ internal fun ForgeChangesScreen(
                         item(key = "omitted") {
                             Text(
                                 stringResource(R.string.forge_files_omitted, omitted),
-                                style = DsType.caption11,
-                                color = colors.labelTertiary,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -468,9 +477,9 @@ internal fun ForgeChangesScreen(
                 if (changeRequests.isNotEmpty()) {
                     item(key = "cr-header") {
                         Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(stringResource(R.string.forge_change_requests), style = DsType.small13Strong, color = colors.labelPrimary)
+                            Text(stringResource(R.string.forge_change_requests), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                             Spacer(Modifier.weight(1f))
-                            Text(changeRequests.size.toString(), style = DsType.caption11, color = colors.labelTertiary)
+                            Text(changeRequests.size.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     items(changeRequests, key = { "cr:${it.url}" }) { request ->
@@ -491,8 +500,8 @@ internal fun ForgeChangesScreen(
                     item(key = "readiness") {
                         Text(
                             readiness?.message?.takeIf { it.isNotBlank() } ?: stringResource(R.string.forge_github_login),
-                            style = DsType.caption11,
-                            color = colors.warnLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(top = 8.dp),
                         )
                     }
@@ -574,15 +583,14 @@ internal fun ForgeChangesScreen(
 
 @Composable
 private fun ForgeCheckoutRow(panel: ForgePanelState) {
-    val colors = DsTheme.colors
     val checkout = panel.checkout.checkout
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Icon(FeatherIcons.GitBranch, contentDescription = null, tint = colors.labelSecondary)
+        Icon(FeatherIcons.GitBranch, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(
                 checkout?.branch ?: checkout?.commit ?: stringResource(R.string.forge_checkout_pending),
-                style = DsType.small13Strong,
-                color = colors.labelPrimary,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -594,7 +602,7 @@ private fun ForgeCheckoutRow(panel: ForgePanelState) {
                 checkout?.linked == true -> stringResource(R.string.forge_checkout_worktree)
                 else -> stringResource(R.string.forge_checkout_project)
             }
-            Text(kind, style = DsType.caption11, color = colors.labelTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(kind, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -606,44 +614,62 @@ internal fun ForgeFileRow(
     onToggleViewed: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    val colors = DsTheme.colors
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Icon(FeatherIcons.FileText, contentDescription = null, tint = colors.labelSecondary)
-        Column(Modifier.weight(1f)) {
+    ListItem(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        leadingContent = {
+            Icon(FeatherIcons.FileText, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        },
+        headlineContent = {
             Text(
                 file.path.substringAfterLast('/'),
-                style = DsType.small13,
-                color = colors.labelPrimary,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            val directory = file.path.substringBeforeLast('/', "")
-            if (directory.isNotEmpty()) {
-                Text(directory, style = DsType.caption11, color = colors.labelTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        },
+        supportingContent = file.path.substringBeforeLast('/', "").takeIf { it.isNotEmpty() }?.let { directory ->
+            {
+                Text(
+                    directory,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-        }
-        if (file.binary) {
-            DsPill(stringResource(R.string.forge_binary))
-        } else {
-            Text("+${file.additions}", style = DsType.caption11, color = colors.success)
-            Text("-${file.deletions}", style = DsType.caption11, color = colors.error)
-        }
-        if (file.status != "modified") {
-            DsPill(stringResource(forgeFileStatusLabelKey(file.status)))
-        }
-        if (viewed == "dismissed") DsPill(stringResource(R.string.forge_viewed_dismissed), warn = true)
-        if (onToggleViewed != null) {
-            androidx.compose.material3.Checkbox(
-                checked = viewed == "viewed",
-                onCheckedChange = { onToggleViewed() },
-                modifier = Modifier.padding(start = 2.dp),
-            )
-        }
-    }
+        },
+        trailingContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (file.binary) {
+                    StatusBadge(stringResource(R.string.forge_binary))
+                } else {
+                    Text("+${file.additions}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text("-${file.deletions}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                }
+                if (file.status != "modified") {
+                    StatusBadge(stringResource(forgeFileStatusLabelKey(file.status)))
+                }
+                if (viewed == "dismissed") {
+                    StatusBadge(
+                        text = stringResource(R.string.forge_viewed_dismissed),
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
+                if (onToggleViewed != null) {
+                    Checkbox(
+                        checked = viewed == "viewed",
+                        onCheckedChange = { onToggleViewed() },
+                    )
+                }
+            }
+        },
+    )
 }
 
 @Composable
@@ -654,85 +680,153 @@ private fun ForgeChangeRequestCard(
     onCopyLink: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     val snapshot = request.latestSnapshot()
-    DsCard(onClick = if (snapshot != null) onOpen else null) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                "#${snapshot?.ref?.number ?: request.ref?.number ?: 0}",
-                style = DsType.caption11,
-                color = colors.labelTertiary,
-            )
-            DsPill(forgeChangeStateLabel(snapshot), selected = snapshot?.state == "open", warn = snapshot?.draft == true)
-            Spacer(Modifier.weight(1f))
-            DsMenu(
-                anchor = { onOpen ->
-                    DsIconButton(
-                        icon = Icons.Filled.MoreVert,
-                        contentDescription = stringResource(R.string.forge_more),
-                        onClick = onOpen,
-                        tint = colors.labelTertiary,
-                        iconSize = 18.dp,
-                    )
-                },
-                items = listOf(
-                    MenuItem(stringResource(R.string.forge_open_in_browser), icon = FeatherIcons.Globe, onClick = onOpenInBrowser),
-                    MenuItem(stringResource(R.string.forge_copy_link), icon = FeatherIcons.Code, onClick = onCopyLink),
-                    MenuItem(stringResource(R.string.forge_dismiss), danger = true, dividerBefore = true, onClick = onDismiss),
-                ),
-            )
-        }
-        Text(
-            snapshot?.title ?: stringResource(R.string.forge_change_request_pending),
-            style = DsType.small13Strong,
-            color = colors.labelPrimary,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (snapshot != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (snapshot.checksRollup != "none") {
-                    DsPill(
-                        stringResource(
-                            when (snapshot.checksRollup) {
-                                "success" -> R.string.forge_checks_success
-                                "failure" -> R.string.forge_checks_failure
-                                else -> R.string.forge_checks_pending
+    var menuOpen by remember { mutableStateOf(false) }
+    val stateContainer = when {
+        snapshot?.draft == true -> MaterialTheme.colorScheme.secondaryContainer
+        snapshot?.state == "merged" -> MaterialTheme.colorScheme.tertiaryContainer
+        snapshot?.state == "closed" -> MaterialTheme.colorScheme.surfaceVariant
+        else -> MaterialTheme.colorScheme.primaryContainer
+    }
+    val stateContent = when {
+        snapshot?.draft == true -> MaterialTheme.colorScheme.onSecondaryContainer
+        snapshot?.state == "merged" -> MaterialTheme.colorScheme.onTertiaryContainer
+        snapshot?.state == "closed" -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.onPrimaryContainer
+    }
+    OutlinedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (snapshot != null) Modifier.clickable(onClick = onOpen) else Modifier),
+        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "#${snapshot?.ref?.number ?: request.ref?.number ?: 0}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                StatusBadge(
+                    text = forgeChangeStateLabel(snapshot),
+                    containerColor = stateContainer,
+                    contentColor = stateContent,
+                )
+                Spacer(Modifier.weight(1f))
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = stringResource(R.string.forge_more),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.forge_open_in_browser)) },
+                            leadingIcon = { Icon(FeatherIcons.Globe, contentDescription = null) },
+                            onClick = {
+                                menuOpen = false
+                                onOpenInBrowser()
                             },
-                        ),
-                        warn = snapshot.checksRollup == "failure",
-                    )
-                }
-                if (snapshot.reviewDecision != "none") {
-                    DsPill(
-                        stringResource(
-                            when (snapshot.reviewDecision) {
-                                "approved" -> R.string.forge_review_approved
-                                "changes-requested" -> R.string.forge_review_changes
-                                else -> R.string.forge_review_required
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.forge_copy_link)) },
+                            leadingIcon = { Icon(FeatherIcons.Code, contentDescription = null) },
+                            onClick = {
+                                menuOpen = false
+                                onCopyLink()
                             },
-                        ),
-                    )
-                }
-                if (snapshot.mergeability == "conflicting") DsPill(stringResource(R.string.forge_conflict), warn = true)
-                if (snapshot.unresolvedThreads > 0) {
-                    DsPill(stringResource(R.string.forge_unresolved, snapshot.unresolvedThreads))
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    stringResource(R.string.forge_dismiss),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            },
+                            onClick = {
+                                menuOpen = false
+                                onDismiss()
+                            },
+                        )
+                    }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("+${snapshot.additions}", style = DsType.caption11, color = colors.success)
-                Text("-${snapshot.deletions}", style = DsType.caption11, color = colors.error)
+            Text(
+                snapshot?.title ?: stringResource(R.string.forge_change_request_pending),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (snapshot != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (snapshot.checksRollup != "none") {
+                        StatusBadge(
+                            text = stringResource(
+                                when (snapshot.checksRollup) {
+                                    "success" -> R.string.forge_checks_success
+                                    "failure" -> R.string.forge_checks_failure
+                                    else -> R.string.forge_checks_pending
+                                },
+                            ),
+                            containerColor = if (snapshot.checksRollup == "failure") {
+                                MaterialTheme.colorScheme.errorContainer
+                            } else {
+                                MaterialTheme.colorScheme.secondaryContainer
+                            },
+                            contentColor = if (snapshot.checksRollup == "failure") {
+                                MaterialTheme.colorScheme.onErrorContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            },
+                        )
+                    }
+                    if (snapshot.reviewDecision != "none") {
+                        StatusBadge(
+                            text = stringResource(
+                                when (snapshot.reviewDecision) {
+                                    "approved" -> R.string.forge_review_approved
+                                    "changes-requested" -> R.string.forge_review_changes
+                                    else -> R.string.forge_review_required
+                                },
+                            ),
+                        )
+                    }
+                    if (snapshot.mergeability == "conflicting") {
+                        StatusBadge(
+                            text = stringResource(R.string.forge_conflict),
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
+                    if (snapshot.unresolvedThreads > 0) {
+                        StatusBadge(stringResource(R.string.forge_unresolved, snapshot.unresolvedThreads))
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("+${snapshot.additions}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text("-${snapshot.deletions}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    Text(
+                        "${snapshot.headBranch} → ${snapshot.baseBranch}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            } else {
                 Text(
-                    "${snapshot.headBranch} → ${snapshot.baseBranch}",
-                    style = DsType.caption11,
-                    color = colors.labelTertiary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
+                    stringResource(R.string.forge_change_request_pending),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        } else {
-            Text(stringResource(R.string.forge_change_request_pending), style = DsType.caption11, color = colors.labelTertiary)
         }
     }
 }
@@ -763,7 +857,6 @@ private fun ForgeBaseSheet(
     onDismiss: () -> Unit,
 ) {
     val store = rememberForgeStore()
-    val colors = DsTheme.colors
     var query by remember { mutableStateOf("") }
     var listing by remember { mutableStateOf<ForgeBaseBranches?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -789,10 +882,10 @@ private fun ForgeBaseSheet(
             modifier = Modifier.fillMaxWidth(),
         )
         if (loading && listing == null) {
-            Text(stringResource(R.string.common_loading), style = DsType.small13, color = colors.labelSecondary)
+            Text(stringResource(R.string.common_loading), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         error?.let {
-            Text(forgeErrorText(it), style = DsType.small13, color = colors.warnLabel)
+            Text(forgeErrorText(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
         listing?.let { bases ->
             LazyColumn(Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -808,8 +901,8 @@ private fun ForgeBaseSheet(
                     item(key = "no-automatic") {
                         Text(
                             stringResource(R.string.forge_no_fork_point),
-                            style = DsType.caption11,
-                            color = colors.labelTertiary,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 4.dp),
                         )
                     }
@@ -822,8 +915,8 @@ private fun ForgeBaseSheet(
                     item(key = "remote-heading") {
                         Text(
                             stringResource(R.string.forge_base_remote),
-                            style = DsType.caption11,
-                            color = colors.labelTertiary,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
                         )
                     }
@@ -835,8 +928,8 @@ private fun ForgeBaseSheet(
                     item(key = "local-heading") {
                         Text(
                             stringResource(R.string.forge_base_local),
-                            style = DsType.caption11,
-                            color = colors.labelTertiary,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
                         )
                     }
@@ -863,7 +956,6 @@ internal fun ForgeCommitSheet(
     onSelect: (ForgeCommitRange?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     var commits by remember { mutableStateOf<List<dev.dsh.mobile.mesh.core.wire.dto.ForgeCommit>>(emptyList()) }
     var truncated by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
@@ -907,19 +999,19 @@ internal fun ForgeCommitSheet(
     }
     DsBottomSheet(title = stringResource(R.string.forge_commits_title), onDismiss = onDismiss) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.forge_commits_range_mode), style = DsType.small13, color = colors.labelSecondary, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.forge_commits_range_mode), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
             androidx.compose.material3.Switch(checked = rangeMode, onCheckedChange = { rangeMode = it; anchor = null; rangeError = false })
         }
         if (loading) {
-            Text(stringResource(R.string.forge_commits_loading), style = DsType.small13, color = colors.labelSecondary)
+            Text(stringResource(R.string.forge_commits_loading), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@DsBottomSheet
         }
         error?.let {
-            Text(forgeErrorText(it), style = DsType.small13, color = colors.warnLabel)
+            Text(forgeErrorText(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             return@DsBottomSheet
         }
         if (rangeError) {
-            Text(stringResource(R.string.forge_commits_not_linear), style = DsType.caption11, color = colors.warnLabel)
+            Text(stringResource(R.string.forge_commits_not_linear), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
         }
         LazyColumn(Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             item(key = "all") {
@@ -935,18 +1027,29 @@ internal fun ForgeCommitSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(shortSha(commit.sha), style = DsType.mdCode, color = colors.accent)
+                    Text(shortSha(commit.sha), style = DsType.mdCode, color = MaterialTheme.colorScheme.primary)
                     Column(Modifier.weight(1f)) {
-                        Text(commit.title, style = DsType.small13, color = colors.labelPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        commit.author?.let { Text(it, style = DsType.caption11, color = colors.labelTertiary) }
+                        Text(commit.title, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        commit.author?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
-                    if (isAnchor) DsPill(stringResource(R.string.forge_commits_anchor), selected = true)
-                    else if (inRange) DsPill("✓", selected = true)
+                    if (isAnchor) {
+                        StatusBadge(
+                            text = stringResource(R.string.forge_commits_anchor),
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    } else if (inRange) {
+                        StatusBadge(
+                            text = "✓",
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
                 }
             }
             if (truncated) {
                 item(key = "truncated") {
-                    Text(stringResource(R.string.forge_commits_truncated), style = DsType.caption11, color = colors.labelTertiary)
+                    Text(stringResource(R.string.forge_commits_truncated), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

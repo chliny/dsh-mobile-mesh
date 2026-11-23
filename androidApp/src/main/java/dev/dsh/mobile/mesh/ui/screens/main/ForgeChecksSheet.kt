@@ -13,6 +13,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,16 +39,10 @@ import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeChangeRequestCheck
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeChangeRequestSnapshot
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsIconButton
-import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
+import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import java.time.Instant
 import kotlinx.coroutines.launch
 
@@ -60,7 +58,6 @@ internal fun ForgeChecksSheet(
     onDismiss: () -> Unit,
 ) {
     val store = rememberForgeStore()
-    val colors = DsTheme.colors
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
@@ -86,31 +83,28 @@ internal fun ForgeChecksSheet(
         title = stringResource(R.string.forge_checks_title),
         onDismiss = onDismiss,
         trailing = {
-            DsIconButton(
-                icon = Icons.Filled.Refresh,
-                contentDescription = stringResource(R.string.forge_refresh),
-                onClick = { reload++ },
-                tint = colors.labelSecondary,
-                iconSize = 18.dp,
-            )
+            IconButton(onClick = { reload++ }) {
+                Icon(
+                    Icons.Filled.Refresh,
+                    contentDescription = stringResource(R.string.forge_refresh),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         },
     ) {
         if (loading && full == null) {
-            Text(stringResource(R.string.forge_checks_loading), style = DsType.small13, color = colors.labelSecondary)
+            Text(stringResource(R.string.forge_checks_loading), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@DsBottomSheet
         }
         error?.let {
-            Text(forgeErrorText(it), style = DsType.small13, color = colors.warnLabel)
-            DsButton(
-                text = stringResource(R.string.common_retry),
-                onClick = { reload++ },
-                variant = DsButtonVariant.Outline,
-                size = DsButtonSize.Small,
-            )
+            Text(forgeErrorText(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            OutlinedButton(onClick = { reload++ }) {
+                Text(stringResource(R.string.common_retry))
+            }
             return@DsBottomSheet
         }
         if (checks.isEmpty()) {
-            Text(stringResource(R.string.forge_checks_none), style = DsType.small13, color = colors.labelSecondary)
+            Text(stringResource(R.string.forge_checks_none), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             LazyColumn(Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 items(count = checks.size, key = { it }) { index ->
@@ -119,7 +113,7 @@ internal fun ForgeChecksSheet(
                 }
                 if (snapshot?.checksTruncated == true) {
                     item(key = "truncated") {
-                        Text(stringResource(R.string.forge_checks_truncated), style = DsType.caption11, color = colors.labelTertiary)
+                        Text(stringResource(R.string.forge_checks_truncated), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -127,8 +121,7 @@ internal fun ForgeChecksSheet(
         val canRerun = snapshot?.canRerunChecks == true && checks.any { it.state == "failure" } &&
             checks.none { it.state == "pending" }
         if (canRerun) {
-            DsButton(
-                text = stringResource(R.string.forge_checks_rerun),
+            OutlinedButton(
                 onClick = {
                     rerunBusy = true
                     scope.launch {
@@ -144,16 +137,13 @@ internal fun ForgeChecksSheet(
                     }
                 },
                 enabled = !rerunBusy,
-                variant = DsButtonVariant.Outline,
-                size = DsButtonSize.Small,
-            )
+            ) { Text(stringResource(R.string.forge_checks_rerun)) }
         }
     }
 }
 
 @Composable
 private fun ForgeCheckRow(check: ForgeChangeRequestCheck, onOpen: (() -> Unit)?) {
-    val colors = DsTheme.colors
     Row(
         modifier = Modifier.fillMaxWidth()
             .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)
@@ -165,8 +155,8 @@ private fun ForgeCheckRow(check: ForgeChangeRequestCheck, onOpen: (() -> Unit)?)
         Column(Modifier.weight(1f)) {
             Text(
                 check.name,
-                style = DsType.small13,
-                color = colors.labelPrimary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -176,10 +166,16 @@ private fun ForgeCheckRow(check: ForgeChangeRequestCheck, onOpen: (() -> Unit)?)
                 forgeDuration(check.startedAt, check.completedAt),
             ).joinToString(" · ")
             if (detail.isNotEmpty()) {
-                Text(detail, style = DsType.caption11, color = colors.labelTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        if (check.state == "failure") DsPill(stringResource(R.string.forge_check_failure), warn = true)
+        if (check.state == "failure") {
+            StatusBadge(
+                text = stringResource(R.string.forge_check_failure),
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            )
+        }
     }
 }
 

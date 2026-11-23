@@ -11,7 +11,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -32,15 +38,9 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeBranches
 import dev.dsh.mobile.mesh.core.wire.dto.ForgePanelWorktree
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsCard
-import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
+import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.launch
 
 /**
@@ -60,7 +60,6 @@ internal fun ForgeWorktreeDock(
     val panel = state.panel?.takeIf { state.sessionId == sessionId } ?: return
     val worktree = panel.worktree
     val checkout = panel.checkout.checkout
-    val colors = DsTheme.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
@@ -109,8 +108,8 @@ internal fun ForgeWorktreeDock(
             if (worktree.waiting == "restoration") {
                 Text(
                     stringResource(R.string.forge_worktree_waiting_restore),
-                    style = DsType.caption11,
-                    color = colors.warnLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
         }
@@ -120,80 +119,71 @@ internal fun ForgeWorktreeDock(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Icon(FeatherIcons.GitBranch, contentDescription = null, tint = colors.labelTertiary)
+                Icon(FeatherIcons.GitBranch, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                     stringResource(R.string.forge_worktree_branch, worktree.created?.branch.orEmpty()),
-                    style = DsType.caption11,
-                    color = colors.labelTertiary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
             }
         }
         if (showOption) {
             worktree.creation?.let { creation ->
-                DsCard {
+                ForgeDockCard {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = colors.accent)
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                         Column(Modifier.weight(1f)) {
-                            Text(stringResource(R.string.forge_worktree_creating, creation.branch), style = DsType.small13, color = colors.labelPrimary)
+                            Text(stringResource(R.string.forge_worktree_creating, creation.branch), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                             Text(
                                 stringResource(
                                     if (creation.phase == "checkout") R.string.forge_worktree_checkout
                                     else R.string.forge_worktree_prepare,
                                 ),
-                                style = DsType.caption11,
-                                color = colors.labelTertiary,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         if (creation.held) {
-                            DsButton(
-                                text = stringResource(R.string.forge_worktree_cancel),
+                            TextButton(
                                 onClick = {
                                     busy = true
                                     scope.launch { report(store.stopCreation(sessionId), context.getString(R.string.forge_worktree_cancelled)) }
                                 },
                                 enabled = !busy,
-                                variant = DsButtonVariant.Ghost,
-                                size = DsButtonSize.Small,
-                            )
+                            ) { Text(stringResource(R.string.forge_worktree_cancel)) }
                         }
                     }
                     if (worktree.waiting == "creation") {
-                        Text(stringResource(R.string.forge_worktree_waiting), style = DsType.caption11, color = colors.labelTertiary)
+                        Text(stringResource(R.string.forge_worktree_waiting), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             } ?: worktree.failure?.let { failure ->
-                DsCard {
-                    Text(stringResource(R.string.forge_worktree_failed, failure.message), style = DsType.small13, color = colors.warnLabel)
+                ForgeDockCard {
+                    Text(stringResource(R.string.forge_worktree_failed, failure.message), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                     Text(
                         stringResource(
                             if (failure.phase == "checkout") R.string.forge_worktree_checkout
                             else R.string.forge_worktree_prepare,
                         ),
-                        style = DsType.caption11,
-                        color = colors.labelTertiary,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        DsButton(
-                            text = stringResource(R.string.forge_worktree_retry),
+                        OutlinedButton(
                             onClick = {
                                 busy = true
                                 scope.launch { report(store.retryWorktree(sessionId), context.getString(R.string.forge_worktree_retrying)) }
                             },
                             enabled = !busy,
-                            variant = DsButtonVariant.Outline,
-                            size = DsButtonSize.Small,
-                        )
-                        DsButton(
-                            text = stringResource(R.string.forge_worktree_skip),
+                        ) { Text(stringResource(R.string.forge_worktree_retry)) }
+                        TextButton(
                             onClick = {
                                 busy = true
                                 scope.launch { report(store.cancelWorktree(sessionId), context.getString(R.string.forge_worktree_skipped)) }
                             },
                             enabled = !busy,
-                            variant = DsButtonVariant.Ghost,
-                            size = DsButtonSize.Small,
-                        )
+                        ) { Text(stringResource(R.string.forge_worktree_skip)) }
                     }
                 }
             } ?: run {
@@ -205,20 +195,25 @@ internal fun ForgeWorktreeDock(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(FeatherIcons.GitBranch, contentDescription = null, tint = colors.labelSecondary)
+                    Icon(FeatherIcons.GitBranch, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Column(Modifier.weight(1f)) {
-                        Text(stringResource(R.string.forge_worktree_option), style = DsType.small13, color = colors.labelSecondary)
+                        Text(stringResource(R.string.forge_worktree_option), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         val hint = when (worktree.blocker) {
                             "read-only" -> stringResource(R.string.forge_worktree_blocked_readonly)
                             "outside-writable-root" -> stringResource(R.string.forge_worktree_blocked_outside)
                             else -> stringResource(R.string.forge_worktree_hint)
                         }
-                        Text(hint, style = DsType.caption11, color = if (blocked) colors.warnLabel else colors.labelTertiary)
+                        Text(hint, style = MaterialTheme.typography.labelSmall, color = if (blocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                         if (requested && !blocked) {
-                            DsPill(
-                                text = base?.let { stringResource(R.string.forge_worktree_base, it) }
-                                    ?: stringResource(R.string.forge_worktree_base_head),
+                            AssistChip(
                                 onClick = { branchSheetOpen = true },
+                                label = {
+                                    Text(
+                                        base?.let { stringResource(R.string.forge_worktree_base, it) }
+                                            ?: stringResource(R.string.forge_worktree_base_head),
+                                        maxLines = 1,
+                                    )
+                                },
                                 modifier = Modifier.padding(top = 4.dp).widthIn(max = 280.dp),
                             )
                         }
@@ -260,6 +255,20 @@ internal fun ForgeWorktreeDock(
     }
 }
 
+/** A padded Material3 card for the worktree dock's own status surfaces. */
+@Composable
+private fun ForgeDockCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    OutlinedCard(
+        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            content = content,
+        )
+    }
+}
+
 @Composable
 private fun ForgeMissingWorktreeCard(
     worktree: ForgePanelWorktree,
@@ -267,12 +276,11 @@ private fun ForgeMissingWorktreeCard(
     onRestore: () -> Unit,
     onContinue: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     val created = worktree.created
-    DsCard {
-        Text(stringResource(R.string.forge_worktree_missing), style = DsType.small13Strong, color = colors.warnLabel)
+    ForgeDockCard {
+        Text(stringResource(R.string.forge_worktree_missing), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
         created?.let {
-            Text(stringResource(R.string.forge_worktree_branch, it.branch), style = DsType.caption11, color = colors.labelSecondary)
+            Text(stringResource(R.string.forge_worktree_branch, it.branch), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         worktree.restoration?.let {
             Text(
@@ -280,25 +288,19 @@ private fun ForgeMissingWorktreeCard(
                     if (it.phase == "checkout") R.string.forge_worktree_restoring_checkout
                     else R.string.forge_worktree_restoring_prepare,
                 ),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            DsButton(
-                text = stringResource(R.string.forge_worktree_restore),
+            OutlinedButton(
                 onClick = onRestore,
                 enabled = !busy && worktree.restoration == null,
-                variant = DsButtonVariant.Outline,
-                size = DsButtonSize.Small,
-            )
-            DsButton(
-                text = stringResource(R.string.forge_worktree_continue_project),
+            ) { Text(stringResource(R.string.forge_worktree_restore)) }
+            TextButton(
                 onClick = onContinue,
                 enabled = !busy && worktree.restoration == null,
-                variant = DsButtonVariant.Ghost,
-                size = DsButtonSize.Small,
-            )
+            ) { Text(stringResource(R.string.forge_worktree_continue_project)) }
         }
     }
 }
@@ -312,7 +314,6 @@ private fun ForgeWorktreeBranchSheet(
 ) {
     val store = rememberForgeStore()
     val context = LocalContext.current
-    val colors = DsTheme.colors
     var branches by remember { mutableStateOf<ForgeBranches?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(sessionId) {
@@ -326,12 +327,12 @@ private fun ForgeWorktreeBranchSheet(
         onDismiss = onDismiss,
     ) {
         if (error != null) {
-            Text(error!!, style = DsType.small13, color = colors.warnLabel)
+            Text(error!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
             return@DsBottomSheet
         }
         val listing = branches
         if (listing == null) {
-            Text(stringResource(R.string.common_loading), style = DsType.small13, color = colors.labelSecondary)
+            Text(stringResource(R.string.common_loading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@DsBottomSheet
         }
         Column(
@@ -345,8 +346,8 @@ private fun ForgeWorktreeBranchSheet(
                         .padding(vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(name, style = DsType.std14, color = colors.labelPrimary, modifier = Modifier.weight(1f))
-                    if (name == current) DsPill(stringResource(R.string.forge_worktree_current))
+                    Text(name, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                    if (name == current) StatusBadge(stringResource(R.string.forge_worktree_current))
                 }
             }
         }

@@ -2,6 +2,7 @@ package dev.dsh.mobile.mesh.ui.screens.main
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,7 +15,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,18 +49,10 @@ import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewComment
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewData
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewThread
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsIconButton
-import dev.dsh.mobile.mesh.ui.components.DsMenu
-import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.MarkdownText
-import dev.dsh.mobile.mesh.ui.components.MenuItem
+import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.components.relativeTime
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import java.time.Instant
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -77,7 +79,6 @@ internal fun ForgeThreadsSheet(
     threadIds: Set<String>? = null,
 ) {
     val store = rememberForgeStore()
-    val colors = DsTheme.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
@@ -110,23 +111,24 @@ internal fun ForgeThreadsSheet(
 
     DsBottomSheet(title = stringResource(R.string.forge_discussions_title), onDismiss = onDismiss) {
         if (data == null) {
-            Text(stringResource(R.string.common_loading), style = DsType.small13, color = colors.labelSecondary)
+            Text(stringResource(R.string.common_loading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@DsBottomSheet
         }
         if (selected != null) {
             Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
-            DsButton(
-                text = stringResource(R.string.common_back),
-                onClick = { selectedId = null; editing = null; reply = "" },
-                variant = DsButtonVariant.Ghost,
-                size = DsButtonSize.Small,
-            )
-            Text(selected.path, style = DsType.small13Strong, color = colors.labelPrimary)
+            TextButton(onClick = { selectedId = null; editing = null; reply = "" }) {
+                Text(stringResource(R.string.common_back))
+            }
+            Text(selected.path, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(forgeThreadRange(selected), style = DsType.caption11, color = colors.labelTertiary)
-                if (selected.resolved) DsPill(stringResource(R.string.forge_thread_resolved))
+                Text(forgeThreadRange(selected), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (selected.resolved) StatusBadge(stringResource(R.string.forge_thread_resolved))
                 if (selected.current == null && selected.subject == "line") {
-                    DsPill(stringResource(R.string.forge_thread_outdated), warn = true)
+                    StatusBadge(
+                        text = stringResource(R.string.forge_thread_outdated),
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    )
                 }
             }
             selected.comments.forEach { comment ->
@@ -151,33 +153,31 @@ internal fun ForgeThreadsSheet(
                 )
             }
             if (selected.comments.isEmpty()) {
-                Text(stringResource(R.string.forge_thread_no_comments), style = DsType.caption11, color = colors.labelTertiary)
+                Text(stringResource(R.string.forge_thread_no_comments), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (selected.viewerCanResolve) {
-                    DsButton(
-                        text = stringResource(
-                            if (selected.resolved) R.string.forge_thread_unresolve else R.string.forge_thread_resolve,
-                        ),
+                    OutlinedButton(
                         onClick = {
                             write(
                                 forgeReviewResolveWrite(headSha, selected.id, !selected.resolved),
                                 if (selected.resolved) R.string.forge_thread_reopened else R.string.forge_thread_resolved_notice,
                             )
                         },
-                        variant = DsButtonVariant.Outline,
-                        size = DsButtonSize.Small,
-                    )
+                    ) {
+                        Text(
+                            stringResource(
+                                if (selected.resolved) R.string.forge_thread_unresolve else R.string.forge_thread_resolve,
+                            ),
+                        )
+                    }
                 }
-                DsButton(
-                    text = stringResource(R.string.forge_thread_add_to_input),
+                TextButton(
                     onClick = {
                         store.addThreadReference(sessionId, selected, url)
                         showToast(context.getString(R.string.forge_thread_reference_added))
                     },
-                    variant = DsButtonVariant.Ghost,
-                    size = DsButtonSize.Small,
-                )
+                ) { Text(stringResource(R.string.forge_thread_add_to_input)) }
             }
             if (selected.viewerCanReply) {
                 OutlinedTextField(
@@ -188,8 +188,7 @@ internal fun ForgeThreadsSheet(
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                DsButton(
-                    text = stringResource(R.string.forge_thread_reply),
+                Button(
                     onClick = {
                         if (reply.isNotBlank()) {
                             write(
@@ -204,27 +203,25 @@ internal fun ForgeThreadsSheet(
                         }
                     },
                     enabled = reply.isNotBlank(),
-                    variant = DsButtonVariant.Primary,
-                    size = DsButtonSize.Small,
-                )
+                ) { Text(stringResource(R.string.forge_thread_reply)) }
             }
             }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                DsPill(
-                    stringResource(R.string.forge_threads_unresolved),
+                FilterChip(
                     selected = filter == ForgeThreadFilter.Unresolved,
                     onClick = { filter = ForgeThreadFilter.Unresolved },
+                    label = { Text(stringResource(R.string.forge_threads_unresolved)) },
                 )
-                DsPill(
-                    stringResource(R.string.forge_threads_all),
+                FilterChip(
                     selected = filter == ForgeThreadFilter.All,
                     onClick = { filter = ForgeThreadFilter.All },
+                    label = { Text(stringResource(R.string.forge_threads_all)) },
                 )
-                DsPill(
-                    stringResource(R.string.forge_threads_resolved),
+                FilterChip(
                     selected = filter == ForgeThreadFilter.Resolved,
                     onClick = { filter = ForgeThreadFilter.Resolved },
+                    label = { Text(stringResource(R.string.forge_threads_resolved)) },
                 )
             }
             val threads = data.threads
@@ -239,7 +236,7 @@ internal fun ForgeThreadsSheet(
                 }
                 .sortedWith(compareBy({ it.path }, { (it.current ?: it.original)?.startLine ?: 0 }))
             if (threads.isEmpty()) {
-                Text(stringResource(R.string.forge_thread_empty), style = DsType.small13, color = colors.labelSecondary)
+                Text(stringResource(R.string.forge_thread_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 LazyColumn(Modifier.heightIn(max = 460.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     items(threads, key = { it.id }) { thread ->
@@ -247,7 +244,7 @@ internal fun ForgeThreadsSheet(
                     }
                     if (data.truncated) {
                         item(key = "truncated") {
-                            Text(stringResource(R.string.forge_threads_truncated), style = DsType.caption11, color = colors.labelTertiary)
+                            Text(stringResource(R.string.forge_threads_truncated), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -271,30 +268,35 @@ internal fun ForgeThreadsSheet(
 
 @Composable
 private fun ForgeThreadRow(thread: ForgeReviewThread, onClick: () -> Unit) {
-    val colors = DsTheme.colors
     Column(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(thread.path, style = DsType.small13, color = colors.labelPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Text(forgeThreadRange(thread), style = DsType.caption11, color = colors.labelTertiary)
-            if (thread.resolved) DsPill(stringResource(R.string.forge_thread_resolved))
-            if (thread.current == null && thread.subject == "line") DsPill(stringResource(R.string.forge_thread_outdated), warn = true)
+            Text(thread.path, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(forgeThreadRange(thread), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (thread.resolved) StatusBadge(stringResource(R.string.forge_thread_resolved))
+            if (thread.current == null && thread.subject == "line") {
+                StatusBadge(
+                    text = stringResource(R.string.forge_thread_outdated),
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
         }
         thread.comments.firstOrNull()?.let { comment ->
             Text(
                 comment.body.lineSequence().firstOrNull().orEmpty(),
-                style = DsType.caption11,
-                color = colors.labelSecondary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         Text(
             stringResource(R.string.forge_thread_comment_count, thread.comments.size),
-            style = DsType.caption11,
-            color = colors.labelTertiary,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -311,32 +313,59 @@ private fun ForgeThreadCommentRow(
     onDelete: () -> Unit,
     onOpen: (() -> Unit)?,
 ) {
-    val colors = DsTheme.colors
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(comment.author?.login ?: stringResource(R.string.forge_thread_unknown_author), style = DsType.caption11Strong, color = colors.labelSecondary)
+            Text(comment.author?.login ?: stringResource(R.string.forge_thread_unknown_author), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             comment.author?.let {
-                if (it.bot) DsPill(stringResource(R.string.forge_thread_bot))
+                if (it.bot) StatusBadge(stringResource(R.string.forge_thread_bot))
             }
-            if (comment.pending) DsPill(stringResource(R.string.forge_thread_pending))
-            Text(threadTime(comment.createdAt), style = DsType.caption11, color = colors.labelTertiary)
+            if (comment.pending) StatusBadge(stringResource(R.string.forge_thread_pending))
+            Text(threadTime(comment.createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (comment.viewerCanEdit || comment.viewerCanDelete || onOpen != null) {
-                DsMenu(
-                    anchor = { open ->
-                        DsIconButton(
-                            icon = Icons.Filled.MoreVert,
+                var menuOpen by remember(comment.id) { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(
+                            Icons.Filled.MoreVert,
                             contentDescription = stringResource(R.string.forge_more),
-                            onClick = open,
-                            tint = colors.labelTertiary,
-                            iconSize = 16.dp,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    },
-                    items = buildList {
-                        onOpen?.let { add(MenuItem(stringResource(R.string.forge_thread_view_in_browser), onClick = it)) }
-                        if (comment.viewerCanEdit) add(MenuItem(stringResource(R.string.forge_thread_edit_comment), onClick = onStartEdit))
-                        if (comment.viewerCanDelete) add(MenuItem(stringResource(R.string.forge_thread_delete_comment), danger = true, onClick = onDelete))
-                    },
-                )
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        onOpen?.let { open ->
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.forge_thread_view_in_browser)) },
+                                onClick = {
+                                    menuOpen = false
+                                    open()
+                                },
+                            )
+                        }
+                        if (comment.viewerCanEdit) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.forge_thread_edit_comment)) },
+                                onClick = {
+                                    menuOpen = false
+                                    onStartEdit()
+                                },
+                            )
+                        }
+                        if (comment.viewerCanDelete) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        stringResource(R.string.forge_thread_delete_comment),
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                },
+                                onClick = {
+                                    menuOpen = false
+                                    onDelete()
+                                },
+                            )
+                        }
+                    }
+                }
             }
         }
         if (editing) {
@@ -348,19 +377,12 @@ private fun ForgeThreadCommentRow(
                 modifier = Modifier.fillMaxWidth(),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DsButton(
-                    text = stringResource(R.string.common_save),
-                    onClick = onSaveEdit,
-                    enabled = editBody.isNotBlank(),
-                    variant = DsButtonVariant.Primary,
-                    size = DsButtonSize.Small,
-                )
-                DsButton(
-                    text = stringResource(R.string.common_cancel),
-                    onClick = onCancelEdit,
-                    variant = DsButtonVariant.Ghost,
-                    size = DsButtonSize.Small,
-                )
+                Button(onClick = onSaveEdit, enabled = editBody.isNotBlank()) {
+                    Text(stringResource(R.string.common_save))
+                }
+                TextButton(onClick = onCancelEdit) {
+                    Text(stringResource(R.string.common_cancel))
+                }
             }
         } else {
             MarkdownText(comment.body, modifier = Modifier.fillMaxWidth())

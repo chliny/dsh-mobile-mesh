@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,13 +30,8 @@ import dev.dsh.mobile.mesh.core.wire.dto.ForgeChangeRequestSnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewerCandidate
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewerRef
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsPill
+import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -51,7 +48,6 @@ internal fun ForgeActionsSheet(
     onDismiss: () -> Unit,
 ) {
     val store = rememberForgeStore()
-    val colors = DsTheme.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(ForgeActionMode.Menu) }
@@ -86,7 +82,7 @@ internal fun ForgeActionsSheet(
                 val hasRequest = snapshot.canRequestReviews
                 val hasMerge = snapshot.mergeReady && snapshot.state == "open"
                 if (!hasMarkReady && !hasUpdate && !hasRequest && !hasMerge) {
-                    Text(stringResource(R.string.common_none), style = DsType.small13, color = colors.labelSecondary)
+                    Text(stringResource(R.string.common_none), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (hasMarkReady) {
                     ForgeSheetRow(stringResource(R.string.forge_mark_ready), false) { mode = ForgeActionMode.MarkReady }
@@ -104,26 +100,22 @@ internal fun ForgeActionsSheet(
             ForgeActionMode.MarkReady -> {
                 Text(
                     stringResource(R.string.forge_mark_ready_confirm),
-                    style = DsType.small13,
-                    color = colors.labelSecondary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                DsButton(
-                    text = stringResource(R.string.forge_mark_ready),
+                Button(
                     onClick = {
                         busy = true
                         scope.launch { settle(store.markReady(sessionId, url), context.getString(R.string.forge_action_done)) }
                     },
                     enabled = !busy,
-                    variant = DsButtonVariant.Primary,
-                    size = DsButtonSize.Small,
-                )
+                ) { Text(stringResource(R.string.forge_mark_ready)) }
             }
             ForgeActionMode.Merge -> {
                 snapshot.mergeMethods.forEach { method ->
                     ForgeSheetRow(mergeMethodLabel(method), mergeMethod == method) { mergeMethod = method }
                 }
-                DsButton(
-                    text = stringResource(R.string.forge_merge),
+                Button(
                     onClick = {
                         busy = true
                         scope.launch {
@@ -134,9 +126,7 @@ internal fun ForgeActionsSheet(
                         }
                     },
                     enabled = !busy && snapshot.mergeMethods.isNotEmpty(),
-                    variant = DsButtonVariant.Primary,
-                    size = DsButtonSize.Small,
-                )
+                ) { Text(stringResource(R.string.forge_merge)) }
             }
             ForgeActionMode.UpdateBranch -> {
                 snapshot.branchUpdates.forEach { method ->
@@ -148,8 +138,7 @@ internal fun ForgeActionsSheet(
                         updateMethod == method,
                     ) { updateMethod = method }
                 }
-                DsButton(
-                    text = stringResource(R.string.forge_update_branch),
+                Button(
                     onClick = {
                         busy = true
                         scope.launch {
@@ -160,9 +149,7 @@ internal fun ForgeActionsSheet(
                         }
                     },
                     enabled = !busy,
-                    variant = DsButtonVariant.Primary,
-                    size = DsButtonSize.Small,
-                )
+                ) { Text(stringResource(R.string.forge_update_branch)) }
             }
             ForgeActionMode.Reviewers -> ForgeReviewerPicker(
                 sessionId = sessionId,
@@ -201,7 +188,6 @@ private fun ForgeReviewerPicker(
     showToast: (String) -> Unit,
 ) {
     val store = rememberForgeStore()
-    val colors = DsTheme.colors
     val context = LocalContext.current
     var query by remember { mutableStateOf("") }
     var candidates by remember { mutableStateOf<List<ForgeReviewerCandidate>>(emptyList()) }
@@ -228,9 +214,9 @@ private fun ForgeReviewerPicker(
         modifier = Modifier.fillMaxWidth(),
     )
     when {
-        loading -> Text(stringResource(R.string.forge_reviewers_loading), style = DsType.small13, color = colors.labelSecondary)
-        error != null -> Text(error!!, style = DsType.small13, color = colors.warnLabel)
-        candidates.isEmpty() -> Text(stringResource(R.string.forge_reviewers_empty), style = DsType.small13, color = colors.labelSecondary)
+        loading -> Text(stringResource(R.string.forge_reviewers_loading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        error != null -> Text(error!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+        candidates.isEmpty() -> Text(stringResource(R.string.forge_reviewers_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         else -> LazyColumn(Modifier.heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             items(candidates, key = { it.login }) { candidate ->
                 Row(
@@ -245,21 +231,18 @@ private fun ForgeReviewerPicker(
                         },
                     )
                     Column(Modifier.weight(1f)) {
-                        Text(candidate.login, style = DsType.small13, color = colors.labelPrimary)
+                        Text(candidate.login, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         candidate.name?.takeIf { it.isNotBlank() }?.let {
-                            Text(it, style = DsType.caption11, color = colors.labelTertiary)
+                            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    if (candidate.suggested) DsPill("★")
+                    if (candidate.suggested) StatusBadge("★")
                 }
             }
         }
     }
-    DsButton(
-        text = stringResource(R.string.forge_request_reviews_action),
+    Button(
         onClick = { onRequest(selected.sorted().map { ForgeReviewerRef(kind = "user", login = it) }) },
         enabled = !busy && selected.isNotEmpty(),
-        variant = DsButtonVariant.Primary,
-        size = DsButtonSize.Small,
-    )
+    ) { Text(stringResource(R.string.forge_request_reviews_action)) }
 }

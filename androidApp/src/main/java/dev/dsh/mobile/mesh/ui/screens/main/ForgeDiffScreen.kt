@@ -22,9 +22,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -62,20 +71,11 @@ import dev.dsh.mobile.mesh.core.wire.dto.ForgeLocalScope
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewData
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewThread
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsIconButton
-import dev.dsh.mobile.mesh.ui.components.DsMenu
-import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.DsToastHost
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import dev.dsh.mobile.mesh.ui.components.KodeViewCode
-import dev.dsh.mobile.mesh.ui.components.MenuItem
 import dev.dsh.mobile.mesh.ui.components.rememberDsToast
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.launch
 
@@ -113,7 +113,6 @@ internal fun ForgeDiffScreen(
     onBack: () -> Unit,
 ) {
     val store = rememberForgeStore()
-    val colors = DsTheme.colors
     val scope = remember(scopeKind, baseRef, commits) {
         when (scopeKind) {
             ForgeLocalScope.UNCOMMITTED -> ForgeLocalScope.uncommitted()
@@ -139,6 +138,7 @@ internal fun ForgeDiffScreen(
     var threadPathFilter by remember { mutableStateOf<String?>(null) }
     var threadIdsFilter by remember { mutableStateOf<Set<String>?>(null) }
     var submitReviewOpen by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
     var expandedText by remember(sessionId, path, changeUrl) { mutableStateOf<String?>(null) }
     var expandLoading by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -228,93 +228,95 @@ internal fun ForgeDiffScreen(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            DsIconButton(
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = stringResource(R.string.common_back),
-                onClick = onBack,
-                tint = colors.labelSecondary,
-                iconSize = 18.dp,
-            )
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.common_back),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Column(Modifier.weight(1f).padding(start = 4.dp)) {
-                Text(title, style = DsType.large20, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     path,
-                    style = DsType.caption11,
-                    color = colors.labelTertiary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
             file?.let { loaded ->
-                Text("+${loaded.additions}", style = DsType.caption11, color = colors.success)
+                Text("+${loaded.additions}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(4.dp))
-                Text("-${loaded.deletions}", style = DsType.caption11, color = colors.error)
+                Text("-${loaded.deletions}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
             }
-            DsIconButton(
-                icon = Icons.Filled.Refresh,
-                contentDescription = stringResource(R.string.forge_refresh),
+            IconButton(
                 onClick = {
                     reload++
                     reviewReload++
                 },
-                tint = colors.labelSecondary,
-                iconSize = 18.dp,
-            )
-            DsMenu(
-                anchor = { onOpen ->
-                    DsIconButton(
-                        icon = Icons.Filled.MoreVert,
+            ) {
+                Icon(
+                    Icons.Filled.Refresh,
+                    contentDescription = stringResource(R.string.forge_refresh),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(
+                        Icons.Filled.MoreVert,
                         contentDescription = stringResource(R.string.forge_more),
-                        onClick = onOpen,
-                        tint = colors.labelSecondary,
-                        iconSize = 18.dp,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                },
-                items = listOf(
-                    MenuItem(stringResource(R.string.forge_copy_path), icon = FeatherIcons.Code) {
-                        clipboard.setText(AnnotatedString(path))
-                        showToast(copiedLabel)
-                    },
-                ),
-            )
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.forge_copy_path)) },
+                        leadingIcon = { Icon(FeatherIcons.Code, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            clipboard.setText(AnnotatedString(path))
+                            showToast(copiedLabel)
+                        },
+                    )
+                }
+            }
         }
 
         Box(Modifier.weight(1f)) {
             when {
                 error != null -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(forgeErrorText(error!!), style = DsType.std14, color = colors.warnLabel)
-                    DsButton(
-                        text = stringResource(R.string.common_retry),
+                    Text(forgeErrorText(error!!), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                    OutlinedButton(
                         onClick = {
-                    reload++
-                    reviewReload++
-                },
-                        variant = DsButtonVariant.Outline,
-                        size = DsButtonSize.Small,
-                    )
+                            reload++
+                            reviewReload++
+                        },
+                    ) { Text(stringResource(R.string.common_retry)) }
                 }
                 loading || file == null -> Text(
                     stringResource(R.string.common_loading),
-                    style = DsType.std14,
-                    color = colors.labelSecondary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(16.dp),
                 )
                 file!!.binary -> Text(
                     stringResource(R.string.forge_binary_no_diff),
-                    style = DsType.std14,
-                    color = colors.labelSecondary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(16.dp),
                 )
                 file!!.oversized -> Text(
                     stringResource(R.string.forge_file_too_large),
-                    style = DsType.std14,
-                    color = colors.labelSecondary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(16.dp),
                 )
                 file!!.hunks.isEmpty() -> Text(
                     stringResource(R.string.forge_no_text_hunks),
-                    style = DsType.std14,
-                    color = colors.labelSecondary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(16.dp),
                 )
                 else -> ForgeDiffBody(
@@ -344,7 +346,7 @@ internal fun ForgeDiffScreen(
 
         val pendingReview = reviewData?.pendingReview
         if (pendingReview != null) {
-            Surface(color = colors.bgLayer2, modifier = Modifier.fillMaxWidth()) {
+            Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -352,16 +354,13 @@ internal fun ForgeDiffScreen(
                 ) {
                     Text(
                         stringResource(R.string.forge_review_pending_count, pendingReview.comments),
-                        style = DsType.small13,
-                        color = colors.labelSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
-                    DsButton(
-                        text = stringResource(R.string.forge_review_submit),
-                        onClick = { submitReviewOpen = true },
-                        variant = DsButtonVariant.Primary,
-                        size = DsButtonSize.Small,
-                    )
+                    Button(onClick = { submitReviewOpen = true }) {
+                        Text(stringResource(R.string.forge_review_submit))
+                    }
                 }
             }
         }
@@ -369,7 +368,7 @@ internal fun ForgeDiffScreen(
             file?.let { loaded ->
                 val comment = selectForgeComment(loaded, range.side, range.start, range.last)
                 if (comment != null) {
-                    Surface(color = colors.bgLayer1, modifier = Modifier.fillMaxWidth()) {
+                    Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -377,21 +376,18 @@ internal fun ForgeDiffScreen(
                         ) {
                             Text(
                                 "${file?.path?.substringAfterLast('/')} ${forgeReviewRange(comment)}",
-                                style = DsType.small13,
-                                color = colors.labelSecondary,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.weight(1f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            DsButton(
-                                text = stringResource(R.string.forge_comment_action),
+                            Button(
                                 onClick = {
                                     commentTarget = comment
                                     commentBody = ""
                                 },
-                                variant = DsButtonVariant.Primary,
-                                size = DsButtonSize.Small,
-                            )
+                            ) { Text(stringResource(R.string.forge_comment_action)) }
                         }
                     }
                 }
@@ -443,16 +439,16 @@ internal fun ForgeDiffScreen(
             title = stringResource(R.string.forge_comment_title, forgeReviewRange(target)),
             onDismiss = { commentTarget = null },
         ) {
-            Text(target.path, style = DsType.caption11, color = colors.labelTertiary)
+            Text(target.path, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Surface(
-                color = colors.codeBlockBg,
-                shape = DsShapes.block,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.fillMaxWidth().heightIn(max = 150.dp),
             ) {
                 Text(
                     target.hunk,
                     style = DsType.mdCode,
-                    color = colors.labelSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.verticalScroll(rememberScrollState()).padding(8.dp),
                 )
             }
@@ -468,15 +464,11 @@ internal fun ForgeDiffScreen(
             val pending = review?.pendingReview
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    DsButton(
-                        text = stringResource(R.string.common_cancel),
-                        onClick = { commentTarget = null },
-                        variant = DsButtonVariant.Ghost,
-                        size = DsButtonSize.Small,
-                    )
+                    TextButton(onClick = { commentTarget = null }) {
+                        Text(stringResource(R.string.common_cancel))
+                    }
                     Spacer(Modifier.width(8.dp))
-                    DsButton(
-                        text = stringResource(R.string.forge_comment_add_to_input),
+                    Button(
                         onClick = {
                             if (commentBody.isBlank()) {
                                 showToast(commentEmptyLabel)
@@ -488,15 +480,12 @@ internal fun ForgeDiffScreen(
                                 selection = null
                             }
                         },
-                        variant = DsButtonVariant.Primary,
-                        size = DsButtonSize.Small,
-                    )
+                    ) { Text(stringResource(R.string.forge_comment_add_to_input)) }
                 }
                 if (review != null && headSha != null) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         if (pending == null) {
-                            DsButton(
-                                text = stringResource(R.string.forge_review_publish_comment),
+                            TextButton(
                                 onClick = {
                                     if (commentBody.isBlank()) {
                                         showToast(commentEmptyLabel)
@@ -524,15 +513,10 @@ internal fun ForgeDiffScreen(
                                         }
                                     }
                                 },
-                                variant = DsButtonVariant.Ghost,
-                                size = DsButtonSize.Small,
-                            )
+                            ) { Text(stringResource(R.string.forge_review_publish_comment)) }
                         }
                         Spacer(Modifier.width(8.dp))
-                        DsButton(
-                            text = stringResource(
-                                if (pending == null) R.string.forge_review_start_pending else R.string.forge_review_add_to_pending,
-                            ),
+                        OutlinedButton(
                             onClick = {
                                 if (commentBody.isBlank()) {
                                     showToast(commentEmptyLabel)
@@ -560,9 +544,13 @@ internal fun ForgeDiffScreen(
                                     }
                                 }
                             },
-                            variant = DsButtonVariant.Outline,
-                            size = DsButtonSize.Small,
-                        )
+                            ) {
+                                Text(
+                                    stringResource(
+                                        if (pending == null) R.string.forge_review_start_pending else R.string.forge_review_add_to_pending,
+                                    ),
+                                )
+                            }
                     }
                 }
             }
@@ -660,8 +648,8 @@ private fun ForgeDiffBody(
         item(key = "hint") {
             Text(
                 stringResource(R.string.forge_comment_hint),
-                style = DsType.caption11,
-                color = DsTheme.colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
@@ -679,8 +667,8 @@ private fun ForgeDiffBody(
                     Text(
                         forgeHunkText(hunk).substringBefore('\n'),
                         style = DsType.mdCode,
-                        color = DsTheme.colors.labelTertiary,
-                        modifier = Modifier.fillMaxWidth().background(DsTheme.colors.bgLayer2).padding(horizontal = 8.dp, vertical = 5.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(horizontal = 8.dp, vertical = 5.dp),
                         maxLines = 1,
                     )
                 }
@@ -695,10 +683,10 @@ private fun ForgeDiffBody(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    DsPill(
-                        text = stringResource(R.string.forge_discussions_count, entry.threads.size),
+                    FilterChip(
                         selected = entry.threads.any { !it.resolved },
                         onClick = { onOpenThreads(entry.threads) },
+                        label = { Text(stringResource(R.string.forge_discussions_count, entry.threads.size)) },
                     )
                 }
                 is ForgeDiffEntry.Gap -> Row(
@@ -710,13 +698,9 @@ private fun ForgeDiffBody(
                     } else {
                         stringResource(R.string.forge_expand_remaining)
                     }
-                    DsButton(
-                        text = if (expandLoading) stringResource(R.string.forge_expand_loading) else label,
-                        onClick = onExpand,
-                        enabled = !expandLoading,
-                        variant = DsButtonVariant.Ghost,
-                        size = DsButtonSize.Small,
-                    )
+                    TextButton(onClick = onExpand, enabled = !expandLoading) {
+                        Text(if (expandLoading) stringResource(R.string.forge_expand_loading) else label)
+                    }
                 }
             }
         }
@@ -740,15 +724,14 @@ private fun ForgeDiffLineRow(
     selection: ForgeLineSelection?,
     onSelectLine: (side: String, hunkIndex: Int, line: Int) -> Unit,
 ) {
-    val colors = DsTheme.colors
     val markerColor = when (row.marker) {
-        '+' -> colors.success
-        '-' -> colors.error
-        else -> colors.labelTertiary
+        '+' -> MaterialTheme.colorScheme.primary
+        '-' -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val background = when (row.marker) {
-        '+' -> colors.successTertiary
-        '-' -> colors.errorTertiary
+        '+' -> MaterialTheme.colorScheme.primaryContainer
+        '-' -> MaterialTheme.colorScheme.errorContainer
         else -> androidx.compose.ui.graphics.Color.Transparent
     }
     Row(Modifier.fillMaxWidth().background(background)) {
@@ -772,7 +755,7 @@ private fun ForgeDiffLineRow(
             color = markerColor,
             modifier = Modifier.width(12.dp),
         )
-        CompositionLocalProvider(LocalTextStyle provides DsType.mdCode.copy(color = colors.labelPrimary)) {
+        CompositionLocalProvider(LocalTextStyle provides DsType.mdCode.copy(color = MaterialTheme.colorScheme.onSurface)) {
             KodeViewCode(
                 code = code,
                 pathOrLanguage = path,
@@ -784,19 +767,18 @@ private fun ForgeDiffLineRow(
 
 @Composable
 private fun ForgeLineGutter(number: Int?, selected: Boolean, onClick: () -> Unit) {
-    val colors = DsTheme.colors
     Box(
         modifier = Modifier
             .width(38.dp)
             .then(if (number != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .background(if (selected) colors.accentTertiary else androidx.compose.ui.graphics.Color.Transparent)
+            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent)
             .padding(vertical = 1.dp, horizontal = 2.dp),
         contentAlignment = Alignment.CenterEnd,
     ) {
         Text(
             number?.toString() ?: "",
-            style = DsType.caption11,
-            color = if (selected) colors.accent else colors.labelTertiary,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
         )
     }

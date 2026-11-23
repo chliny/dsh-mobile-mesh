@@ -3,21 +3,32 @@ package dev.dsh.mobile.mesh.ui.screens.main
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -45,23 +56,15 @@ import dev.dsh.mobile.mesh.core.wire.dto.ForgeChangeRequestDiff
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeCommitRange
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewData
 import dev.dsh.mobile.mesh.core.wire.dto.latestSnapshot
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsIconButton
-import dev.dsh.mobile.mesh.ui.components.DsMenu
-import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.DsToastHost
+import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
-import dev.dsh.mobile.mesh.ui.components.MenuItem
 import dev.dsh.mobile.mesh.ui.components.rememberDsToast
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.launch
 
 /** One bound change request's changed files. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun ForgeChangeRequestScreen(
     sessionId: String,
@@ -82,7 +85,6 @@ internal fun ForgeChangeRequestScreen(
     }
     val request = panel?.changeRequests?.firstOrNull { it.url == url }
     val snapshot = request?.latestSnapshot()
-    val colors = DsTheme.colors
     val clipboard = LocalClipboardManager.current
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
@@ -102,6 +104,7 @@ internal fun ForgeChangeRequestScreen(
     var reviewError by remember(sessionId, url) { mutableStateOf<dev.dsh.mobile.mesh.core.wire.RpcError?>(null) }
     var reviewReload by remember { mutableIntStateOf(0) }
     var viewedMarks by remember(sessionId, url) { mutableStateOf<dev.dsh.mobile.mesh.core.wire.dto.ForgeViewedFiles?>(null) }
+    var menuOpen by remember { mutableStateOf(false) }
     val copiedLabel = stringResource(R.string.common_copied)
     val title = snapshot?.title?.takeIf { it.isNotBlank() } ?: url
     val headVersion = snapshot?.headSha
@@ -166,51 +169,65 @@ internal fun ForgeChangeRequestScreen(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            DsIconButton(
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = stringResource(R.string.common_back),
-                onClick = onBack,
-                tint = colors.labelSecondary,
-                iconSize = 18.dp,
-            )
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.common_back),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Column(Modifier.weight(1f).padding(start = 4.dp)) {
-                Text(title, style = DsType.large20, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Text(
                     "#${snapshot?.ref?.number ?: request?.ref?.number ?: 0} · " +
                         ((snapshot?.ref ?: request?.ref)?.repository?.fullName?.takeIf { it.isNotBlank() } ?: url),
-                    style = DsType.caption11,
-                    color = colors.labelTertiary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            DsIconButton(
-                icon = Icons.Filled.Refresh,
-                contentDescription = stringResource(R.string.forge_refresh),
-                onClick = ::refresh,
-                tint = colors.labelSecondary,
-                iconSize = 18.dp,
-            )
-            DsMenu(
-                anchor = { onOpen ->
-                    DsIconButton(
-                        icon = Icons.Filled.MoreVert,
+            IconButton(onClick = ::refresh) {
+                Icon(
+                    Icons.Filled.Refresh,
+                    contentDescription = stringResource(R.string.forge_refresh),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(
+                        Icons.Filled.MoreVert,
                         contentDescription = stringResource(R.string.forge_more),
-                        onClick = onOpen,
-                        tint = colors.labelSecondary,
-                        iconSize = 18.dp,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                },
-                items = listOf(
-                    MenuItem(stringResource(R.string.forge_open_in_browser), icon = FeatherIcons.Globe) {
-                        runCatching { uriHandler.openUri(url) }
-                    },
-                    MenuItem(stringResource(R.string.forge_copy_link), icon = FeatherIcons.Code) {
-                        clipboard.setText(AnnotatedString(url))
-                        showToast(copiedLabel)
-                    },
-                ),
-            )
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.forge_open_in_browser)) },
+                        leadingIcon = { Icon(FeatherIcons.Globe, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            runCatching { uriHandler.openUri(url) }
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.forge_copy_link)) },
+                        leadingIcon = { Icon(FeatherIcons.Code, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            clipboard.setText(AnnotatedString(url))
+                            showToast(copiedLabel)
+                        },
+                    )
+                }
+            }
         }
         PullToRefreshBox(
             isRefreshing = loading,
@@ -224,28 +241,53 @@ internal fun ForgeChangeRequestScreen(
             ) {
                 item(key = "summary") {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            DsPill(forgeCrStateLabel(snapshot), selected = snapshot?.state == "open", warn = snapshot?.draft == true)
+                            val stateContainer = when {
+                                snapshot?.draft == true -> MaterialTheme.colorScheme.secondaryContainer
+                                snapshot?.state == "merged" -> MaterialTheme.colorScheme.tertiaryContainer
+                                snapshot?.state == "closed" -> MaterialTheme.colorScheme.surfaceVariant
+                                else -> MaterialTheme.colorScheme.primaryContainer
+                            }
+                            val stateContent = when {
+                                snapshot?.draft == true -> MaterialTheme.colorScheme.onSecondaryContainer
+                                snapshot?.state == "merged" -> MaterialTheme.colorScheme.onTertiaryContainer
+                                snapshot?.state == "closed" -> MaterialTheme.colorScheme.onSurfaceVariant
+                                else -> MaterialTheme.colorScheme.onPrimaryContainer
+                            }
+                            StatusBadge(
+                                text = forgeCrStateLabel(snapshot),
+                                containerColor = stateContainer,
+                                contentColor = stateContent,
+                            )
                             if (snapshot != null) {
                                 if (snapshot.checksRollup != "none") {
-                                    DsPill(
-                                        stringResource(
+                                    StatusBadge(
+                                        text = stringResource(
                                             when (snapshot.checksRollup) {
                                                 "success" -> R.string.forge_checks_success
                                                 "failure" -> R.string.forge_checks_failure
                                                 else -> R.string.forge_checks_pending
                                             },
                                         ),
-                                        warn = snapshot.checksRollup == "failure",
+                                        containerColor = if (snapshot.checksRollup == "failure") {
+                                            MaterialTheme.colorScheme.errorContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.secondaryContainer
+                                        },
+                                        contentColor = if (snapshot.checksRollup == "failure") {
+                                            MaterialTheme.colorScheme.onErrorContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onSecondaryContainer
+                                        },
                                     )
                                 }
                                 if (snapshot.reviewDecision != "none") {
-                                    DsPill(
-                                        stringResource(
+                                    StatusBadge(
+                                        text = stringResource(
                                             when (snapshot.reviewDecision) {
                                                 "approved" -> R.string.forge_review_approved
                                                 "changes-requested" -> R.string.forge_review_changes
@@ -254,76 +296,87 @@ internal fun ForgeChangeRequestScreen(
                                         ),
                                     )
                                 }
-                                if (snapshot.mergeability == "conflicting") DsPill(stringResource(R.string.forge_conflict), warn = true)
+                                if (snapshot.mergeability == "conflicting") {
+                                    StatusBadge(
+                                        text = stringResource(R.string.forge_conflict),
+                                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                                    )
+                                }
                                 val selectedCommits = commits
-                                DsPill(
-                                    text = selectedCommits?.let(::commitsLabel) ?: stringResource(R.string.forge_commits_all_pill),
+                                AssistChip(
                                     onClick = { commitSheetOpen = true },
+                                    label = { Text(selectedCommits?.let(::commitsLabel) ?: stringResource(R.string.forge_commits_all_pill)) },
+                                    trailingIcon = { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null) },
                                 )
                             }
-                            DsPill(
-                                text = stringResource(R.string.forge_files_filter),
+                            AssistChip(
                                 onClick = { lensSheetOpen = true },
+                                label = { Text(stringResource(R.string.forge_files_filter)) },
                             )
                         }
                         if (viewedMarks != null && visibleFiles.isNotEmpty()) {
                             Text(
                                 stringResource(R.string.forge_viewed_progress, viewedCount, visibleFiles.size),
-                                style = DsType.caption11,
-                                color = colors.labelTertiary,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         if (snapshot != null) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                DsPill(
-                                    text = stringResource(R.string.forge_checks_title),
+                                AssistChip(
                                     onClick = { checksSheetOpen = true },
+                                    label = { Text(stringResource(R.string.forge_checks_title)) },
                                 )
                                 if (hasActions) {
-                                    DsPill(
-                                        text = stringResource(R.string.forge_actions),
+                                    AssistChip(
                                         onClick = { actionsSheetOpen = true },
+                                        label = { Text(stringResource(R.string.forge_actions)) },
                                     )
                                 }
                                 val threads = reviewData
                                 if (threads != null) {
                                     val unresolved = threads.threads.count { !it.resolved }
-                                    DsPill(
-                                        text = if (unresolved > 0) {
-                                            stringResource(R.string.forge_discussions_count, unresolved)
-                                        } else {
-                                            stringResource(R.string.forge_discussions)
-                                        },
+                                    AssistChip(
                                         onClick = { discussionsOpen = true },
+                                        label = {
+                                            Text(
+                                                if (unresolved > 0) {
+                                                    stringResource(R.string.forge_discussions_count, unresolved)
+                                                } else {
+                                                    stringResource(R.string.forge_discussions)
+                                                },
+                                            )
+                                        },
                                     )
                                 }
                                 val pendingReview = threads?.pendingReview
                                 if (pendingReview != null) {
-                                    DsPill(
-                                        text = stringResource(R.string.forge_review_pending_count, pendingReview.comments),
+                                    FilterChip(
                                         selected = true,
                                         onClick = { submitReviewOpen = true },
+                                        label = { Text(stringResource(R.string.forge_review_pending_count, pendingReview.comments)) },
                                     )
                                 } else if (threads?.viewerCanReview == true) {
-                                    DsPill(
-                                        text = stringResource(R.string.forge_review_submit),
+                                    AssistChip(
                                         onClick = { submitReviewOpen = true },
+                                        label = { Text(stringResource(R.string.forge_review_submit)) },
                                     )
                                 }
                             }
                         }
                         if (snapshot != null) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("+${snapshot.additions}", style = DsType.caption11, color = colors.success)
-                                Text("-${snapshot.deletions}", style = DsType.caption11, color = colors.error)
+                                Text("+${snapshot.additions}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                Text("-${snapshot.deletions}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                                 Text(
                                     "${snapshot.headBranch} → ${snapshot.baseBranch}",
-                                    style = DsType.caption11,
-                                    color = colors.labelTertiary,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f),
@@ -333,8 +386,8 @@ internal fun ForgeChangeRequestScreen(
                         diff?.localAhead?.takeIf { it > 0 }?.let { ahead ->
                             Text(
                                 stringResource(R.string.forge_local_ahead, ahead),
-                                style = DsType.caption11,
-                                color = colors.labelSecondary,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -343,31 +396,25 @@ internal fun ForgeChangeRequestScreen(
                 if (error != null) {
                     item(key = "error") {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(forgeErrorText(error!!), style = DsType.small13, color = colors.warnLabel)
+                            Text(forgeErrorText(error!!), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             if (error?.code == "forgePanel/commits-missing" || error?.code == "forgePanel/commits-not-linear") {
-                                DsButton(
-                                    text = stringResource(R.string.forge_view_all_commits),
-                                    onClick = { onCommitsChange(null) },
-                                    variant = DsButtonVariant.Outline,
-                                    size = DsButtonSize.Small,
-                                )
+                                OutlinedButton(onClick = { onCommitsChange(null) }) {
+                                    Text(stringResource(R.string.forge_view_all_commits))
+                                }
                             } else {
-                                DsButton(
-                                    text = stringResource(R.string.common_retry),
-                                    onClick = { reload++ },
-                                    variant = DsButtonVariant.Outline,
-                                    size = DsButtonSize.Small,
-                                )
+                                OutlinedButton(onClick = { reload++ }) {
+                                    Text(stringResource(R.string.common_retry))
+                                }
                             }
                         }
                     }
                 } else if (loading && diff == null) {
                     item(key = "loading") {
-                        Text(stringResource(R.string.common_loading), style = DsType.std14, color = colors.labelSecondary)
+                        Text(stringResource(R.string.common_loading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else if (visibleFiles.isEmpty()) {
                     item(key = "empty") {
-                        Text(stringResource(R.string.forge_files_empty), style = DsType.std14, color = colors.labelSecondary)
+                        Text(stringResource(R.string.forge_files_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
                     items(visibleFiles, key = { "file:${it.path}" }) { file ->

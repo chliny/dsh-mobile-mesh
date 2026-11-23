@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,8 +22,6 @@ import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeDiffFile
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
 internal const val FORGE_LAYER_ALL: String = "all"
 
@@ -52,7 +51,7 @@ internal fun ForgeLensSheet(
     onHideTestsChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = DsTheme.colors
+    val colors = MaterialTheme.colorScheme
     val counts = files.groupingBy { it.layer }.eachCount()
     DsBottomSheet(title = stringResource(R.string.forge_files_filter_title), onDismiss = onDismiss) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -71,8 +70,8 @@ internal fun ForgeLensSheet(
             ) {
                 Text(
                     stringResource(R.string.forge_hide_tests),
-                    style = DsType.std14,
-                    color = colors.labelPrimary,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = colors.onSurface,
                     modifier = Modifier.weight(1f),
                 )
                 Switch(
@@ -95,20 +94,25 @@ internal fun ForgeSheetRow(
     trailing: String? = null,
     onClick: () -> Unit,
 ) {
-    val colors = DsTheme.colors
+    val colors = MaterialTheme.colorScheme
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = DsType.std14, color = colors.labelPrimary, modifier = Modifier.weight(1f))
+        Text(label, style = MaterialTheme.typography.bodyLarge, color = colors.onSurface, modifier = Modifier.weight(1f))
         trailing?.let {
-            Text(it, style = DsType.caption11, color = colors.labelTertiary, modifier = Modifier.padding(end = 8.dp))
+            Text(
+                it,
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.onSurfaceVariant,
+                modifier = Modifier.padding(end = 8.dp),
+            )
         }
         if (selected) {
             Icon(
                 Icons.Filled.Check,
                 contentDescription = null,
-                tint = colors.accent,
+                tint = colors.primary,
                 modifier = Modifier.width(18.dp).height(18.dp),
             )
         }

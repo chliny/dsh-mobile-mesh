@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -37,7 +39,7 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.data.DirectoryLevel
 import dev.dsh.mobile.mesh.data.normalizeWorkspaceFilesRequestPath
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
-import dev.dsh.mobile.mesh.ui.components.DsPill
+import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
@@ -121,9 +123,16 @@ fun WorkspaceFilesScreen(
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
             if (showChangesEntry) {
-                DsPill(
-                    text = stringResource(R.string.forge_changes),
+                AssistChip(
                     onClick = { onOpenChanges(currentPath) },
+                    label = { Text(stringResource(R.string.forge_changes)) },
+                    leadingIcon = {
+                        Icon(
+                            FeatherIcons.GitPullRequest,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
                 )
                 Spacer(Modifier.width(8.dp))
             }
