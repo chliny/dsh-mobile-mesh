@@ -16,6 +16,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -79,10 +83,32 @@ internal fun ModelsSheet(
                 color = colors.warnLabel,
             )
         }
+        // The sheet's own drag handle competes with the list's scroll for downward drags. Material3
+        // hands a downward drag to the sheet whenever the inner scroll does not consume it, even when
+        // the list is not yet at the top (a fling tail or a gesture the scrollable declined). That is
+        // what turns a mid-list downward swipe into the sheet dragging/dismissing instead of scrolling
+        // the models. Gate the leftover in onPostScroll: it runs after the list has already scrolled
+        // what it can, so a downward leftover while the list is still not at the top is exactly the
+        // stray gesture the sheet would otherwise steal — swallow it. Only once the list has reached
+        // the top is a downward leftover the user genuinely dragging the sheet, and that passes on.
+        val listScroll = rememberScrollState()
+        val sheetBoundary = remember(listScroll) {
+            object : NestedScrollConnection {
+                override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+                    if (source == NestedScrollSource.UserInput && available.y > 0 && listScroll.canScrollBackward) {
+                        // List not at the top: the inner scroll left downward distance unclaimed, which
+                        // the sheet would read as a dismiss drag. Take it instead of letting it through.
+                        Offset(0f, available.y)
+                    } else {
+                        Offset.Zero
+                    }
+            }
+        }
         Column(
             modifier = Modifier
                 .heightIn(max = 420.dp)
-                .verticalScroll(rememberScrollState()),
+                .nestedScroll(sheetBoundary)
+                .verticalScroll(listScroll),
             verticalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
         ) {
             models.groups.forEach { group ->

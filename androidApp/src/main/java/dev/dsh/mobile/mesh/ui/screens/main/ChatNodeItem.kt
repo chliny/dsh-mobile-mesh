@@ -378,10 +378,10 @@ private fun QuestionReplyBubble(node: QuestionReplyNode, onOpenLink: (String) ->
                     question.header?.takeIf { it.isNotBlank() && it != question.question }?.let { header ->
                         Text(header, style = DsType.caption11, color = colors.labelSecondary)
                     }
-                    Text(question.question, style = DsType.mdBody, color = colors.labelPrimary)
+                    MarkdownText(question.question, onOpenLink = onOpenLink)
                     val answer = node.answers.firstOrNull { it.id == question.id }
                     val values = answer?.selected.orEmpty() + listOfNotNull(answer?.custom?.trim()?.takeIf { it.isNotEmpty() })
-                    Text(values.joinToString(", ").ifEmpty { skipped }, style = DsType.mdBody, color = colors.labelPrimary)
+                    MarkdownText(values.joinToString(", ").ifEmpty { skipped }, onOpenLink = onOpenLink)
                 }
             }
         }

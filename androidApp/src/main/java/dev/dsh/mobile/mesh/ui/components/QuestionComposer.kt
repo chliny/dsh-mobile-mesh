@@ -330,7 +330,9 @@ private fun QuestionBody(
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         // The title strip is deliberately short, but the entire question remains readable here.
-        Text(question.question, style = DsType.std14Strong, color = DsTheme.colors.labelPrimary)
+        // The model writes these prompts, so it may use markdown emphasis, code spans, or lists;
+        // render the body as markdown rather than flat text.
+        MarkdownText(question.question, modifier = Modifier.fillMaxWidth())
         question.detail?.takeIf { it.isNotBlank() }?.let { MarkdownText(it) }
 
         options.forEachIndexed { ordinal, option ->
@@ -403,7 +405,7 @@ private fun OptionRow(
                     }
                 }
                 option.description?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, style = DsType.caption11, color = colors.labelTertiary)
+                    MarkdownText(it)
                 }
             }
         }
