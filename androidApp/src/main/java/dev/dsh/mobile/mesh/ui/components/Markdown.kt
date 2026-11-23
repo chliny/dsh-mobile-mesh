@@ -112,6 +112,33 @@ private fun normalizeCjkStrongFragment(fragment: String): String =
     }
 
 /**
+ * The Markdown renderer slices a fenced code block's body out of its AST node by child offsets. It
+ * assumes the last node before the fence's end is a newline (or the closing marker), so an answer
+ * that is still streaming — where the fence's final line has been emitted but its trailing newline
+ * has not — loses that last line: the slice stops one child short. Appending a newline while the
+ * document ends inside an open fence makes the parser emit a trailing `EOL` after the last content
+ * line, which the slice then includes. A settled fence already ends in a closing marker or newline,
+ * so this is a no-op there.
+ */
+private fun terminateOpenFence(text: String): String {
+    if (!text.endsWith('\n')) {
+        var inFence = false
+        var fenceMarker = ""
+        for (line in text.lineSequence()) {
+            val trimmed = line.trimStart()
+            if (inFence) {
+                if (trimmed.startsWith(fenceMarker)) inFence = false
+            } else if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+                inFence = true
+                fenceMarker = trimmed.take(3)
+            }
+        }
+        if (inFence) return text + "\n"
+    }
+    return text
+}
+
+/**
  * Inline code is rendered as `SpanStyle(background = …)` by the Markdown renderer. Compose paints
  * span backgrounds in the text draw pass, which runs after the selection highlight, so a selected
  * code chip stayed opaque while the prose around it turned blue. Drawing the same rectangles in a
@@ -174,7 +201,7 @@ fun MarkdownText(
             }
         }
     }
-    val prepared = remember(text) { normalizeCjkStrongBoundaries(markdownHtmlAsMarkdown(text)) }
+    val prepared = remember(text) { terminateOpenFence(normalizeCjkStrongBoundaries(markdownHtmlAsMarkdown(text))) }
     val content = rememberStreamingMarkdown(prepared, streaming)
     // An inline image that cannot be read must fall back to its caption instead of reserving a
     // blank image slot; the annotator below swaps in the alt text once the load reports failure.
