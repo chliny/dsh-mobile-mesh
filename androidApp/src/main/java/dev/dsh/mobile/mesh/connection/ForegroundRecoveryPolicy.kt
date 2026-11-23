@@ -89,6 +89,17 @@ internal fun shouldPublishConnectedGeneration(
 internal const val FOREGROUND_VERIFY_AFTER_MS = 5_000L
 
 /**
+ * Time spent stopped since the last background hop.
+ *
+ * The base stays 0 until this process actually receives a background stop. Treating that unset
+ * value as a timestamp turns the first foreground transition after launch into an epoch-sized
+ * "resume", which makes the stale-operation and long-background policies act on a stay that never
+ * happened.
+ */
+internal fun backgroundDurationMs(backgroundedAtMs: Long, nowMs: Long): Long =
+    if (backgroundedAtMs == 0L) 0L else (nowMs - backgroundedAtMs).coerceAtLeast(0L)
+
+/**
  * Replace a possibly Doze-stalled connection operation on a long (>=5s) background resume.
  *
  * Risk/diagnostics: replacement cancels the old job and relies on [ConnectionManager.replaceOperation]

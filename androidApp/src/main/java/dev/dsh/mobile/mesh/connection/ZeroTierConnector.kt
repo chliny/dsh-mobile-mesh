@@ -138,12 +138,23 @@ class ZeroTierConnector @Inject constructor(
         }
         timing.phase("node-select", selectStart, "ok", detail = "reused=$reused")
         // Background suspension clears MeshTransportManager.active but retains the process-global
-        // native node. A subsequent start is therefore recovery, not a cold bootstrap.
-        val targetConnectTimeoutMs = zeroTierTargetConnectTimeoutMs(recovery = reused)
-        recordMeshAttempt("start", reused, networkId, targetConnectTimeoutMs)
+        // native node. A subsequent start is therefore recovery, not a cold bootstrap, and the
+        // retained node's recovery budgets escalate while its paths keep failing to carry a dial.
+        val notReadyStreak = consecutiveNotReady.get()
+        val targetConnectTimeoutMs = if (reused) {
+            zeroTierRecoveryTargetConnectTimeoutMs(notReadyStreak)
+        } else {
+            zeroTierTargetConnectTimeoutMs(recovery = false)
+        }
+        val readinessTimeoutMs = if (reused) {
+            zeroTierRecoveryReadinessTimeoutMs(notReadyStreak)
+        } else {
+            zeroTierReadinessTimeoutMs(reusedNode = false)
+        }
+        recordMeshAttempt("start", reused, networkId, targetConnectTimeoutMs, readinessTimeoutMs)
         // A new node cannot reach a network target before joining that network and obtaining an
         // address. Retained nodes with an address pass through immediately, preserving recovery.
-        ensureNetworkAddress(current, state, networkId, token, timing, zeroTierReadinessTimeoutMs(reusedNode = reused))
+        ensureNetworkAddress(current, state, networkId, token, timing, readinessTimeoutMs)
         val readyStart = timing.start("await-transport-ready")
         val (readySignal, dialedTarget) = awaitTransportReady(
             current,
@@ -151,7 +162,7 @@ class ZeroTierConnector @Inject constructor(
             networkId,
             resolveTarget(config),
             targetConnectTimeoutMs,
-            zeroTierReadinessTimeoutMs(reusedNode = reused),
+            readinessTimeoutMs,
         )
         timing.phase(
             "await-transport-ready",
@@ -230,10 +241,14 @@ class ZeroTierConnector @Inject constructor(
             )
         }
         timing.phase("node-select", selectStart, "ok", detail = "reused=true")
-        val targetConnectTimeoutMs = zeroTierTargetConnectTimeoutMs(recovery = true)
-        recordMeshAttempt("renew-relay", reused = true, networkId = networkId, targetConnectTimeoutMs = targetConnectTimeoutMs)
+        // A relay renewal is always a recovery against the retained node, so it escalates with the
+        // same not-ready streak as start().
+        val notReadyStreak = consecutiveNotReady.get()
+        val targetConnectTimeoutMs = zeroTierRecoveryTargetConnectTimeoutMs(notReadyStreak)
+        val readinessTimeoutMs = zeroTierRecoveryReadinessTimeoutMs(notReadyStreak)
+        recordMeshAttempt("renew-relay", reused = true, networkId = networkId, targetConnectTimeoutMs, readinessTimeoutMs)
         // Renewal can also resume a previously pending authorization, where no address exists yet.
-        ensureNetworkAddress(current, state, networkId, token, timing, zeroTierReadinessTimeoutMs(reusedNode = true))
+        ensureNetworkAddress(current, state, networkId, token, timing, readinessTimeoutMs)
         val readyStart = timing.start("await-transport-ready")
         val (readySignal, dialedTarget) = awaitTransportReady(
             current,
@@ -241,7 +256,7 @@ class ZeroTierConnector @Inject constructor(
             networkId,
             resolveTarget(config),
             targetConnectTimeoutMs,
-            zeroTierReadinessTimeoutMs(reusedNode = true),
+            readinessTimeoutMs,
         )
         timing.phase(
             "await-transport-ready",
@@ -282,13 +297,20 @@ class ZeroTierConnector @Inject constructor(
     }
 
     /** Durable snapshot of what the retained node could do at the start of one recovery attempt. */
-    private fun recordMeshAttempt(phase: String, reused: Boolean, networkId: Long, targetConnectTimeoutMs: Int) {
+    private fun recordMeshAttempt(
+        phase: String,
+        reused: Boolean,
+        networkId: Long,
+        targetConnectTimeoutMs: Int,
+        readinessTimeoutMs: Long,
+    ) {
         ConnectionTrace.record(
             "zt-attempt",
             "phase=$phase reused=$reused consecutiveNotReady=${consecutiveNotReady.get()}" +
                 " online=${isServiceOnline()} addressAssigned=${hasAddress(networkId)}" +
                 " transportReady=${transportReady(networkId)}" +
-                " dialReadinessMs=${zeroTierReadinessTimeoutMs(reusedNode = reused)} targetConnectMs=$targetConnectTimeoutMs",
+                " dialReadinessMs=$readinessTimeoutMs targetConnectMs=$targetConnectTimeoutMs" +
+                " patient=${reused && zeroTierPatientRecovery(consecutiveNotReady.get())}",
         )
     }
 

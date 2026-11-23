@@ -41,4 +41,24 @@ class SshRecoveryPolicyTest {
         assertEquals(3_250, remainingConnectTimeoutMs(5_000, 1_000_000_000L, 2_750_000_000L))
         assertEquals(0, remainingConnectTimeoutMs(5_000, 1_000_000_000L, 7_000_000_000L))
     }
+
+    @Test
+    fun `escalated recovery attempt outlasts the join that short dials timed out on`() {
+        // A Wi-Fi/cellular switch or a long background expires the retained node's NAT bindings and
+        // peer paths. Device traces show every 5-second recovery dial timing out for minutes while a
+        // fresh node connected on a 14.4-second dial, so the fast windows must eventually give one
+        // attempt the whole budget a rejoin needs.
+        assertEquals(5_000, zeroTierRecoveryTargetConnectTimeoutMs(0))
+        assertEquals(8_000L, zeroTierRecoveryReadinessTimeoutMs(0))
+        // One fast retry is tolerated; the attempt after it may span the rejoin.
+        assertEquals(5_000, zeroTierRecoveryTargetConnectTimeoutMs(1))
+        val patientDialMs = zeroTierRecoveryTargetConnectTimeoutMs(2)
+        val patientWaitMs = zeroTierRecoveryReadinessTimeoutMs(2)
+        assertEquals(15_000, patientDialMs)
+        assertEquals(20_000L, patientWaitMs)
+        assertTrue("a patient dial must span the join the fast dials never reached", patientDialMs >= 14_400)
+        // Both staggered dials can finish inside the wait that owns them.
+        assertTrue(patientWaitMs > patientDialMs + 1_200)
+        assertTrue("an unresolved outage keeps the patient budget", zeroTierPatientRecovery(7))
+    }
 }

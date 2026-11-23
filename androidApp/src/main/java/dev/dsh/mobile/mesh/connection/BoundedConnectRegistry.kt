@@ -71,6 +71,28 @@ internal fun zeroTierReadinessTimeoutMs(reusedNode: Boolean): Long =
 internal fun zeroTierTargetConnectTimeoutMs(recovery: Boolean): Int =
     if (recovery) ZERO_TIER_RECOVERY_TARGET_CONNECT_TIMEOUT_MS else ZERO_TIER_INITIAL_TARGET_CONNECT_TIMEOUT_MS
 
+// Fast recovery windows assume the retained node still owns a working path: a healthy handover
+// dials in milliseconds. A Wi-Fi/cellular switch or a long background instead expires the node's
+// NAT bindings and peer paths, and rebuilding them needs far longer than one 5s dial — a device
+// trace showed a retained node whose every 5s dial timed out for minutes, while a fresh node
+// needed one 14.4s dial. Consecutive not-ready results are that evidence, so the following attempt
+// gets the whole cold-bootstrap budget and can span the rejoin instead of failing on the same
+// short deadline forever.
+internal const val ZERO_TIER_PATIENT_AFTER_FAILURES = 2
+
+internal fun zeroTierPatientRecovery(consecutiveNotReady: Int): Boolean =
+    consecutiveNotReady >= ZERO_TIER_PATIENT_AFTER_FAILURES
+
+/** Readiness window for one recovery attempt against a retained node. */
+internal fun zeroTierRecoveryReadinessTimeoutMs(consecutiveNotReady: Int): Long =
+    if (zeroTierPatientRecovery(consecutiveNotReady)) ZERO_TIER_INITIAL_READINESS_TIMEOUT_MS
+    else ZERO_TIER_REUSED_READINESS_TIMEOUT_MS
+
+/** Per-dial connect budget for one recovery attempt against a retained node. */
+internal fun zeroTierRecoveryTargetConnectTimeoutMs(consecutiveNotReady: Int): Int =
+    if (zeroTierPatientRecovery(consecutiveNotReady)) ZERO_TIER_INITIAL_TARGET_CONNECT_TIMEOUT_MS
+    else ZERO_TIER_RECOVERY_TARGET_CONNECT_TIMEOUT_MS
+
 internal fun remainingConnectTimeoutMs(budgetMs: Int, startedAtNanos: Long, nowNanos: Long): Int =
     (budgetMs - java.util.concurrent.TimeUnit.NANOSECONDS.toMillis((nowNanos - startedAtNanos).coerceAtLeast(0L)))
         .coerceAtLeast(0L)

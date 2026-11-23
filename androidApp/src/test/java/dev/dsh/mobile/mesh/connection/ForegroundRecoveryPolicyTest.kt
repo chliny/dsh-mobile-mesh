@@ -311,6 +311,16 @@ class ForegroundRecoveryPolicyTest {
         assertFalse(shouldHandleLifecycleTransition(false, false))
     }
 
+    @Test
+    fun `first foreground transition of a process has no background stay`() {
+        // The base is unset until the process is actually stopped; reading it as a timestamp made a
+        // launch transition look like a multi-hour background hop and re-verified a fresh carrier.
+        val now = 1_795_410_755_266L
+        assertEquals(0L, backgroundDurationMs(backgroundedAtMs = 0L, nowMs = now))
+        assertEquals(12_500L, backgroundDurationMs(backgroundedAtMs = now - 12_500L, nowMs = now))
+        assertEquals("a clock that moved backwards is a zero stay", 0L, backgroundDurationMs(now + 1_000L, now))
+    }
+
     private fun action(phase: ConnectionPhase, backgroundMs: Long, networkChanged: Boolean = false, inFlight: Boolean = false) =
         foregroundRecoveryAction(ForegroundRecoveryFacts(phase, true, inFlight, backgroundMs, networkChanged))
 }

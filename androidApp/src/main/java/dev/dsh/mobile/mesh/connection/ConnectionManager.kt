@@ -297,6 +297,7 @@ class ConnectionManager @Inject constructor(
     @Volatile private var appInForeground = false
     /** Identifies the foreground visit observed by the diagnostic collector, or null in background. */
     private val watchdogForegroundEpoch = MutableStateFlow<Long?>(null)
+    /** Wall clock of the last background stop; 0 until this process has actually been backgrounded. */
     @Volatile private var backgroundedAtMs = 0L
     /** `elapsedRealtime - uptimeMillis` at background, so resume can report deep-sleep time. */
     @Volatile private var backgroundSleepBaseMs = 0L
@@ -1904,8 +1905,7 @@ class ConnectionManager @Inject constructor(
             return
         }
         val current = _state.value
-        val now = System.currentTimeMillis()
-        val backgroundDuration = (now - backgroundedAtMs).coerceAtLeast(0L)
+        val backgroundDuration = backgroundDurationSinceLastStopMs()
         val recoveryInFlight = connectJob?.isActive == true || foregroundProbeJob?.isActive == true ||
             synchronized(recoveryLock) { transportRecoveryInFlight }
         val retryRecoveryOnResume = shouldRetryRecoveryAfterForegroundResume(
@@ -2166,8 +2166,14 @@ class ConnectionManager @Inject constructor(
         job.start()
     }
 
+    /**
+     * Time spent stopped since the last background hop; 0 before this process has been backgrounded.
+     *
+     * The unset base must not be read as a timestamp: that would turn the first foreground
+     * transition after launch into a multi-hour "resume". See [backgroundDurationMs].
+     */
     private fun backgroundDurationSinceLastStopMs(): Long =
-        (System.currentTimeMillis() - backgroundedAtMs).coerceAtLeast(0L)
+        backgroundDurationMs(backgroundedAtMs, System.currentTimeMillis())
 
     /** Keep the carrier alive while a system document picker or its file upload is in flight. */
     fun acquireFileTransferLease(): AutoCloseable {
