@@ -160,6 +160,15 @@
     <string name="chat_compaction_summary">الملخص</string>
     <string name="chat_details_title">التفاصيل</string>
     <string name="chat_details_empty">حدد صف أداة في المحادثة لعرض المدخلات والمخرجات.</string>
+    <string name="details_section_model_preset">النموذج والإعداد المسبق</string>
+    <string name="details_section_session">الجلسة</string>
+    <string name="details_section_actions">الإجراءات</string>
+    <string name="details_section_queue">قائمة الانتظار</string>
+    <string name="details_field_name">الاسم</string>
+    <string name="details_field_folder">المجلد</string>
+    <string name="details_field_model">النموذج</string>
+    <string name="details_field_preset">الإعداد المسبق</string>
+    <string name="details_field_status">الحالة</string>
     <string name="chat_input_placeholder">المدخلات</string>
     <string name="chat_output_placeholder">المخرجات</string>
     <string name="goal_title">الهدف</string>

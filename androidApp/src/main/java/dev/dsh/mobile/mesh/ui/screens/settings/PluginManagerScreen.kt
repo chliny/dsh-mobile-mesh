@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -163,8 +164,11 @@ internal fun PluginManagerScreen(onClose: () -> Unit, initialDirectory: PluginDi
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                 }
                 Text(stringResource(title), Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium)
-                TextButton(onClick = viewModel::refresh, enabled = !state.busy && !state.loading) {
-                    Text(stringResource(R.string.plugins_native_refresh))
+                IconButton(onClick = viewModel::refresh, enabled = !state.busy && !state.loading) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = stringResource(R.string.plugins_native_refresh),
+                    )
                 }
             }
             if (directory == null) TabRow(selectedTabIndex = tab) {

@@ -160,6 +160,15 @@
     <string name="chat_compaction_summary">সারাংশ</string>
     <string name="chat_details_title">বিবরণ</string>
     <string name="chat_details_empty">এর ইনপুট ও আউটপুট দেখতে চ্যাটে একটি টুল সারি নির্বাচন করুন।</string>
+    <string name="details_section_model_preset">মডেল ও প্রিসেট</string>
+    <string name="details_section_session">সেশন</string>
+    <string name="details_section_actions">ক্রিয়া</string>
+    <string name="details_section_queue">সারি</string>
+    <string name="details_field_name">নাম</string>
+    <string name="details_field_folder">ফোল্ডার</string>
+    <string name="details_field_model">মডেল</string>
+    <string name="details_field_preset">প্রিসেট</string>
+    <string name="details_field_status">স্থিতি</string>
     <string name="chat_input_placeholder">ইনপুট</string>
     <string name="chat_output_placeholder">আউটপুট</string>
     <string name="goal_title">লক্ষ্য</string>

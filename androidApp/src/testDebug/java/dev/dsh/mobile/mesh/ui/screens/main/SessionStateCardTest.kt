@@ -3,6 +3,7 @@ package dev.dsh.mobile.mesh.ui.screens.main
 import android.app.Application
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
@@ -155,7 +156,8 @@ class SessionStateCardTest {
         show(host)
         compose.waitUntil(5_000) { host.paths.isNotEmpty() }
         compose.onNodeWithText(context.getString(R.string.session_state_error)).assertIsDisplayed()
-        compose.onNodeWithText(context.getString(R.string.session_state_refresh)).assertIsDisplayed()
+        // Refresh is an icon affordance now; its label lives in the content description.
+        compose.onNodeWithContentDescription(context.getString(R.string.session_state_refresh)).assertIsDisplayed()
     }
 
     companion object {

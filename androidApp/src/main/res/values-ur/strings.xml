@@ -160,6 +160,15 @@
     <string name="chat_compaction_summary">خلاصہ</string>
     <string name="chat_details_title">تفصیلات</string>
     <string name="chat_details_empty">اس کے ان پٹ اور آؤٹ پٹ دیکھنے کے لیے چیٹ میں ٹول کی قطار منتخب کریں۔</string>
+    <string name="details_section_model_preset">ماڈل اور پریسیٹ</string>
+    <string name="details_section_session">سیشن</string>
+    <string name="details_section_actions">اعمال</string>
+    <string name="details_section_queue">قطار</string>
+    <string name="details_field_name">نام</string>
+    <string name="details_field_folder">فولڈر</string>
+    <string name="details_field_model">ماڈل</string>
+    <string name="details_field_preset">پریسیٹ</string>
+    <string name="details_field_status">حالت</string>
     <string name="chat_input_placeholder">ان پٹ</string>
     <string name="chat_output_placeholder">آؤٹ پٹ</string>
     <string name="goal_title">ہدف</string>

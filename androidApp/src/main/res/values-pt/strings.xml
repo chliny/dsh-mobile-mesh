@@ -160,6 +160,15 @@
     <string name="chat_compaction_summary">Resumo</string>
     <string name="chat_details_title">Detalhes</string>
     <string name="chat_details_empty">Selecione uma linha de ferramenta no chat para inspecionar sua entrada e saída.</string>
+    <string name="details_section_model_preset">Modelo e predefinição</string>
+    <string name="details_section_session">Sessão</string>
+    <string name="details_section_actions">Ações</string>
+    <string name="details_section_queue">Fila</string>
+    <string name="details_field_name">Nome</string>
+    <string name="details_field_folder">Pasta</string>
+    <string name="details_field_model">Modelo</string>
+    <string name="details_field_preset">Predefinição</string>
+    <string name="details_field_status">Status</string>
     <string name="chat_input_placeholder">Entrada</string>
     <string name="chat_output_placeholder">Saída</string>
     <string name="goal_title">Objetivo</string>

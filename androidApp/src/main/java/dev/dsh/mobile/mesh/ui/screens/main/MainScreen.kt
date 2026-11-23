@@ -81,6 +81,7 @@ internal fun sessionFileScope(
 private sealed interface MainPage {
     data object Chat : MainPage
     data object Terminal : MainPage
+    data object Details : MainPage
     data class Files(
         val path: String = ".",
         val rootTitle: String? = null,
@@ -137,6 +138,7 @@ internal data class MainPageRoute(
 private fun MainPage.toRoute(): MainPageRoute = when (this) {
     MainPage.Chat -> MainPageRoute()
     MainPage.Terminal -> MainPageRoute("terminal")
+    MainPage.Details -> MainPageRoute("details")
     is MainPage.Files -> MainPageRoute("files", path, rootTitle.orEmpty(), rootTitle = rootTitle, rootPath = rootPath)
     is MainPage.Preview -> {
         val files = returnPage as? MainPage.Files
@@ -164,12 +166,13 @@ private fun MainPage.toRoute(): MainPageRoute = when (this) {
 }
 
 internal fun MainPageRoute.restoredKind(): String = when (kind) {
-    "files", "preview", "terminal", "diff", "forge_changes", "forge_change", "forge_diff" -> kind
+    "files", "preview", "terminal", "details", "diff", "forge_changes", "forge_change", "forge_diff" -> kind
     else -> "chat"
 }
 
 private fun MainPageRoute.toPage(): MainPage = when (restoredKind()) {
     "terminal" -> MainPage.Terminal
+    "details" -> MainPage.Details
     "files" -> MainPage.Files(path, rootTitle, rootPath)
     "preview" -> MainPage.Preview(
         path,
@@ -221,9 +224,7 @@ internal fun MainScreen(
     var savedPageRoute by rememberSaveable { mutableStateOf(MainPageRoute()) }
     var page by remember(savedPageRoute) { mutableStateOf(savedPageRoute.toPage()) }
 
-    var detailsOpen by remember { mutableStateOf(false) }
     var subagentParentSessionId by rememberSaveable { mutableStateOf<String?>(null) }
-    val detailsWidth = 300.dp
     val scope = rememberCoroutineScope()
 
     val store = dev.dsh.mobile.mesh.ui.rememberSessionStore()
@@ -421,6 +422,15 @@ internal fun MainScreen(
             val sid = fileScope.sessionId
             when (val current = page) {
                 MainPage.Terminal -> TerminalScreen(sessionId = sid, onBack = { navigate(MainPage.Chat) })
+                MainPage.Details -> DetailsPanel(
+                    onClose = { navigate(MainPage.Chat) },
+                    disclosures = DisclosureScope(disclosures, sid),
+                    onOpenSubagent = { childId ->
+                        subagentParentSessionId = sid
+                        scope.launch { store.openSubagentSession(sid, childId) }
+                        navigate(MainPage.Chat)
+                    },
+                )
                 is MainPage.Files -> WorkspaceFilesScreen(
                     workspaceKey = fileScope.cacheKey,
                     sessionId = sid,
@@ -483,73 +493,23 @@ internal fun MainScreen(
             onOpenSessionList()
         }
     }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(detailsOpen) {
-                val width = size.width.toFloat()
-                    val edgeBandPx = 28.dp.toPx()
-                    val detailsAreaPx = detailsWidth.toPx() * 0.9f
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        val startX = down.position.x
-                        // Claim only gestures this screen handles: leftward drags starting in
-                        // the right edge band open details; drags starting on the open details
-                        // panel close it. Other horizontal drags remain unconsumed.
-                        val owned = if (!detailsOpen) {
-                            startX >= width - edgeBandPx
-                        } else {
-                            startX <= detailsAreaPx
-                        }
-                        if (!owned) return@awaitEachGesture
-
-                        var claimed = false
-                        awaitHorizontalTouchSlopOrCancellation(down.id) { change, overSlop ->
-                            // While closed, only a leftward drag from the right edge belongs here.
-                            claimed = detailsOpen || overSlop < 0f
-                            if (claimed) change.consume()
-                        } ?: return@awaitEachGesture
-                        if (!claimed) return@awaitEachGesture
-
-                        var totalX = 0f
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (change.changedToUpIgnoreConsumed()) break
-                            // A deeper scrollable claimed the drag; let it keep it.
-                            if (change.isConsumed) break
-                            totalX += change.positionChange().x
-                            change.consume()
-                            val threshold = width * 0.12f
-                            if (!detailsOpen && totalX <= -threshold) {
-                                detailsOpen = true
-                                break
-                            }
-                            if (detailsOpen && totalX >= threshold) {
-                                detailsOpen = false
-                                break
-                            }
-                        }
-                    }
-                },
-            ) {
+    Box(modifier = Modifier.fillMaxSize()) {
             ChatScreen(
                 readingPositions = readingPositions,
                 transcriptListStates = transcriptListStates,
                 disclosures = disclosures,
-                onOpenDetails = { detailsOpen = true },
+                onOpenDetails = { navigate(MainPage.Details) },
                 onOpenDrawer = {
                     subagentParentSessionId = null
                     onOpenSessionList()
                 },
-                detailsOpen = detailsOpen,
+                detailsOpen = false,
                 connectionPhase = connectionPhase,
                 reconnectAttempt = reconnectAttempt,
                 onReconnect = onReconnect,
                 onOpenSubagent = { childId ->
                     val parentId = sessionId
                     if (parentId != null) {
-                        detailsOpen = false
                         subagentParentSessionId = parentId
                         scope.launch { store.openSubagentSession(parentId, childId) }
                     }
@@ -579,27 +539,5 @@ internal fun MainScreen(
                 },
             )
 
-            AnimatedVisibility(
-                visible = detailsOpen,
-                // Explicit spec: the platform default runs 300ms, which lags behind the drag the
-                // panel is usually opened with.
-                enter = slideInHorizontally(DsAnimations.panelSlide) { it },
-                exit = slideOutHorizontally(DsAnimations.panelSlide) { it },
-                modifier = Modifier.align(Alignment.CenterEnd),
-            ) {
-                DetailsPanel(
-                    onClose = { detailsOpen = false },
-                    modifier = Modifier.width(detailsWidth),
-                    disclosures = DisclosureScope(disclosures, sessionId),
-                    onOpenSubagent = { childId ->
-                        val parentId = sessionId
-                        if (parentId != null) {
-                            detailsOpen = false
-                            subagentParentSessionId = parentId
-                            scope.launch { store.openSubagentSession(parentId, childId) }
-                        }
-                    },
-                )
-            }
-        }
+    }
 }

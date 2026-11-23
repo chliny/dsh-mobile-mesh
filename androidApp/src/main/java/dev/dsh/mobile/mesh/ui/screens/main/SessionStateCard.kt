@@ -5,10 +5,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -18,6 +20,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -152,27 +155,24 @@ internal fun SessionStateCard(sessionId: String, generation: HostGeneration, api
         }
 
         if (!unsupported) {
-            OutlinedCard(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-            ) {
-            Column(
-                Modifier.fillMaxWidth().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(
-                    stringResource(R.string.session_state_title),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+            DetailSection(stringResource(R.string.session_state_title)) {
                 state?.let { current ->
-                    Text(stringResource(if (current.active) R.string.session_state_active else R.string.session_state_inactive), style = MaterialTheme.typography.labelSmall)
-                    Text(stringResource(if (current.running) R.string.session_state_running else R.string.session_state_not_running), style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        stringResource(if (current.active) R.string.session_state_active else R.string.session_state_inactive),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        stringResource(if (current.running) R.string.session_state_running else R.string.session_state_not_running),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                     val queued = current.queue
                     Text(
                         if (queued == null) stringResource(R.string.session_state_queue_unavailable)
                         else stringResource(R.string.session_state_queue_count, queued.size),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     val pending = current.pendingInput.map {
                         stringResource(when (it) {
@@ -181,22 +181,46 @@ internal fun SessionStateCard(sessionId: String, generation: HostGeneration, api
                             else -> R.string.session_state_pending_other
                         })
                     }.joinToString(", ").ifEmpty { stringResource(R.string.session_state_pending_none) }
-                    Text(stringResource(R.string.session_state_pending_sample, pending), style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        stringResource(R.string.session_state_pending_sample, pending),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                Text(stringResource(when (status) {
-                    StateDisplay.Loading -> R.string.session_state_loading
-                    StateDisplay.Live -> R.string.session_state_live
-                    StateDisplay.Snapshot -> R.string.session_state_snapshot
-                    StateDisplay.Stale -> R.string.session_state_stale
-                    StateDisplay.Error -> R.string.session_state_error
-                }), style = MaterialTheme.typography.labelSmall)
-                stateError?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { refresh++ }) {
-                        Text(stringResource(R.string.session_state_refresh))
+                Text(
+                    stringResource(when (status) {
+                        StateDisplay.Loading -> R.string.session_state_loading
+                        StateDisplay.Live -> R.string.session_state_live
+                        StateDisplay.Snapshot -> R.string.session_state_snapshot
+                        StateDisplay.Stale -> R.string.session_state_stale
+                        StateDisplay.Error -> R.string.session_state_error
+                    }),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                stateError?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { refresh++ }) {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = stringResource(R.string.session_state_refresh),
+                        )
                     }
                     if (state != null && !waitUnsupported) {
-                        OutlinedButton(
+                        DetailActionButton(
+                            text = stringResource(
+                                if (waitActive) R.string.session_wait_waiting else R.string.session_wait_action,
+                            ),
                             enabled = started && !waitActive,
                             onClick = {
                                 waitResult = null
@@ -204,25 +228,42 @@ internal fun SessionStateCard(sessionId: String, generation: HostGeneration, api
                                 waitActive = true
                                 if (waitRequests.trySend(Unit).isFailure) waitActive = false
                             },
-                        ) {
-                            Text(stringResource(if (waitActive) R.string.session_wait_waiting else R.string.session_wait_action))
-                        }
+                        )
                     }
                 }
-                if (waitUnsupported) Text(stringResource(R.string.session_wait_unsupported), style = MaterialTheme.typography.labelSmall)
+                if (waitUnsupported) {
+                    Text(
+                        stringResource(R.string.session_wait_unsupported),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 waitResult?.let { result ->
-                    Text(stringResource(when (result.reason) {
-                        "idle" -> R.string.session_wait_idle
-                        "input-required" -> R.string.session_wait_input_required
-                        "timeout" -> R.string.session_wait_timeout
-                        else -> R.string.session_wait_unknown
-                    }), style = MaterialTheme.typography.labelSmall)
-                    if (result.output.truncated) Text(stringResource(R.string.session_wait_truncated), style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        stringResource(when (result.reason) {
+                            "idle" -> R.string.session_wait_idle
+                            "input-required" -> R.string.session_wait_input_required
+                            "timeout" -> R.string.session_wait_timeout
+                            else -> R.string.session_wait_unknown
+                        }),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (result.output.truncated) {
+                        Text(
+                            stringResource(R.string.session_wait_truncated),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 waitError?.let {
-                    Text(stringResource(R.string.session_wait_error, it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    Text(
+                        stringResource(R.string.session_wait_error, it),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
-            }
             }
         }
     }

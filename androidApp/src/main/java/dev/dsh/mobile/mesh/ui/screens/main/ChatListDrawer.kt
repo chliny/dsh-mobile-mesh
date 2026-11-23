@@ -3,6 +3,7 @@ package dev.dsh.mobile.mesh.ui.screens.main
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -475,7 +476,7 @@ fun ChatListDrawer(
 
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                contentPadding = PaddingValues(horizontal = DsSpacing.small, vertical = DsSpacing.small),
+                contentPadding = PaddingValues(horizontal = DsSpacing.small, vertical = DsSpacing.xsmall),
             ) {
                 if (query.isNotBlank()) {
                     item(key = "search-header") { ChatListSectionLabel(stringResource(R.string.common_search)) }
@@ -712,7 +713,7 @@ fun ChatListDrawer(
                             SessionListEmptyState.LOADING -> Column(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = DsSpacing.large),
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(DsSpacing.small),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
                             ) {
                                 CircularProgressIndicator()
                                 Text(
@@ -915,47 +916,53 @@ private fun WorkspaceHeader(
     val label = workspace.title.ifBlank { basename(workspace.path) }
 
     Box {
-        ListItem(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = (depth * 12).dp)
-                .clip(MaterialTheme.shapes.small)
-                .combinedClickable(onClick = onToggle, onLongClick = { menuOpen = true }),
-            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-            leadingContent = {
+        Column {
+            // A rule plus a tinted band is what makes one workspace read as a group with edges;
+            // with the rows at 48dp a run of names alone was a single undifferentiated wall.
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = DsSpacing.small, vertical = 2.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = (depth * 12).dp)
+                    .clip(MaterialTheme.shapes.small)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .combinedClickable(onClick = onToggle, onLongClick = { menuOpen = true })
+                    .padding(start = 6.dp, end = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Icon(
                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = rotation },
+                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = rotation },
                 )
-            },
-            headlineContent = {
+                Spacer(Modifier.width(6.dp))
                 Text(
                     label,
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
-            },
-            trailingContent = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        sessionCount.toString(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Text(
+                    sessionCount.toString(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                IconButton(onClick = onNewSession, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.Filled.Add,
+                        contentDescription = stringResource(R.string.chatlist_workspace_new_session),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
                     )
-                    IconButton(onClick = onNewSession) {
-                        Icon(
-                            Icons.Filled.Add,
-                            contentDescription = stringResource(R.string.chatlist_workspace_new_session),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                 }
-            },
-        )
+            }
+        }
         WorkspaceMenu(
             expanded = menuOpen,
             onDismiss = { menuOpen = false },
@@ -1144,11 +1151,12 @@ private fun SessionRowItem(
     ).joinToString(" · ")
 
     Box {
-        ListItem(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = (depth * 12).dp)
                 .clip(MaterialTheme.shapes.small)
+                .background(if (isCurrent) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
                 .combinedClickable(
                     onClick = {
                         // Launch from the drawer scope first. Closing the drawer disposes this
@@ -1165,91 +1173,88 @@ private fun SessionRowItem(
                         }
                     },
                     onLongClick = { menuOpen = true },
-                ),
-            colors = ListItemDefaults.colors(
-                containerColor = if (isCurrent) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-            ),
-            leadingContent = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // The chevron is its own tap target: opening a session and looking at what it
-                    // spawned are different intentions, and conflating them means you cannot do one
-                    // without the other. The spacer keeps titles aligned down a column of mixed rows.
-                    if (childCount > 0) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = stringResource(R.string.chatlist_subagents),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .size(18.dp)
-                                .graphicsLayer { rotationZ = chevronRotation }
-                                .clickable(onClick = onToggleChildren),
-                        )
-                    } else {
-                        Spacer(Modifier.width(18.dp))
-                    }
-                    Spacer(Modifier.width(DsSpacing.small))
-                    StateDot(
-                        state = when {
-                            session.running -> StateDotState.Running
-                            session.pendingInteraction != null -> StateDotState.Warning
-                            else -> StateDotState.Idle
-                        },
-                    )
-                }
-            },
-            headlineContent = {
+                )
+                // Two text lines at 14/11 rather than Material's 72dp list row: the drawer is a
+                // navigation list, and the extra air between rows was pure scrolling.
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // The chevron is its own tap target: opening a session and looking at what it spawned
+            // are different intentions, and conflating them means you cannot do one without the
+            // other. The spacer keeps titles aligned down a column of mixed rows.
+            if (childCount > 0) {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = stringResource(R.string.chatlist_subagents),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(16.dp)
+                        .graphicsLayer { rotationZ = chevronRotation }
+                        .clickable(onClick = onToggleChildren),
+                )
+                Spacer(Modifier.width(4.dp))
+            } else {
+                Spacer(Modifier.width(16.dp))
+                Spacer(Modifier.width(4.dp))
+            }
+            StateDot(
+                state = when {
+                    session.running -> StateDotState.Running
+                    session.pendingInteraction != null -> StateDotState.Warning
+                    else -> StateDotState.Idle
+                },
+            )
+            Spacer(Modifier.width(DsSpacing.small))
+            Column(Modifier.weight(1f)) {
                 Text(
                     sessionTitle(session),
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = if (isCurrent) MaterialTheme.colorScheme.onSecondaryContainer
                     else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-            },
-            supportingContent = {
                 Text(
                     meta,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-            },
-            trailingContent = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall),
-                ) {
-                    SessionForgeIcons(session, changeRequestStates)
-                    if (session.pendingInteraction != null) {
-                        StatusBadge(
-                            stringResource(R.string.chatlist_needs_action),
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                        )
-                    }
-                    if (isPinned) {
-                        Icon(
-                            Icons.Filled.Star,
-                            contentDescription = stringResource(R.string.chatlist_pinned),
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp),
-                        )
-                    }
-                    // The count replaces the old "Subagents" pill on parents: with the children
-                    // indented underneath, what is worth saying is how many are down there when the
-                    // row is closed.
-                    if (childCount > 0) {
-                        StatusBadge(childCount.toString())
-                    } else if (session.origin == "subagent" && depth == 0) {
-                        // Only reached by an orphan — its whole ancestry is archived or blank — where
-                        // the indent cannot say what the row is.
-                        StatusBadge(stringResource(R.string.chatlist_subagents))
-                    }
+            }
+            Spacer(Modifier.width(DsSpacing.xsmall))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall),
+            ) {
+                SessionForgeIcons(session, changeRequestStates)
+                if (session.pendingInteraction != null) {
+                    StatusBadge(
+                        stringResource(R.string.chatlist_needs_action),
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
                 }
-            },
-        )
+                if (isPinned) {
+                    Icon(
+                        Icons.Filled.Star,
+                        contentDescription = stringResource(R.string.chatlist_pinned),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+                // The count replaces the old "Subagents" pill on parents: with the children
+                // indented underneath, what is worth saying is how many are down there when the
+                // row is closed.
+                if (childCount > 0) {
+                    StatusBadge(childCount.toString())
+                } else if (session.origin == "subagent" && depth == 0) {
+                    // Only reached by an orphan — its whole ancestry is archived or blank — where
+                    // the indent cannot say what the row is.
+                    StatusBadge(stringResource(R.string.chatlist_subagents))
+                }
+            }
+        }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             ChatListMenuItem(stringResource(R.string.chatlist_session_rename), Icons.Filled.Edit) {
                 menuOpen = false

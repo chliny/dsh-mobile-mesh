@@ -323,6 +323,15 @@
     <string name="chat_compaction_summary">Summary</string>
     <string name="chat_details_title">Details</string>
     <string name="chat_details_empty">Select a tool row in the chat to inspect its input and output.</string>
+    <string name="details_section_model_preset">Model &amp; preset</string>
+    <string name="details_section_session">Session</string>
+    <string name="details_section_actions">Actions</string>
+    <string name="details_section_queue">Queue</string>
+    <string name="details_field_name">Name</string>
+    <string name="details_field_folder">Folder</string>
+    <string name="details_field_model">Model</string>
+    <string name="details_field_preset">Preset</string>
+    <string name="details_field_status">Status</string>
     <string name="chat_input_placeholder">Input</string>
     <string name="chat_output_placeholder">Output</string>
     <string name="goal_title">Goal</string>

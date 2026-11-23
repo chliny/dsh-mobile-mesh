@@ -245,7 +245,10 @@ internal fun Composer(
             .animateContentSize(),
         shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        // The input region has to read as a region: on a white transcript a hairline in the
+        // outline tone plus a 2dp shadow is what separates it from the page.
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        shadowElevation = 2.dp,
     ) {
         Column(
             Modifier.padding(DsSpacing.medium),

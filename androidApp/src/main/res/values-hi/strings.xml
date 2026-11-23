@@ -160,6 +160,15 @@
     <string name="chat_compaction_summary">सारांश</string>
     <string name="chat_details_title">विवरण</string>
     <string name="chat_details_empty">चैट में किसी टूल पंक्ति का चयन करके उसका इनपुट और आउटपुट देखें।</string>
+    <string name="details_section_model_preset">मॉडल और प्रीसेट</string>
+    <string name="details_section_session">सत्र</string>
+    <string name="details_section_actions">क्रियाएँ</string>
+    <string name="details_section_queue">कतार</string>
+    <string name="details_field_name">नाम</string>
+    <string name="details_field_folder">फ़ोल्डर</string>
+    <string name="details_field_model">मॉडल</string>
+    <string name="details_field_preset">प्रीसेट</string>
+    <string name="details_field_status">स्थिति</string>
     <string name="chat_input_placeholder">इनपुट</string>
     <string name="chat_output_placeholder">आउटपुट</string>
     <string name="goal_title">लक्ष्य</string>

@@ -160,6 +160,15 @@
     <string name="chat_compaction_summary">สรุป</string>
     <string name="chat_details_title">รายละเอียด</string>
     <string name="chat_details_empty">เลือกแถวเครื่องมือในแชทเพื่อดูอินพุตและเอาต์พุต</string>
+    <string name="details_section_model_preset">โมเดลและพรีเซ็ต</string>
+    <string name="details_section_session">เซสชัน</string>
+    <string name="details_section_actions">การดำเนินการ</string>
+    <string name="details_section_queue">คิว</string>
+    <string name="details_field_name">ชื่อ</string>
+    <string name="details_field_folder">โฟลเดอร์</string>
+    <string name="details_field_model">โมเดล</string>
+    <string name="details_field_preset">พรีเซ็ต</string>
+    <string name="details_field_status">สถานะ</string>
     <string name="chat_input_placeholder">อินพุต</string>
     <string name="chat_output_placeholder">เอาต์พุต</string>
     <string name="goal_title">เป้าหมาย</string>

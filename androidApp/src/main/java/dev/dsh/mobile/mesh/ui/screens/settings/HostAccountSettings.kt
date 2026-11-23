@@ -4,6 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -143,8 +147,11 @@ fun HostAccountSettings(api: DshApiClient, modifier: Modifier = Modifier) {
                 }
                 else -> Text(stringResource(R.string.account_host_unavailable), style = DsType.caption11)
             }
-            OutlinedButton(onClick = { refresh++ }, enabled = !loading) {
-                Text(stringResource(R.string.account_host_refresh))
+            IconButton(onClick = { refresh++ }, enabled = !loading) {
+                Icon(
+                    Icons.Filled.Refresh,
+                    contentDescription = stringResource(R.string.account_host_refresh),
+                )
             }
         }
     }

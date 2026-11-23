@@ -4,19 +4,15 @@ import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -25,18 +21,20 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -48,6 +46,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -92,17 +91,17 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 
 /**
- * The session details panel: everything about the open session that is not the conversation.
+ * The session details page: everything about the open session that is not the conversation.
  *
- * Organised as collapsible cards rather than one flat wall of headings, because on a phone-width
- * panel a flat list means the section you want is always three screens down. The trajectory ledger
- * that used to be squeezed in here now has its own tab — one home per fact.
+ * A page rather than a drawer. On a phone the 300dp side sheet halved the transcript to show a
+ * column of facts, and the facts themselves are a vertical list anyway — so it now takes the screen,
+ * has its own back affordance, and leaves the conversation exactly as it was when you return.
  *
- * The surface is Material 3: one scrolled column of outlined cards, each with a tappable header, the
- * theme's typography for every level of text, text buttons for the verbs, and compact badges for the
- * Host's states. The status dots, the context meter and the goal bar are the exceptions — they are
- * data visualisations, not controls.
+ * Each section reads as `label: value` rows with one edit affordance per editable field; every edit
+ * control is the same text button, and every whole-section action is the same outlined button. The
+ * trajectory ledger is not duplicated here — it has its own tab.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun DetailsPanel(
     onClose: () -> Unit,
@@ -148,8 +147,8 @@ internal fun DetailsPanel(
         if (currentSessionId != null) store.refreshSessions()
     }
 
-    // This panel owns its own sheets rather than reaching back into ChatScreen's: it is reachable
-    // on its own on a phone, where the chat surface is not even composed behind it.
+    // This page owns its own sheets rather than reaching back into ChatScreen's: it is reachable on
+    // its own, where the chat surface is not even composed behind it.
     var sheet by remember { mutableStateOf<DetailsSheet?>(null) }
 
     val savedLabel = stringResource(R.string.chat_export_saved)
@@ -173,30 +172,67 @@ internal fun DetailsPanel(
         }
     }
 
-    Surface(
-        modifier = modifier.fillMaxHeight(),
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 8.dp,
-    ) {
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.chat_details_title)) },
+                navigationIcon = {
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back),
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+            )
+        },
+    ) { innerPadding ->
         Box {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .safeDrawingPadding()
+                    .padding(innerPadding)
                     .verticalScroll(rememberScrollState())
-                    .padding(DsSpacing.comfortable),
-                verticalArrangement = Arrangement.spacedBy(DsSpacing.medium),
+                    .padding(horizontal = DsSpacing.comfortable, vertical = DsSpacing.small),
+                verticalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
             ) {
-                HeaderRow(onClose)
-
-                SessionCard(
+                SessionSection(
                     session = current,
-                    currentPreset = currentPreset,
-                    models = models,
-                    presets = agentPresets,
-                    disclosureScope = disclosures,
                     onRename = { title ->
                         scope.launch { currentSessionId?.let { store.renameSession(it, title) } }
+                    },
+                )
+                ModelPresetSection(
+                    models = models,
+                    currentPreset = currentPreset,
+                    presets = agentPresets,
+                    onOpenModels = { sheet = DetailsSheet.Models },
+                    onOpenPresets = {
+                        // Open the sheet immediately; cached presets render first while a refresh
+                        // continues off the interaction path.
+                        sheet = DetailsSheet.Presets
+                        scope.launch { store.refreshAgentPresets() }
+                    },
+                )
+                ActionSection(
+                    exportEnabled = currentSessionId != null,
+                    onExport = {
+                        exportLauncher.launch("dsh-session-${currentSessionId.orEmpty()}.zip")
+                    },
+                    onCopy = {
+                        scope.launch {
+                            store.exportSessionUrl()?.let { url ->
+                                clipboard.setText(AnnotatedString(url))
+                                toast.second(copiedLabel)
+                            }
+                        }
                     },
                     onFork = {
                         scope.launch {
@@ -207,37 +243,7 @@ internal fun DetailsPanel(
                         }
                     },
                     onArchive = { scope.launch { currentSessionId?.let { store.archiveSession(it) } } },
-                    onOpenModels = { sheet = DetailsSheet.Models },
-                    onOpenPresets = {
-                        // Open the sheet immediately; cached presets render first while a refresh
-                        // continues off the interaction path.
-                        sheet = DetailsSheet.Presets
-                        scope.launch { store.refreshAgentPresets() }
-                    },
                 )
-
-                Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
-                    OutlinedButton(
-                        onClick = {
-                            exportLauncher.launch("dsh-session-${currentSessionId.orEmpty()}.zip")
-                        },
-                        enabled = currentSessionId != null,
-                    ) {
-                        Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(DsSpacing.small))
-                        Text(stringResource(R.string.chat_export))
-                    }
-                    TextButton(
-                        onClick = {
-                            scope.launch {
-                                store.exportSessionUrl()?.let { url ->
-                                    clipboard.setText(AnnotatedString(url))
-                                    toast.second(copiedLabel)
-                                }
-                            }
-                        },
-                    ) { Text(stringResource(R.string.common_copy)) }
-                }
 
                 val generation = observedGeneration
                 val stateApi = generation?.let { manager.apiForEvent(it.clientId) }
@@ -253,20 +259,21 @@ internal fun DetailsPanel(
                 if (conv == null) {
                     Text(
                         stringResource(R.string.chat_details_empty),
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = DsSpacing.medium),
                     )
+                    HostSection(hostInfo)
                 } else {
-                    ContextCard(breakdown, pressure, usage, stats, disclosures)
-                    GoalCard(conv, store, disclosures)
-                    JobsCard(jobs, store, scope, disclosures, jobKillRequestedLabel, jobKillFailedLabel, toast.second)
-                    QueueCard(conv.queue, store, disclosures)
-                    SubagentsCard(subagents, sessions, disclosures, onOpen = onOpenSubagent)
-                    AgentTeamCard(conv.projections["agentTeam"], disclosures)
-                    WorkflowCard(conv.nodes, disclosures)
+                    ContextSection(breakdown, pressure, usage, stats)
+                    GoalSection(conv, store)
+                    JobsSection(jobs, store, scope, disclosures, jobKillRequestedLabel, jobKillFailedLabel, toast.second)
+                    QueueSection(conv.queue, store)
+                    SubagentsSection(subagents, sessions, onOpen = onOpenSubagent)
+                    AgentTeamSection(conv.projections["agentTeam"])
+                    WorkflowSection(conv.nodes)
+                    HostSection(hostInfo)
                 }
-
-                HostCard(hostInfo, disclosures)
             }
             DsToastHost(toast, modifier = Modifier.fillMaxWidth())
         }
@@ -285,187 +292,36 @@ internal fun DetailsPanel(
     }
 }
 
-/** Which picker, if any, is open over the details panel. */
+/** Which picker, if any, is open over the details page. */
 private enum class DetailsSheet { Models, Presets }
 
-@Composable
-private fun HeaderRow(onClose: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onClose) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = stringResource(R.string.common_back),
-            )
-        }
-        Text(
-            stringResource(R.string.chat_details_title),
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}
-
 // ---------------------------------------------------------------------------
-// Cards
+// Sections
 // ---------------------------------------------------------------------------
 
-/**
- * A titled card that expands on tap.
- *
- * The flag lives in the session's disclosure holder rather than in this composition: the panel is
- * unmounted along with the chat page whenever a full diff, a file preview or the terminal opens, and
- * a card that reopened collapsed each time would be the same bug one level up from the transcript.
- * [id] names the card independently of its localized [title], so switching language does not reset it.
- */
 @Composable
-private fun Card(
-    id: String,
-    disclosureScope: DisclosureScope,
-    title: String,
-    summary: String? = null,
-    initiallyExpanded: Boolean = false,
-    content: @Composable () -> Unit,
-) {
-    val key = DisclosureKeys.detailsCard(id)
-    // `initiallyExpanded` only applies until the reader touches the card; after that their choice
-    // stands, including when they closed a card that opens by default.
-    val open = if (disclosureScope.isSet(key)) disclosureScope.isOpen(key) else initiallyExpanded
-    OutlinedCard(
-        modifier = Modifier.fillMaxWidth().animateContentSize(),
-        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { disclosureScope.setOpen(key, !open) }
-                .padding(horizontal = DsSpacing.comfortable, vertical = DsSpacing.medium),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            summary?.let {
-                Spacer(Modifier.width(DsSpacing.small))
-                // The summary is the at-a-glance half; capping it keeps a long Host objective from
-                // squeezing the card's own name off the row.
-                Text(
-                    it,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 110.dp),
-                )
-            }
-            Spacer(Modifier.width(DsSpacing.small))
-            Icon(
-                Icons.Filled.KeyboardArrowDown,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .size(20.dp)
-                    .graphicsLayer { rotationZ = if (open) 180f else 0f },
-            )
-        }
-        AnimatedVisibility(visible = open) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(
-                    start = DsSpacing.comfortable,
-                    end = DsSpacing.comfortable,
-                    bottom = DsSpacing.comfortable,
-                ),
-                verticalArrangement = Arrangement.spacedBy(DsSpacing.small),
-            ) {
-                content()
-            }
-        }
-    }
-}
-
-@Composable
-private fun SessionCard(
+private fun SessionSection(
     session: SessionRow?,
-    currentPreset: String?,
-    models: SessionModelsValue?,
-    presets: AgentPresetListValue?,
-    disclosureScope: DisclosureScope,
     onRename: (String) -> Unit,
-    onFork: () -> Unit,
-    onArchive: () -> Unit,
-    onOpenModels: () -> Unit,
-    onOpenPresets: () -> Unit,
 ) {
     if (session == null) return
     var renaming by remember(session.sessionId) { mutableStateOf(false) }
-    Card(
-        id = "session",
-        disclosureScope = disclosureScope,
-        title = session.title ?: session.cwd?.let { basename(it) } ?: session.sessionId,
-        summary = session.cwd?.let { basename(it) },
-        initiallyExpanded = true,
-    ) {
-        session.cwd?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+    val title = session.title?.takeIf { it.isNotBlank() }
+        ?: session.cwd?.let { basename(it) }
+        ?: session.sessionId
+    DetailSection(stringResource(R.string.details_section_session)) {
+        DetailRow(stringResource(R.string.details_field_name), title) {
+            DetailEditButton { renaming = true }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
-            models?.let { value ->
-                val group = value.groups.firstOrNull { it.id == value.current.provider }
-                val name = group?.models?.firstOrNull { it.id == value.current.model }?.name
-                AssistChip(
-                    onClick = onOpenModels,
-                    label = { Text(name ?: value.current.model, maxLines = 1) },
-                )
-            }
+        session.cwd?.takeIf { it.isNotBlank() }?.let {
+            DetailRow(stringResource(R.string.details_field_folder), it)
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                stringResource(R.string.presets_title),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(DsSpacing.small))
-            AssistChip(
-                onClick = onOpenPresets,
-                label = {
-                    Text(
-                        currentPreset?.let { agentPresetLabel(it, presets) }
-                            ?: stringResource(R.string.presets_current),
-                        maxLines = 1,
-                    )
-                },
-            )
-        }
-        if (session.running) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                StateDot(StateDotState.Running)
-                Spacer(Modifier.width(DsSpacing.xsmall))
-                Text(
-                    stringResource(R.string.jobs_running),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
-            TextButton(onClick = { renaming = true }) {
-                Text(stringResource(R.string.common_rename))
-            }
-            TextButton(onClick = onFork) {
-                Text(stringResource(R.string.chatlist_session_fork))
-            }
-            TextButton(onClick = onArchive) {
-                Text(stringResource(R.string.common_archive))
-            }
-        }
+        DetailRow(
+            stringResource(R.string.details_field_status),
+            stringResource(
+                if (session.running) R.string.session_state_running else R.string.session_state_not_running,
+            ),
+        )
     }
     if (renaming) {
         RenameDialog(
@@ -481,21 +337,59 @@ private fun SessionCard(
 }
 
 @Composable
-private fun ContextCard(
+private fun ModelPresetSection(
+    models: SessionModelsValue?,
+    currentPreset: String?,
+    presets: AgentPresetListValue?,
+    onOpenModels: () -> Unit,
+    onOpenPresets: () -> Unit,
+) {
+    val modelLabel = models?.let { value ->
+        val group = value.groups.firstOrNull { it.id == value.current.provider }
+        group?.models?.firstOrNull { it.id == value.current.model }?.name ?: value.current.model
+    }
+    val presetLabel = currentPreset?.let { agentPresetLabel(it, presets) }
+        ?: stringResource(R.string.presets_current)
+    DetailSection(stringResource(R.string.details_section_model_preset)) {
+        DetailRow(stringResource(R.string.details_field_model), modelLabel ?: stringResource(R.string.common_loading)) {
+            DetailEditButton(enabled = models != null, onClick = onOpenModels)
+        }
+        DetailRow(stringResource(R.string.details_field_preset), presetLabel) {
+            DetailEditButton(onClick = onOpenPresets)
+        }
+    }
+}
+
+@Composable
+private fun ActionSection(
+    exportEnabled: Boolean,
+    onExport: () -> Unit,
+    onCopy: () -> Unit,
+    onFork: () -> Unit,
+    onArchive: () -> Unit,
+) {
+    DetailSection(stringResource(R.string.details_section_actions)) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(top = DsSpacing.xsmall),
+            verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall),
+        ) {
+            DetailActionButton(stringResource(R.string.chat_export), enabled = exportEnabled, onClick = onExport)
+            DetailActionButton(stringResource(R.string.common_copy), onClick = onCopy)
+            DetailActionButton(stringResource(R.string.chatlist_session_fork), onClick = onFork)
+            DetailActionButton(stringResource(R.string.common_archive), onClick = onArchive)
+        }
+    }
+}
+
+@Composable
+private fun ContextSection(
     breakdown: ContextBreakdownView?,
     pressure: ContextPressureView?,
     usage: TokenUsageView?,
     stats: SessionStatsView?,
-    disclosureScope: DisclosureScope,
 ) {
     if (breakdown == null && pressure == null && usage == null && stats == null) return
-    Card(
-        id = "context",
-        disclosureScope = disclosureScope,
-        title = stringResource(R.string.chat_context_title),
-        summary = pressure?.usedRatio?.let { "${(it * 100).toInt()}%" },
-        initiallyExpanded = true,
-    ) {
+    DetailSection(stringResource(R.string.chat_context_title)) {
         ContextMeterDetail(breakdown, pressure)
         usage?.let {
             Text(
@@ -530,26 +424,21 @@ private fun ContextCard(
 }
 
 @Composable
-private fun GoalCard(conversation: ConversationSnapshot, store: dev.dsh.mobile.mesh.data.SessionStore, disclosureScope: DisclosureScope) {
+private fun GoalSection(conversation: ConversationSnapshot, store: dev.dsh.mobile.mesh.data.SessionStore) {
     val goal = parseGoal(conversation.projections["goal"])
-    Card(
-        id = "goal",
-        disclosureScope = disclosureScope,
-        title = stringResource(R.string.goal_title),
-        summary = goal?.objective?.take(40),
-    ) {
+    DetailSection(stringResource(R.string.goal_title)) {
         if (goal == null) {
             Text(
                 stringResource(R.string.goal_none),
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            return@Card
+            return@DetailSection
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 goal.objective,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
@@ -575,7 +464,7 @@ private fun GoalCard(conversation: ConversationSnapshot, store: dev.dsh.mobile.m
 }
 
 @Composable
-private fun JobsCard(
+private fun JobsSection(
     jobs: List<JobView>,
     store: dev.dsh.mobile.mesh.data.SessionStore,
     scope: kotlinx.coroutines.CoroutineScope,
@@ -585,20 +474,8 @@ private fun JobsCard(
     showToast: (String) -> Unit,
 ) {
     val jobOutputs by store.jobOutputById.collectAsState()
-    Card(
-        id = "jobs",
-        disclosureScope = disclosureScope,
-        title = stringResource(R.string.jobs_title),
-        summary = jobs.size.takeIf { it > 0 }?.toString(),
-    ) {
-        if (jobs.isEmpty()) {
-            Text(
-                stringResource(R.string.jobs_empty),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            return@Card
-        }
+    if (jobs.isEmpty()) return
+    DetailSection(stringResource(R.string.jobs_title)) {
         // A running job's elapsed time has to be driven by a ticker; reading the clock inside a
         // composable that never recomposes leaves the timer frozen at its first value.
         var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -614,122 +491,119 @@ private fun JobsCard(
             val expanded = disclosureScope.isOpen(jobKey)
             val output = jobOutputs[job.id]
             Column(Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        disclosureScope.toggle(jobKey)
-                        store.setJobOutputFollowed(job.id, !expanded)
-                    },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                StateDot(jobStatusDot(job.status))
-                Spacer(Modifier.width(DsSpacing.small))
-                Column(Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            disclosureScope.toggle(jobKey)
+                            store.setJobOutputFollowed(job.id, !expanded)
+                        }
+                        .padding(vertical = DsSpacing.xsmall),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    StateDot(jobStatusDot(job.status))
+                    Spacer(Modifier.width(DsSpacing.small))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            job.label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            job.detail?.let { "${job.kind} · $it" } ?: job.kind,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Text(
-                        job.label,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        job.detail?.let { "${job.kind} · $it" } ?: job.kind,
+                        formatDurationMs((job.finishedAt ?: now) - job.startedAt),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
-                }
-                Spacer(Modifier.width(DsSpacing.small))
-                Text(
-                    formatDurationMs((job.finishedAt ?: now) - job.startedAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (job.status == dev.dsh.mobile.mesh.core.wire.dto.JobStatus.RUNNING ||
-                    job.status == dev.dsh.mobile.mesh.core.wire.dto.JobStatus.STOPPING
-                ) {
-                    IconButton(
-                        onClick = {
-                            scope.launch {
-                                showToast(if (store.killJob(job.id)) killRequestedLabel else killFailedLabel)
-                            }
-                        },
-                        modifier = Modifier.size(40.dp),
+                    if (job.status == dev.dsh.mobile.mesh.core.wire.dto.JobStatus.RUNNING ||
+                        job.status == dev.dsh.mobile.mesh.core.wire.dto.JobStatus.STOPPING
                     ) {
+                        IconButton(
+                            onClick = {
+                                scope.launch {
+                                    showToast(if (store.killJob(job.id)) killRequestedLabel else killFailedLabel)
+                                }
+                            },
+                            modifier = Modifier.size(40.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = stringResource(R.string.jobs_stop),
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    } else {
                         Icon(
-                            Icons.Default.Close,
-                            contentDescription = stringResource(R.string.jobs_stop),
-                            modifier = Modifier.size(18.dp),
+                            Icons.Filled.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .graphicsLayer { rotationZ = if (expanded) 180f else 0f },
                         )
                     }
                 }
-            }
-            if (expanded) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(start = DsSpacing.large, top = DsSpacing.xsmall, bottom = DsSpacing.small),
-                ) {
-                    if (output?.gapBefore == true) {
-                        Text(
-                            stringResource(R.string.jobs_output_gap),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (output?.lossy == true) {
-                        Text(
-                            stringResource(R.string.jobs_output_lossy),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    output?.error?.let {
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                    output?.text?.takeIf { it.isNotEmpty() }?.let {
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                if (expanded) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = DsSpacing.large, bottom = DsSpacing.small),
+                    ) {
+                        if (output?.gapBefore == true) {
+                            Text(
+                                stringResource(R.string.jobs_output_gap),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (output?.lossy == true) {
+                            Text(
+                                stringResource(R.string.jobs_output_lossy),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        output?.error?.let {
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                        output?.text?.takeIf { it.isNotEmpty() }?.let {
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
-            }
             }
         }
     }
 }
 
 @Composable
-private fun QueueCard(queue: List<QueueItem>, store: dev.dsh.mobile.mesh.data.SessionStore, disclosureScope: DisclosureScope) {
+private fun QueueSection(queue: List<QueueItem>, store: dev.dsh.mobile.mesh.data.SessionStore) {
+    if (queue.isEmpty()) return
     val scope = rememberCoroutineScope()
-    Card(
-        id = "queue",
-        disclosureScope = disclosureScope,
-        title = stringResource(R.string.chat_queue_count, queue.size),
-        summary = null,
-    ) {
-        if (queue.isEmpty()) {
-            Text(
-                stringResource(R.string.chat_queue_empty),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            return@Card
-        }
+    DetailSection(stringResource(R.string.details_section_queue)) {
         queue.forEach { item ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(vertical = DsSpacing.xsmall), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         item.previewText,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -740,21 +614,22 @@ private fun QueueCard(queue: List<QueueItem>, store: dev.dsh.mobile.mesh.data.Se
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                TextButton(onClick = { scope.launch { store.updateQueue(item.id, "remove") } }) {
-                    Text(stringResource(R.string.common_remove))
-                }
+                TextButton(
+                    onClick = { scope.launch { store.updateQueue(item.id, "remove") } },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text(stringResource(R.string.common_remove)) }
             }
         }
     }
 }
 
 @Composable
-private fun SubagentsCard(
+private fun SubagentsSection(
     subagents: List<SubagentListEntry>,
     sessions: List<dev.dsh.mobile.mesh.data.SessionRow>,
-    disclosureScope: DisclosureScope,
     onOpen: (String) -> Unit,
 ) {
+    if (subagents.isEmpty()) return
     val sessionsById = remember(sessions) { sessions.associateBy { it.sessionId } }
     var subagentNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val hasRunningTiming = subagents.any { entry ->
@@ -768,20 +643,7 @@ private fun SubagentsCard(
             subagentNow = System.currentTimeMillis()
         }
     }
-    Card(
-        id = "subagents",
-        disclosureScope = disclosureScope,
-        title = stringResource(R.string.subagents_title),
-        summary = subagents.size.takeIf { it > 0 }?.toString(),
-    ) {
-        if (subagents.isEmpty()) {
-            Text(
-                stringResource(R.string.subagents_empty),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            return@Card
-        }
+    DetailSection(stringResource(R.string.subagents_title)) {
         subagents.forEach { entry ->
             val id = subagentId(entry)
             val label = subagentLabel(entry)?.takeIf { it.isNotBlank() }
@@ -792,7 +654,8 @@ private fun SubagentsCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(enabled = canOpenSubagentTranscript(entry)) { id?.let(onOpen) },
+                    .clickable(enabled = canOpenSubagentTranscript(entry)) { id?.let(onOpen) }
+                    .padding(vertical = DsSpacing.xsmall),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 StateDot(if (running) StateDotState.Running else StateDotState.Idle)
@@ -800,27 +663,21 @@ private fun SubagentsCard(
                 Column(Modifier.weight(1f)) {
                     Text(
                         label ?: name ?: id.orEmpty(),
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (label != null && name != null && name != label) {
-                        Text(
-                            name,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
                     Text(
                         listOfNotNull(
+                            name?.takeIf { label != null && it != label },
                             stringResource(if (running) R.string.subagents_running else R.string.subagents_inactive),
                             duration?.let(::formatDurationMs),
                         ).joinToString(" · "),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -831,31 +688,19 @@ private fun SubagentsCard(
 /**
  * The Host's Agent Team task board, read from the open Session's `agentTeam` projection.
  *
- * The Host owns every fact this card shows: the board order, each task's status, its saved owner
+ * The Host owns every fact this section shows: the board order, each task's status, its saved owner
  * name, its blockers, the `ready` flag, and the advisory write-scope warnings. A task is therefore
  * rendered exactly as the Host published it — never re-sorted, filtered, re-derived, or completed
  * with an invented member. A Host that composes no Agent Team service publishes no `agentTeam` key,
- * so the card stays absent instead of showing an empty board.
+ * so the section stays absent instead of showing an empty board.
  */
 @Composable
-private fun AgentTeamCard(element: JsonElement?, disclosureScope: DisclosureScope) {
+private fun AgentTeamSection(element: JsonElement?) {
     val team = remember(element) { agentTeamView(element) } ?: return
     // Sessions without a Team still carry the registered projection; a board with no tasks and no
-    // recorded failure has nothing to tell the reader, so it earns no card.
+    // recorded failure has nothing to tell the reader, so it earns no section.
     if (team.tasks.isEmpty() && team.failure == null) return
-    Card(
-        id = "agentTeam",
-        disclosureScope = disclosureScope,
-        title = stringResource(R.string.agent_team_title),
-        summary = if (team.failure != null) {
-            stringResource(R.string.agent_team_stale)
-        } else {
-            team.tasks.size.takeIf { it > 0 }?.toString()
-        },
-        // A recorded failure means these tasks are only the Host's last valid state; open the card
-        // so the reader sees that caveat instead of a collapsed row that looks current.
-        initiallyExpanded = team.failure != null,
-    ) {
+    DetailSection(stringResource(R.string.agent_team_title)) {
         team.failure?.let { failure ->
             Text(
                 stringResource(R.string.agent_team_failure, failure),
@@ -865,7 +710,7 @@ private fun AgentTeamCard(element: JsonElement?, disclosureScope: DisclosureScop
         }
         team.tasks.forEach { task ->
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = DsSpacing.xsmall),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 StateDot(agentTeamStatusDot(task.status))
@@ -873,7 +718,7 @@ private fun AgentTeamCard(element: JsonElement?, disclosureScope: DisclosureScop
                 Column(Modifier.weight(1f)) {
                     Text(
                         task.subject,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -892,8 +737,7 @@ private fun AgentTeamCard(element: JsonElement?, disclosureScope: DisclosureScop
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    // Host advisory text (e.g. overlapping write scopes), shown verbatim: the Host
-                    // owns the message and this build must not paraphrase it into a weaker claim.
+                    // Host advisory text (e.g. overlapping write scopes), shown verbatim.
                     task.writeScopeWarnings.forEach { warning ->
                         Text(
                             warning,
@@ -935,21 +779,16 @@ private fun agentTeamStatusDot(status: String): StateDotState = when (status) {
 }
 
 @Composable
-private fun WorkflowCard(nodes: List<ChatNode>, disclosureScope: DisclosureScope) {
+private fun WorkflowSection(nodes: List<ChatNode>) {
     val workflows = remember(nodes) { parseWorkflows(nodes) }
     if (workflows.isEmpty()) return
-    Card(
-        id = "workflow",
-        disclosureScope = disclosureScope,
-        title = stringResource(R.string.workflow_title),
-        summary = workflows.size.toString(),
-    ) {
+    DetailSection(stringResource(R.string.workflow_title)) {
         workflows.forEach { workflow ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(vertical = DsSpacing.xsmall), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         workflow.name,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -984,20 +823,20 @@ private fun WorkflowCard(nodes: List<ChatNode>, disclosureScope: DisclosureScope
 }
 
 @Composable
-private fun HostCard(hostInfo: HostDescription?, disclosureScope: DisclosureScope) {
+private fun HostSection(hostInfo: HostDescription?) {
     if (hostInfo == null) return
     // The harness's own version used to head this card. No 0.1.2 wire field carries it, so the
-    // card names the protocol this build was written against instead — which is this client's
+    // section names the protocol this build was written against instead — which is this client's
     // fact, not the host's, and is labelled as such rather than dressed up as a host version.
-    Card(
-        id = "host",
-        disclosureScope = disclosureScope,
-        title = stringResource(R.string.settings_host_info),
-        summary = stringResource(R.string.connect_protocol_baseline, DshCore.PROTOCOL_BASELINE),
-    ) {
+    DetailSection(stringResource(R.string.settings_host_info)) {
+        Text(
+            stringResource(R.string.connect_protocol_baseline, DshCore.PROTOCOL_BASELINE),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
         Text(
             stringResource(R.string.connect_harness_home, hostInfo.home),
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

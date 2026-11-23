@@ -199,6 +199,15 @@
     <string name="chat_compaction_summary">摘要</string>
     <string name="chat_details_title">详情</string>
     <string name="chat_details_empty">在聊天中选择一个工具行以查看其输入和输出。</string>
+    <string name="details_section_model_preset">模型与预设</string>
+    <string name="details_section_session">会话</string>
+    <string name="details_section_actions">操作</string>
+    <string name="details_section_queue">队列</string>
+    <string name="details_field_name">名称</string>
+    <string name="details_field_folder">目录</string>
+    <string name="details_field_model">模型</string>
+    <string name="details_field_preset">预设</string>
+    <string name="details_field_status">状态</string>
     <string name="chat_input_placeholder">输入</string>
     <string name="chat_output_placeholder">输出</string>
     <string name="goal_title">目标</string>

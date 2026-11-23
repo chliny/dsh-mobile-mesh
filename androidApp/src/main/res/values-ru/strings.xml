@@ -160,6 +160,15 @@
     <string name="chat_compaction_summary">Сводка</string>
     <string name="chat_details_title">Сведения</string>
     <string name="chat_details_empty">Выберите строку инструмента в чате, чтобы просмотреть его вход и выход.</string>
+    <string name="details_section_model_preset">Модель и пресет</string>
+    <string name="details_section_session">Сеанс</string>
+    <string name="details_section_actions">Действия</string>
+    <string name="details_section_queue">Очередь</string>
+    <string name="details_field_name">Имя</string>
+    <string name="details_field_folder">Папка</string>
+    <string name="details_field_model">Модель</string>
+    <string name="details_field_preset">Пресет</string>
+    <string name="details_field_status">Статус</string>
     <string name="chat_input_placeholder">Вход</string>
     <string name="chat_output_placeholder">Выход</string>
     <string name="goal_title">Цель</string>

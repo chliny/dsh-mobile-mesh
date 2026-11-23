@@ -26,6 +26,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TriStateCheckbox
@@ -91,7 +93,12 @@ internal fun HostModelsSettings(onClose: () -> Unit, viewModel: HostModelsViewMo
     val available = state.providers.filter { it.profile != null || it.live || it.entry.settingsPath.isEmpty() }
     val catalog = state.providers.filter { it.profile == null && !it.live && it.editable && !it.entry.settingsPath.isEmpty() }
     HostSettingsPage(stringResource(R.string.models_title), onClose, action = {
-        TextButton(onClick = viewModel::refresh, enabled = enabled) { Text(stringResource(R.string.plugins_native_refresh)) }
+        IconButton(onClick = viewModel::refresh, enabled = enabled) {
+            Icon(
+                Icons.Filled.Refresh,
+                contentDescription = stringResource(R.string.plugins_native_refresh),
+            )
+        }
     }) {
         if (!enabled) Text(stringResource(R.string.common_loading))
         state.failure?.let { Text(it, color = DsTheme.colors.error) }
