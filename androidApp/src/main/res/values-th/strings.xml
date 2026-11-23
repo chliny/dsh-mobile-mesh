@@ -668,7 +668,6 @@
     <string name="settings_connections_ssh_disabled">ปิดใช้ SSH</string>
     <string name="schedule_title">งานอัตโนมัติ</string>
     <string name="schedule_refresh">รีเฟรช</string>
-    <string name="schedule_catalog">รายการงาน</string>
     <string name="schedule_new">งานใหม่</string>
     <string name="schedule_retry">ลองอีกครั้ง</string>
     <string name="schedule_empty">ยังไม่มีงาน สร้างงานในเซสชัน</string>
@@ -680,7 +679,8 @@
     <string name="schedule_open_session">เปิดเซสชันต้นฉบับ</string>
     <string name="schedule_name">ชื่องาน</string>
     <string name="schedule_instruction">คำสั่ง</string>
-    <string name="schedule_timing">กำหนดเวลาใหม่</string>
+    <string name="schedule_timing">เวลา</string>
+    <string name="schedule_rule_kind">ประเภทกฎ</string>
     <string name="schedule_timing_hint">เวลา RFC 3339 หรือช่วงเป็นวินาที (อย่างน้อย 60) เว้นว่างเพื่อคงเวลาเดิม</string>
     <string name="schedule_save">บันทึกการเปลี่ยนแปลง</string>
     <string name="schedule_records">ประวัติการส่ง</string>
@@ -701,7 +701,7 @@
     <string name="schedule_hint_cron">นิพจน์ Cron ห้าช่อง</string>
     <string name="schedule_hint_clock">เวลาท้องถิ่น HH:mm:ss</string>
     <string name="schedule_zone">เขตเวลา IANA</string>
-    <string name="schedule_weekdays">วัน (จันทร์=1 ถึงอาทิตย์=7) คั่นด้วยจุลภาค</string>
+    <string name="schedule_weekdays">วันในสัปดาห์</string>
     <string name="schedule_unknown_error">ยืนยันการแก้ไขไม่ได้ รีเฟรชก่อนลองอีกครั้ง</string>
     <string name="schedule_session_unavailable">เซสชันต้นฉบับไม่พร้อมใช้งาน</string>
     <string name="schedule_unavailable">Host นี้ไม่รองรับงานอัตโนมัติ</string>

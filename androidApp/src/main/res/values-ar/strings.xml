@@ -676,7 +676,6 @@
     <string name="settings_connections_ssh_disabled">SSH غير مفعّل</string>
     <string name="schedule_title">المهام الآلية</string>
     <string name="schedule_refresh">تحديث</string>
-    <string name="schedule_catalog">قائمة المهام</string>
     <string name="schedule_new">مهمة جديدة</string>
     <string name="schedule_retry">إعادة المحاولة</string>
     <string name="schedule_empty">لا توجد مهام. أنشئ مهمة في جلسة.</string>
@@ -688,7 +687,8 @@
     <string name="schedule_open_session">فتح الجلسة الأصلية</string>
     <string name="schedule_name">اسم المهمة</string>
     <string name="schedule_instruction">التعليمات</string>
-    <string name="schedule_timing">وقت التشغيل الجديد</string>
+    <string name="schedule_timing">وقت التشغيل</string>
+    <string name="schedule_rule_kind">نوع القاعدة</string>
     <string name="schedule_timing_hint">تاريخ ووقت RFC 3339 أو فاصل بالثواني (60 على الأقل). اتركه فارغًا للإبقاء على الوقت.</string>
     <string name="schedule_save">حفظ التغييرات</string>
     <string name="schedule_records">سجلات التسليم</string>
@@ -709,7 +709,7 @@
     <string name="schedule_hint_cron">تعبير Cron من خمسة حقول</string>
     <string name="schedule_hint_clock">الوقت المحلي HH:mm:ss</string>
     <string name="schedule_zone">منطقة IANA الزمنية</string>
-    <string name="schedule_weekdays">أيام الأسبوع (الاثنين=1 إلى الأحد=7)، مفصولة بفواصل</string>
+    <string name="schedule_weekdays">أيام الأسبوع</string>
     <string name="schedule_unknown_error">تعذّر تأكيد التعديل. حدّث قبل إعادة المحاولة.</string>
     <string name="schedule_session_unavailable">الجلسة الأصلية غير متاحة</string>
     <string name="schedule_unavailable">هذا المضيف لا يدعم المهام الآلية.</string>

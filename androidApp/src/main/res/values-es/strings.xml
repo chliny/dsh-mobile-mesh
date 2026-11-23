@@ -676,7 +676,6 @@
     <string name="settings_connections_ssh_disabled">SSH desactivado</string>
     <string name="schedule_title">Tareas automáticas</string>
     <string name="schedule_refresh">Actualizar</string>
-    <string name="schedule_catalog">Lista de tareas</string>
     <string name="schedule_new">Nueva tarea</string>
     <string name="schedule_retry">Reintentar</string>
     <string name="schedule_empty">No hay tareas. Crea una en una sesión.</string>
@@ -688,7 +687,8 @@
     <string name="schedule_open_session">Abrir sesión original</string>
     <string name="schedule_name">Nombre de la tarea</string>
     <string name="schedule_instruction">Instrucción</string>
-    <string name="schedule_timing">Nuevo horario</string>
+    <string name="schedule_timing">Horario</string>
+    <string name="schedule_rule_kind">Tipo de regla</string>
     <string name="schedule_timing_hint">Fecha RFC 3339 o intervalo en segundos (mínimo 60). Déjalo vacío para conservar el horario.</string>
     <string name="schedule_save">Guardar cambios</string>
     <string name="schedule_records">Registros de entrega</string>
@@ -709,7 +709,7 @@
     <string name="schedule_hint_cron">Expresión Cron de cinco campos</string>
     <string name="schedule_hint_clock">Hora local HH:mm:ss</string>
     <string name="schedule_zone">Zona horaria IANA</string>
-    <string name="schedule_weekdays">Días (lunes=1 a domingo=7), separados por comas</string>
+    <string name="schedule_weekdays">Días de la semana</string>
     <string name="schedule_unknown_error">No se pudo confirmar el cambio. Actualiza antes de reintentar.</string>
     <string name="schedule_session_unavailable">Sesión original no disponible</string>
     <string name="schedule_unavailable">Este Host no admite tareas automáticas.</string>

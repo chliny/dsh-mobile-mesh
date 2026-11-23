@@ -36,4 +36,11 @@ class ScheduleScreenTest {
         val task = ScheduleCatalogEntry("task-2", "every", "Ping", "Check", "2026-10-19T01:00:00.000Z", "session-1", "inactive", everySeconds = 300)
         assertEquals(JsonPrimitive(300), task.expectedRecord().getValue("everySeconds"))
     }
+
+    @Test fun systemBackUnwindsTheTaskPagesBeforeLeavingTheList() {
+        assertEquals(ScheduleBackStep.CancelCreate, scheduleBackStep(creating = true, detailOpen = false))
+        assertEquals(ScheduleBackStep.CloseDetail, scheduleBackStep(creating = false, detailOpen = true))
+        // The catalog is the last page here: Back returns to the session list instead of exiting.
+        assertEquals(ScheduleBackStep.LeaveScreen, scheduleBackStep(creating = false, detailOpen = false))
+    }
 }
