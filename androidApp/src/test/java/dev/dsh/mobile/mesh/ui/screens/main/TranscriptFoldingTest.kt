@@ -2,6 +2,7 @@ package dev.dsh.mobile.mesh.ui.screens.main
 
 import dev.dsh.mobile.mesh.core.session.*
 import dev.dsh.mobile.mesh.data.TranscriptPresentation
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -10,6 +11,10 @@ class TranscriptFoldingTest {
     private fun answer(seq: Long, turn: Int) = AssistantMessageNode(seq, null, turn, 1, listOf(ChatBlock("text", "Answer")))
     private fun thought(seq: Long, turn: Int) = AssistantMessageNode(seq, null, turn, 0, listOf(ChatBlock("reasoning", "thinking")))
     private fun prompt(seq: Long) = UserMessageNode(seq, null, listOf(ChatBlock("text", "Question")), null)
+    private fun todo(seq: Long) = TodoNode(seq, Json.parseToJsonElement(
+        """[{"content":"Inspect source","status":"pending"}]""",
+    ))
+    private fun presented(seq: Long) = PresentedFilesNode(seq, 1, listOf(PresentedFile("notes.md")))
     private fun nodes(parts: List<TranscriptPart>) = parts.filterIsInstance<TranscriptPart.Node>().map { it.node.seq }
 
     @Test fun `complete old and new turns keep input final answer and fold tool process`() {
@@ -46,14 +51,22 @@ class TranscriptFoldingTest {
         assertEquals(listOf(1L, 2L, 5L, 6L), nodes(partitionTranscript(events)))
     }
 
-    @Test fun `failed turn and unknown types remain visible`() {
+    @Test fun `failed turn keeps its error row in the open transcript`() {
         val failed = listOf(TurnStartNode(1, 1), ToolCallNode(2, "a", "bash", "{}", 1, 0),
             TurnErrorNode(3, "failed", null), answer(4, 1), TurnEndNode(5, 1, "error"))
         assertTrue(partitionTranscript(failed).none { it is TranscriptPart.Process })
+    }
+
+    @Test fun `an unrecognised event folds with the work and stays reachable by expanding`() {
+        // Folding does not conceal a row: one tap materializes it. Refusing to fold a whole Turn
+        // because the Host sent one event this build has not learned yet is the worse outcome.
         val unknown = listOf(TurnStartNode(6, 2), OtherNode(7, "future/event", JsonObject(emptyMap())),
             ToolCallNode(8, "b", "bash", "{}", 2, 0), answer(9, 2), TurnEndNode(10, 2, "completed"))
-        assertTrue(partitionTranscript(unknown).none { it is TranscriptPart.Process })
-        assertTrue(7L in nodes(partitionTranscript(unknown)))
+        val parts = partitionTranscript(unknown)
+        val folded = parts.filterIsInstance<TranscriptPart.Process>().single()
+            .materializeNodes().map(ChatNode::seq)
+        assertEquals(listOf(7L, 8L), folded)
+        assertEquals(listOf(9L), nodes(parts))
     }
 
     @Test fun `interleaved input prevents reordering of process and user content`() {
@@ -62,6 +75,29 @@ class TranscriptFoldingTest {
         val parts = partitionTranscript(events)
         assertTrue(parts.none { it is TranscriptPart.Process })
         assertEquals(listOf(2L, 3L, 4L, 5L), nodes(parts))
+    }
+
+    @Test fun `a to-do list folds with the work it plans instead of keeping the turn flat`() {
+        // todo_write runs in almost every agent turn; treating its node as an "interruption" made
+        // the whole turn refuse to collapse, so work steps never auto-hid.
+        val events = listOf(TurnStartNode(1, 1), thought(2, 1), todo(3),
+            ToolCallNode(4, "a", "bash", "{}", 1, 0), answer(5, 1), TurnEndNode(6, 1, "completed"))
+        val parts = partitionTranscript(events)
+        val folded = parts.flatMap { part ->
+            if (part is TranscriptPart.Process) part.materializeNodes() else emptyList()
+        }
+        assertEquals(listOf(2L, 3L, 4L), folded.map(ChatNode::seq))
+        assertEquals(listOf(5L), nodes(parts))
+    }
+
+    @Test fun `delivered files stay visible and do not stop the work from folding`() {
+        val events = listOf(TurnStartNode(1, 1), thought(2, 1), ToolCallNode(3, "a", "bash", "{}", 1, 0),
+            presented(4), answer(5, 1), TurnEndNode(6, 1, "completed"))
+        val parts = partitionTranscript(events)
+        // The delivered file is a result the reader came for, so it keeps its own row.
+        assertEquals(listOf(4L, 5L), nodes(parts))
+        assertEquals(listOf(listOf(2L, 3L)), parts.filterIsInstance<TranscriptPart.Process>()
+            .map { part -> part.materializeNodes().map(ChatNode::seq) })
     }
 
     @Test

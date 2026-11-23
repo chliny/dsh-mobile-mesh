@@ -143,30 +143,35 @@ internal fun partitionTranscript(
                 turnSourceIndexes.add(sourceIndex)
             }
         }
-        // Without a delivered final answer there is no sensible summary to leave visible. Unknown
-        // node/block types and errors also remain exposed rather than being silently concealed.
+        // Without a delivered final answer there is no sensible summary to leave visible, and a
+        // failed Turn keeps its error row in the open transcript.
+        //
+        // An unrecognised event or block type does NOT stop the fold: a folded process is one tap
+        // from its rows, so nothing is concealed by folding it — only by leaving it out. Refusing
+        // to fold a whole Turn because the Host sent one event this build has not learned yet made
+        // ordinary work never auto-hide, which is the far more common outcome.
         val final = turnNodes.lastOrNull { it is AssistantMessageNode } as? AssistantMessageNode
         val safe = final != null && !final.streaming && !final.interrupted &&
             final.blocks.any { it.kind == "text" && !it.text.isNullOrBlank() || it.kind == "image" } &&
-            turnNodes.none { node ->
-                node is TurnErrorNode || node is OtherNode ||
-                    (node is AssistantMessageNode && node.blocks.any { block ->
-                        block.kind !in setOf("text", "reasoning", "image", "tool-call", "tool-result")
-                    })
-            }
+            turnNodes.none { it is TurnErrorNode }
         val processFlags = BooleanArray(turnNodes.size) { turnIndex ->
             val node = turnNodes[turnIndex]
+            // A to-do list is the agent's work plan, not an input: it folds with the work it
+            // describes, as the Web client's step runs do. Delivered files stay visible instead,
+            // because a result is what the reader came for.
             safe && node !== final && node !is UserMessageNode && node !is QuestionReplyNode && node !is PresentedFilesNode &&
-                node !is TodoNode && !(node is AssistantMessageNode &&
+                !(node is AssistantMessageNode &&
                 (node.interrupted || (presentation.foldedReplies == TranscriptPresentation.FoldedReplies.All &&
                     node.blocks.any { it.kind == "text" && !it.text.isNullOrBlank() || it.kind == "image" })))
         }
         val firstProcess = processFlags.indexOfFirst { it }
         val lastProcess = processFlags.indexOfLast { it }
-        // A user/question/presented-file interruption is not a work reply: keep this turn flat.
-        // Assistant replies, by contrast, remain visible between folded work spans in "all" mode.
+        // Only a real user or question input keeps the Turn flat: folding it would reorder it
+        // against the work it interrupts. The Web client places exactly those messages at its
+        // `input` group-tree position; treating every non-process node as an interruption made a
+        // Turn that merely contained a to-do list or a delivered file never collapse at all.
         val interleavedInput = firstProcess >= 0 && (firstProcess..lastProcess).any { i ->
-            !processFlags[i] && turnNodes[i] !is AssistantMessageNode
+            !processFlags[i] && (turnNodes[i] is UserMessageNode || turnNodes[i] is QuestionReplyNode)
         }
         if (firstProcess < 0 || interleavedInput) {
             turnNodes.forEach { result.add(TranscriptPart.Node(it)) }
