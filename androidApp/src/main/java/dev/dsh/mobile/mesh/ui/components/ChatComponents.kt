@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.Composable
@@ -35,19 +36,16 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import dev.dsh.mobile.mesh.ui.theme.DshTheme
 import java.util.Locale
 
 /**
- * Right-aligned user message bubble: r22, `userBubble` fill, hairline edge, 16/24 text.
+ * Right-aligned user message bubble: the theme's large radius, `primaryContainer` fill, body text.
  *
- * Three things carry the shape, and it needs all three. The assistant's turn is deliberately
- * container-less — as in the harness web UI — so the bubble is the *only* thing distinguishing who
- * said what, and it kept reading as plain text. `userBubble` now sits a step darker than the web
- * token (see `DsLight.userBubble`), `borderL3` draws an edge that survives a bright screen, and the
+ * Two things carry the shape. The assistant's turn is deliberately container-less — as in the
+ * harness web UI — so the bubble is the *only* thing distinguishing who said what; `primaryContainer`
+ * resolves to the palette's accent tint, which separates the message from the white transcript while
+ * keeping the text readable, and `bodyLarge` holds the same 16/24 rhythm as the prose around it. The
  * width cap keeps a short message a narrow pill hugging the right margin rather than a full-width
  * band that looks like more prose.
  *
@@ -56,17 +54,16 @@ import java.util.Locale
  */
 @Composable
 fun UserBubble(text: String, modifier: Modifier = Modifier) {
-    val colors = DsTheme.colors
     BoxWithConstraints(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         SelectionContainer {
             Text(
                 text,
-                style = DsType.bubbleText,
-                color = colors.labelPrimary,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .widthIn(max = minOf(525.dp, maxWidth * 0.82f))
-                    .background(colors.userBubble, DsShapes.bubble)
-                    .border(1.dp, colors.borderL3, DsShapes.bubble)
+                    .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.large)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.large)
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             )
         }
@@ -85,12 +82,11 @@ fun ThinkingRow(
     onToggle: (() -> Unit)?,
     streaming: Boolean = false,
 ) {
-    val colors = DsTheme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 24.dp)
-            .clip(DsShapes.row)
+            .clip(MaterialTheme.shapes.small)
             .clickable(enabled = onToggle != null) { onToggle?.invoke() }
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -101,14 +97,14 @@ fun ThinkingRow(
         }
         Text(
             summary ?: "Thinking…",
-            style = DsType.mdSmall.copy(color = colors.labelTertiary),
-            color = colors.labelTertiary,
+            style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
         elapsedLabel?.let {
-            Text(it, style = DsType.caption11, color = colors.labelCaption)
+            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(6.dp))
         }
         if (onToggle != null) {
@@ -120,7 +116,7 @@ fun ThinkingRow(
             Icon(
                 Icons.Filled.KeyboardArrowDown,
                 contentDescription = stringResource(R.string.chat_thinking),
-                tint = colors.labelTertiary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .size(18.dp)
                     .graphicsLayer { rotationZ = rotation },
@@ -138,7 +134,7 @@ fun ConnectionBanner(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(DsTheme.colors.error)
+            .background(MaterialTheme.colorScheme.error)
             .clickable(enabled = onRetry != null, onClick = { onRetry?.invoke() })
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -152,7 +148,7 @@ fun ConnectionBanner(
         Spacer(Modifier.width(8.dp))
         Text(
             message,
-            style = DsType.caption11,
+            style = MaterialTheme.typography.labelSmall,
             color = Color.White,
             modifier = Modifier.weight(1f),
         )
@@ -168,7 +164,6 @@ fun StatsLine(
     ttftMs: Long? = null,
     tokPerSec: Double? = null,
 ) {
-    val colors = DsTheme.colors
     val text = buildString {
         append("Turns $turns")
         append(" · Steps $steps")
@@ -178,8 +173,8 @@ fun StatsLine(
     }
     Text(
         text,
-        style = DsType.statsText.copy(color = colors.labelCaption, fontFeatureSettings = "tnum"),
-        color = colors.labelCaption,
+        style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant, fontFeatureSettings = "tnum"),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth(),
     )

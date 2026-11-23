@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PixelMap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -16,7 +17,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DshTheme
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -48,7 +48,9 @@ class MarkdownInlineCodeSelectionTest {
         var chipColor: Color? = null
         compose.setContent {
             DshTheme {
-                chipColor = DsTheme.colors.inlineCode
+                // The renderer takes the chip's fill from the Material role, which the Ds palette
+                // feeds in turn; sample the same value it paints with.
+                chipColor = MaterialTheme.colorScheme.surfaceVariant
                 SelectionContainer {
                     MarkdownText("run `codeChip` now")
                 }

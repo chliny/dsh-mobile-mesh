@@ -23,7 +23,9 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -55,13 +57,8 @@ import dev.dsh.mobile.mesh.core.session.AssistantMessageNode
 import dev.dsh.mobile.mesh.core.session.ChatNode
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
 import dev.dsh.mobile.mesh.data.TranscriptPresentation
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
 import dev.dsh.mobile.mesh.ui.components.EmptyHero
 import dev.dsh.mobile.mesh.ui.components.skeleton
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -331,9 +328,9 @@ private fun WaitingForModelRow(turnStartedAtMillis: Long) {
             size = 8.dp,
         )
         Spacer(Modifier.width(8.dp))
-        Text(stringResource(R.string.chat_deep_diving), style = DsType.small13, color = DsTheme.colors.labelSecondary)
+        Text(stringResource(R.string.chat_deep_diving), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(8.dp))
-        Text(stringResource(R.string.chat_waiting_seconds, elapsedSeconds), style = DsType.caption11, color = DsTheme.colors.labelCaption)
+        Text(stringResource(R.string.chat_waiting_seconds, elapsedSeconds), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -804,8 +801,8 @@ internal fun ChatTranscript(
                             modifier = Modifier.fillMaxWidth().clickable {
                                 disclosureScope.setOpen(processKey, !open)
                             }.padding(horizontal = 8.dp, vertical = 8.dp),
-                            style = DsType.small13,
-                            color = DsTheme.colors.labelSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -838,7 +835,6 @@ private fun LoadOlderRow(
     offerManual: Boolean,
     onRetry: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     when {
         // A pull can retry a failed page, so activity wins over the retry button while the next
         // page is in flight instead of leaving the failure on screen until it settles.
@@ -850,31 +846,23 @@ private fun LoadOlderRow(
             CircularProgressIndicator(
                 modifier = Modifier.size(14.dp),
                 strokeWidth = 2.dp,
-                color = colors.labelTertiary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 stringResource(R.string.chat_loading_older),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
-        failed -> DsButton(
-            text = stringResource(R.string.chat_load_older_retry),
-            onClick = onRetry,
-            variant = DsButtonVariant.Ghost,
-            size = DsButtonSize.Small,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        failed -> TextButton(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.chat_load_older_retry))
+        }
 
-        offerManual -> DsButton(
-            text = stringResource(R.string.chat_load_older),
-            onClick = onRetry,
-            variant = DsButtonVariant.Ghost,
-            size = DsButtonSize.Small,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        offerManual -> TextButton(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.chat_load_older))
+        }
 
         else -> Spacer(Modifier.height(1.dp))
     }
@@ -883,7 +871,6 @@ private fun LoadOlderRow(
 /** Placeholder bubbles while a session's history loads, instead of an empty white screen. */
 @Composable
 private fun TranscriptSkeleton(modifier: Modifier = Modifier) {
-    val colors = DsTheme.colors
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -895,7 +882,7 @@ private fun TranscriptSkeleton(modifier: Modifier = Modifier) {
                 Modifier
                     .fillMaxWidth(fraction)
                     .height(14.dp)
-                    .skeleton(colors.bgLayer2, colors.hover),
+                    .skeleton(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.surface),
             )
         }
     }

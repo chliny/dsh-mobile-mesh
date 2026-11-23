@@ -9,12 +9,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.CommandNode
@@ -23,8 +25,6 @@ import dev.dsh.mobile.mesh.ui.components.DisclosureState
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.serialization.json.JsonObject
 import androidx.compose.ui.res.stringResource
 
@@ -56,15 +56,14 @@ internal fun CommandActivityRow(row: ActivityRow.Command, context: ChatNodeConte
 private fun CommandPayload(label: String, node: CommandNode) {
     Text(
         "$label · ${node.data}",
-        style = DsType.caption11.copy(fontFamily = DsType.codeFont),
-        color = DsTheme.colors.labelCaption,
+        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 
 @Composable
 internal fun WorkflowActivityRow(row: ActivityRow.Workflow, context: ChatNodeContext) {
     val activity = remember(row.events) { workflowActivity(row.events) }
-    val colors = DsTheme.colors
     val expanded = context.disclosure(DisclosureKeys.workflowActivity(row.runId, row.anchorSeq))
     DisclosureRow(
         title = stringResource(R.string.workflow_title),
@@ -88,11 +87,11 @@ internal fun WorkflowActivityRow(row: ActivityRow.Workflow, context: ChatNodeCon
                 Spacer(Modifier.width(8.dp))
                 Text(
                     member.label ?: member.childId ?: member.seq?.toString().orEmpty(),
-                    style = DsType.small13, color = colors.labelSecondary,
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                member.status?.let { Text(workflowStatusLabel(it) ?: it, style = DsType.caption11, color = colors.labelTertiary) }
+                member.status?.let { Text(workflowStatusLabel(it) ?: it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
     }

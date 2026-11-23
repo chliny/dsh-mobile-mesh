@@ -1,5 +1,6 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
+import android.widget.Toast
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,11 +16,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.ui.platform.LocalContext
-import android.widget.Toast
-import androidx.compose.material3.TextField
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,36 +33,29 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.QueueItem
-import dev.dsh.mobile.mesh.data.canMutateQueueItem
-import dev.dsh.mobile.mesh.data.canSteerQueueItem
-import dev.dsh.mobile.mesh.data.queueEditSeedText
-import dev.dsh.mobile.mesh.data.queueEditLosesNonText
 import dev.dsh.mobile.mesh.core.wire.dto.GoalPhase
 import dev.dsh.mobile.mesh.core.wire.dto.GoalSnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.SessionStatsView
 import dev.dsh.mobile.mesh.core.wire.dto.TokenUsageView
 import dev.dsh.mobile.mesh.data.SessionStore
+import dev.dsh.mobile.mesh.data.canMutateQueueItem
+import dev.dsh.mobile.mesh.data.canSteerQueueItem
+import dev.dsh.mobile.mesh.data.queueEditLosesNonText
+import dev.dsh.mobile.mesh.data.queueEditSeedText
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsDialog
 import dev.dsh.mobile.mesh.ui.components.DsDialogBodyMaxHeight
-import dev.dsh.mobile.mesh.ui.components.DsMenu
-import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
-import dev.dsh.mobile.mesh.ui.components.MenuItem
-import dev.dsh.mobile.mesh.ui.components.SectionHeader
 import dev.dsh.mobile.mesh.ui.components.StateDot
+import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.components.formatDurationMs
 import dev.dsh.mobile.mesh.ui.components.formatTokens
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.launch
 
 /**
@@ -111,7 +109,11 @@ internal fun TodoDock(
             ) {
                 StateDot(todoStatusDot(todo.status), size = 8.dp)
                 Spacer(Modifier.width(8.dp))
-                Text(todo.content, style = DsType.small13, color = DsTheme.colors.labelSecondary)
+                Text(
+                    todo.content,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         Spacer(Modifier.height(2.dp))
@@ -135,16 +137,20 @@ internal fun todoProgressLabel(
 /** The read-only goal summary shown inline in the transcript when a goal event lands. */
 @Composable
 internal fun GoalSummary(goal: GoalSnapshot) {
-    val colors = DsTheme.colors
-    SectionHeader(stringResource(R.string.goal_title))
-    DsPill(text = stringResource(goalPhaseLabelRes(goal.phase)))
+    Text(
+        stringResource(R.string.goal_title),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
     Spacer(Modifier.height(4.dp))
-    Text(goal.objective, style = DsType.small13, color = colors.labelSecondary)
+    StatusBadge(text = stringResource(goalPhaseLabelRes(goal.phase)))
+    Spacer(Modifier.height(4.dp))
+    Text(goal.objective, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     goal.blockedReason?.let {
         Text(
             stringResource(R.string.goal_blocked_reason, it.message),
-            style = DsType.caption11,
-            color = colors.warnLabel,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error,
         )
     }
 }
@@ -156,9 +162,9 @@ internal fun GoalBar(goal: GoalSnapshot, store: SessionStore, modifier: Modifier
     // active composer dock must disappear without making the user clear a completed task manually.
     if (goal.phase == GoalPhase.COMPLETE) return
     val scope = rememberCoroutineScope()
-    val colors = DsTheme.colors
     var editing by remember { mutableStateOf(false) }
     var editText by remember(goal.revision) { mutableStateOf(goal.objective) }
+    var menuOpen by remember { mutableStateOf(false) }
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         StateDot(
             when (goal.phase) {
@@ -172,78 +178,89 @@ internal fun GoalBar(goal: GoalSnapshot, store: SessionStore, modifier: Modifier
         Spacer(Modifier.width(8.dp))
         Text(
             goal.objective,
-            style = DsType.small13,
-            color = colors.labelSecondary,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.width(8.dp))
-        DsPill(text = stringResource(goalPhaseLabelRes(goal.phase)))
+        StatusBadge(text = stringResource(goalPhaseLabelRes(goal.phase)))
         Spacer(Modifier.width(4.dp))
-        DsMenu(
-            anchor = { onOpen ->
+        Box {
+            IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(32.dp)) {
                 Icon(
                     Icons.Filled.MoreVert,
                     contentDescription = stringResource(R.string.goal_edit),
-                    tint = colors.labelTertiary,
-                    modifier = Modifier.size(20.dp).clickable(onClick = onOpen),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
                 )
-            },
-            items = buildList {
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 when (goal.phase) {
-                    GoalPhase.ACTIVE -> add(
-                        MenuItem(stringResource(R.string.goal_pause)) {
+                    GoalPhase.ACTIVE -> DropdownMenuItem(
+                        text = { Text(stringResource(R.string.goal_pause)) },
+                        onClick = {
+                            menuOpen = false
                             scope.launch { store.goalAction("pause") }
                         },
                     )
-                    GoalPhase.PAUSED, GoalPhase.BLOCKED -> add(
-                        MenuItem(stringResource(R.string.goal_resume)) {
+                    GoalPhase.PAUSED, GoalPhase.BLOCKED -> DropdownMenuItem(
+                        text = { Text(stringResource(R.string.goal_resume)) },
+                        onClick = {
+                            menuOpen = false
                             scope.launch { store.goalAction("resume") }
                         },
                     )
                     GoalPhase.COMPLETE -> Unit
                 }
-                add(MenuItem(stringResource(R.string.goal_edit)) { editing = true })
-                add(
-                    MenuItem(stringResource(R.string.goal_clear), danger = true) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.goal_edit)) },
+                    onClick = {
+                        menuOpen = false
+                        editing = true
+                    },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(stringResource(R.string.goal_clear), color = MaterialTheme.colorScheme.error)
+                    },
+                    onClick = {
+                        menuOpen = false
                         scope.launch { store.goalAction("clear") }
                     },
                 )
-            },
-        )
-    }
-    if (editing) {
-        DsDialog(title = stringResource(R.string.goal_edit), onDismiss = { editing = false }) {
-            TextField(
-                value = editText,
-                onValueChange = { editText = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = DsDialogBodyMaxHeight()),
-                // Same defect as the queued-turn editor: an unbounded field pushes the OK row off
-                // the screen once the objective is long enough.
-                minLines = 1,
-                maxLines = 12,
-                placeholder = { Text(stringResource(R.string.goal_title), style = DsType.std14) },
-                colors = dialogTextFieldColors(),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DsButton(
-                    text = stringResource(R.string.common_ok),
-                    onClick = {
-                        scope.launch { store.goalAction("edit", editText) }
-                        editing = false
-                    },
-                    variant = DsButtonVariant.Info,
-                )
-                DsButton(
-                    text = stringResource(R.string.common_cancel),
-                    onClick = { editing = false },
-                    variant = DsButtonVariant.Ghost,
-                )
             }
         }
+    }
+    if (editing) {
+        AlertDialog(
+            onDismissRequest = { editing = false },
+            title = { Text(stringResource(R.string.goal_edit)) },
+            text = {
+                OutlinedTextField(
+                    value = editText,
+                    onValueChange = { editText = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = DsDialogBodyMaxHeight()),
+                    // Same defect as the queued-turn editor: an unbounded field pushes the OK row
+                    // off the screen once the objective is long enough.
+                    minLines = 1,
+                    maxLines = 12,
+                    placeholder = { Text(stringResource(R.string.goal_title)) },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch { store.goalAction("edit", editText) }
+                    editing = false
+                }) { Text(stringResource(R.string.common_ok)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { editing = false }) { Text(stringResource(R.string.common_cancel)) }
+            },
+        )
     }
 }
 
@@ -263,13 +280,13 @@ internal fun QueueDock(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val queueInsertedLabel = stringResource(R.string.chat_queue_inserted)
-    val colors = DsTheme.colors
     // Keyed on the row, not on the queue length: the queue grows precisely when the reader is using
     // it, and collapsing on every new entry made it impossible to read a list you had just opened.
     val expanded = rememberDisclosure(disclosureScope, DisclosureKeys.dock("queue"))
     var editingId by remember { mutableStateOf<String?>(null) }
     var editText by remember { mutableStateOf("") }
     var editWarningItem by remember { mutableStateOf<QueueItem?>(null) }
+    var menuOpenId by remember { mutableStateOf<String?>(null) }
 
     DisclosureRow(
         title = if (queueSubmissionPending && pendingQueue.isEmpty()) {
@@ -296,118 +313,131 @@ internal fun QueueDock(
                 Text(
                     item.previewText,
                     modifier = Modifier.weight(1f),
-                    style = DsType.small13,
-                    color = colors.labelSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.width(8.dp))
-                DsMenu(
-                    anchor = { onOpen ->
+                Box {
+                    IconButton(onClick = { menuOpenId = item.id }, modifier = Modifier.size(32.dp)) {
                         Icon(
                             Icons.Filled.MoreVert,
                             contentDescription = stringResource(R.string.chat_queue_actions),
-                            tint = colors.labelTertiary,
-                            modifier = Modifier.size(18.dp).clickable(onClick = onOpen),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
                         )
-                    },
-                    items = buildList {
+                    }
+                    DropdownMenu(
+                        expanded = menuOpenId == item.id,
+                        onDismissRequest = { menuOpenId = null },
+                    ) {
                         if (canMutateQueueItem(item)) {
-                            add(MenuItem(stringResource(R.string.chat_queue_edit)) {
-                                // updateQueue's text-only edit replaces *all* blocks. Warn before
-                                // opening the editor if this message contains an image, file or
-                                // another non-text block; continuing will discard those blocks.
-                                if (queueEditLosesNonText(item)) {
-                                    editWarningItem = item
-                                } else {
-                                    editingId = item.id
-                                    // The full message, not the dock row's 200-character preview.
-                                    editText = queueEditSeedText(item)
-                                }
-                            })
-                            add(MenuItem(stringResource(R.string.chat_queue_remove), danger = true) {
-                                scope.launch { store.updateQueue(item.id, "remove") }
-                            })
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.chat_queue_edit)) },
+                                onClick = {
+                                    menuOpenId = null
+                                    // updateQueue's text-only edit replaces *all* blocks. Warn
+                                    // before opening the editor if this message contains an image,
+                                    // file or another non-text block; continuing will discard those.
+                                    if (queueEditLosesNonText(item)) {
+                                        editWarningItem = item
+                                    } else {
+                                        editingId = item.id
+                                        // The full message, not the dock row's 200-char preview.
+                                        editText = queueEditSeedText(item)
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        stringResource(R.string.chat_queue_remove),
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                },
+                                onClick = {
+                                    menuOpenId = null
+                                    scope.launch { store.updateQueue(item.id, "remove") }
+                                },
+                            )
                             if (canSteerQueueItem(item, running)) {
-                                add(MenuItem(stringResource(R.string.chat_queue_steer)) {
-                                    scope.launch { store.updateQueue(item.id, "steer") }
-                                })
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.chat_queue_steer)) },
+                                    onClick = {
+                                        menuOpenId = null
+                                        scope.launch { store.updateQueue(item.id, "steer") }
+                                    },
+                                )
                             }
                         }
-                        add(MenuItem(queueInsertedLabel) {
-                            onInsertQueued(item)
-                            Toast.makeText(context, queueInsertedLabel, Toast.LENGTH_SHORT).show()
-                        })
-                    },
-                )
+                        DropdownMenuItem(
+                            text = { Text(queueInsertedLabel) },
+                            onClick = {
+                                menuOpenId = null
+                                onInsertQueued(item)
+                                Toast.makeText(context, queueInsertedLabel, Toast.LENGTH_SHORT).show()
+                            },
+                        )
+                    }
+                }
             }
         }
         Spacer(Modifier.height(2.dp))
     }
 
     editWarningItem?.let { item ->
-        DsDialog(
-            title = stringResource(R.string.chat_queue_edit_warning_title),
-            onDismiss = { editWarningItem = null },
-        ) {
-            Text(
-                stringResource(R.string.chat_queue_edit_warning_body),
-                style = DsType.std14,
-                color = colors.warnLabel,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DsButton(
-                    text = stringResource(R.string.common_cancel),
-                    onClick = { editWarningItem = null },
-                    variant = DsButtonVariant.Ghost,
+        AlertDialog(
+            onDismissRequest = { editWarningItem = null },
+            title = { Text(stringResource(R.string.chat_queue_edit_warning_title)) },
+            text = {
+                Text(
+                    stringResource(R.string.chat_queue_edit_warning_body),
+                    color = MaterialTheme.colorScheme.error,
                 )
-                DsButton(
-                    text = stringResource(R.string.chat_queue_edit_continue),
-                    onClick = {
-                        editText = queueEditSeedText(item)
-                        editingId = item.id
-                        editWarningItem = null
-                    },
-                    variant = DsButtonVariant.Info,
-                )
-            }
-        }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    editText = queueEditSeedText(item)
+                    editingId = item.id
+                    editWarningItem = null
+                }) { Text(stringResource(R.string.chat_queue_edit_continue)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { editWarningItem = null }) { Text(stringResource(R.string.common_cancel)) }
+            },
+        )
     }
 
     editingId?.let { id ->
-        DsDialog(title = stringResource(R.string.chat_queue_edit), onDismiss = { editingId = null }) {
-            TextField(
-                value = editText,
-                onValueChange = { editText = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = DsDialogBodyMaxHeight()),
-                // A queued turn can be as long as the composer accepts, and this field used to
-                // grow to all of it: the plate ran off the bottom of the screen and took the OK row
-                // with it, so a long message was both unreadable and impossible to save. Capping
-                // the lines keeps the actions on screen, and the field scrolls its own text, so
-                // nothing of the message is actually hidden.
-                minLines = 3,
-                maxLines = 12,
-                placeholder = { Text(stringResource(R.string.chat_composer_hint), style = DsType.std14) },
-                colors = dialogTextFieldColors(),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DsButton(
-                    text = stringResource(R.string.common_ok),
-                    onClick = {
-                        scope.launch { store.updateQueue(id, "edit", editText) }
-                        editingId = null
-                    },
-                    variant = DsButtonVariant.Info,
+        AlertDialog(
+            onDismissRequest = { editingId = null },
+            title = { Text(stringResource(R.string.chat_queue_edit)) },
+            text = {
+                OutlinedTextField(
+                    value = editText,
+                    onValueChange = { editText = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = DsDialogBodyMaxHeight()),
+                    // A queued turn can be as long as the composer accepts, and this field used to
+                    // grow to all of it: the plate ran off the bottom of the screen and took the OK
+                    // row with it, so a long message was both unreadable and impossible to save.
+                    minLines = 3,
+                    maxLines = 12,
+                    placeholder = { Text(stringResource(R.string.chat_composer_hint)) },
                 )
-                DsButton(
-                    text = stringResource(R.string.common_cancel),
-                    onClick = { editingId = null },
-                    variant = DsButtonVariant.Ghost,
-                )
-            }
-        }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch { store.updateQueue(id, "edit", editText) }
+                    editingId = null
+                }) { Text(stringResource(R.string.common_ok)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingId = null }) { Text(stringResource(R.string.common_cancel)) }
+            },
+        )
     }
 }
 
@@ -426,7 +456,6 @@ internal fun StatsFooter(
     modifier: Modifier = Modifier,
 ) {
     if (stats == null && usage == null) return
-    val colors = DsTheme.colors
     val expanded = rememberDisclosure(disclosureScope, DisclosureKeys.dock("stats"))
     val parts = buildList {
         stats?.let {
@@ -448,8 +477,8 @@ internal fun StatsFooter(
     ) {
         Text(
             parts.joinToString(" · "),
-            style = DsType.statsText,
-            color = colors.labelCaption,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -485,8 +514,8 @@ internal fun StatsFooter(
 private fun DetailLine(text: String) {
     Text(
         text,
-        style = DsType.statsText,
-        color = DsTheme.colors.labelCaption,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth(),
     )

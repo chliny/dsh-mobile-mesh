@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
@@ -24,11 +25,9 @@ import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.AgentPresetListValue
 import dev.dsh.mobile.mesh.data.SessionStore
+import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
-import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.launch
 
 /**
@@ -47,7 +46,6 @@ internal fun PresetsSheet(
     onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val colors = DsTheme.colors
     DsBottomSheet(
         title = stringResource(R.string.presets_title),
         subtitle = if (sessionBlank) null else stringResource(R.string.presets_locked),
@@ -57,8 +55,8 @@ internal fun PresetsSheet(
         if (entries.isEmpty()) {
             Text(
                 stringResource(R.string.presets_empty),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             return@DsBottomSheet
         }
@@ -85,32 +83,32 @@ internal fun PresetsSheet(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 entry.displayName(),
-                                style = DsType.std14Strong,
+                                style = MaterialTheme.typography.titleSmall,
                                 color = when {
-                                    selected -> colors.accent
-                                    selectable -> colors.labelPrimary
-                                    else -> colors.labelTertiary
+                                    selected -> MaterialTheme.colorScheme.primary
+                                    selectable -> MaterialTheme.colorScheme.onSurface
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
                                 },
                             )
                             Spacer(Modifier.width(DsSpacing.small))
-                            DsPill(
-                                text = stringResource(
+                            StatusBadge(
+                                stringResource(
                                     if (entry.isShippedPreset()) R.string.presets_system else R.string.presets_user,
                                 ),
                             )
                             if (entry.isDefault) {
                                 Spacer(Modifier.width(DsSpacing.tiny))
-                                DsPill(text = stringResource(R.string.presets_default))
+                                StatusBadge(stringResource(R.string.presets_default))
                             }
                         }
                         entry.displayDescription()?.let {
-                            Text(it, style = DsType.caption11, color = colors.labelTertiary)
+                            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         entry.broken?.let {
                             Text(
                                 stringResource(R.string.presets_broken, it),
-                                style = DsType.caption11,
-                                color = colors.warnLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
                             )
                         }
                     }
@@ -119,7 +117,7 @@ internal fun PresetsSheet(
                         Icon(
                             Icons.Filled.Check,
                             contentDescription = stringResource(R.string.presets_current),
-                            tint = colors.accent,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp),
                         )
                     }

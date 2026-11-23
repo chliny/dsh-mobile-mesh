@@ -14,23 +14,24 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
 // ---------------------------------------------------------------------------
 // Interaction takeovers: sandbox-approval and plan review. The ask_user_question
-// composer has its own file. These mirror the harness composer-takeover panels
-// (amber strip, floating capsule, outline/primary pill actions).
+// composer has its own file. Both are Material cards with a tinted warning header
+// (the theme's tertiary container is the amber role) and outline/filled actions.
 // ---------------------------------------------------------------------------
 
 /** Sandbox escalation / approval request panel. */
@@ -42,33 +43,32 @@ fun ApprovalPanel(
     onReject: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val colors = DsTheme.colors
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = DsShapes.approvalCard,
-        color = colors.composerCard,
-        border = BorderStroke(1.dp, colors.warnSecondary),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         shadowElevation = 2.dp,
     ) {
         Column {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(colors.warnTertiary)
+                    .background(MaterialTheme.colorScheme.tertiaryContainer)
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
                     Icons.Filled.WarningAmber,
                     contentDescription = null,
-                    tint = colors.warn,
+                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
                     modifier = Modifier.width(14.dp),
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     stringResource(R.string.approval_title),
-                    style = DsType.small13Strong,
-                    color = colors.warnLabel,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
                 )
             }
             Column(
@@ -83,28 +83,21 @@ fun ApprovalPanel(
                     modifier = Modifier
                         .heightIn(max = 120.dp)
                         .verticalScroll(rememberScrollState()),
-                    style = DsType.small13,
-                    color = colors.labelSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DsButton(
-                        text = stringResource(R.string.approval_allow_once),
-                        onClick = onAllow,
-                        variant = DsButtonVariant.Info,
-                        size = DsButtonSize.Small,
-                    )
-                    DsButton(
-                        text = stringResource(R.string.approval_reject),
-                        onClick = onReject,
-                        variant = DsButtonVariant.Outline,
-                        size = DsButtonSize.Small,
-                    )
+                    Button(onClick = onAllow) {
+                        Text(stringResource(R.string.approval_allow_once))
+                    }
+                    OutlinedButton(onClick = onReject) {
+                        Text(stringResource(R.string.approval_reject))
+                    }
                 }
             }
         }
     }
 }
-
 
 /**
  * Plan-review takeover: the plan itself, then approve, refuse, or take it to the chat.
@@ -123,26 +116,25 @@ internal fun PlanReviewPanel(
     onDiscuss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val colors = DsTheme.colors
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = DsShapes.approvalCard,
-        color = colors.composerCard,
-        border = BorderStroke(1.dp, colors.warnSecondary),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         shadowElevation = 2.dp,
     ) {
         Column {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(colors.warnTertiary)
+                    .background(MaterialTheme.colorScheme.tertiaryContainer)
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     stringResource(R.string.plan_review_title),
-                    style = DsType.small13Strong,
-                    color = colors.warnLabel,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
                 )
             }
             Column(
@@ -162,35 +154,23 @@ internal fun PlanReviewPanel(
                     MarkdownText(review.plan)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DsButton(
-                        text = stringResource(R.string.plan_review_approve),
-                        onClick = onApprove,
-                        enabled = !busy,
-                        variant = DsButtonVariant.Info,
-                        size = DsButtonSize.Small,
-                    )
+                    Button(onClick = onApprove, enabled = !busy) {
+                        Text(stringResource(R.string.plan_review_approve))
+                    }
                     // Only when the asker offered a second option. A refusal it never named is not
                     // one this card can send: the host checks every selected label against the
                     // question's own options and refuses one it does not recognise.
                     if (review.decline != null) {
-                        DsButton(
-                            text = stringResource(R.string.plan_review_decline),
-                            onClick = onDecline,
-                            enabled = !busy,
-                            variant = DsButtonVariant.Outline,
-                            size = DsButtonSize.Small,
-                        )
+                        OutlinedButton(onClick = onDecline, enabled = !busy) {
+                            Text(stringResource(R.string.plan_review_decline))
+                        }
                     }
                     // "Chat about it" dismisses the request rather than answering it with the
                     // refusal, which is what the harness's own card does — declining picks a stated
                     // option, whereas wanting to talk first is not one of the choices on offer.
-                    DsButton(
-                        text = stringResource(R.string.plan_review_discuss),
-                        onClick = onDiscuss,
-                        enabled = !busy,
-                        variant = DsButtonVariant.Ghost,
-                        size = DsButtonSize.Small,
-                    )
+                    TextButton(onClick = onDiscuss, enabled = !busy) {
+                        Text(stringResource(R.string.plan_review_discuss))
+                    }
                 }
             }
         }

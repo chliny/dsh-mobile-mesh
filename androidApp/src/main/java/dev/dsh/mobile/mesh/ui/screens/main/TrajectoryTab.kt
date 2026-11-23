@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
@@ -30,15 +33,13 @@ import dev.dsh.mobile.mesh.core.session.UserMessageNode
 import dev.dsh.mobile.mesh.core.wire.dto.SessionStatsView
 import dev.dsh.mobile.mesh.core.wire.dto.TokenUsageView
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
-import dev.dsh.mobile.mesh.ui.components.SectionHeader
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.components.formatDurationMs
 import dev.dsh.mobile.mesh.ui.components.formatTokens
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
-private val MonoCaption = DsType.caption11.copy(fontFamily = DsType.codeFont)
+private val MonoCaption: TextStyle @Composable get() =
+    MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
 
 /**
  * The turn-by-turn ledger: what the agent did, in order, with its inputs and outputs.
@@ -57,7 +58,6 @@ internal fun TrajectoryTab(
     disclosureScope: DisclosureScope,
     modifier: Modifier = Modifier,
 ) {
-    val colors = DsTheme.colors
     val nodes = conversation?.nodes ?: emptyList()
     val groups = remember(nodes) { groupByTurn(nodes) }
 
@@ -71,17 +71,29 @@ internal fun TrajectoryTab(
             item(key = "empty") {
                 Text(
                     stringResource(R.string.trajectory_empty),
-                    style = DsType.caption11,
-                    color = colors.labelTertiary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
         groups.forEach { (turn, turnNodes) ->
             item(key = "turn-$turn") {
-                SectionHeader(
-                    title = stringResource(R.string.trajectory_turn, turn),
-                    action = stringResource(R.string.trajectory_steps, turnNodes.count { it is ToolCallNode }),
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        stringResource(R.string.trajectory_turn, turn),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        stringResource(R.string.trajectory_steps, turnNodes.count { it is ToolCallNode }),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             items(
                 count = turnNodes.size,
@@ -101,12 +113,11 @@ internal fun TrajectoryTab(
 
 @Composable
 private fun TrajectoryRow(node: ChatNode, siblings: List<ChatNode>, cwd: String?, disclosureScope: DisclosureScope) {
-    val colors = DsTheme.colors
     when (node) {
         is UserMessageNode -> {
             val preview = node.previewText.trim()
             if (preview.isNotEmpty()) {
-                Text("> $preview", style = DsType.caption11, color = colors.labelSecondary)
+                Text("> $preview", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         // Model context has a model-facing user role but was not typed by the user; omit it from
@@ -117,8 +128,8 @@ private fun TrajectoryRow(node: ChatNode, siblings: List<ChatNode>, cwd: String?
             if (snippet.isNotEmpty()) {
                 Text(
                     snippet,
-                    style = DsType.caption11,
-                    color = colors.labelTertiary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -136,8 +147,8 @@ private fun TrajectoryRow(node: ChatNode, siblings: List<ChatNode>, cwd: String?
             if (summary.isNotBlank()) {
                 Text(
                     "> $summary",
-                    style = DsType.caption11,
-                    color = colors.labelSecondary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -155,7 +166,6 @@ private fun TrajectoryRow(node: ChatNode, siblings: List<ChatNode>, cwd: String?
 
 @Composable
 private fun ToolLedgerRow(call: ToolCallNode, result: ToolResultNode?, cwd: String?, disclosureScope: DisclosureScope) {
-    val colors = DsTheme.colors
     val row = remember(call.callId, cwd) { toolRowModel(call.name, call.arguments, cwd) }
     val expanded = rememberDisclosure(disclosureScope, DisclosureKeys.trajectoryCall(call.callId))
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -178,15 +188,15 @@ private fun ToolLedgerRow(call: ToolCallNode, result: ToolResultNode?, cwd: Stri
             modifier = Modifier.weight(1f),
         ) {
             Column(Modifier.padding(start = 28.dp, top = 2.dp)) {
-                Text(stringResource(R.string.chat_input_placeholder), style = DsType.caption11, color = colors.labelCaption)
-                Text(call.arguments, style = MonoCaption, color = colors.labelTertiary)
+                Text(stringResource(R.string.chat_input_placeholder), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(call.arguments, style = MonoCaption, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 result?.content?.let { content ->
                     Spacer(Modifier.width(4.dp))
-                    Text(stringResource(R.string.chat_output_placeholder), style = DsType.caption11, color = colors.labelCaption)
+                    Text(stringResource(R.string.chat_output_placeholder), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
                         content.toString(),
                         style = MonoCaption,
-                        color = if (result.isError) colors.error else colors.labelTertiary,
+                        color = if (result.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -196,14 +206,17 @@ private fun ToolLedgerRow(call: ToolCallNode, result: ToolResultNode?, cwd: Stri
 
 @Composable
 private fun TrajectoryTotals(stats: SessionStatsView?, usage: TokenUsageView?) {
-    val colors = DsTheme.colors
     Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
-        SectionHeader(stringResource(R.string.trajectory_tab_usage))
+        Text(
+            stringResource(R.string.trajectory_tab_usage),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         stats?.let {
             Text(
                 stringResource(R.string.chat_stats_turns, it.turns, it.steps),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 stringResource(
@@ -211,8 +224,8 @@ private fun TrajectoryTotals(stats: SessionStatsView?, usage: TokenUsageView?) {
                     formatDurationMs(it.llmMs),
                     formatDurationMs(it.toolMs),
                 ),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 stringResource(
@@ -220,8 +233,8 @@ private fun TrajectoryTotals(stats: SessionStatsView?, usage: TokenUsageView?) {
                     formatDurationMs(it.meanTtftMs),
                     it.tokensPerSecond?.let { rate -> String.format(java.util.Locale.US, "%.0f", rate) } ?: "—",
                 ),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         usage?.let {
@@ -233,8 +246,8 @@ private fun TrajectoryTotals(stats: SessionStatsView?, usage: TokenUsageView?) {
                     formatTokens(it.cacheReadTokens),
                     formatTokens(it.cacheWriteTokens),
                 ),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

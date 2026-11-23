@@ -1,7 +1,6 @@
 package dev.dsh.mobile.mesh.ui.components
 
 import java.io.File
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -13,17 +12,16 @@ class DsMenuContractTest {
 
         assertTrue(source.contains("anchor: @Composable (onOpen: () -> Unit) -> Unit"))
         assertTrue(source.contains("Box { anchor { expanded = true } }"))
-        assertFalse(source.contains("Box(Modifier.clickable { expanded = true }) { anchor() }"))
+        assertTrue(!source.contains("Box(Modifier.clickable { expanded = true }) { anchor() }"))
     }
 
     @Test
-    fun `session list sort and add anchors invoke menu opener`() {
+    fun `session list view options anchor opens its own menu and lists the picks`() {
         val source = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/ChatListDrawer.kt").readText()
 
-        assertTrue(source.contains("anchor = { onOpen ->"))
-        assertTrue(source.contains("icon = Icons.Filled.Tune,"))
-        assertTrue(source.contains("onClick = onOpen,"))
-        assertTrue(source.contains("MenuItem(stringResource(R.string.chatlist_sort_manual), Icons.Filled.SwapVert,"))
-        assertTrue(source.contains("MenuItem(stringResource(R.string.chatlist_new_session), Icons.Filled.Add,"))
+        // The tune button owns the state: no wrapper swallowing the tap, no menu that never opens.
+        assertTrue(source.contains("IconButton(onClick = { optionsMenuOpen = true })"))
+        assertTrue(source.contains("R.string.chatlist_sort_manual"))
+        assertTrue(source.contains("R.string.chatlist_new_session"))
     }
 }

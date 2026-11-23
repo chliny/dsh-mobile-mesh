@@ -5,6 +5,7 @@ import com.caverock.androidsvg.SVG
 import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
@@ -25,8 +26,6 @@ import com.mikepenz.markdown.compose.components.MarkdownComponentModel
 import com.mikepenz.markdown.model.ImageData
 import com.mikepenz.markdown.model.ImageTransformer
 import com.mikepenz.markdown.utils.getUnescapedTextInNode
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -236,7 +235,7 @@ internal fun MarkdownImageWithCaption(model: MarkdownComponentModel) {
         androidx.compose.material3.Text(
             text = caption,
             modifier = Modifier.fillMaxWidth(),
-            style = DsType.caption11.copy(color = DsTheme.colors.labelTertiary),
+            style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )

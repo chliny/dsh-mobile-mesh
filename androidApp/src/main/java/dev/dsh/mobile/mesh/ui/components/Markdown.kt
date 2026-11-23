@@ -2,6 +2,7 @@ package dev.dsh.mobile.mesh.ui.components
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -22,6 +23,7 @@ import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.compose.Markdown
@@ -47,9 +49,6 @@ import com.mikepenz.markdown.model.ReferenceLinkHandlerImpl
 import com.mikepenz.markdown.model.markdownDimens
 import com.mikepenz.markdown.model.markdownPadding
 import dev.dsh.mobile.mesh.R
-import dev.dsh.mobile.mesh.ui.theme.DsColors
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.delay
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.ast.ASTNode
@@ -188,7 +187,6 @@ fun MarkdownText(
     streaming: Boolean = false,
 ) {
     if (text.isBlank()) return
-    val colors = DsTheme.colors
     val baseUriHandler = LocalUriHandler.current
     val linkHandler = remember(onOpenLink, baseUriHandler) {
         object : UriHandler {
@@ -225,36 +223,36 @@ fun MarkdownText(
         }
     }
     val markdownColors = markdownColor(
-        text = colors.labelPrimary,
-        codeBackground = colors.codeBlockBg,
-        inlineCodeBackground = colors.inlineCode,
-        dividerColor = colors.borderL1,
-        tableBackground = colors.bgModulePlatform,
+        text = MaterialTheme.colorScheme.onSurface,
+        codeBackground = MaterialTheme.colorScheme.surfaceVariant,
+        inlineCodeBackground = MaterialTheme.colorScheme.surfaceVariant,
+        dividerColor = MaterialTheme.colorScheme.outlineVariant,
+        tableBackground = MaterialTheme.colorScheme.surfaceContainer,
     )
     val markdownTypography = markdownTypography(
-        h1 = DsType.mdH1.copy(color = colors.labelPrimary),
-        h2 = DsType.mdH2.copy(color = colors.labelPrimary),
-        h3 = DsType.mdH3.copy(color = colors.labelPrimary),
-        h4 = DsType.mdH4.copy(color = colors.labelPrimary),
-        h5 = DsType.mdH4.copy(color = colors.labelPrimary),
-        h6 = DsType.mdH4.copy(color = colors.labelPrimary),
-        text = DsType.mdBody.copy(color = colors.labelPrimary),
-        code = DsType.mdCode.copy(color = colors.labelPrimary),
-        inlineCode = DsType.mdBody.copy(color = colors.labelPrimary, fontFamily = DsType.codeFont),
-        quote = DsType.mdBody.copy(color = colors.labelSecondary),
-        paragraph = DsType.mdBody.copy(color = colors.labelPrimary),
-        ordered = DsType.mdBody.copy(color = colors.labelPrimary),
-        bullet = DsType.mdBody.copy(color = colors.labelPrimary),
-        list = DsType.mdBody.copy(color = colors.labelPrimary),
-        link = DsType.mdBody.copy(color = colors.accent, textDecoration = TextDecoration.Underline),
+        h1 = MaterialTheme.typography.headlineSmall.copy(color = MaterialTheme.colorScheme.onSurface),
+        h2 = MaterialTheme.typography.titleLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        h3 = MaterialTheme.typography.headlineMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+        h4 = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+        h5 = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+        h6 = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+        text = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        code = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace).copy(color = MaterialTheme.colorScheme.onSurface),
+        inlineCode = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface, fontFamily = FontFamily.Monospace),
+        quote = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+        paragraph = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        ordered = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        bullet = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        list = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        link = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.primary, textDecoration = TextDecoration.Underline),
         textLink = TextLinkStyles(
             style = SpanStyle(
-                color = colors.accent,
+                color = MaterialTheme.colorScheme.primary,
                 textDecoration = TextDecoration.Underline,
                 fontWeight = FontWeight.Normal,
             ),
         ),
-        table = DsType.mdBody.copy(color = colors.labelPrimary),
+        table = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
     )
     val copyLabel = stringResource(R.string.common_copy)
     val components = remember(copyLabel) {
@@ -315,10 +313,10 @@ fun MarkdownText(
             extendedSpans = inlineCodeSpans,
             components = components,
             loading = { loadingModifier ->
-                MarkdownPlainFallback(markdownLoadingPreviewText(content), colors, loadingModifier)
+                MarkdownPlainFallback(markdownLoadingPreviewText(content), loadingModifier)
             },
             error = { errorModifier ->
-                MarkdownPlainFallback(markdownLoadingPreviewText(content), colors, errorModifier)
+                MarkdownPlainFallback(markdownLoadingPreviewText(content), errorModifier)
             },
         )
     }
@@ -422,11 +420,11 @@ private fun rememberStreamingMarkdown(text: String, streaming: Boolean): String 
 
 /** Bounded plain-text preview shown for the first parse of a message. */
 @Composable
-private fun MarkdownPlainFallback(text: String, colors: DsColors, modifier: Modifier = Modifier) {
+private fun MarkdownPlainFallback(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
         modifier = modifier.fillMaxWidth(),
-        style = DsType.mdBody.copy(color = colors.labelPrimary),
+        style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
         maxLines = 12,
         overflow = TextOverflow.Ellipsis,
     )

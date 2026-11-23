@@ -13,6 +13,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,12 +33,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.FULL_ACCESS_PRESET
 import dev.dsh.mobile.mesh.core.wire.dto.PermissionSelect
 
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsDialog
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
 /** The permission-preset picker. `custom` is a derived state, so it is never offered as a target. */
 @Composable
@@ -43,7 +43,6 @@ internal fun PermissionMenu(
     onDismiss: () -> Unit,
     onPick: (String) -> Unit,
 ) {
-    val colors = DsTheme.colors
     DsBottomSheet(
         title = stringResource(R.string.permission_preset),
         onDismiss = onDismiss,
@@ -60,8 +59,8 @@ internal fun PermissionMenu(
                 Column(Modifier.weight(1f)) {
                     Text(
                         permissionPresetLabel(option.value, option.name),
-                        style = DsType.std14Strong,
-                        color = if (selected) colors.accent else colors.labelPrimary,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     )
                     val description = option.description
                         ?: if (option.value == FULL_ACCESS_PRESET) {
@@ -70,7 +69,7 @@ internal fun PermissionMenu(
                             null
                         }
                     if (description != null) {
-                        Text(description, style = DsType.caption11, color = colors.labelTertiary)
+                        Text(description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 if (selected) {
@@ -78,7 +77,7 @@ internal fun PermissionMenu(
                     Icon(
                         Icons.Filled.Check,
                         contentDescription = null,
-                        tint = colors.accent,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -87,8 +86,8 @@ internal fun PermissionMenu(
         if (select.currentValue !in select.selectable.map { it.value }) {
             Text(
                 stringResource(R.string.permission_custom_hint),
-                style = DsType.caption11,
-                color = colors.warnLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
             )
         }
     }
@@ -108,39 +107,45 @@ internal fun permissionPresetLabel(value: String, wireName: String): String = wh
  */
 @Composable
 internal fun FullAccessConfirmDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    val colors = DsTheme.colors
     var acknowledged by remember { mutableStateOf(false) }
-    DsDialog(title = stringResource(R.string.permission_confirm_title), onDismiss = onDismiss) {
-        Text(
-            stringResource(R.string.permission_confirm_body),
-            style = DsType.std14,
-            color = colors.labelSecondary,
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { acknowledged = !acknowledged },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Checkbox(checked = acknowledged, onCheckedChange = { acknowledged = it })
-            Text(
-                stringResource(R.string.permission_confirm_ack),
-                style = DsType.small13,
-                color = colors.labelPrimary,
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
-            DsButton(
-                text = stringResource(R.string.common_ok),
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.permission_confirm_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
+                Text(
+                    stringResource(R.string.permission_confirm_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { acknowledged = !acknowledged },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = acknowledged, onCheckedChange = { acknowledged = it })
+                    Text(
+                        stringResource(R.string.permission_confirm_ack),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
                 onClick = onConfirm,
-                variant = DsButtonVariant.Danger,
                 enabled = acknowledged,
-            )
-            DsButton(
-                text = stringResource(R.string.common_cancel),
-                onClick = onDismiss,
-                variant = DsButtonVariant.Ghost,
-            )
-        }
-    }
+                // Full access removes every approval prompt; the action keeps the danger colour.
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+            ) { Text(stringResource(R.string.common_ok)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+        },
+    )
 }

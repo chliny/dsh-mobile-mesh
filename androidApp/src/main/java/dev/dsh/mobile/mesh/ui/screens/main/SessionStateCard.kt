@@ -4,6 +4,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,11 +34,6 @@ import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.decodeFromJsonElement
 import dev.dsh.mobile.mesh.core.wire.dto.SessionPassiveState
 import dev.dsh.mobile.mesh.core.wire.dto.SessionWaitValue
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collect
@@ -152,16 +152,27 @@ internal fun SessionStateCard(sessionId: String, generation: HostGeneration, api
         }
 
         if (!unsupported) {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(stringResource(R.string.session_state_title), style = DsType.small13, color = DsTheme.colors.labelPrimary)
+            OutlinedCard(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ) {
+            Column(
+                Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    stringResource(R.string.session_state_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
                 state?.let { current ->
-                    Text(stringResource(if (current.active) R.string.session_state_active else R.string.session_state_inactive), style = DsType.caption11)
-                    Text(stringResource(if (current.running) R.string.session_state_running else R.string.session_state_not_running), style = DsType.caption11)
+                    Text(stringResource(if (current.active) R.string.session_state_active else R.string.session_state_inactive), style = MaterialTheme.typography.labelSmall)
+                    Text(stringResource(if (current.running) R.string.session_state_running else R.string.session_state_not_running), style = MaterialTheme.typography.labelSmall)
                     val queued = current.queue
                     Text(
                         if (queued == null) stringResource(R.string.session_state_queue_unavailable)
                         else stringResource(R.string.session_state_queue_count, queued.size),
-                        style = DsType.caption11,
+                        style = MaterialTheme.typography.labelSmall,
                     )
                     val pending = current.pendingInput.map {
                         stringResource(when (it) {
@@ -170,7 +181,7 @@ internal fun SessionStateCard(sessionId: String, generation: HostGeneration, api
                             else -> R.string.session_state_pending_other
                         })
                     }.joinToString(", ").ifEmpty { stringResource(R.string.session_state_pending_none) }
-                    Text(stringResource(R.string.session_state_pending_sample, pending), style = DsType.caption11)
+                    Text(stringResource(R.string.session_state_pending_sample, pending), style = MaterialTheme.typography.labelSmall)
                 }
                 Text(stringResource(when (status) {
                     StateDisplay.Loading -> R.string.session_state_loading
@@ -178,18 +189,14 @@ internal fun SessionStateCard(sessionId: String, generation: HostGeneration, api
                     StateDisplay.Snapshot -> R.string.session_state_snapshot
                     StateDisplay.Stale -> R.string.session_state_stale
                     StateDisplay.Error -> R.string.session_state_error
-                }), style = DsType.caption11)
-                stateError?.let { Text(it, style = DsType.caption11, color = DsTheme.colors.error) }
+                }), style = MaterialTheme.typography.labelSmall)
+                stateError?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DsButton(
-                        text = stringResource(R.string.session_state_refresh),
-                        onClick = { refresh++ },
-                        variant = DsButtonVariant.Outline,
-                        size = DsButtonSize.Small,
-                    )
+                    OutlinedButton(onClick = { refresh++ }) {
+                        Text(stringResource(R.string.session_state_refresh))
+                    }
                     if (state != null && !waitUnsupported) {
-                        DsButton(
-                            text = stringResource(if (waitActive) R.string.session_wait_waiting else R.string.session_wait_action),
+                        OutlinedButton(
                             enabled = started && !waitActive,
                             onClick = {
                                 waitResult = null
@@ -197,24 +204,25 @@ internal fun SessionStateCard(sessionId: String, generation: HostGeneration, api
                                 waitActive = true
                                 if (waitRequests.trySend(Unit).isFailure) waitActive = false
                             },
-                            variant = DsButtonVariant.Outline,
-                            size = DsButtonSize.Small,
-                        )
+                        ) {
+                            Text(stringResource(if (waitActive) R.string.session_wait_waiting else R.string.session_wait_action))
+                        }
                     }
                 }
-                if (waitUnsupported) Text(stringResource(R.string.session_wait_unsupported), style = DsType.caption11)
+                if (waitUnsupported) Text(stringResource(R.string.session_wait_unsupported), style = MaterialTheme.typography.labelSmall)
                 waitResult?.let { result ->
                     Text(stringResource(when (result.reason) {
                         "idle" -> R.string.session_wait_idle
                         "input-required" -> R.string.session_wait_input_required
                         "timeout" -> R.string.session_wait_timeout
                         else -> R.string.session_wait_unknown
-                    }), style = DsType.caption11)
-                    if (result.output.truncated) Text(stringResource(R.string.session_wait_truncated), style = DsType.caption11)
+                    }), style = MaterialTheme.typography.labelSmall)
+                    if (result.output.truncated) Text(stringResource(R.string.session_wait_truncated), style = MaterialTheme.typography.labelSmall)
                 }
                 waitError?.let {
-                    Text(stringResource(R.string.session_wait_error, it), style = DsType.caption11, color = DsTheme.colors.error)
+                    Text(stringResource(R.string.session_wait_error, it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                 }
+            }
             }
         }
     }

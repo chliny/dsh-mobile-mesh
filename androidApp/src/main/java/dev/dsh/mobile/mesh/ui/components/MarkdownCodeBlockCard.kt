@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -19,10 +20,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
 /** Markdown code rendered inside the same expandable DisclosureRow/tool-card surfaces as Bash/Edit. */
 @Composable
@@ -34,7 +33,6 @@ internal fun MarkdownCodeBlockCard(
     textMate: TextMateCodeHighlighter?,
     modifier: Modifier = Modifier,
 ) {
-    val colors = DsTheme.colors
     var expanded by remember(code) { mutableStateOf(true) }
     val normalizedLanguage = language?.takeIf(String::isNotBlank)
     val title = normalizedLanguage ?: "code"
@@ -56,8 +54,8 @@ internal fun MarkdownCodeBlockCard(
         trailingContent = {
             Text(
                 copyLabel,
-                style = DsType.caption11Strong,
-                color = colors.accent,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
                     .clickable(role = Role.Button, onClick = onCopy)
                     .padding(horizontal = 4.dp, vertical = 1.dp),
@@ -68,8 +66,8 @@ internal fun MarkdownCodeBlockCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(DsShapes.block)
-                    .background(colors.bgModulePlatform)
+                    .clip(MaterialTheme.shapes.small)
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
                     .padding(8.dp),
             ) {
                 if (normalizedLanguage.equals("diff", ignoreCase = true) ||
@@ -81,19 +79,19 @@ internal fun MarkdownCodeBlockCard(
                         lines.forEachIndexed { index, line ->
                             val kind = lineKinds[index]
                             val foreground = when (kind) {
-                                '-' -> colors.error
-                                '+' -> colors.success
-                                '@' -> colors.accent
-                                else -> colors.labelPrimary
+                                '-' -> MaterialTheme.colorScheme.error
+                                '+' -> MaterialTheme.colorScheme.primary
+                                '@' -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.onSurface
                             }
                             val background = when (kind) {
-                                '-' -> colors.errorTertiary
-                                '+' -> colors.successTertiary
+                                '-' -> MaterialTheme.colorScheme.errorContainer
+                                '+' -> MaterialTheme.colorScheme.primaryContainer
                                 else -> Color.Transparent
                             }
                             Text(
                                 text = line.ifEmpty { "\u00a0" },
-                                style = DsType.mdCode,
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                                 color = foreground,
                                 softWrap = false,
                                 modifier = Modifier.background(background),
@@ -143,13 +141,12 @@ internal fun ToolCardSurface(
     spacing: androidx.compose.ui.unit.Dp = 8.dp,
     content: @Composable () -> Unit,
 ) {
-    val colors = DsTheme.colors
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(DsShapes.block)
-            .background(colors.codeBlockBg)
-            .border(1.dp, colors.borderL1, DsShapes.block)
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small)
             .padding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(spacing),
     ) { content() }

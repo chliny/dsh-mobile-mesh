@@ -81,6 +81,6 @@ class ToolDiffHighlightTest {
         assertTrue(body.contains("chunks = plan.chunks"))
         assertTrue(body.contains("diffMarkers = plan.markers"))
         assertTrue(body.contains("sourceVersion = version"))
-        assertTrue(body.contains("colors.codeBlockBg"))
+        assertTrue(body.contains("MaterialTheme.colorScheme.surfaceVariant"))
     }
 }

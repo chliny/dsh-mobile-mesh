@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,9 +36,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
-import dev.dsh.mobile.mesh.ui.theme.DsColors
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import dev.dsh.mobile.mesh.ui.theme.DshTheme
 
 /** How a disclosure row's subject is doing; drives the leading slot and the title shimmer. */
@@ -66,7 +64,6 @@ fun DisclosureRow(
     trailingContent: (@Composable () -> Unit)? = null,
     content: (@Composable () -> Unit)? = null,
 ) {
-    val colors = DsTheme.colors
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val running = state == DisclosureState.Running
@@ -103,7 +100,7 @@ fun DisclosureRow(
                 Icon(
                     FeatherIcons.ChevronRight,
                     contentDescription = null,
-                    tint = if (hovered) colors.labelSecondary else colors.labelTertiary,
+                    tint = if (hovered) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
                         .size(14.dp)
                         .graphicsLayer { rotationZ = rotation },
@@ -120,7 +117,7 @@ fun DisclosureRow(
                     Icon(
                         icon,
                         contentDescription = null,
-                        tint = colors.labelSecondary,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -129,23 +126,23 @@ fun DisclosureRow(
                 else -> Unit
             }
             Spacer(Modifier.width(8.dp))
-            val titleModifier = if (running) Modifier.shimmer(runningBrush(colors)) else Modifier
+            val titleModifier = if (running) Modifier.shimmer(runningBrush()) else Modifier
             Text(
                 title,
-                style = DsType.std14,
-                color = colors.labelSecondary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false).then(titleModifier),
             )
             if (summary != null) {
                 Spacer(Modifier.width(6.dp))
-                TwoByTwoDots(colors.labelDimmed)
+                TwoByTwoDots(MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.width(6.dp))
                 Text(
                     summary,
-                    style = DsType.std14,
-                    color = colors.labelTertiary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -171,7 +168,7 @@ private fun LeadingSlot(content: @Composable () -> Unit) {
 }
 
 /** Glare band used for the running-state shimmer sweep. */
-private fun runningBrush(colors: DsColors): Brush = Brush.linearGradient(
+private fun runningBrush(): Brush = Brush.linearGradient(
     colors = listOf(Color.Transparent, Color.White.copy(alpha = 0.5f), Color.Transparent),
 )
 
@@ -219,8 +216,8 @@ private fun DisclosureRowPreview() {
             ) {
                 Text(
                     "Expanded body",
-                    style = DsType.small13,
-                    color = DsTheme.colors.labelTertiary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(4.dp),
                 )
             }

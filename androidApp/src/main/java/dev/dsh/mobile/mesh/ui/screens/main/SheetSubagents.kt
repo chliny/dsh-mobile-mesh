@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -27,14 +28,12 @@ import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentListEntry
 import dev.dsh.mobile.mesh.data.SessionRow
+import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
 import dev.dsh.mobile.mesh.ui.components.formatDurationMs
-import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
 /** The catalog entry point; selecting a child navigates to its session details. */
 @Composable
@@ -44,7 +43,6 @@ internal fun SubagentsSheet(
     onOpenSubagent: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     val sessionsById = remember(sessions) { sessions.associateBy { it.sessionId } }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val hasRunningTiming = entries.any { entry ->
@@ -71,8 +69,8 @@ internal fun SubagentsSheet(
             if (entries.isEmpty()) {
                 Text(
                     stringResource(R.string.subagents_empty),
-                    style = DsType.caption11,
-                    color = colors.labelTertiary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             entries.forEach { entry ->
@@ -92,7 +90,6 @@ internal fun SubagentsSheet(
 
 @Composable
 private fun SubagentRow(entry: SubagentListEntry, running: Boolean, elapsedMs: Long?, onClick: () -> Unit) {
-    val colors = DsTheme.colors
     val label = subagentLabel(entry)?.takeIf { it.isNotBlank() }
     val name = subagentName(entry)
     val modeLabel = when (entry) {
@@ -117,20 +114,20 @@ private fun SubagentRow(entry: SubagentListEntry, running: Boolean, elapsedMs: L
         Column(Modifier.weight(1f)) {
             Text(
                 label ?: name ?: subagentId(entry).orEmpty(),
-                style = DsType.small13,
-                color = colors.labelPrimary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             if (label != null && name != null && name != label) {
-                Text(name, style = DsType.caption11, color = colors.labelTertiary,
+                Text(name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         elapsedMs?.let {
-            Text(formatDurationMs(it), style = DsType.caption11, color = colors.labelTertiary)
+            Text(formatDurationMs(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (modeLabel != null) Spacer(Modifier.width(DsSpacing.xsmall))
         }
-        modeLabel?.let { DsPill(text = it) }
+        modeLabel?.let { StatusBadge(text = it) }
     }
 }

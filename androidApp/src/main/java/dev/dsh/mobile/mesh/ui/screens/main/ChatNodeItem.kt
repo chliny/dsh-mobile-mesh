@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +41,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.json.jsonPrimitive
@@ -83,9 +85,6 @@ import dev.dsh.mobile.mesh.ui.components.UserBubble
 import dev.dsh.mobile.mesh.ui.rememberConnectionManager
 import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
@@ -183,7 +182,6 @@ internal data class ChatNodeContext(
  */
 @Composable
 internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
-    val colors = DsTheme.colors
     val uriHandler = LocalUriHandler.current
     val onOpenLink: (String) -> Unit = { target -> openMarkdownLink(context, target, uriHandler::openUri) }
     when (node) {
@@ -238,8 +236,8 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
                 Spacer(Modifier.width(6.dp))
                 Text(
                     stringResource(R.string.chat_error_turn) + node.reasonDetail?.let { " · $it" }.orEmpty(),
-                    style = DsType.small13,
-                    color = colors.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
             "max-tokens" -> DsPill(text = stringResource(R.string.chat_max_tokens), warn = true)
@@ -270,21 +268,21 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
             Spacer(Modifier.width(6.dp))
             Text(
                 stringResource(R.string.chat_error_turn) + " · " + node.message,
-                style = DsType.small13,
-                color = colors.error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
             )
-            node.code?.let { Text(" · $it", style = DsType.caption11, color = colors.labelTertiary) }
+            node.code?.let { Text(" · $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
 
         is CommandNode -> CommandRow(node, context)
 
         is WorkflowNode -> WorkflowRow(node, context)
 
-        is TitleNode -> Text(node.title, style = DsType.caption11, color = colors.labelTertiary)
+        is TitleNode -> Text(node.title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         is SubagentNode -> Text(
             stringResource(R.string.subagents_title),
-            style = DsType.caption11,
-            color = colors.labelTertiary,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         // Unknown event types stay visible — that is the compatibility contract — but the
         // structural ones are not "unknown", they are bookkeeping, and printing `step/start` /
@@ -293,7 +291,7 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
         // request). The panel that owns them already shows their effect; the transcript must not
         // print the record type between turns.
         is OtherNode -> if (node.type !in STRUCTURAL_EVENT_TYPES && !node.type.startsWith("plugin:")) {
-            Text(node.type, style = DsType.caption11, color = colors.labelCaption)
+            Text(node.type, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -330,8 +328,8 @@ private fun RetryRow(node: RetryNode, context: ChatNodeContext) {
             details.forEachIndexed { index, failure ->
                 Text(
                     if (details.size > 1) "${index + 1}. $failure" else failure,
-                    style = DsType.caption11,
-                    color = DsTheme.colors.error,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
         }
@@ -341,7 +339,6 @@ private fun RetryRow(node: RetryNode, context: ChatNodeContext) {
 /** A Markdown-rendered user message bubble. */
 @Composable
 private fun MarkdownUserBubble(text: String, onOpenLink: (String) -> Unit) {
-    val colors = DsTheme.colors
     BoxWithConstraints(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = Alignment.CenterEnd,
@@ -349,8 +346,7 @@ private fun MarkdownUserBubble(text: String, onOpenLink: (String) -> Unit) {
         Column(
             modifier = Modifier
                 .widthIn(max = minOf(525.dp, maxWidth * 0.82f))
-                .background(colors.userBubble, DsShapes.bubble)
-                .border(1.dp, colors.borderL3, DsShapes.bubble)
+                .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.large)
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         ) {
             MarkdownText(text, onOpenLink = onOpenLink)
@@ -360,7 +356,6 @@ private fun MarkdownUserBubble(text: String, onOpenLink: (String) -> Unit) {
 
 @Composable
 private fun QuestionReplyBubble(node: QuestionReplyNode, onOpenLink: (String) -> Unit) {
-    val colors = DsTheme.colors
     val skipped = stringResource(R.string.questions_skip)
     BoxWithConstraints(
         modifier = Modifier.fillMaxWidth(),
@@ -369,8 +364,7 @@ private fun QuestionReplyBubble(node: QuestionReplyNode, onOpenLink: (String) ->
         Column(
             modifier = Modifier
                 .widthIn(max = minOf(525.dp, maxWidth * 0.82f))
-                .background(colors.userBubble, DsShapes.bubble)
-                .border(1.dp, colors.borderL3, DsShapes.bubble)
+                .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.large)
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -379,7 +373,7 @@ private fun QuestionReplyBubble(node: QuestionReplyNode, onOpenLink: (String) ->
             } else node.questions.forEach { question ->
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     question.header?.takeIf { it.isNotBlank() && it != question.question }?.let { header ->
-                        Text(header, style = DsType.caption11, color = colors.labelSecondary)
+                        Text(header, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     MarkdownText(question.question, onOpenLink = onOpenLink)
                     val answer = node.answers.firstOrNull { it.id == question.id }
@@ -405,9 +399,9 @@ private fun ContextInjectionRow(node: ContextMessageNode, context: ChatNodeConte
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(DsShapes.block)
-                .background(DsTheme.colors.codeBlockBg)
-                .border(1.dp, DsTheme.colors.borderL2, DsShapes.block)
+                .clip(MaterialTheme.shapes.small)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
                 .padding(10.dp),
         ) {
             MarkdownText(text, onOpenLink = onOpenLink)
@@ -442,12 +436,11 @@ internal val STRUCTURAL_EVENT_TYPES = setOf(
  */
 @Composable
 internal fun FileChip(name: String, bytes: Long, modifier: Modifier = Modifier) {
-    val colors = DsTheme.colors
     Row(
         modifier = modifier
-            .clip(DsShapes.block)
-            .background(colors.bgModulePlatform)
-            .border(1.dp, colors.borderL3, DsShapes.block)
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -455,18 +448,18 @@ internal fun FileChip(name: String, bytes: Long, modifier: Modifier = Modifier) 
         Icon(
             Icons.Outlined.Description,
             contentDescription = null,
-            tint = colors.labelSecondary,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(18.dp),
         )
         Column {
             Text(
                 name,
-                style = DsType.small13,
-                color = colors.labelPrimary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(fileSizeText(bytes), style = DsType.caption11, color = colors.labelTertiary)
+            Text(fileSizeText(bytes), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -505,7 +498,6 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
     }
     // Relative image paths mean different bytes in different workspaces; keep their caches apart.
     val imageCacheScope = remember(context.sessionId, context.cwd) { "${context.sessionId}:${context.cwd}" }
-    val colors = DsTheme.colors
     val uriHandler = LocalUriHandler.current
     val onOpenLink: (String) -> Unit = { target -> openMarkdownLink(context, target, uriHandler::openUri) }
     val isLast = context.nodes.lastOrNull()?.seq == node.seq
@@ -566,7 +558,7 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
                             },
                         ) }
                 else -> block.text?.let {
-                    Text(it, style = DsType.caption11, color = colors.labelTertiary)
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -589,7 +581,6 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
  */
 @Composable
 private fun MessageActionsRow(node: AssistantMessageNode, context: ChatNodeContext) {
-    val colors = DsTheme.colors
     val copiedLabel = stringResource(R.string.common_copied)
     val forkLabel = stringResource(R.string.chat_fork_created)
     val feedbackLabel = stringResource(R.string.chat_feedback_sent)
@@ -627,7 +618,7 @@ private fun ActionIcon(
     Icon(
         icon,
         contentDescription = label,
-        tint = DsTheme.colors.labelTertiary,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
             .size(28.dp)
             .clickable(onClick = onClick)
@@ -647,22 +638,22 @@ private fun ProducedFilesRow(paths: List<String>, context: ChatNodeContext) {
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(stringResource(R.string.chat_produced_files), style = DsType.caption11, color = DsTheme.colors.labelTertiary)
+        Text(stringResource(R.string.chat_produced_files), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         rows.forEach { path ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(DsShapes.block)
-                    .background(DsTheme.colors.bgModulePlatform)
+                    .clip(MaterialTheme.shapes.small)
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
                     .clickable(enabled = context.onOpenFile != null && path.isNotBlank()) { openWorkspacePath(context, path, basename(path), context.onOpenFile) }
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp), tint = DsTheme.colors.labelSecondary)
+                Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                     producedFileLabel(path),
-                    style = DsType.small13,
-                    color = DsTheme.colors.labelSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 8.dp).weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -682,24 +673,24 @@ private fun PresentedFilesRow(node: PresentedFilesNode, context: ChatNodeContext
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(stringResource(R.string.chat_delivered_files), style = DsType.caption11, color = DsTheme.colors.labelTertiary)
+        Text(stringResource(R.string.chat_delivered_files), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         visible.forEach { file ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(DsShapes.block)
-                    .background(DsTheme.colors.bgModulePlatform)
+                    .clip(MaterialTheme.shapes.small)
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
                     .clickable(enabled = context.onOpenFile != null) {
                         openWorkspacePath(context, file.path, producedFileLabel(file.path), context.onOpenFile)
                     }
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp), tint = DsTheme.colors.labelSecondary)
+                Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Column(Modifier.padding(start = 8.dp).weight(1f)) {
-                    Text(producedFileLabel(file.path), style = DsType.small13, color = DsTheme.colors.labelSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(producedFileLabel(file.path), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     file.description?.takeIf { it.isNotBlank() }?.let {
-                        Text(it, style = DsType.caption11, color = DsTheme.colors.labelTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -708,8 +699,8 @@ private fun PresentedFilesRow(node: PresentedFilesNode, context: ChatNodeContext
             Text(
                 stringResource(if (expanded.expanded) R.string.chat_delivered_files_collapse else R.string.chat_delivered_files_expand, rows.size),
                 modifier = Modifier.clickable { expanded.toggle() }.padding(start = 10.dp, top = 2.dp),
-                style = DsType.caption11,
-                color = DsTheme.colors.accent,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
     }
@@ -721,7 +712,6 @@ private fun PresentedFilesRow(node: PresentedFilesNode, context: ChatNodeContext
 
 @Composable
 private fun ToolCallRow(node: ToolCallNode, context: ChatNodeContext) {
-    val colors = DsTheme.colors
     val result = context.nodes
         .filterIsInstance<ToolResultNode>()
         .firstOrNull { it.callId == node.callId }
@@ -771,8 +761,8 @@ private fun ToolCallRow(node: ToolCallNode, context: ChatNodeContext) {
         // Tool failures are actionable only when the host's full message survives to the transcript.
         Text(
             toolResultText(result) ?: stringResource(R.string.common_error),
-            style = DsType.caption11,
-            color = colors.error,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error,
             modifier = Modifier.padding(start = 26.dp),
         )
     }
@@ -818,8 +808,8 @@ private fun TodoWriteRow(node: ToolCallNode, result: ToolResultNode?, context: C
                     diff.initial -> R.string.chat_todo_diff_initial
                     else -> R.string.chat_todo_diff_compare
                 }),
-                style = DsType.caption11,
-                color = DsTheme.colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 28.dp, top = 4.dp),
             )
             diff.items.forEach { TodoDetailRow(it) }
@@ -828,25 +818,24 @@ private fun TodoWriteRow(node: ToolCallNode, result: ToolResultNode?, context: C
                 Text(
                     stringResource(R.string.chat_todo_diff_unchanged, diff.unchanged.size),
                     modifier = Modifier.clickable(onClick = unchanged.onToggle).padding(start = 28.dp, top = 4.dp),
-                    style = DsType.caption11,
-                    color = DsTheme.colors.accent,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
                 )
                 if (unchanged.expanded) diff.unchanged.forEach { TodoDetailRow(it) }
             }
         } else {
-            Text(node.arguments, style = DsType.caption11.copy(fontFamily = DsType.codeFont),
-                color = DsTheme.colors.labelCaption, modifier = Modifier.padding(start = 28.dp, top = 4.dp))
+            Text(node.arguments, style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 28.dp, top = 4.dp))
         }
         if (result?.isError == true) Text(
             toolResultText(result) ?: stringResource(R.string.common_error),
-            style = DsType.caption11, color = DsTheme.colors.error, modifier = Modifier.padding(start = 28.dp),
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(start = 28.dp),
         )
     }
 }
 
 @Composable
 private fun TodoDetailRow(item: TodoDetailItem) {
-    val colors = DsTheme.colors
     val statusLabel = stringResource(when (item.status) {
         "completed" -> R.string.chat_todo_status_completed
         "in_progress" -> R.string.chat_todo_status_in_progress
@@ -862,7 +851,7 @@ private fun TodoDetailRow(item: TodoDetailItem) {
         StateDot(todoStatusDot(item.status), size = 8.dp)
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
-            Text(item.content, style = DsType.small13, color = colors.labelSecondary)
+            Text(item.content, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(listOfNotNull(changeLabel, statusLabel,
                 item.previousStatus?.let { previous ->
                     val label = stringResource(when (previous) {
@@ -872,7 +861,7 @@ private fun TodoDetailRow(item: TodoDetailItem) {
                     })
                     stringResource(R.string.chat_todo_previous_status, label)
                 }).joinToString(" · "),
-                style = DsType.caption11, color = colors.labelTertiary)
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -920,7 +909,6 @@ private fun CompactionRow(node: CompactionNode, context: ChatNodeContext, onOpen
 
 @Composable
 private fun CommandRow(node: CommandNode, context: ChatNodeContext) {
-    val colors = DsTheme.colors
     val data = node.data as? JsonObject
     val name = data?.get("name").asString() ?: node.kind
     val text = data?.get("text").asString()
@@ -934,8 +922,8 @@ private fun CommandRow(node: CommandNode, context: ChatNodeContext) {
     ) {
         Text(
             node.data.toString(),
-            style = DsType.caption11.copy(fontFamily = DsType.codeFont),
-            color = colors.labelCaption,
+            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 28.dp, top = 2.dp),
         )
     }
@@ -946,7 +934,6 @@ private fun WorkflowRow(
     node: WorkflowNode,
     context: ChatNodeContext,
 ) {
-    val colors = DsTheme.colors
     val data = node.data
     val obj = data as? JsonObject ?: return
     val name = obj["name"].asString()
@@ -979,8 +966,8 @@ private fun WorkflowRow(
                 Spacer(Modifier.width(8.dp))
                 Text(
                     member.label ?: memberChildId.orEmpty(),
-                    style = DsType.small13,
-                    color = colors.labelSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -988,8 +975,8 @@ private fun WorkflowRow(
                 member.status?.let {
                     Text(
                         workflowStatusLabel(it) ?: it,
-                        style = DsType.caption11,
-                        color = colors.labelTertiary,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

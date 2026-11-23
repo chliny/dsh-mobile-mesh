@@ -18,6 +18,8 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
@@ -30,18 +32,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.CommandDescriptor
 import dev.dsh.mobile.mesh.core.wire.dto.SkillEntry
 import dev.dsh.mobile.mesh.core.wire.dto.PlanStateView
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
-import dev.dsh.mobile.mesh.ui.components.DsPill
-import dev.dsh.mobile.mesh.ui.components.SectionHeader
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
 /**
  * The `+` sheet: everything you can add to a message that is not the message.
@@ -71,7 +69,6 @@ internal fun CommandSheet(
     onPrefillDraft: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     var query by remember { mutableStateOf("") }
     val filteredCommands = remember(commands, query) { commands.filterByQuery(query) { it.name to it.description } }
     val filteredSkills = remember(skills, query) { skills.filterByQuery(query) { it.name to it.description } }
@@ -84,7 +81,7 @@ internal fun CommandSheet(
                 Icon(
                     Icons.Filled.Image,
                     contentDescription = null,
-                    tint = colors.labelSecondary,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
                 )
             },
@@ -104,7 +101,7 @@ internal fun CommandSheet(
                 Icon(
                     Icons.Filled.AttachFile,
                     contentDescription = null,
-                    tint = colors.labelSecondary,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
                 )
             },
@@ -126,7 +123,7 @@ internal fun CommandSheet(
                     Icon(
                         Icons.Outlined.Description,
                         contentDescription = null,
-                        tint = colors.labelSecondary,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
                     )
                 },
@@ -142,19 +139,24 @@ internal fun CommandSheet(
         }
 
         // Send mode ---------------------------------------------------------
-        SectionHeader(stringResource(R.string.chat_composer_mode))
+        Text(
+            stringResource(R.string.chat_composer_mode),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
-            DsPill(
-                text = stringResource(R.string.chat_composer_queue),
+            FilterChip(
                 selected = mode != "steer",
                 onClick = { onModeChange("queue") },
+                label = { Text(stringResource(R.string.chat_composer_queue)) },
             )
             // Steering splices into a turn that is already running; with an idle agent there is
             // nothing to steer, so the option stays visible but inert rather than silently failing.
-            DsPill(
-                text = stringResource(R.string.chat_composer_steer),
+            FilterChip(
                 selected = mode == "steer",
-                onClick = if (running) ({ onModeChange("steer") }) else null,
+                onClick = { onModeChange("steer") },
+                enabled = running,
+                label = { Text(stringResource(R.string.chat_composer_steer)) },
             )
         }
         Text(
@@ -165,8 +167,8 @@ internal fun CommandSheet(
                     else -> R.string.chat_composer_mode_queue_hint
                 },
             ),
-            style = DsType.caption11,
-            color = colors.labelTertiary,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         if (searchable) {
@@ -175,13 +177,13 @@ internal fun CommandSheet(
                 onValueChange = { query = it },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                placeholder = { Text(stringResource(R.string.common_search), style = DsType.std14) },
+                placeholder = { Text(stringResource(R.string.common_search), style = MaterialTheme.typography.bodyMedium) },
                 colors = dialogTextFieldColors(),
             )
         }
 
         // Commands ----------------------------------------------------------
-        SectionHeader(stringResource(R.string.chat_composer_commands))
+        SectionTitle(stringResource(R.string.chat_composer_commands))
         if (modelsAvailable) {
             SheetRow(title = "/model", subtitle = null, trailing = null, onClick = {
                 onDismiss()
@@ -197,13 +199,13 @@ internal fun CommandSheet(
         when {
             !commandsAvailable -> Text(
                 stringResource(R.string.chat_commands_unavailable),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             filteredCommands.isEmpty() -> Text(
                 stringResource(R.string.chat_commands_empty),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             else -> LazyColumn(Modifier.heightIn(max = 260.dp)) {
                 items(filteredCommands, key = { it.name }) { command ->
@@ -228,7 +230,7 @@ internal fun CommandSheet(
 
         // Skills ------------------------------------------------------------
         if (filteredSkills.isNotEmpty()) {
-            SectionHeader(stringResource(R.string.skills_title))
+            SectionTitle(stringResource(R.string.skills_title))
             LazyColumn(Modifier.heightIn(max = 220.dp)) {
                 items(filteredSkills, key = { it.name }) { skill ->
                     SheetRow(
@@ -250,6 +252,16 @@ internal fun CommandSheet(
     }
 }
 
+/** A section caption at Material's title-small size. */
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
 /** One tappable row of a sheet: title, optional subtitle, optional trailing hint. */
 @Composable
 internal fun SheetRow(
@@ -260,11 +272,10 @@ internal fun SheetRow(
     leading: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(DsShapes.row)
+            .clip(MaterialTheme.shapes.small)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(vertical = DsSpacing.small),
         verticalAlignment = Alignment.CenterVertically,
@@ -276,16 +287,16 @@ internal fun SheetRow(
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                style = DsType.std14Strong,
-                color = if (enabled) colors.labelPrimary else colors.labelTertiary,
+                style = MaterialTheme.typography.titleSmall,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             if (subtitle != null) {
                 Text(
                     subtitle,
-                    style = DsType.caption11,
-                    color = colors.labelTertiary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -295,8 +306,8 @@ internal fun SheetRow(
             Spacer(Modifier.width(DsSpacing.small))
             Text(
                 trailing,
-                style = DsType.caption11.copy(fontFamily = DsType.codeFont),
-                color = colors.labelCaption,
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 // Some hints are long enough to crowd out the description they sit beside

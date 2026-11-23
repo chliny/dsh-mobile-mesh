@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -32,11 +33,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import dev.dsh.mobile.mesh.ui.theme.DshTheme
 import dev.dsh.mobile.mesh.ui.screens.main.basename
 import kotlinx.coroutines.Dispatchers
@@ -177,7 +176,6 @@ private fun ToolCardBody(view: ToolCardView, onOpenFile: ((String, String) -> Un
 
 @Composable
 private fun TerminalBody(card: ToolCardView.TerminalCard) {
-    val colors = DsTheme.colors
     val textMate = rememberTextMateHighlighterForLanguage("bash")
     val state = when {
         card.running == true -> StateDotState.Running
@@ -191,13 +189,13 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             card.description?.let {
-                Text(it, style = DsType.mdSmall, color = colors.labelSecondary)
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             card.command?.let { command ->
                 CompositionLocalProvider(
-                    LocalTextStyle provides DsType.caption11.copy(
-                        fontFamily = DsType.codeFont,
-                        color = colors.labelPrimary,
+                    LocalTextStyle provides MaterialTheme.typography.labelSmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface,
                     ),
                 ) {
                     TerminalCode(
@@ -205,9 +203,9 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
                         textMate = textMate,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(DsShapes.block)
-                            .background(colors.bgModulePlatform)
-                            .border(1.dp, colors.borderL2, DsShapes.block)
+                            .clip(MaterialTheme.shapes.small)
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
                             .padding(8.dp),
                     )
                 }
@@ -215,8 +213,8 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
             card.cwd?.let {
                 Text(
                     it,
-                    style = DsType.caption11.copy(fontFamily = DsType.codeFont),
-                    color = colors.labelCaption,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             val blocks = card.outputBlocks.ifEmpty { listOfNotNull(card.output) }
@@ -224,13 +222,13 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(DsShapes.block)
-                        .background(colors.bgModulePlatform)
-                        .border(1.dp, colors.borderL2, DsShapes.block)
+                        .clip(MaterialTheme.shapes.small)
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
                         .padding(8.dp),
                 ) {
                     CompositionLocalProvider(
-                        LocalTextStyle provides DsType.mdCode.copy(color = colors.labelPrimary),
+                        LocalTextStyle provides MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace).copy(color = MaterialTheme.colorScheme.onSurface),
                     ) {
                         TerminalCode(code = block, textMate = textMate, modifier = Modifier.fillMaxWidth())
                     }
@@ -245,11 +243,11 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
                 val ok = card.exitCode == 0 && card.signal == null
                 Text(
                     status,
-                    style = DsType.caption11Strong,
-                    color = if (ok) colors.success else colors.error,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                     modifier = Modifier
-                        .clip(DsShapes.pillFull)
-                        .background(if (ok) colors.successTertiary else colors.errorTertiary)
+                        .clip(MaterialTheme.shapes.extraLarge)
+                        .background(if (ok) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer)
                         .padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
@@ -259,7 +257,6 @@ private fun TerminalBody(card: ToolCardView.TerminalCard) {
 
 @Composable
 private fun DiffBody(card: ToolCardView.DiffCard, onOpenFile: ((String, String) -> Unit)?) {
-    val colors = DsTheme.colors
     val (added, removed, files) = diffStats(card.diffs)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         if (card.partial) {
@@ -268,8 +265,8 @@ private fun DiffBody(card: ToolCardView.DiffCard, onOpenFile: ((String, String) 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(DsShapes.row)
-                    .background(colors.warnTertiary)
+                    .clip(MaterialTheme.shapes.small)
+                    .background(MaterialTheme.colorScheme.tertiaryContainer)
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -277,8 +274,8 @@ private fun DiffBody(card: ToolCardView.DiffCard, onOpenFile: ((String, String) 
                 StateDot(StateDotState.Warning, size = 8.dp)
                 Text(
                     stringResource(dev.dsh.mobile.mesh.R.string.apply_patch_partial),
-                    style = DsType.caption11Strong,
-                    color = colors.warnLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
                 )
             }
             // The Host's own stopped summary: which operations failed or were not executed. The
@@ -286,8 +283,8 @@ private fun DiffBody(card: ToolCardView.DiffCard, onOpenFile: ((String, String) 
             card.detail?.takeIf { it.isNotBlank() }?.let { detail ->
                 Text(
                     detail,
-                    style = DsType.caption11.copy(fontFamily = DsType.codeFont),
-                    color = colors.labelSecondary,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
@@ -295,8 +292,8 @@ private fun DiffBody(card: ToolCardView.DiffCard, onOpenFile: ((String, String) 
         card.diffs.forEach { hunk ->
             Text(
                 basename(hunk.path),
-                style = DsType.small13Strong,
-                color = colors.labelSecondary,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .padding(top = 6.dp, bottom = 2.dp)
                     .clickable(enabled = onOpenFile != null && hunk.path.isNotBlank()) { if (hunk.path.isNotBlank()) onOpenFile?.invoke(hunk.path, basename(hunk.path)) },
@@ -305,11 +302,11 @@ private fun DiffBody(card: ToolCardView.DiffCard, onOpenFile: ((String, String) 
         }
         Spacer(Modifier.height(2.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("+$added", style = DsType.caption11Strong, color = colors.success)
+            Text("+$added", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(4.dp))
-            Text("-$removed", style = DsType.caption11Strong, color = colors.error)
+            Text("-$removed", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
             Spacer(Modifier.width(4.dp))
-            Text(stringResource(dev.dsh.mobile.mesh.R.string.tool_files_count, files), style = DsType.caption11, color = colors.labelCaption)
+            Text(stringResource(dev.dsh.mobile.mesh.R.string.tool_files_count, files), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -330,7 +327,6 @@ internal fun toolDiffHighlightPlan(hunk: DiffHunk): ToolDiffHighlightPlan {
 /** One diff surface containing both removed and added lines, like a git diff hunk. */
 @Composable
 private fun CombinedDiffBlock(hunk: DiffHunk) {
-    val colors = DsTheme.colors
     val plan = remember(hunk) { toolDiffHighlightPlan(hunk) }
     val assets = LocalContext.current.applicationContext.assets
     val grammarAsset = textMateGrammarAsset(hunk.path)
@@ -351,9 +347,9 @@ private fun CombinedDiffBlock(hunk: DiffHunk) {
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(DsShapes.block)
-            .border(1.dp, colors.borderL1, DsShapes.block)
-            .background(colors.codeBlockBg)
+            .clip(MaterialTheme.shapes.small)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(vertical = 6.dp),
     ) {
         plan.lines.forEach { line ->
@@ -366,8 +362,8 @@ private fun CombinedDiffBlock(hunk: DiffHunk) {
                 textMate = textMate,
                 plan = plan,
                 index = line.chunkIndex,
-                markerColor = when { removed -> colors.error; added -> colors.success; else -> colors.labelTertiary },
-                background = when { removed -> colors.errorTertiary; added -> colors.successTertiary; else -> colors.codeBlockBg },
+                markerColor = when { removed -> MaterialTheme.colorScheme.error; added -> MaterialTheme.colorScheme.primary; else -> MaterialTheme.colorScheme.onSurfaceVariant },
+                background = when { removed -> MaterialTheme.colorScheme.errorContainer; added -> MaterialTheme.colorScheme.primaryContainer; else -> MaterialTheme.colorScheme.surfaceVariant },
                 darkMode = darkMode,
                 version = hunk,
             )
@@ -389,8 +385,8 @@ private fun ToolDiffCodeLine(
     version: DiffHunk,
 ) {
     Row(Modifier.fillMaxWidth().background(background).padding(horizontal = 8.dp)) {
-        Text("$marker ", style = DsType.mdCode, color = markerColor)
-        CompositionLocalProvider(LocalTextStyle provides DsType.mdCode.copy(color = DsTheme.colors.labelPrimary)) {
+        Text("$marker ", style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = markerColor)
+        CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace).copy(color = MaterialTheme.colorScheme.onSurface)) {
             KodeViewCode(
                 code = code,
                 pathOrLanguage = path,
@@ -408,7 +404,6 @@ private fun ToolDiffCodeLine(
 
 @Composable
 private fun SearchBody(card: ToolCardView.SearchCard, onOpenFile: ((String, String) -> Unit)?) {
-    val colors = DsTheme.colors
     val shown = when (val matches = card.matches) {
         is SearchMatches.FileMatches -> matches.files.sumOf { it.matches.size }
         is SearchMatches.PathList -> matches.paths.size
@@ -419,24 +414,24 @@ private fun SearchBody(card: ToolCardView.SearchCard, onOpenFile: ((String, Stri
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         basename(file.path),
-                        style = DsType.small13Strong.copy(fontFamily = DsType.codeFont),
-                        color = colors.labelSecondary,
+                        style = MaterialTheme.typography.titleSmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.clickable(enabled = onOpenFile != null && file.path.isNotBlank()) { if (file.path.isNotBlank()) onOpenFile?.invoke(file.path, basename(file.path)) },
                     )
                     file.matches.forEach { match ->
                         Row(Modifier.fillMaxWidth()) {
                             Text(
                                 "${match.lineNumber}",
-                                style = DsType.mdCode.copy(color = colors.labelCaption),
-                                color = colors.labelCaption,
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace).copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.End,
                                 modifier = Modifier.width(40.dp),
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 match.line,
-                                style = DsType.mdCode,
-                                color = colors.labelTertiary,
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
@@ -448,8 +443,8 @@ private fun SearchBody(card: ToolCardView.SearchCard, onOpenFile: ((String, Stri
             is SearchMatches.PathList -> matches.paths.forEach { path ->
                 Text(
                     basename(path),
-                    style = DsType.mdCode,
-                    color = colors.labelSecondary,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable(enabled = onOpenFile != null && path.isNotBlank()) { if (path.isNotBlank()) onOpenFile?.invoke(path, basename(path)) },
@@ -461,8 +456,8 @@ private fun SearchBody(card: ToolCardView.SearchCard, onOpenFile: ((String, Stri
         if (card.truncated) {
             Text(
                 stringResource(dev.dsh.mobile.mesh.R.string.tool_search_showing, shown, card.total ?: shown),
-                style = DsType.caption11,
-                color = colors.labelCaption,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -470,64 +465,62 @@ private fun SearchBody(card: ToolCardView.SearchCard, onOpenFile: ((String, Stri
 
 @Composable
 private fun ReadBody(card: ToolCardView.ReadCard, onOpenFile: ((String, String) -> Unit)?) {
-    val colors = DsTheme.colors
     val path = card.path
     if (path != null) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .clip(DsShapes.block)
-                .background(colors.codeBlockBg)
-                .border(1.dp, colors.borderL1, DsShapes.block)
+                .clip(MaterialTheme.shapes.small)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small)
                 .clickable(enabled = onOpenFile != null && path.isNotBlank()) { if (path.isNotBlank()) onOpenFile?.invoke(path, basename(path)) }
                 .padding(horizontal = 10.dp, vertical = 10.dp),
         ) {
-            Text(basename(path), style = DsType.small13Strong.copy(fontFamily = DsType.codeFont), color = colors.labelPrimary)
-            Text(stringResource(dev.dsh.mobile.mesh.R.string.tool_read_lines_tap, card.totalLines), style = DsType.caption11, color = colors.labelCaption)
+            Text(basename(path), style = MaterialTheme.typography.titleSmall.copy(fontFamily = FontFamily.Monospace), color = MaterialTheme.colorScheme.onSurface)
+            Text(stringResource(dev.dsh.mobile.mesh.R.string.tool_read_lines_tap, card.totalLines), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
 @Composable
 private fun WebBody(card: ToolCardView.WebCard) {
-    val colors = DsTheme.colors
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         when (val kind = card.kind) {
             is WebCardKind.Search -> {
                 kind.answer?.let {
-                    Text(it, style = DsType.mdSmall, color = colors.labelPrimary)
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                 }
                 kind.sources.take(8).forEachIndexed { index, source ->
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                         Box(
-                            Modifier.size(18.dp).clip(DsShapes.chip).background(colors.citation),
+                            Modifier.size(18.dp).clip(MaterialTheme.shapes.extraSmall).background(MaterialTheme.colorScheme.surfaceContainerHigh),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text("${index + 1}", style = DsType.caption11Strong, color = colors.accent)
+                            Text("${index + 1}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                         }
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
                             source.title?.let {
                                 Text(
                                     it,
-                                    style = DsType.small13Strong,
-                                    color = colors.labelSecondary,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
                             Text(
                                 source.url,
-                                style = DsType.caption11,
-                                color = colors.labelCaption,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             source.snippet?.let {
                                 Text(
                                     it,
-                                    style = DsType.small13,
-                                    color = colors.labelTertiary,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -538,16 +531,16 @@ private fun WebBody(card: ToolCardView.WebCard) {
                 if (kind.sources.size > 8) {
                     Text(
                         "+${kind.sources.size - 8} more",
-                        style = DsType.caption11,
-                        color = colors.labelCaption,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
             is WebCardKind.Fetch -> {
                 Text(
                     kind.url,
-                    style = DsType.mdCode,
-                    color = colors.labelSecondary,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -555,11 +548,11 @@ private fun WebBody(card: ToolCardView.WebCard) {
                     val ok = code in 200..299
                     Text(
                         "HTTP $code",
-                        style = DsType.caption11Strong,
-                        color = if (ok) colors.success else colors.error,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                         modifier = Modifier
-                            .clip(DsShapes.pillFull)
-                            .background(if (ok) colors.successTertiary else colors.errorTertiary)
+                            .clip(MaterialTheme.shapes.extraLarge)
+                            .background(if (ok) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer)
                             .padding(horizontal = 8.dp, vertical = 2.dp),
                     )
                 }
@@ -570,19 +563,18 @@ private fun WebBody(card: ToolCardView.WebCard) {
 
 @Composable
 private fun GenericBody(card: ToolCardView.GenericCard) {
-    val colors = DsTheme.colors
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         card.rawInput?.let { raw ->
             SectionLabel(stringResource(dev.dsh.mobile.mesh.R.string.tool_section_input))
             Text(
                 prettyJson(raw),
-                style = DsType.mdCode,
-                color = colors.labelPrimary,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(DsShapes.row)
-                    .background(colors.bgLayer2)
-                    .border(1.dp, colors.borderL1, DsShapes.row)
+                    .clip(MaterialTheme.shapes.small)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small)
                     .padding(10.dp),
             )
         }
@@ -591,8 +583,8 @@ private fun GenericBody(card: ToolCardView.GenericCard) {
             locations.forEach { location ->
                 Text(
                     location,
-                    style = DsType.mdCode,
-                    color = colors.labelTertiary,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -613,14 +605,14 @@ private fun GenericBody(card: ToolCardView.GenericCard) {
                     } else {
                         Text(
                             block.text,
-                            style = DsType.mdCode,
-                            color = colors.labelPrimary,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                     is ContentBlockView.ReasoningBlock -> Text(
                         block.text,
-                        style = DsType.mdSmall.copy(color = colors.labelTertiary),
-                        color = colors.labelTertiary,
+                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     // A tool that returns a screenshot arrives here, not on the message path.
                     is ContentBlockView.ImageBlock -> AttachmentImage(
@@ -637,8 +629,8 @@ private fun GenericBody(card: ToolCardView.GenericCard) {
 private fun SectionLabel(text: String) {
     Text(
         text,
-        style = DsType.caption11Strong,
-        color = DsTheme.colors.labelCaption,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(bottom = 2.dp),
     )
 }

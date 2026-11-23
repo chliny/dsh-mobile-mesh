@@ -31,6 +31,10 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -52,13 +56,11 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
+import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionAnswer
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionItem
 import dev.dsh.mobile.mesh.core.wire.dto.AskUserQuestionOption
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.launch
 
 /**
@@ -90,7 +92,6 @@ internal fun QuestionsPanel(
     onDismiss: suspend () -> String?,
     modifier: Modifier = Modifier,
 ) {
-    val colors = DsTheme.colors
     val scope = rememberCoroutineScope()
 
     // Keyed on the request rather than on the question list: a reconnect replays the same rpcId
@@ -173,9 +174,9 @@ internal fun QuestionsPanel(
                 .fillMaxWidth()
                 .then(if (minimized) Modifier else Modifier.heightIn(max = cap))
                 .animateContentSize(DsAnimations.expand),
-            shape = DsShapes.approvalCard,
-            color = colors.composerCard,
-            border = BorderStroke(1.dp, colors.borderL2),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             shadowElevation = 2.dp,
         ) {
             Column(
@@ -257,7 +258,6 @@ private fun QuestionHeader(
     onToggle: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     val toggleLabel = stringResource(
         if (minimized) R.string.questions_expand else R.string.questions_collapse,
     )
@@ -276,7 +276,7 @@ private fun QuestionHeader(
             Icon(
                 FeatherIcons.ChevronRight,
                 contentDescription = null,
-                tint = colors.labelTertiary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .size(14.dp)
                     .graphicsLayer { rotationZ = rotation },
@@ -284,12 +284,12 @@ private fun QuestionHeader(
             Spacer(Modifier.width(8.dp))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 question.header?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, style = DsType.caption11, color = colors.labelTertiary)
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
                     question.question,
-                    style = DsType.std14Strong,
-                    color = colors.labelPrimary,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                     // Keep the full prompt in the scrollable body rather than truncate its header.
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -299,8 +299,8 @@ private fun QuestionHeader(
         if (count > 1) {
             Text(
                 stringResource(R.string.questions_progress, index + 1, count),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.width(4.dp))
         }
@@ -368,15 +368,14 @@ private fun OptionRow(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     val display = remember(option.label) { parseRecommendedLabel(option.label) }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = enabled, onClick = onClick),
-        shape = DsShapes.menu,
-        color = if (selected) colors.accentTertiary else colors.bgModulePlatform,
-        border = if (selected) BorderStroke(1.dp, colors.accent) else null,
+        shape = MaterialTheme.shapes.small,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
@@ -396,12 +395,16 @@ private fun OptionRow(
                 ) {
                     Text(
                         display.display,
-                        style = DsType.std14,
-                        color = if (selected) colors.accent else colors.labelPrimary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     if (display.recommended) {
-                        DsPill(stringResource(R.string.questions_recommended), selected = true)
+                        StatusBadge(
+                            stringResource(R.string.questions_recommended),
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
                     }
                 }
                 option.description?.takeIf { it.isNotBlank() }?.let {
@@ -415,12 +418,11 @@ private fun OptionRow(
 /** The ordinal badge of a single choice, or the check box of a multiple one. */
 @Composable
 private fun OptionMarker(ordinal: Int, selected: Boolean, multiSelect: Boolean) {
-    val colors = DsTheme.colors
     Surface(
         modifier = Modifier.size(20.dp),
-        shape = if (multiSelect) DsShapes.chip else CircleShape,
-        color = if (selected) colors.accent else Color.Transparent,
-        border = BorderStroke(1.dp, if (selected) colors.accent else colors.borderL2),
+        shape = if (multiSelect) MaterialTheme.shapes.extraSmall else CircleShape,
+        color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+        border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
     ) {
         Box(contentAlignment = Alignment.Center) {
             if (multiSelect) {
@@ -428,15 +430,15 @@ private fun OptionMarker(ordinal: Int, selected: Boolean, multiSelect: Boolean) 
                     Icon(
                         Icons.Filled.Check,
                         contentDescription = null,
-                        tint = colors.onAccent,
+                        tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(12.dp),
                     )
                 }
             } else {
                 Text(
                     ordinal.toString(),
-                    style = DsType.caption11,
-                    color = if (selected) colors.onAccent else colors.labelTertiary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -462,7 +464,6 @@ private fun CustomAnswerField(
     onValueChange: (String) -> Unit,
     onContinue: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
     val scope = rememberCoroutineScope()
     TextField(
@@ -478,8 +479,8 @@ private fun CustomAnswerField(
         placeholder = {
             Text(
                 stringResource(R.string.questions_custom_placeholder),
-                style = DsType.std14,
-                color = colors.labelCaption,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
         leadingIcon = if (!hasOptions) {
@@ -492,7 +493,7 @@ private fun CustomAnswerField(
                     Icon(
                         Icons.Filled.Edit,
                         contentDescription = null,
-                        tint = colors.labelTertiary,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -510,11 +511,11 @@ private fun CustomAnswerField(
             onNext = { onContinue() },
         ),
         colors = TextFieldDefaults.colors(
-            focusedContainerColor = colors.bgLayer1,
-            unfocusedContainerColor = colors.bgLayer1,
-            disabledContainerColor = colors.bgLayer1,
-            focusedIndicatorColor = colors.accent,
-            unfocusedIndicatorColor = colors.borderL2,
+            focusedContainerColor = MaterialTheme.colorScheme.surface,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+            disabledContainerColor = MaterialTheme.colorScheme.surface,
+            focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+            unfocusedIndicatorColor = MaterialTheme.colorScheme.outlineVariant,
         ),
     )
 }
@@ -532,49 +533,40 @@ private fun QuestionFooter(
     onSkip: () -> Unit,
     onContinue: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     feedback?.let {
-        Text(it, style = DsType.caption11, color = colors.error)
+        Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
     }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (count > 1) {
-            DsIconButton(
-                icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                contentDescription = stringResource(R.string.questions_nav_previous),
-                onClick = onPrevious,
-                enabled = index > 0 && !busy,
-                iconSize = 18.dp,
-            )
-            DsIconButton(
-                icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = stringResource(R.string.questions_nav_next),
-                onClick = onNext,
-                enabled = index < count - 1 && !busy,
-                iconSize = 18.dp,
-            )
+            IconButton(onClick = onPrevious, enabled = index > 0 && !busy) {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = stringResource(R.string.questions_nav_previous),
+                )
+            }
+            IconButton(onClick = onNext, enabled = index < count - 1 && !busy) {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = stringResource(R.string.questions_nav_next),
+                )
+            }
         }
         Spacer(Modifier.weight(1f))
-        DsButton(
-            text = stringResource(R.string.questions_skip),
-            onClick = onSkip,
-            enabled = !busy,
-            variant = DsButtonVariant.Ghost,
-            size = DsButtonSize.Small,
-        )
+        TextButton(onClick = onSkip, enabled = !busy) {
+            Text(stringResource(R.string.questions_skip))
+        }
         Spacer(Modifier.width(8.dp))
-        DsButton(
-            text = when {
-                busy -> stringResource(R.string.questions_submitting)
-                index < count - 1 -> stringResource(R.string.questions_next)
-                else -> stringResource(R.string.questions_submit)
-            },
-            onClick = onContinue,
-            enabled = canContinue && !busy,
-            variant = DsButtonVariant.Info,
-            size = DsButtonSize.Small,
-        )
+        Button(onClick = onContinue, enabled = canContinue && !busy) {
+            Text(
+                when {
+                    busy -> stringResource(R.string.questions_submitting)
+                    index < count - 1 -> stringResource(R.string.questions_next)
+                    else -> stringResource(R.string.questions_submit)
+                },
+            )
+        }
     }
 }

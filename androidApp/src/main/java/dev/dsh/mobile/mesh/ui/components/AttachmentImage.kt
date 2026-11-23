@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -32,9 +33,6 @@ import dev.dsh.mobile.mesh.ui.media.aspectRatioOf
 import dev.dsh.mobile.mesh.ui.media.rememberAttachmentCache
 import dev.dsh.mobile.mesh.ui.media.rememberAttachmentImage
 import dev.dsh.mobile.mesh.ui.rememberSessionStore
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
 /**
  * One raster attachment in the transcript: a placeholder holding the reference's own aspect ratio
@@ -50,7 +48,6 @@ fun AttachmentImage(
     maxHeight: Int = 240,
     contentDescription: String? = null,
 ) {
-    val colors = DsTheme.colors
     val store = rememberSessionStore()
     val cache = rememberAttachmentCache()
     val density = LocalDensity.current
@@ -72,8 +69,8 @@ fun AttachmentImage(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(max = maxHeight.dp)
-            .clip(DsShapes.block)
-            .background(colors.bgModulePlatform),
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.surfaceContainer),
         contentAlignment = Alignment.Center,
     ) {
         when (val current = state) {
@@ -81,12 +78,12 @@ fun AttachmentImage(
                 Modifier
                     .fillMaxWidth()
                     .aspectRatio(ratio)
-                    .skeleton(base = colors.bgModulePlatform, highlight = colors.hover),
+                    .skeleton(base = MaterialTheme.colorScheme.surfaceContainer, highlight = MaterialTheme.colorScheme.surface),
             )
             AttachmentImageState.Failed -> Text(
                 stringResource(R.string.chat_image_failed),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(16.dp),
             )
             is AttachmentImageState.Ready -> Image(
@@ -109,7 +106,7 @@ fun AttachmentImage(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .background(colors.overlayMask)
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f))
                     .clickable { zoomed = false },
                 contentAlignment = Alignment.Center,
             ) {

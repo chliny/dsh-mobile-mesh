@@ -2,6 +2,7 @@ package dev.dsh.mobile.mesh.ui.screens.main
 
 import androidx.annotation.StringRes
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import dev.dsh.mobile.mesh.R
@@ -11,7 +12,6 @@ import dev.dsh.mobile.mesh.core.wire.dto.GoalPhase
 import dev.dsh.mobile.mesh.core.wire.dto.JobStatus
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentListEntry
 import dev.dsh.mobile.mesh.ui.components.StateDotState
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
 
 /** Shared label and status mappings for the chat surface. */
 
@@ -161,9 +161,11 @@ internal fun AgentPresetEntry.displayDescription(): String? =
 
 @Composable
 internal fun dialogTextFieldColors() = TextFieldDefaults.colors(
-    focusedContainerColor = DsTheme.colors.bgLayer1,
-    unfocusedContainerColor = DsTheme.colors.bgLayer1,
-    focusedIndicatorColor = DsTheme.colors.accent,
-    unfocusedIndicatorColor = DsTheme.colors.borderL2,
-    cursorColor = DsTheme.colors.accent,
+    focusedContainerColor = MaterialTheme.colorScheme.surface,
+    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+    focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+    unfocusedIndicatorColor = MaterialTheme.colorScheme.outline,
+    cursorColor = MaterialTheme.colorScheme.primary,
+    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
 )

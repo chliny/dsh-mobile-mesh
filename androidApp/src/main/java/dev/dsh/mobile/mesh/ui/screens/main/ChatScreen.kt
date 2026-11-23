@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import android.provider.OpenableColumns
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.material3.MaterialTheme
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
@@ -68,7 +69,6 @@ import dev.dsh.mobile.mesh.ui.rememberSessionStore
 import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
 import dev.dsh.mobile.mesh.ui.theme.DsType
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import androidx.compose.ui.res.stringResource
 import dev.dsh.mobile.mesh.R
 import java.util.UUID
@@ -114,7 +114,6 @@ internal fun ChatScreen(
     val draftStore = rememberChatDraftStore()
     val newSessionDraftStore = rememberNewSessionDraftStore()
     val scope = rememberCoroutineScope()
-    val colors = DsTheme.colors
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val toast = rememberDsToast()
@@ -571,7 +570,7 @@ internal fun ChatScreen(
         }
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = colors.bgBase) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         // The activity draws edge to edge, so every top-level surface has to consume the insets
         // itself or the chrome ends up underneath the status bar. safeDrawing covers the status
         // bar, the gesture area and the keyboard in one modifier.
@@ -579,7 +578,6 @@ internal fun ChatScreen(
             ChatTopBar(
                 title = title,
                 connectionPhase = connectionPhase,
-                models = models,
                 agentPresetLabel = currentSession?.agentPreset?.let { agentPresetLabel(it, agentPresets) },
                 subagentCount = subagents.size,
                 jobCount = jobs.size,
@@ -721,7 +719,11 @@ internal fun ChatScreen(
             }
             if (questions != null) {
                 questions.remainingMs?.let { remaining ->
-                    Text(stringResource(R.string.question_expires_in, (remaining + 999L) / 1_000L), style = DsType.caption11, color = colors.labelTertiary)
+                    Text(
+                        stringResource(R.string.question_expires_in, (remaining + 999L) / 1_000L),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 var planBusy by remember(questions.rpcId) { mutableStateOf(false) }
                 // A plan review rides the question channel but is a different decision, so it gets
@@ -848,8 +850,8 @@ internal fun ChatScreen(
             if (subagentReadOnly && !decisionPending) {
                 Text(
                     stringResource(R.string.subagents_readonly),
-                    style = DsType.caption11,
-                    color = colors.labelTertiary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (!decisionPending) StatsFooter(stats = sessionStats, usage = tokenUsage, disclosureScope = disclosureScope)

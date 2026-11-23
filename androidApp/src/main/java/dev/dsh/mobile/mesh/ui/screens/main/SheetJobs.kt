@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -33,8 +34,6 @@ import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.formatDurationMs
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
 /** The Host permits output observation for live jobs and settled jobs with retained bytes. */
 internal fun canObserveJob(job: JobView): Boolean =
@@ -49,7 +48,6 @@ internal fun JobsSheet(
     onObserve: (String, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     var selectedId by remember(sessionId) { mutableStateOf<String?>(null) }
     val selectedJob = jobs.firstOrNull { it.id == selectedId }
     val observableId = selectedJob?.takeIf(::canObserveJob)?.id
@@ -81,7 +79,7 @@ internal fun JobsSheet(
             modifier = Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
         ) {
             if (jobs.isEmpty()) {
-                Text(stringResource(R.string.jobs_empty), style = DsType.caption11, color = colors.labelTertiary)
+                Text(stringResource(R.string.jobs_empty), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             jobs.forEach { job ->
                 Column(Modifier.fillMaxWidth()) {
@@ -96,42 +94,42 @@ internal fun JobsSheet(
                         Column(Modifier.weight(1f)) {
                             Text(
                                 job.label,
-                                style = DsType.small13,
-                                color = colors.labelPrimary,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
                                 listOfNotNull(job.kind, job.progress ?: job.detail, formatDurationMs(jobElapsedMs(job, nowMs)))
                                     .joinToString(" · "),
-                                style = DsType.caption11,
-                                color = colors.labelCaption,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
                         Text(
                             stringResource(jobStatusLabelRes(job.status)),
-                            style = DsType.caption11,
-                            color = colors.labelTertiary,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     if (selectedId == job.id) {
                         val output = outputById[job.id]
                         Column(Modifier.fillMaxWidth().padding(start = DsSpacing.large, bottom = DsSpacing.small)) {
                             if (output?.gapBefore == true) {
-                                Text(stringResource(R.string.jobs_output_gap), style = DsType.caption11, color = colors.labelCaption)
+                                Text(stringResource(R.string.jobs_output_gap), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             if (output?.lossy == true) {
-                                Text(stringResource(R.string.jobs_output_lossy), style = DsType.caption11, color = colors.labelCaption)
+                                Text(stringResource(R.string.jobs_output_lossy), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            output?.error?.let { Text(it, style = DsType.caption11, color = colors.labelCaption) }
+                            output?.error?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             output?.text?.takeIf { it.isNotEmpty() }?.let { text ->
-                                Text(text, style = DsType.caption11, color = colors.labelSecondary)
+                                Text(text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             // Settled jobs with no retained output still expose the Host's final reason.
                             if (!canObserveJob(job)) job.detail?.let {
-                                Text(it, style = DsType.caption11, color = colors.labelSecondary)
+                                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }

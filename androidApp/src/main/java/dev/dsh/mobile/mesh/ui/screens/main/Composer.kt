@@ -40,6 +40,9 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -84,14 +87,9 @@ import dev.dsh.mobile.mesh.core.wire.dto.PermissionSelect
 import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
 import dev.dsh.mobile.mesh.ui.screens.main.permissionPresetLabel
 import dev.dsh.mobile.mesh.ui.components.ContextMeter
-import dev.dsh.mobile.mesh.ui.components.DsMenu
-import dev.dsh.mobile.mesh.ui.components.MenuItem
 import dev.dsh.mobile.mesh.ui.components.skeleton
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
 /**
  * Something picked and waiting to be sent with the next message.
@@ -205,7 +203,6 @@ internal fun Composer(
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val colors = DsTheme.colors
     val haptics = LocalHapticFeedback.current
     // A file that is still uploading has no receipt to cite yet, and one that failed never will;
     // the send affordance waits for the chips rather than sending a message that names neither.
@@ -246,9 +243,9 @@ internal fun Composer(
             .fillMaxWidth()
             .padding(horizontal = DsSpacing.medium, vertical = DsSpacing.small)
             .animateContentSize(),
-        shape = DsShapes.composer,
-        color = colors.composerCard,
-        border = BorderStroke(2.dp, colors.borderL2),
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(
             Modifier.padding(DsSpacing.medium),
@@ -267,13 +264,13 @@ internal fun Composer(
                 placeholder = {
                     Text(
                         stringResource(R.string.chat_composer_hint),
-                        style = DsType.std14,
-                        color = colors.labelTertiary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 },
                 minLines = 1,
                 maxLines = 8,
-                textStyle = DsType.std14,
+                textStyle = MaterialTheme.typography.bodyMedium,
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
@@ -281,22 +278,23 @@ internal fun Composer(
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent,
                     disabledIndicatorColor = Color.Transparent,
-                    cursorColor = colors.accent,
-                    focusedTextColor = colors.labelPrimary,
-                    unfocusedTextColor = colors.labelPrimary,
+                    cursorColor = MaterialTheme.colorScheme.primary,
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    disabledTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 ),
             )
 
             AnimatedVisibility(visible = mentionActive && (matchingFiles.isNotEmpty() || matchingSessions.isNotEmpty())) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(DsShapes.block)
-                        .background(colors.bgModulePlatform).border(1.dp, colors.borderL2, DsShapes.block),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(MaterialTheme.shapes.small)
+                        .background(MaterialTheme.colorScheme.surfaceContainer).border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small),
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         Icon(
                             imageVector = Icons.Filled.Close,
                             contentDescription = stringResource(R.string.common_cancel),
-                            tint = colors.labelSecondary,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.clickable {
                                 activeMention?.let { mentionPickerState = mentionPickerState.dismiss(it) }
                             }.padding(8.dp).size(18.dp),
@@ -304,7 +302,7 @@ internal fun Composer(
                     }
                     matchingFiles.forEach { file ->
                         Text(
-                            text = "@${file.name}", style = DsType.std14, color = colors.labelPrimary,
+                            text = "@${file.name}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.fillMaxWidth().clickable {
                                 activeMention?.let { trigger ->
                                     val mention = fileMention(file, trigger.quoted)
@@ -321,7 +319,7 @@ internal fun Composer(
                     matchingSessions.forEach { candidate ->
                         Text(
                             text = "@${candidate.displayTitle ?: candidate.label}",
-                            style = DsType.std14, color = colors.labelPrimary,
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.fillMaxWidth().clickable {
                                 activeMention?.let { trigger ->
                                     val replacement = replaceMentionTrigger(draft, trigger, candidate.mention, complete = true)
@@ -340,29 +338,29 @@ internal fun Composer(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 220.dp)
-                        .clip(DsShapes.block)
-                        .background(colors.bgModulePlatform)
-                        .border(1.dp, colors.borderL2, DsShapes.block),
+                        .clip(MaterialTheme.shapes.small)
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small),
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         Icon(
                             imageVector = Icons.Filled.Close,
                             contentDescription = stringResource(R.string.common_cancel),
-                            tint = colors.labelSecondary,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.clickable {
                                 activeSlash?.let { slashPickerState = slashPickerState.dismiss(it) }
                             }.padding(8.dp).size(18.dp),
                         )
                     }
                     if (matchingCommands.isEmpty()) {
-                        Text(stringResource(R.string.chat_commands_no_match), style = DsType.caption11, color = colors.labelTertiary,
+                        Text(stringResource(R.string.chat_commands_no_match), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
                     }
                     matchingCommands.take(8).forEach { (label, draftPrefix) ->
                         Text(
                             text = label,
-                            style = DsType.std14,
-                            color = colors.labelPrimary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
@@ -398,8 +396,8 @@ internal fun Composer(
                     icon = Icons.Filled.Add,
                     contentDescription = stringResource(R.string.chat_composer_commands),
                     size = 30,
-                    background = colors.hoverSolid,
-                    tint = colors.labelPrimary,
+                    background = MaterialTheme.colorScheme.surfaceVariant,
+                    tint = MaterialTheme.colorScheme.onSurface,
                     enabled = enabled,
                     onClick = onOpenSheet,
                 )
@@ -433,8 +431,8 @@ internal fun Composer(
                             icon = null,
                             contentDescription = stringResource(R.string.chat_composer_stop),
                             size = 36,
-                            background = colors.error,
-                            tint = Color.White,
+                            background = MaterialTheme.colorScheme.error,
+                            tint = MaterialTheme.colorScheme.onError,
                             enabled = showStop,
                             onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -445,7 +443,7 @@ internal fun Composer(
                                 Modifier
                                     .size(11.dp)
                                     .clip(RoundedCornerShape(3.dp))
-                                    .background(Color.White),
+                                    .background(MaterialTheme.colorScheme.onError),
                             )
                         }
                     } else {
@@ -458,25 +456,39 @@ internal fun Composer(
                         val canChooseMode = running && canSend
                         // Discard an open menu when its turn ends or the user changes sessions.
                         key(referenceSessionId, canChooseMode) {
-                            DsMenu(
-                                anchor = { open ->
-                                    CircleAction(
-                                        icon = Icons.Filled.ArrowUpward,
-                                        contentDescription = stringResource(R.string.chat_composer_send),
-                                        size = 36,
-                                        background = if (canSend) colors.buttonInfoFill else colors.buttonPrimaryDimmed,
-                                        tint = if (canSend) Color.White else colors.labelTertiary,
-                                        enabled = canSend,
-                                        onClick = { submit(null) },
-                                        onLongClick = open.takeIf { canChooseMode },
-                                        onLongClickLabel = stringResource(R.string.chat_composer_mode),
+                            var modeMenuOpen by remember { mutableStateOf(false) }
+                            Box {
+                                CircleAction(
+                                    icon = Icons.Filled.ArrowUpward,
+                                    contentDescription = stringResource(R.string.chat_composer_send),
+                                    size = 36,
+                                    background = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    enabled = canSend,
+                                    onClick = { submit(null) },
+                                    onLongClick = { if (canChooseMode) modeMenuOpen = true },
+                                    onLongClickLabel = stringResource(R.string.chat_composer_mode),
+                                )
+                                DropdownMenu(
+                                    expanded = modeMenuOpen,
+                                    onDismissRequest = { modeMenuOpen = false },
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.chat_composer_steer)) },
+                                        onClick = {
+                                            modeMenuOpen = false
+                                            submit("steer")
+                                        },
                                     )
-                                },
-                                items = listOf(
-                                    MenuItem(stringResource(R.string.chat_composer_steer)) { submit("steer") },
-                                    MenuItem(stringResource(R.string.chat_composer_queue)) { submit("queue") },
-                                ),
-                            )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.chat_composer_queue)) },
+                                        onClick = {
+                                            modeMenuOpen = false
+                                            submit("queue")
+                                        },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -506,12 +518,11 @@ private fun ModelChip(
     models: SessionModelsValue?,
     onClick: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     val (label, effortLabel) = models?.let(::composerModelLabels)
         ?: (stringResource(R.string.common_loading) to null)
     Row(
         modifier = Modifier
-            .clip(DsShapes.cube)
+            .clip(MaterialTheme.shapes.small)
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -522,14 +533,14 @@ private fun ModelChip(
             buildAnnotatedString {
                 append(label)
                 effortLabel?.let { effort ->
-                    withStyle(SpanStyle(color = colors.labelTertiary)) {
+                    withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) {
                         append("  ")
                         append(effort)
                     }
                 }
             },
-            style = DsType.small13,
-            color = colors.labelSecondary,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
@@ -537,7 +548,7 @@ private fun ModelChip(
         Icon(
             Icons.Filled.KeyboardArrowDown,
             contentDescription = null,
-            tint = colors.labelTertiary,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(12.dp),
         )
     }
@@ -550,7 +561,6 @@ private fun PermissionChip(
     enabled: Boolean,
     onPick: (String) -> Unit,
 ) {
-    val colors = DsTheme.colors
     if (select == null) return
     var menuOpen by remember { mutableStateOf(false) }
     var confirming by remember { mutableStateOf<String?>(null) }
@@ -565,12 +575,12 @@ private fun PermissionChip(
     Box {
         Row(
             modifier = Modifier
-                .clip(DsShapes.cube)
+                .clip(MaterialTheme.shapes.small)
                 .clickable(enabled = enabled && pending == null) { menuOpen = true }
                 .padding(horizontal = 8.dp, vertical = 4.dp)
                 .then(
                     if (pending != null) {
-                        Modifier.skeleton(colors.bgLayer2, colors.hover, DsShapes.cube)
+                        Modifier.skeleton(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.surface, MaterialTheme.shapes.small)
                     } else {
                         Modifier
                     },
@@ -581,20 +591,20 @@ private fun PermissionChip(
             Icon(
                 Icons.Outlined.Shield,
                 contentDescription = stringResource(R.string.permission_preset),
-                tint = if (effective == FULL_ACCESS_PRESET) colors.warnLabel else colors.labelTertiary,
+                tint = if (effective == FULL_ACCESS_PRESET) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(14.dp),
             )
             Text(
                 label,
-                style = DsType.small13,
-                color = colors.labelSecondary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Icon(
                 Icons.Filled.KeyboardArrowDown,
                 contentDescription = null,
-                tint = colors.labelTertiary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(12.dp),
             )
         }
@@ -635,7 +645,6 @@ private fun AttachmentStrip(
     onRemove: (Int) -> Unit,
     onRetry: (Int) -> Unit,
 ) {
-    val colors = DsTheme.colors
     Row(
         horizontalArrangement = Arrangement.spacedBy(DsSpacing.small),
         modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -646,8 +655,8 @@ private fun AttachmentStrip(
                     is PendingAttachment.Image -> Box(
                         Modifier
                             .size(56.dp)
-                            .clip(DsShapes.block)
-                            .background(colors.bgModulePlatform),
+                            .clip(MaterialTheme.shapes.small)
+                            .background(MaterialTheme.colorScheme.surfaceContainer),
                     ) {
                         attachment.preview?.let {
                             Image(
@@ -665,7 +674,7 @@ private fun AttachmentStrip(
                         .align(Alignment.TopEnd)
                         .size(18.dp)
                         .clip(CircleShape)
-                        .background(colors.toastBg)
+                        .background(MaterialTheme.colorScheme.inverseSurface)
                         .clickable { onRemove(index) },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -692,15 +701,14 @@ private fun AttachmentStrip(
  */
 @Composable
 private fun FileAttachmentChip(file: PendingAttachment.File, onRetry: () -> Unit) {
-    val colors = DsTheme.colors
     val failed = file.state is FileUploadState.Failed
     Row(
         modifier = Modifier
             .height(56.dp)
             .widthIn(min = 120.dp, max = 200.dp)
-            .clip(DsShapes.block)
-            .background(colors.bgModulePlatform)
-            .border(1.dp, if (failed) colors.error else colors.borderL3, DsShapes.block)
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .border(1.dp, if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
             .clickable(enabled = failed, onClick = onRetry)
             .padding(start = 10.dp, end = 22.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -712,22 +720,22 @@ private fun FileAttachmentChip(file: PendingAttachment.File, onRetry: () -> Unit
                     if (file.size > 0) (state.sent.toFloat() / file.size).coerceIn(0f, 1f) else 0f
                 },
                 modifier = Modifier.size(18.dp),
-                color = colors.accent,
-                trackColor = colors.borderL3,
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.outline,
                 strokeWidth = 2.dp,
             )
             else -> Icon(
                 Icons.Outlined.Description,
                 contentDescription = null,
-                tint = if (failed) colors.error else colors.labelSecondary,
+                tint = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),
             )
         }
         Column {
             Text(
                 file.name,
-                style = DsType.small13,
-                color = colors.labelPrimary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -737,8 +745,8 @@ private fun FileAttachmentChip(file: PendingAttachment.File, onRetry: () -> Unit
                     is FileUploadState.Ready -> fileSizeText(state.file.bytes)
                     is FileUploadState.Failed -> stringResource(R.string.chat_attachment_upload_failed)
                 },
-                style = DsType.caption11,
-                color = if (failed) colors.error else colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

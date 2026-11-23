@@ -23,6 +23,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -43,10 +44,7 @@ import dev.dsh.mobile.mesh.data.SessionStore
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
 import dev.dsh.mobile.mesh.ui.components.DsSegment
 import dev.dsh.mobile.mesh.ui.components.DsSegmented
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import java.util.Locale
 import kotlinx.coroutines.launch
 
@@ -66,22 +64,21 @@ internal fun ModelsSheet(
     onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val colors = DsTheme.colors
     val configuration = LocalConfiguration.current
     // The Host localizes badge text itself; this client only picks the reader's language out of
     // the map it was given, falling back to the Host's required `en` when that language is absent.
     val badgeLanguageTags = remember(configuration) { modelBadgeLanguageTags(configuration.locales.get(0)) }
     DsBottomSheet(title = stringResource(R.string.models_title), onDismiss = onDismiss) {
         if (models == null) {
-            Text(stringResource(R.string.common_loading), style = DsType.std14, color = colors.labelTertiary)
+            Text(stringResource(R.string.common_loading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@DsBottomSheet
         }
         val current = models.current
         if (!models.routable) {
             Text(
                 stringResource(R.string.models_unroutable),
-                style = DsType.small13,
-                color = colors.warnLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
             )
         }
         // The sheet's own drag handle competes with the list's scroll for downward drags. Material3
@@ -126,8 +123,8 @@ internal fun ModelsSheet(
                 // At the section weight this used the group read as loud as its own contents.
                 Text(
                     group.name,
-                    style = DsType.xsmall12,
-                    color = colors.labelTertiary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(
                         start = DsSpacing.small,
                         top = DsSpacing.small,
@@ -151,8 +148,8 @@ internal fun ModelsSheet(
             models.failures.forEach { failure ->
                 Text(
                     stringResource(R.string.err_model_unavailable, "${failure.name}: ${failure.message}"),
-                    style = DsType.caption11,
-                    color = colors.warnLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(horizontal = DsSpacing.small, vertical = DsSpacing.tiny),
                 )
             }
@@ -198,17 +195,16 @@ private fun ModelRow(
     onSelect: () -> Unit,
     onSelectEffort: (String) -> Unit,
 ) {
-    val colors = DsTheme.colors
     val efforts = model.reasoning?.efforts.orEmpty()
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = DsShapes.menu,
+        shape = MaterialTheme.shapes.small,
         // Every model is a card, not only the chosen one. A bare name on the sheet's own colour
         // offers nothing to press: a phone has no hover to discover it with, so the row has to look
         // like a control while it is at rest. `bgModulePlatform` is the one surface that steps off
         // the sheet in both themes — the three `bgLayer` tokens are all pure white in light mode.
-        color = if (selected) colors.accentTertiary else colors.bgModulePlatform,
-        border = if (selected) BorderStroke(1.dp, colors.accent) else null,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+        border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
     ) {
         Column {
             Row(
@@ -228,8 +224,8 @@ private fun ModelRow(
                     ) {
                         Text(
                             model.name,
-                            style = DsType.std14Strong,
-                            color = if (selected) colors.accent else colors.labelPrimary,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false),
@@ -246,8 +242,8 @@ private fun ModelRow(
                     model.description?.takeIf { it.isNotBlank() }?.let {
                         Text(
                             it,
-                            style = DsType.caption11,
-                            color = colors.labelTertiary,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -258,7 +254,7 @@ private fun ModelRow(
                     Icon(
                         Icons.Filled.Check,
                         contentDescription = stringResource(R.string.models_current),
-                        tint = colors.accent,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -276,8 +272,8 @@ private fun ModelRow(
                     // harness gives the tier list a pane with a title; here the title is one line.
                     Text(
                         stringResource(R.string.models_reasoning_effort),
-                        style = DsType.caption11,
-                        color = colors.labelTertiary,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     val segments = listOf(DsSegment(DEFAULT_REASONING_EFFORT_KEY, stringResource(R.string.presets_default))) +
                         efforts.map { DsSegment(it.id, it.name) }
@@ -307,17 +303,16 @@ private fun ModelRow(
  */
 @Composable
 private fun ModelBadgePill(text: String, tone: String) {
-    val colors = DsTheme.colors
     val (container, content) = when (tone) {
-        ModelBadge.TONE_INFO -> colors.accentTertiary to colors.accent
-        ModelBadge.TONE_SUCCESS -> colors.successTertiary to colors.success
-        ModelBadge.TONE_WARNING -> colors.warnTertiary to colors.warnLabel
-        else -> colors.bgLayer3 to colors.labelSecondary
+        ModelBadge.TONE_INFO -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.primary
+        ModelBadge.TONE_SUCCESS -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+        ModelBadge.TONE_WARNING -> MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
+        else -> MaterialTheme.colorScheme.surfaceContainerHigh to MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Surface(color = container, shape = DsShapes.pill) {
+    Surface(color = container, shape = MaterialTheme.shapes.small) {
         Text(
             text = text,
-            style = DsType.caption11Strong,
+            style = MaterialTheme.typography.labelMedium,
             color = content,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

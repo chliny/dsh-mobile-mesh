@@ -14,7 +14,7 @@ class QueueEditDialogLayoutTest {
     private val docks = File("src/main/java/dev/dsh/mobile/mesh/ui/screens/main/Docks.kt").readText()
 
     // The queued-turn editor is the last dialog in the file, so it runs to the end of it.
-    private val queueDialog = docks.substringAfter("DsDialog(title = stringResource(R.string.chat_queue_edit)")
+    private val queueDialog = docks.substringAfter("title = { Text(stringResource(R.string.chat_queue_edit)) }")
 
     @Test
     fun `the queue editor is bounded and scrolls its own text`() {
@@ -36,7 +36,7 @@ class QueueEditDialogLayoutTest {
     @Test
     fun `the queue editor never falls back to the truncated preview`() {
         val menu = docks
-            .substringAfter("add(MenuItem(stringResource(R.string.chat_queue_edit)) {")
+            .substringAfter("stringResource(R.string.chat_queue_edit)")
             .substringBefore("stringResource(R.string.chat_queue_remove)")
         assertTrue(menu.contains("queueEditSeedText(item)"))
         assertFalse(
@@ -48,7 +48,7 @@ class QueueEditDialogLayoutTest {
     @Test
     fun `the goal editor carries the same bound rather than growing without one`() {
         val goalDialog = docks
-            .substringAfter("DsDialog(title = stringResource(R.string.goal_edit)")
+            .substringAfter("title = { Text(stringResource(R.string.goal_edit)) }")
             .substringBefore("stringResource(R.string.chat_queue_count")
         assertTrue(goalDialog.contains("heightIn(max = DsDialogBodyMaxHeight())"))
         assertTrue(goalDialog.contains("maxLines ="))

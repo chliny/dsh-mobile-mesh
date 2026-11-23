@@ -4,8 +4,8 @@ import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,20 +15,28 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -40,50 +48,43 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.dsh.mobile.mesh.R
+import dev.dsh.mobile.mesh.core.DshCore
 import dev.dsh.mobile.mesh.core.session.ChatNode
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
 import dev.dsh.mobile.mesh.core.session.QueueItem
 import dev.dsh.mobile.mesh.core.session.WorkflowNode
+import dev.dsh.mobile.mesh.core.wire.dto.AgentPresetListValue
 import dev.dsh.mobile.mesh.core.wire.dto.ContextBreakdownView
 import dev.dsh.mobile.mesh.core.wire.dto.ContextPressureView
-import dev.dsh.mobile.mesh.core.DshCore
 import dev.dsh.mobile.mesh.core.wire.dto.HostDescription
 import dev.dsh.mobile.mesh.core.wire.dto.JobView
 import dev.dsh.mobile.mesh.core.wire.dto.SessionAddress
+import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
 import dev.dsh.mobile.mesh.core.wire.dto.SessionStatsView
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentListEntry
 import dev.dsh.mobile.mesh.core.wire.dto.TokenUsageView
+import dev.dsh.mobile.mesh.core.wire.dto.agentTeamView
 import dev.dsh.mobile.mesh.data.SessionRow
 import dev.dsh.mobile.mesh.ui.components.ContextMeterDetail
-import dev.dsh.mobile.mesh.ui.components.DisclosureRow
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsIconButton
-import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.DsToastHost
-import dev.dsh.mobile.mesh.ui.components.SectionHeader
 import dev.dsh.mobile.mesh.ui.components.StateDot
-import dev.dsh.mobile.mesh.core.wire.dto.AgentPresetListValue
-import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
-import dev.dsh.mobile.mesh.core.wire.dto.agentTeamView
 import dev.dsh.mobile.mesh.ui.components.StateDotState
+import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.components.formatDurationMs
 import dev.dsh.mobile.mesh.ui.components.formatTokens
 import dev.dsh.mobile.mesh.ui.components.rememberDsToast
 import dev.dsh.mobile.mesh.ui.rememberConnectionManager
 import dev.dsh.mobile.mesh.ui.rememberSessionStore
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
@@ -96,6 +97,11 @@ import kotlinx.serialization.json.contentOrNull
  * Organised as collapsible cards rather than one flat wall of headings, because on a phone-width
  * panel a flat list means the section you want is always three screens down. The trajectory ledger
  * that used to be squeezed in here now has its own tab — one home per fact.
+ *
+ * The surface is Material 3: one scrolled column of outlined cards, each with a tappable header, the
+ * theme's typography for every level of text, text buttons for the verbs, and compact badges for the
+ * Host's states. The status dots, the context meter and the goal bar are the exceptions — they are
+ * data visualisations, not controls.
  */
 @Composable
 internal fun DetailsPanel(
@@ -114,7 +120,6 @@ internal fun DetailsPanel(
             manager.generation?.let { emit(it) }
         }.collect { observedGeneration = it }
     }
-    val colors = DsTheme.colors
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val toast = rememberDsToast()
@@ -170,7 +175,7 @@ internal fun DetailsPanel(
 
     Surface(
         modifier = modifier.fillMaxHeight(),
-        color = colors.bgLayer1,
+        color = MaterialTheme.colorScheme.surface,
         shadowElevation = 8.dp,
     ) {
         Box {
@@ -179,8 +184,8 @@ internal fun DetailsPanel(
                     .fillMaxSize()
                     .safeDrawingPadding()
                     .verticalScroll(rememberScrollState())
-                    .padding(DsSpacing.medium),
-                verticalArrangement = Arrangement.spacedBy(DsSpacing.small),
+                    .padding(DsSpacing.comfortable),
+                verticalArrangement = Arrangement.spacedBy(DsSpacing.medium),
             ) {
                 HeaderRow(onClose)
 
@@ -212,18 +217,17 @@ internal fun DetailsPanel(
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
-                    DsButton(
-                        text = stringResource(R.string.chat_export),
-                        icon = Icons.Filled.Download,
+                    OutlinedButton(
                         onClick = {
                             exportLauncher.launch("dsh-session-${currentSessionId.orEmpty()}.zip")
                         },
-                        variant = DsButtonVariant.Outline,
-                        size = DsButtonSize.Small,
                         enabled = currentSessionId != null,
-                    )
-                    DsButton(
-                        text = stringResource(R.string.common_copy),
+                    ) {
+                        Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(DsSpacing.small))
+                        Text(stringResource(R.string.chat_export))
+                    }
+                    TextButton(
                         onClick = {
                             scope.launch {
                                 store.exportSessionUrl()?.let { url ->
@@ -232,9 +236,7 @@ internal fun DetailsPanel(
                                 }
                             }
                         },
-                        variant = DsButtonVariant.Ghost,
-                        size = DsButtonSize.Small,
-                    )
+                    ) { Text(stringResource(R.string.common_copy)) }
                 }
 
                 val generation = observedGeneration
@@ -251,8 +253,8 @@ internal fun DetailsPanel(
                 if (conv == null) {
                     Text(
                         stringResource(R.string.chat_details_empty),
-                        style = DsType.caption11,
-                        color = colors.labelTertiary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
                     ContextCard(breakdown, pressure, usage, stats, disclosures)
@@ -288,17 +290,17 @@ private enum class DetailsSheet { Models, Presets }
 
 @Composable
 private fun HeaderRow(onClose: () -> Unit) {
-    val colors = DsTheme.colors
     Row(verticalAlignment = Alignment.CenterVertically) {
-        DsIconButton(
-            icon = Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = stringResource(R.string.common_back),
-            onClick = onClose,
-        )
+        IconButton(onClick = onClose) {
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = stringResource(R.string.common_back),
+            )
+        }
         Text(
             stringResource(R.string.chat_details_title),
-            style = DsType.large20,
-            color = colors.labelPrimary,
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onSurface,
         )
     }
 }
@@ -328,16 +330,56 @@ private fun Card(
     // `initiallyExpanded` only applies until the reader touches the card; after that their choice
     // stands, including when they closed a card that opens by default.
     val open = if (disclosureScope.isSet(key)) disclosureScope.isOpen(key) else initiallyExpanded
-    Column(Modifier.fillMaxWidth().animateContentSize()) {
-        DisclosureRow(
-            title = title,
-            summary = summary,
-            expanded = open,
-            onToggle = { disclosureScope.setOpen(key, !open) },
+    OutlinedCard(
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { disclosureScope.setOpen(key, !open) }
+                .padding(horizontal = DsSpacing.comfortable, vertical = DsSpacing.medium),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            summary?.let {
+                Spacer(Modifier.width(DsSpacing.small))
+                // The summary is the at-a-glance half; capping it keeps a long Host objective from
+                // squeezing the card's own name off the row.
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 110.dp),
+                )
+            }
+            Spacer(Modifier.width(DsSpacing.small))
+            Icon(
+                Icons.Filled.KeyboardArrowDown,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(20.dp)
+                    .graphicsLayer { rotationZ = if (open) 180f else 0f },
+            )
+        }
+        AnimatedVisibility(visible = open) {
             Column(
-                Modifier.padding(start = 24.dp, top = 4.dp, bottom = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxWidth().padding(
+                    start = DsSpacing.comfortable,
+                    end = DsSpacing.comfortable,
+                    bottom = DsSpacing.comfortable,
+                ),
+                verticalArrangement = Arrangement.spacedBy(DsSpacing.small),
             ) {
                 content()
             }
@@ -358,7 +400,6 @@ private fun SessionCard(
     onOpenModels: () -> Unit,
     onOpenPresets: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     if (session == null) return
     var renaming by remember(session.sessionId) { mutableStateOf(false) }
     Card(
@@ -368,21 +409,39 @@ private fun SessionCard(
         summary = session.cwd?.let { basename(it) },
         initiallyExpanded = true,
     ) {
-        session.cwd?.let { Text(it, style = DsType.caption11, color = colors.labelCaption) }
+        session.cwd?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
             models?.let { value ->
                 val group = value.groups.firstOrNull { it.id == value.current.provider }
                 val name = group?.models?.firstOrNull { it.id == value.current.model }?.name
-                DsPill(text = name ?: value.current.model, onClick = onOpenModels)
+                AssistChip(
+                    onClick = onOpenModels,
+                    label = { Text(name ?: value.current.model, maxLines = 1) },
+                )
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.presets_title), style = DsType.caption11, color = colors.labelSecondary)
+            Text(
+                stringResource(R.string.presets_title),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Spacer(Modifier.width(DsSpacing.small))
-            DsPill(
-                text = currentPreset?.let { agentPresetLabel(it, presets) }
-                    ?: stringResource(R.string.presets_current),
+            AssistChip(
                 onClick = onOpenPresets,
+                label = {
+                    Text(
+                        currentPreset?.let { agentPresetLabel(it, presets) }
+                            ?: stringResource(R.string.presets_current),
+                        maxLines = 1,
+                    )
+                },
             )
         }
         if (session.running) {
@@ -391,30 +450,21 @@ private fun SessionCard(
                 Spacer(Modifier.width(DsSpacing.xsmall))
                 Text(
                     stringResource(R.string.jobs_running),
-                    style = DsType.caption11,
-                    color = colors.labelSecondary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
-            DsButton(
-                text = stringResource(R.string.common_rename),
-                onClick = { renaming = true },
-                variant = DsButtonVariant.Ghost,
-                size = DsButtonSize.Small,
-            )
-            DsButton(
-                text = stringResource(R.string.chatlist_session_fork),
-                onClick = onFork,
-                variant = DsButtonVariant.Ghost,
-                size = DsButtonSize.Small,
-            )
-            DsButton(
-                text = stringResource(R.string.common_archive),
-                onClick = onArchive,
-                variant = DsButtonVariant.Ghost,
-                size = DsButtonSize.Small,
-            )
+        Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
+            TextButton(onClick = { renaming = true }) {
+                Text(stringResource(R.string.common_rename))
+            }
+            TextButton(onClick = onFork) {
+                Text(stringResource(R.string.chatlist_session_fork))
+            }
+            TextButton(onClick = onArchive) {
+                Text(stringResource(R.string.common_archive))
+            }
         }
     }
     if (renaming) {
@@ -438,7 +488,6 @@ private fun ContextCard(
     stats: SessionStatsView?,
     disclosureScope: DisclosureScope,
 ) {
-    val colors = DsTheme.colors
     if (breakdown == null && pressure == null && usage == null && stats == null) return
     Card(
         id = "context",
@@ -455,14 +504,14 @@ private fun ContextCard(
                     formatTokens(it.inputTokens),
                     formatTokens(it.outputTokens),
                 ),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             it.cacheHitRatio?.let { ratio ->
                 Text(
                     stringResource(R.string.chat_stats_cache, (ratio * 100).toInt()),
-                    style = DsType.caption11,
-                    color = colors.labelTertiary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -473,8 +522,8 @@ private fun ContextCard(
                     formatDurationMs(it.llmMs),
                     formatDurationMs(it.toolMs),
                 ),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -482,7 +531,6 @@ private fun ContextCard(
 
 @Composable
 private fun GoalCard(conversation: ConversationSnapshot, store: dev.dsh.mobile.mesh.data.SessionStore, disclosureScope: DisclosureScope) {
-    val colors = DsTheme.colors
     val goal = parseGoal(conversation.projections["goal"])
     Card(
         id = "goal",
@@ -491,31 +539,35 @@ private fun GoalCard(conversation: ConversationSnapshot, store: dev.dsh.mobile.m
         summary = goal?.objective?.take(40),
     ) {
         if (goal == null) {
-            Text(stringResource(R.string.goal_none), style = DsType.caption11, color = colors.labelTertiary)
+            Text(
+                stringResource(R.string.goal_none),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             return@Card
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 goal.objective,
-                style = DsType.small13,
-                color = colors.labelPrimary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(DsSpacing.small))
-            DsPill(text = stringResource(goalPhaseLabelRes(goal.phase)))
+            StatusBadge(text = stringResource(goalPhaseLabelRes(goal.phase)))
         }
         goal.blockedReason?.let {
             Text(
                 stringResource(R.string.goal_blocked_reason, it.message),
-                style = DsType.caption11,
-                color = colors.warnLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
             )
         }
         if (goal.maxGoalRounds > 0) {
             Text(
                 stringResource(R.string.goal_max_rounds, goal.maxGoalRounds.toString()),
-                style = DsType.caption11,
-                color = colors.labelCaption,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         GoalBar(goal, store)
@@ -532,7 +584,6 @@ private fun JobsCard(
     killFailedLabel: String,
     showToast: (String) -> Unit,
 ) {
-    val colors = DsTheme.colors
     val jobOutputs by store.jobOutputById.collectAsState()
     Card(
         id = "jobs",
@@ -541,7 +592,11 @@ private fun JobsCard(
         summary = jobs.size.takeIf { it > 0 }?.toString(),
     ) {
         if (jobs.isEmpty()) {
-            Text(stringResource(R.string.jobs_empty), style = DsType.caption11, color = colors.labelTertiary)
+            Text(
+                stringResource(R.string.jobs_empty),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             return@Card
         }
         // A running job's elapsed time has to be driven by a ticker; reading the clock inside a
@@ -573,15 +628,15 @@ private fun JobsCard(
                 Column(Modifier.weight(1f)) {
                     Text(
                         job.label,
-                        style = DsType.small13,
-                        color = colors.labelPrimary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         job.detail?.let { "${job.kind} · $it" } ?: job.kind,
-                        style = DsType.caption11,
-                        color = colors.labelCaption,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -589,22 +644,26 @@ private fun JobsCard(
                 Spacer(Modifier.width(DsSpacing.small))
                 Text(
                     formatDurationMs((job.finishedAt ?: now) - job.startedAt),
-                    style = DsType.caption11,
-                    color = colors.labelCaption,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (job.status == dev.dsh.mobile.mesh.core.wire.dto.JobStatus.RUNNING ||
                     job.status == dev.dsh.mobile.mesh.core.wire.dto.JobStatus.STOPPING
                 ) {
-                    DsIconButton(
-                        icon = Icons.Default.Close,
+                    IconButton(
                         onClick = {
                             scope.launch {
                                 showToast(if (store.killJob(job.id)) killRequestedLabel else killFailedLabel)
                             }
                         },
-                        contentDescription = stringResource(R.string.jobs_stop),
-                        iconSize = 16.dp,
-                    )
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = stringResource(R.string.jobs_stop),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
             }
             if (expanded) {
@@ -614,14 +673,32 @@ private fun JobsCard(
                         .padding(start = DsSpacing.large, top = DsSpacing.xsmall, bottom = DsSpacing.small),
                 ) {
                     if (output?.gapBefore == true) {
-                        Text(stringResource(R.string.jobs_output_gap), style = DsType.caption11, color = colors.labelCaption)
+                        Text(
+                            stringResource(R.string.jobs_output_gap),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     if (output?.lossy == true) {
-                        Text(stringResource(R.string.jobs_output_lossy), style = DsType.caption11, color = colors.labelCaption)
+                        Text(
+                            stringResource(R.string.jobs_output_lossy),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                    output?.error?.let { Text(it, style = DsType.caption11, color = colors.labelCaption) }
+                    output?.error?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     output?.text?.takeIf { it.isNotEmpty() }?.let {
-                        Text(it, style = DsType.caption11, color = colors.labelSecondary)
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
@@ -632,7 +709,6 @@ private fun JobsCard(
 
 @Composable
 private fun QueueCard(queue: List<QueueItem>, store: dev.dsh.mobile.mesh.data.SessionStore, disclosureScope: DisclosureScope) {
-    val colors = DsTheme.colors
     val scope = rememberCoroutineScope()
     Card(
         id = "queue",
@@ -643,8 +719,8 @@ private fun QueueCard(queue: List<QueueItem>, store: dev.dsh.mobile.mesh.data.Se
         if (queue.isEmpty()) {
             Text(
                 stringResource(R.string.chat_queue_empty),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             return@Card
         }
@@ -653,19 +729,20 @@ private fun QueueCard(queue: List<QueueItem>, store: dev.dsh.mobile.mesh.data.Se
                 Column(Modifier.weight(1f)) {
                     Text(
                         item.previewText,
-                        style = DsType.small13,
-                        color = colors.labelPrimary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(item.placement, style = DsType.caption11, color = colors.labelCaption)
+                    Text(
+                        item.placement,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                DsButton(
-                    text = stringResource(R.string.common_remove),
-                    onClick = { scope.launch { store.updateQueue(item.id, "remove") } },
-                    variant = DsButtonVariant.Ghost,
-                    size = DsButtonSize.Small,
-                )
+                TextButton(onClick = { scope.launch { store.updateQueue(item.id, "remove") } }) {
+                    Text(stringResource(R.string.common_remove))
+                }
             }
         }
     }
@@ -678,7 +755,6 @@ private fun SubagentsCard(
     disclosureScope: DisclosureScope,
     onOpen: (String) -> Unit,
 ) {
-    val colors = DsTheme.colors
     val sessionsById = remember(sessions) { sessions.associateBy { it.sessionId } }
     var subagentNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val hasRunningTiming = subagents.any { entry ->
@@ -701,8 +777,8 @@ private fun SubagentsCard(
         if (subagents.isEmpty()) {
             Text(
                 stringResource(R.string.subagents_empty),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             return@Card
         }
@@ -724,22 +800,27 @@ private fun SubagentsCard(
                 Column(Modifier.weight(1f)) {
                     Text(
                         label ?: name ?: id.orEmpty(),
-                        style = DsType.small13,
-                        color = colors.labelPrimary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (label != null && name != null && name != label) {
-                        Text(name, style = DsType.caption11, color = colors.labelCaption,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            name,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                     Text(
                         listOfNotNull(
                             stringResource(if (running) R.string.subagents_running else R.string.subagents_inactive),
                             duration?.let(::formatDurationMs),
                         ).joinToString(" · "),
-                        style = DsType.caption11,
-                        color = colors.labelCaption,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -758,7 +839,6 @@ private fun SubagentsCard(
  */
 @Composable
 private fun AgentTeamCard(element: JsonElement?, disclosureScope: DisclosureScope) {
-    val colors = DsTheme.colors
     val team = remember(element) { agentTeamView(element) } ?: return
     // Sessions without a Team still carry the registered projection; a board with no tasks and no
     // recorded failure has nothing to tell the reader, so it earns no card.
@@ -779,8 +859,8 @@ private fun AgentTeamCard(element: JsonElement?, disclosureScope: DisclosureScop
         team.failure?.let { failure ->
             Text(
                 stringResource(R.string.agent_team_failure, failure),
-                style = DsType.caption11,
-                color = colors.warnLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
             )
         }
         team.tasks.forEach { task ->
@@ -793,8 +873,8 @@ private fun AgentTeamCard(element: JsonElement?, disclosureScope: DisclosureScop
                 Column(Modifier.weight(1f)) {
                     Text(
                         task.subject,
-                        style = DsType.small13,
-                        color = colors.labelPrimary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -806,20 +886,32 @@ private fun AgentTeamCard(element: JsonElement?, disclosureScope: DisclosureScop
                         ?.let { stringResource(R.string.agent_team_blocked_by, it.joinToString(", ")) }
                     val detail = listOfNotNull(owner, blockers).joinToString(" · ")
                     if (detail.isNotEmpty()) {
-                        Text(detail, style = DsType.caption11, color = colors.labelCaption)
+                        Text(
+                            detail,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     // Host advisory text (e.g. overlapping write scopes), shown verbatim: the Host
                     // owns the message and this build must not paraphrase it into a weaker claim.
                     task.writeScopeWarnings.forEach { warning ->
-                        Text(warning, style = DsType.caption11, color = colors.warnLabel)
+                        Text(
+                            warning,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
                     }
                 }
                 Spacer(Modifier.width(DsSpacing.small))
                 if (task.ready) {
-                    DsPill(text = stringResource(R.string.agent_team_ready))
+                    StatusBadge(
+                        text = stringResource(R.string.agent_team_ready),
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
                 }
                 Spacer(Modifier.width(DsSpacing.xsmall))
-                DsPill(text = agentTeamStatusLabel(task.status))
+                StatusBadge(text = agentTeamStatusLabel(task.status))
             }
         }
     }
@@ -844,7 +936,6 @@ private fun agentTeamStatusDot(status: String): StateDotState = when (status) {
 
 @Composable
 private fun WorkflowCard(nodes: List<ChatNode>, disclosureScope: DisclosureScope) {
-    val colors = DsTheme.colors
     val workflows = remember(nodes) { parseWorkflows(nodes) }
     if (workflows.isEmpty()) return
     Card(
@@ -858,28 +949,35 @@ private fun WorkflowCard(nodes: List<ChatNode>, disclosureScope: DisclosureScope
                 Column(Modifier.weight(1f)) {
                     Text(
                         workflow.name,
-                        style = DsType.small13,
-                        color = colors.labelPrimary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         stringResource(R.string.workflow_members, workflow.members),
-                        style = DsType.caption11,
-                        color = colors.labelCaption,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Spacer(Modifier.width(DsSpacing.small))
-                DsPill(
-                    text = stringResource(
-                        when (workflow.status) {
-                            WorkflowStatus.Running -> R.string.workflow_running
-                            WorkflowStatus.Completed -> R.string.workflow_completed
-                            WorkflowStatus.Failed -> R.string.workflow_failed
-                        },
-                    ),
-                    warn = workflow.status == WorkflowStatus.Failed,
-                )
+                if (workflow.status == WorkflowStatus.Failed) {
+                    StatusBadge(
+                        text = stringResource(R.string.workflow_failed),
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                } else {
+                    StatusBadge(
+                        text = stringResource(
+                            when (workflow.status) {
+                                WorkflowStatus.Running -> R.string.workflow_running
+                                WorkflowStatus.Completed -> R.string.workflow_completed
+                                WorkflowStatus.Failed -> R.string.workflow_failed
+                            },
+                        ),
+                    )
+                }
             }
         }
     }
@@ -887,7 +985,6 @@ private fun WorkflowCard(nodes: List<ChatNode>, disclosureScope: DisclosureScope
 
 @Composable
 private fun HostCard(hostInfo: HostDescription?, disclosureScope: DisclosureScope) {
-    val colors = DsTheme.colors
     if (hostInfo == null) return
     // The harness's own version used to head this card. No 0.1.2 wire field carries it, so the
     // card names the protocol this build was written against instead — which is this client's
@@ -900,8 +997,8 @@ private fun HostCard(hostInfo: HostDescription?, disclosureScope: DisclosureScop
     ) {
         Text(
             stringResource(R.string.connect_harness_home, hostInfo.home),
-            style = DsType.caption11,
-            color = colors.labelCaption,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
