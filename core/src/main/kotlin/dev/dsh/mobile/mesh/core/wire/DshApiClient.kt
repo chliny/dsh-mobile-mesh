@@ -9,6 +9,22 @@ import dev.dsh.mobile.mesh.core.wire.dto.CredentialInfo
 import dev.dsh.mobile.mesh.core.wire.dto.DirectoryListing
 import dev.dsh.mobile.mesh.core.wire.dto.EncodedFileUploadRequest
 import dev.dsh.mobile.mesh.core.wire.dto.FileUploadValue
+import dev.dsh.mobile.mesh.core.forge.forgeReviewersJson
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeBaseBranches
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeBranches
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeChangeRequestDiff
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeChangeRequestSnapshot
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeCommitList
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeCommitRange
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeLocalCommits
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewData
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewResult
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewWriteResult
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewerCandidate
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewerRef
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeViewedFiles
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeLocalDiff
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeLocalScope
 import dev.dsh.mobile.mesh.core.wire.dto.GoalRef
 import dev.dsh.mobile.mesh.core.wire.dto.GoalView
 import dev.dsh.mobile.mesh.core.wire.dto.HostCreateDirectoryValue
@@ -119,6 +135,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -483,6 +500,364 @@ class DshApiClient(
                 }
             })
         },
+    )
+
+    // ------------------------------------------------------------------ forge panel
+
+    /**
+     * One `forgePanel` call.
+     *
+     * The plugin is optional: a Host without it answers `gateway/invocation-unavailable`, which
+     * callers treat as "entry hidden" rather than a transport fault. All nullable arguments are
+     * written explicitly as JSON null because the gateway rejects a missing declared key while
+     * [WireJson] suppresses Kotlin nulls by default.
+     */
+    private suspend fun <T> forgeCall(
+        method: String,
+        args: JsonObject,
+        value: KSerializer<T>,
+    ): RpcResult<T> = call("forgePanel/$method", args, value)
+
+    private fun ForgeCommitRange.toWireJson(): JsonObject = buildJsonObject {
+        put("from", JsonPrimitive(from))
+        put("to", JsonPrimitive(to))
+    }
+
+    private fun ForgeLocalScope.toWireJson(): JsonObject = buildJsonObject {
+        put("kind", JsonPrimitive(kind))
+        if (kind == ForgeLocalScope.BRANCH) {
+            put("base", base?.let(::JsonPrimitive) ?: JsonNull)
+            put("commits", commits?.toWireJson() ?: JsonNull)
+        }
+    }
+
+    /** Inspect the Session's checkout and its worktree/change-request state again. */
+    suspend fun forgePanelRefresh(sessionId: String): RpcResult<JsonElement> =
+        forgeCall("refresh", args { put("sessionId", JsonPrimitive(sessionId)) }, JsonElement.serializer())
+
+    /** List local branches that can base a new worktree. */
+    suspend fun forgePanelBranches(sessionId: String): RpcResult<ForgeBranches> =
+        forgeCall("branches", args { put("sessionId", JsonPrimitive(sessionId)) }, ForgeBranches.serializer())
+
+    /** List branches the `branch` scope can compare with, filtered by [query] on the Host. */
+    suspend fun forgePanelDiffBases(sessionId: String, query: String = ""): RpcResult<ForgeBaseBranches> =
+        forgeCall(
+            "diffBases",
+            args {
+                put("sessionId", JsonPrimitive(sessionId))
+                put("query", JsonPrimitive(query))
+            },
+            ForgeBaseBranches.serializer(),
+        )
+
+    /** Read the changed files of one local scope. */
+    suspend fun forgePanelLocalDiff(sessionId: String, scope: ForgeLocalScope): RpcResult<ForgeLocalDiff> =
+        forgeCall(
+            "localDiff",
+            args {
+                put("sessionId", JsonPrimitive(sessionId))
+                put("scope", scope.toWireJson())
+            },
+            ForgeLocalDiff.serializer(),
+        )
+
+    /** List commits of the local `branch` scope; `base` null selects the automatic fork point. */
+    suspend fun forgePanelLocalCommits(sessionId: String, base: String?): RpcResult<ForgeLocalCommits> =
+        forgeCall(
+            "localCommits",
+            args {
+                put("sessionId", JsonPrimitive(sessionId))
+                put("base", base?.let(::JsonPrimitive) ?: JsonNull)
+            },
+            ForgeLocalCommits.serializer(),
+        )
+
+    /** Read the diff of one bound change request, optionally narrowed to consecutive commits. */
+    suspend fun forgePanelChangeRequestDiff(
+        sessionId: String,
+        url: String,
+        commits: ForgeCommitRange?,
+    ): RpcResult<ForgeChangeRequestDiff> = forgeCall(
+        "changeRequestDiff",
+        args {
+            put("sessionId", JsonPrimitive(sessionId))
+            put("url", JsonPrimitive(url))
+            put("commits", commits?.toWireJson() ?: JsonNull)
+        },
+        ForgeChangeRequestDiff.serializer(),
+    )
+
+    /** List the commits of one bound change request, or null when its provider does not list them. */
+    suspend fun forgePanelChangeRequestCommits(sessionId: String, url: String): RpcResult<ForgeCommitList?> =
+        forgeCall(
+            "changeRequestCommits",
+            args {
+                put("sessionId", JsonPrimitive(sessionId))
+                put("url", JsonPrimitive(url))
+            },
+            ForgeCommitList.serializer().nullable,
+        )
+
+    /** Request a worktree for a Session that has not started its first turn. */
+    suspend fun forgePanelRequestWorktree(sessionId: String, from: String?): RpcResult<JsonElement> =
+        forgeCall(
+            "requestWorktree",
+            args {
+                put("sessionId", JsonPrimitive(sessionId))
+                put("from", from?.let(::JsonPrimitive) ?: JsonNull)
+            },
+            JsonElement.serializer(),
+        )
+
+    /** Withdraw an open worktree request. */
+    suspend fun forgePanelCancelWorktree(sessionId: String): RpcResult<JsonElement> =
+        forgeCall("cancelWorktree", args { put("sessionId", JsonPrimitive(sessionId)) }, JsonElement.serializer())
+
+    /** Retry a failed worktree creation whose message still waits. */
+    suspend fun forgePanelRetryWorktree(sessionId: String): RpcResult<JsonElement> =
+        forgeCall("retryWorktree", args { put("sessionId", JsonPrimitive(sessionId)) }, JsonElement.serializer())
+
+    /** Stop one running worktree creation that holds a waiting message. */
+    suspend fun forgePanelStopCreation(sessionId: String): RpcResult<JsonElement> =
+        forgeCall("stopCreation", args { put("sessionId", JsonPrimitive(sessionId)) }, JsonElement.serializer())
+
+    /** Re-checkout the removed worktree of a Session. */
+    suspend fun forgePanelRestoreWorktree(sessionId: String): RpcResult<JsonElement> =
+        forgeCall("restoreWorktree", args { put("sessionId", JsonPrimitive(sessionId)) }, JsonElement.serializer())
+
+    /** Move a Session whose worktree is gone back to the project directory. */
+    suspend fun forgePanelContinueInProject(sessionId: String): RpcResult<JsonElement> =
+        forgeCall("continueInProject", args { put("sessionId", JsonPrimitive(sessionId)) }, JsonElement.serializer())
+
+    /** Remove one change request binding from this Session (the code host is unchanged). */
+    suspend fun forgePanelDismiss(sessionId: String, url: String): RpcResult<JsonElement> =
+        forgeCall(
+            "dismiss",
+            args {
+                put("sessionId", JsonPrimitive(sessionId))
+                put("url", JsonPrimitive(url))
+            },
+            JsonElement.serializer(),
+        )
+
+    /** Load the complete checks of one change request at the head the reader saw. */
+    suspend fun forgePanelChangeRequestChecks(
+        sessionId: String,
+        url: String,
+        headSha: String,
+    ): RpcResult<ForgeChangeRequestSnapshot> = forgeCall(
+        "changeRequestChecks",
+        args {
+            put("sessionId", JsonPrimitive(sessionId))
+            put("url", JsonPrimitive(url))
+            put("headSha", JsonPrimitive(headSha))
+        },
+        ForgeChangeRequestSnapshot.serializer(),
+    )
+
+    /** Rerun the failed checks of the head the reader saw. */
+    suspend fun forgePanelRerunChecks(sessionId: String, url: String, headSha: String): RpcResult<JsonElement> =
+        forgeCall(
+            "rerunChecks",
+            args {
+                put("sessionId", JsonPrimitive(sessionId))
+                put("url", JsonPrimitive(url))
+                put("request", buildJsonObject { put("headSha", JsonPrimitive(headSha)) })
+            },
+            JsonElement.serializer(),
+        )
+
+    /** Read the signed-in user's viewed marks at one head, or null when the provider keeps none. */
+    suspend fun forgePanelChangeRequestViewed(
+        sessionId: String,
+        url: String,
+        headSha: String,
+    ): RpcResult<ForgeViewedFiles?> = forgeCall(
+        "changeRequestViewed",
+        args {
+            put("sessionId", JsonPrimitive(sessionId))
+            put("url", JsonPrimitive(url))
+            put("headSha", JsonPrimitive(headSha))
+        },
+        ForgeViewedFiles.serializer().nullable,
+    )
+
+    /** Set or clear one file's viewed mark at the head the reader saw. */
+    suspend fun forgePanelSetFileViewed(
+        sessionId: String,
+        url: String,
+        path: String,
+        viewed: Boolean,
+        headSha: String,
+    ): RpcResult<JsonElement> = forgeCall(
+        "setFileViewed",
+        args {
+            put("sessionId", JsonPrimitive(sessionId))
+            put("url", JsonPrimitive(url))
+            put(
+                "request",
+                buildJsonObject {
+                    put("path", JsonPrimitive(path))
+                    put("viewed", JsonPrimitive(viewed))
+                    put("headSha", JsonPrimitive(headSha))
+                },
+            )
+        },
+        JsonElement.serializer(),
+    )
+
+    /** Read the review threads at the head the reader saw. */
+    suspend fun forgePanelChangeRequestReview(
+        sessionId: String,
+        url: String,
+        headSha: String,
+        fresh: Boolean,
+    ): RpcResult<ForgeReviewData> = forgeCall(
+        "changeRequestReview",
+        args {
+            put("sessionId", JsonPrimitive(sessionId))
+            put("url", JsonPrimitive(url))
+            put("headSha", JsonPrimitive(headSha))
+            put("fresh", JsonPrimitive(fresh))
+        },
+        ForgeReviewData.serializer(),
+    )
+
+    /** One write to review threads or the pending review; the result says whether the host took it. */
+    suspend fun forgePanelChangeRequestReviewWrite(
+        sessionId: String,
+        url: String,
+        write: JsonObject,
+    ): RpcResult<ForgeReviewWriteResult> = forgeCall(
+        "changeRequestReviewWrite",
+        args {
+            put("sessionId", JsonPrimitive(sessionId))
+            put("url", JsonPrimitive(url))
+            put("write", write)
+        },
+        ForgeReviewWriteResult.serializer(),
+    )
+
+    /** Publish one review comment or a completed review. */
+    suspend fun forgePanelSubmitReview(
+        sessionId: String,
+        url: String,
+        request: JsonObject,
+    ): RpcResult<ForgeReviewResult> = forgeCall(
+        "submitReview",
+        args {
+            put("sessionId", JsonPrimitive(sessionId))
+            put("url", JsonPrimitive(url))
+            put("request", request)
+        },
+        ForgeReviewResult.serializer(),
+    )
+
+    /** Mark a draft change request ready for review. */
+    suspend fun forgePanelMarkReady(sessionId: String, url: String): RpcResult<JsonElement> =
+        forgeCall(
+            "markReady",
+            args {
+                put("sessionId", JsonPrimitive(sessionId))
+                put("url", JsonPrimitive(url))
+            },
+            JsonElement.serializer(),
+        )
+
+    /** Merge a change request at the head the reader confirmed. */
+    suspend fun forgePanelMerge(
+        sessionId: String,
+        url: String,
+        method: String,
+        headSha: String,
+    ): RpcResult<JsonElement> = forgeCall(
+        "merge",
+        args {
+            put("sessionId", JsonPrimitive(sessionId))
+            put("url", JsonPrimitive(url))
+            put("method", JsonPrimitive(method))
+            put("headSha", JsonPrimitive(headSha))
+        },
+        JsonElement.serializer(),
+    )
+
+    /** Bring the base branch into the head branch at the head the reader confirmed. */
+    suspend fun forgePanelUpdateBranch(
+        sessionId: String,
+        url: String,
+        method: String,
+        headSha: String,
+    ): RpcResult<JsonElement> = forgeCall(
+        "updateBranch",
+        args {
+            put("sessionId", JsonPrimitive(sessionId))
+            put("url", JsonPrimitive(url))
+            put("method", JsonPrimitive(method))
+            put("headSha", JsonPrimitive(headSha))
+        },
+        JsonElement.serializer(),
+    )
+
+    /** Ask for reviews from one or more named accounts. */
+    suspend fun forgePanelRequestReviews(
+        sessionId: String,
+        url: String,
+        reviewers: List<ForgeReviewerRef>,
+    ): RpcResult<JsonElement> = forgeCall(
+        "requestReviews",
+        args {
+            put("sessionId", JsonPrimitive(sessionId))
+            put("url", JsonPrimitive(url))
+            put("reviewers", forgeReviewersJson(reviewers))
+        },
+        JsonElement.serializer(),
+    )
+
+    /** List accounts a review can be requested from. */
+    suspend fun forgePanelReviewerCandidates(
+        sessionId: String,
+        url: String,
+        query: String,
+    ): RpcResult<List<ForgeReviewerCandidate>> = forgeCall(
+        "reviewerCandidates",
+        args {
+            put("sessionId", JsonPrimitive(sessionId))
+            put("url", JsonPrimitive(url))
+            put("query", JsonPrimitive(query))
+        },
+        ListSerializer(ForgeReviewerCandidate.serializer()),
+    )
+
+    /** Read the new version of one file in a local scope, used to expand unchanged lines. */
+    suspend fun forgePanelLocalText(
+        sessionId: String,
+        scope: ForgeLocalScope,
+        path: String,
+    ): RpcResult<String> = forgeCall(
+        "localText",
+        args {
+            put("sessionId", JsonPrimitive(sessionId))
+            put("scope", scope.toWireJson())
+            put("path", JsonPrimitive(path))
+        },
+        String.serializer(),
+    )
+
+    /** Read one changed file's new version at a commit, used to expand unchanged lines. */
+    suspend fun forgePanelChangeRequestText(
+        sessionId: String,
+        url: String,
+        commit: String,
+        path: String,
+    ): RpcResult<String> = forgeCall(
+        "changeRequestText",
+        args {
+            put("sessionId", JsonPrimitive(sessionId))
+            put("url", JsonPrimitive(url))
+            put("commit", JsonPrimitive(commit))
+            put("path", JsonPrimitive(path))
+        },
+        String.serializer(),
     )
 
     // ------------------------------------------------------------------ sessions

@@ -38,6 +38,7 @@ DSH Mobile Mesh is an unofficial Android remote for [DeepSeek Harness](https://g
 - Inspect Markdown, reasoning, terminal, file, search, web, and diff results. Code files load in pages with viewport-lazy syntax highlighting; common configuration, markup, and stylesheet formats are also colored.
 - Send text, images, and file attachments.
 - Manage goals, plans, todos, approvals, user questions, jobs, workflows, and subagents.
+- With the **Change requests & worktrees** plugin enabled on the Host, open the changes view from the workspace file list, compare a branch or commits, add line comments from a diff to the composer, review bound change requests, and start a Session in a new worktree.
 - Select models, Agent presets, and skills, and run DeepSeek Harness slash commands.
 - Search sessions, inspect trajectories and usage, export session logs, and receive completion notifications.
 - Use light, dark, or system themes and the same language set as the app.

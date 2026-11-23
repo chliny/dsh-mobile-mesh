@@ -27,8 +27,12 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeCommitRange
 import dev.dsh.mobile.mesh.data.WORKING_DIRECTORY_PROJECTION
+import dev.dsh.mobile.mesh.ui.rememberForgeStore
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -84,6 +88,23 @@ private sealed interface MainPage {
     ) : MainPage
     data class Preview(val path: String, val title: String, val returnPage: MainPage, val line: Int? = null) : MainPage
     data class Diff(val seq: Long, val index: Int, val path: String, val title: String, val added: Int, val deleted: Int) : MainPage
+    data class ForgeChanges(val returnPath: String = ".") : MainPage
+    data class ForgeChangeRequest(val url: String) : MainPage
+    data class ForgeDiff(
+        val originKind: String,
+        val scopeKind: String,
+        val baseRef: String?,
+        val baseLabel: String?,
+        val commitsFrom: String?,
+        val commitsTo: String?,
+        val url: String?,
+        val headSha: String?,
+        val path: String,
+        val title: String,
+        val returnKind: String,
+        val returnPath: String,
+        val returnUrl: String?,
+    ) : MainPage
 }
 
 internal data class MainPageRoute(
@@ -100,6 +121,17 @@ internal data class MainPageRoute(
     val deleted: Int = 0,
     val line: Int? = null,
     val sessionId: String? = null,
+    val forgeOrigin: String = "",
+    val forgeScope: String = "branch",
+    val forgeBaseRef: String? = null,
+    val forgeBaseName: String? = null,
+    val forgeCommitsFrom: String? = null,
+    val forgeCommitsTo: String? = null,
+    val forgeUrl: String? = null,
+    val forgeHeadSha: String? = null,
+    val forgeReturnKind: String = "",
+    val forgeReturnPath: String = ".",
+    val forgeReturnUrl: String? = null,
 ) : java.io.Serializable
 
 private fun MainPage.toRoute(): MainPageRoute = when (this) {
@@ -111,10 +143,28 @@ private fun MainPage.toRoute(): MainPageRoute = when (this) {
         MainPageRoute("preview", path, title, if (files == null) "chat" else "files", files?.path ?: ".", files?.rootTitle, files?.rootPath ?: ".", line = line)
     }
     is MainPage.Diff -> MainPageRoute("diff", path, title, seq = seq, index = index, added = added, deleted = deleted)
+    is MainPage.ForgeChanges -> MainPageRoute("forge_changes", returnPath)
+    is MainPage.ForgeChangeRequest -> MainPageRoute("forge_change", url, forgeUrl = url)
+    is MainPage.ForgeDiff -> MainPageRoute(
+        kind = "forge_diff",
+        path = path,
+        title = title,
+        forgeOrigin = originKind,
+        forgeScope = scopeKind,
+        forgeBaseRef = baseRef,
+        forgeBaseName = baseLabel,
+        forgeCommitsFrom = commitsFrom,
+        forgeCommitsTo = commitsTo,
+        forgeUrl = url,
+        forgeHeadSha = headSha,
+        forgeReturnKind = returnKind,
+        forgeReturnPath = returnPath,
+        forgeReturnUrl = returnUrl,
+    )
 }
 
 internal fun MainPageRoute.restoredKind(): String = when (kind) {
-    "files", "preview", "terminal", "diff" -> kind
+    "files", "preview", "terminal", "diff", "forge_changes", "forge_change", "forge_diff" -> kind
     else -> "chat"
 }
 
@@ -128,6 +178,23 @@ private fun MainPageRoute.toPage(): MainPage = when (restoredKind()) {
         line,
     )
     "diff" -> MainPage.Diff(seq, index, path, title, added, deleted)
+    "forge_changes" -> MainPage.ForgeChanges(path.ifEmpty { "." })
+    "forge_change" -> MainPage.ForgeChangeRequest(forgeUrl ?: path)
+    "forge_diff" -> MainPage.ForgeDiff(
+        originKind = forgeOrigin,
+        scopeKind = forgeScope,
+        baseRef = forgeBaseRef,
+        baseLabel = forgeBaseName,
+        commitsFrom = forgeCommitsFrom,
+        commitsTo = forgeCommitsTo,
+        url = forgeUrl,
+        headSha = forgeHeadSha,
+        path = path,
+        title = title,
+        returnKind = forgeReturnKind.ifEmpty { "forge_changes" },
+        returnPath = forgeReturnPath,
+        returnUrl = forgeReturnUrl,
+    )
     else -> MainPage.Chat
 }
 
@@ -160,10 +227,38 @@ internal fun MainScreen(
     val scope = rememberCoroutineScope()
 
     val store = dev.dsh.mobile.mesh.ui.rememberSessionStore()
+    val forgeStore = rememberForgeStore()
+    // Only the file-list entry's visibility belongs to this screen. The changes, PR and worktree
+    // surfaces collect the full panel state themselves, so an ordinary tool result does not
+    // recompose the transcript shell.
+    val forgeChangesEntry by remember(forgeStore) {
+        forgeStore.state
+            .map { state ->
+                state.available == true && state.panel?.checkout?.state != null &&
+                    state.panel?.checkout?.state != "none"
+            }
+            .distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = false)
     val connectionManager = dev.dsh.mobile.mesh.ui.rememberConnectionManager()
     val terminalAvailable by connectionManager.terminalAvailable.collectAsStateWithLifecycle()
     val navigationState = dev.dsh.mobile.mesh.ui.rememberAppNavigationState()
     val sessionId by store.currentSessionId.collectAsStateWithLifecycle()
+    DisposableEffect(sessionId) {
+        val token = sessionId?.let(forgeStore::observe)
+        onDispose { token?.let(forgeStore::release) }
+    }
+    var forgeScope by rememberSaveable(sessionId) { mutableStateOf("branch") }
+    var forgeBaseRef by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    var forgeBaseName by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    var forgeCommitsFrom by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    var forgeCommitsTo by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    var forgeChangeCommitsFrom by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    var forgeChangeCommitsTo by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    var forgeChangesReturnPath by rememberSaveable(sessionId) { mutableStateOf(".") }
+    var forgeLens by rememberSaveable(sessionId) { mutableStateOf(FORGE_LAYER_ALL) }
+    var forgeHideTests by rememberSaveable(sessionId) { mutableStateOf(false) }
+    fun commitsRange(from: String?, to: String?): ForgeCommitRange? =
+        if (from != null && to != null) ForgeCommitRange(from, to) else null
     fun navigate(next: MainPage) {
         page = next
         savedPageRoute = next.toRoute().copy(sessionId = sessionId.takeUnless { next == MainPage.Chat })
@@ -181,6 +276,144 @@ internal fun MainScreen(
     val currentCwd = fileScope?.workingDirectory
     val rootDirectoryName = currentCwd?.let(::basename)?.takeIf { it.isNotBlank() }
     if (page != MainPage.Chat) {
+        if (page is MainPage.ForgeChanges || page is MainPage.ForgeChangeRequest || page is MainPage.ForgeDiff) {
+            val sid = sessionId
+            if (sid == null || savedPageRoute.sessionId != sid) {
+                navigate(MainPage.Chat)
+            } else {
+                when (val current = page) {
+                    is MainPage.ForgeChanges -> ForgeChangesScreen(
+                        sessionId = sid,
+                        scopeKind = forgeScope,
+                        baseRef = forgeBaseRef,
+                        baseName = forgeBaseName,
+                        commits = commitsRange(forgeCommitsFrom, forgeCommitsTo),
+                        lens = forgeLens,
+                        hideTests = forgeHideTests,
+                        onLensChange = { forgeLens = it },
+                        onHideTestsChange = { forgeHideTests = it },
+                        onBack = { navigate(MainPage.Files(current.returnPath)) },
+                        onScopeChange = { kind ->
+                            // The Web keeps the chosen base across scope switches; only the
+                            // commit range belongs to one branch comparison.
+                            forgeScope = kind
+                            forgeCommitsFrom = null
+                            forgeCommitsTo = null
+                        },
+                        onBaseChange = { branch ->
+                            forgeBaseRef = branch?.ref
+                            forgeBaseName = branch?.name
+                            forgeCommitsFrom = null
+                            forgeCommitsTo = null
+                        },
+                        onCommitsChange = { range ->
+                            forgeCommitsFrom = range?.from
+                            forgeCommitsTo = range?.to
+                        },
+                        onOpenDiff = { target ->
+                            when (val origin = target.origin) {
+                                is ForgeDiffOrigin.Local -> navigate(
+                                    MainPage.ForgeDiff(
+                                        originKind = "local",
+                                        scopeKind = origin.scope.kind,
+                                        baseRef = origin.scope.base,
+                                        baseLabel = origin.baseLabel,
+                                        commitsFrom = origin.commits?.from,
+                                        commitsTo = origin.commits?.to,
+                                        url = null,
+                                        headSha = null,
+                                        path = target.path,
+                                        title = target.title,
+                                        returnKind = "forge_changes",
+                                        returnPath = current.returnPath,
+                                        returnUrl = null,
+                                    ),
+                                )
+                                is ForgeDiffOrigin.Change -> navigate(
+                                    MainPage.ForgeDiff(
+                                        originKind = "change",
+                                        scopeKind = forgeScope,
+                                        baseRef = null,
+                                        baseLabel = null,
+                                        commitsFrom = origin.commits?.from,
+                                        commitsTo = origin.commits?.to,
+                                        url = origin.url,
+                                        headSha = origin.headSha,
+                                        path = target.path,
+                                        title = target.title,
+                                        returnKind = "forge_change",
+                                        returnPath = origin.url,
+                                        returnUrl = origin.url,
+                                    ),
+                                )
+                            }
+                        },
+                        onOpenChangeRequest = { request ->
+                            forgeChangeCommitsFrom = null
+                            forgeChangeCommitsTo = null
+                            navigate(MainPage.ForgeChangeRequest(request.url))
+                        },
+                    )
+                    is MainPage.ForgeChangeRequest -> ForgeChangeRequestScreen(
+                        sessionId = sid,
+                        url = current.url,
+                        commits = commitsRange(forgeChangeCommitsFrom, forgeChangeCommitsTo),
+                        onCommitsChange = { range ->
+                            forgeChangeCommitsFrom = range?.from
+                            forgeChangeCommitsTo = range?.to
+                        },
+                        lens = forgeLens,
+                        hideTests = forgeHideTests,
+                        onLensChange = { forgeLens = it },
+                        onHideTestsChange = { forgeHideTests = it },
+                        onBack = { navigate(MainPage.ForgeChanges(forgeChangesReturnPath)) },
+                        onOpenDiff = { target ->
+                            val origin = target.origin as? ForgeDiffOrigin.Change
+                            if (origin != null) {
+                                navigate(
+                                    MainPage.ForgeDiff(
+                                        originKind = "change",
+                                        scopeKind = forgeScope,
+                                        baseRef = null,
+                                        baseLabel = null,
+                                        commitsFrom = origin.commits?.from,
+                                        commitsTo = origin.commits?.to,
+                                        url = origin.url,
+                                        headSha = origin.headSha,
+                                        path = target.path,
+                                        title = target.title,
+                                        returnKind = "forge_change",
+                                        returnPath = origin.url,
+                                        returnUrl = origin.url,
+                                    ),
+                                )
+                            }
+                        },
+                    )
+                    is MainPage.ForgeDiff -> ForgeDiffScreen(
+                        sessionId = sid,
+                        originKind = current.originKind,
+                        scopeKind = current.scopeKind,
+                        baseRef = current.baseRef,
+                        baseLabel = current.baseLabel,
+                        commits = commitsRange(current.commitsFrom, current.commitsTo),
+                        changeUrl = current.url,
+                        changeHeadSha = current.headSha,
+                        path = current.path,
+                        title = current.title,
+                        onBack = {
+                            if (current.returnKind == "forge_change") {
+                                navigate(MainPage.ForgeChangeRequest(current.returnUrl ?: current.url.orEmpty()))
+                            } else {
+                                navigate(MainPage.ForgeChanges(current.returnPath))
+                            }
+                        },
+                    )
+                    else -> Unit
+                }
+            }
+            return
+        }
         if (fileScope == null || savedPageRoute.sessionId != fileScope.sessionId) {
             // A saved relative path must never be reinterpreted in a newly selected Session.
             navigate(MainPage.Chat)
@@ -203,6 +436,11 @@ internal fun MainScreen(
                                 MainPage.Files(parentPath, current.rootTitle, current.rootPath),
                             ))
                         }
+                    },
+                    showChangesEntry = forgeChangesEntry,
+                    onOpenChanges = { path ->
+                        forgeChangesReturnPath = path
+                        navigate(MainPage.ForgeChanges(path))
                     },
                 )
                 is MainPage.Preview -> FilePreviewScreen(
@@ -229,6 +467,7 @@ internal fun MainScreen(
                     onBack = { navigate(MainPage.Chat) },
                 )
                 MainPage.Chat -> Unit
+                is MainPage.ForgeChanges, is MainPage.ForgeChangeRequest, is MainPage.ForgeDiff -> Unit
             }
             // WorkspaceFilesScreen and FilePreviewScreen own the system BackHandler. A parent
             // handler here would consume the same event and collapse the file stack to chat.

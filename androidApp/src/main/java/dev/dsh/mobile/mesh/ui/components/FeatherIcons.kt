@@ -123,6 +123,18 @@ internal object FeatherIcons {
         }
     }
 
+    /** `git-pull-request` — change-request status in session rows. */
+    val GitPullRequest: ImageVector by lazy {
+        feather("GitPullRequest") {
+            circle(18f, 18f, 3f)
+            circle(6f, 6f, 3f)
+            moveTo(13f, 6f); lineTo(16f, 6f)
+            arcToRelative(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, 2f, 2f)
+            lineTo(18f, 15f)
+            moveTo(6f, 9f); lineTo(6f, 21f)
+        }
+    }
+
     /** `check-square` — todo docks. */
     val CheckSquare: ImageVector by lazy {
         feather("CheckSquare") {

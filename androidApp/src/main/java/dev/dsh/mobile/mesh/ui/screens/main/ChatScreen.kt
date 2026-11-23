@@ -176,18 +176,23 @@ internal fun ChatScreen(
     val restoredNewSessionDraft = remember(currentSessionId) {
         initialNewSessionScope?.let(newSessionDraftStore::get)
     }
+    // References added from the forge changes view wait here while that page owns the screen.
+    // Applying them at composition keeps one draft source: the workspace draft for a blank
+    // Session, the per-session store afterwards.
+    val pendingComposerText = remember(currentSessionId) {
+        currentSessionId?.let(draftStore::takePending).orEmpty()
+    }
 
     var draft by remember(currentSessionId) {
-        mutableStateOf(
-            if (initialNewSessionScope != null) {
-                // The workspace draft is authoritative for a new session. Falling back to the
-                // per-session store here would re-introduce a draft when the Host reuses a blank
-                // session id that was once used for a different workspace.
-                restoredNewSessionDraft?.text.orEmpty()
-            } else {
-                currentSessionId?.let(draftStore::get).orEmpty()
-            },
-        )
+        val restored = if (initialNewSessionScope != null) {
+            // The workspace draft is authoritative for a new session. Falling back to the
+            // per-session store here would re-introduce a draft when the Host reuses a blank
+            // session id that was once used for a different workspace.
+            restoredNewSessionDraft?.text.orEmpty()
+        } else {
+            currentSessionId?.let(draftStore::get).orEmpty()
+        }
+        mutableStateOf(mergePendingComposerText(restored, pendingComposerText))
     }
     var mode by rememberSaveable(currentSessionId) { mutableStateOf("queue") }
     var tab by rememberSaveable { mutableStateOf(ChatTab.Chat) }
@@ -789,6 +794,15 @@ internal fun ChatScreen(
                 }
             }
 
+            if (!decisionPending && connectionPhase == ConnectionPhase.CONNECTED &&
+                currentSessionId != null && !subagentReadOnly
+            ) {
+                ForgeWorktreeDock(
+                    sessionId = currentSessionId!!,
+                    showToast = toast.second,
+                )
+            }
+
             if (!decisionPending) Composer(
                 draft = draft,
                 onDraftChange = {
@@ -935,6 +949,13 @@ internal fun ChatScreen(
             },
         )
     }
+}
+
+/** Merge frozen composer references into whatever draft the Session already holds. */
+internal fun mergePendingComposerText(base: String, pending: String): String = when {
+    pending.isBlank() -> base
+    base.isBlank() -> pending
+    else -> base.trimEnd() + "\n\n" + pending
 }
 
 /** Which sheet, if any, is open over the chat surface. */

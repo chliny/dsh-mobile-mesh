@@ -55,6 +55,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.JobKillRequest
 import dev.dsh.mobile.mesh.core.wire.dto.PermissionSelect
 import dev.dsh.mobile.mesh.core.wire.dto.PresetOption
 import dev.dsh.mobile.mesh.core.wire.dto.PlanStateView
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeSessionWorktree
 import dev.dsh.mobile.mesh.core.wire.dto.PluginInventorySnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.PromptContentPart
 import dev.dsh.mobile.mesh.core.wire.dto.QUESTION_CANCELLED
@@ -186,6 +187,16 @@ data class SessionRow(
     val queuedCount: Int = 0,
     /** Host-folded active-turn duration baseline for subagent catalog rows. */
     val subagentTiming: SubagentTimingProjection? = null,
+    /** Forge bindings recorded in the Session projections, dismissed ones excluded. */
+    val boundChangeRequestUrls: List<String> = emptyList(),
+    /** Branch of the worktree the forge panel created for this Session, or null. */
+    val worktreeBranch: String? = null,
+)
+
+/** Session-list facts the optional forge plugin publishes in its projections. */
+private data class SessionForgeFacts(
+    val changeRequestUrls: List<String>,
+    val worktreeBranch: String?,
 )
 
 /**
@@ -1979,6 +1990,20 @@ class SessionStore @Inject constructor(
             decodeOrNull(SubagentTimingProjection.serializer(), it)
         }
 
+    /** Read the session-list facts the optional forge plugin publishes, without failing the row. */
+    private fun sessionForgeFacts(item: SessionSummary): SessionForgeFacts {
+        val values = item.projections?.values
+        val urls = (values?.get("forgeChangeRequests") as? JsonArray).orEmpty().mapNotNull { element ->
+            val row = element as? JsonObject ?: return@mapNotNull null
+            if (row["dismissed"]?.jsonPrimitive?.booleanOrNull == true) return@mapNotNull null
+            row["url"]?.jsonPrimitive?.contentOrNull
+        }
+        val worktree = values?.get("forgeWorktree")?.takeUnless { it is kotlinx.serialization.json.JsonNull }?.let {
+            decodeOrNull(ForgeSessionWorktree.serializer(), it)
+        }
+        return SessionForgeFacts(urls, worktree?.branch)
+    }
+
     /** Current Hosts publish the selected preset in the list projection; older ones use the row field. */
     private fun sessionAgentPreset(item: SessionSummary): String? =
         (item.projections?.values?.get("agentPreset") as? JsonPrimitive)?.contentOrNull ?: item.agentPreset
@@ -2001,6 +2026,8 @@ class SessionStore @Inject constructor(
                 agentPreset = sessionAgentPreset(item),
                 agentAvailable = item.agentAvailable,
                 subagentTiming = decodeSubagentTiming(item) ?: existing?.subagentTiming,
+                boundChangeRequestUrls = sessionForgeFacts(item).changeRequestUrls,
+                worktreeBranch = sessionForgeFacts(item).worktreeBranch,
             ) ?: SessionRow(
                 sessionId = item.sessionId,
                 title = title,
@@ -2014,6 +2041,8 @@ class SessionStore @Inject constructor(
                 updatedAt = item.updatedAt,
                 pendingInteraction = null,
                 subagentTiming = decodeSubagentTiming(item),
+                boundChangeRequestUrls = sessionForgeFacts(item).changeRequestUrls,
+                worktreeBranch = sessionForgeFacts(item).worktreeBranch,
             )
             if (existing == null) {
                 // New sessions appear at the front (most recent first).
@@ -2426,6 +2455,8 @@ class SessionStore @Inject constructor(
                             updatedAt = item.updatedAt,
                             pendingInteraction = null,
                             subagentTiming = decodeSubagentTiming(item),
+                            boundChangeRequestUrls = sessionForgeFacts(item).changeRequestUrls,
+                            worktreeBranch = sessionForgeFacts(item).worktreeBranch,
                         )
                     }
                     if (addedAfterRequest.isNotEmpty()) {

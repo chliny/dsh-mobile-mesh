@@ -289,7 +289,10 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
         // Unknown event types stay visible — that is the compatibility contract — but the
         // structural ones are not "unknown", they are bookkeeping, and printing `step/start` /
         // `step/end` between every tool call buried the actual work in noise.
-        is OtherNode -> if (node.type !in STRUCTURAL_EVENT_TYPES) {
+        // `plugin:` records are client-plugin bookkeeping (for example the forge worktree
+        // request). The panel that owns them already shows their effect; the transcript must not
+        // print the record type between turns.
+        is OtherNode -> if (node.type !in STRUCTURAL_EVENT_TYPES && !node.type.startsWith("plugin:")) {
             Text(node.type, style = DsType.caption11, color = colors.labelCaption)
         }
     }

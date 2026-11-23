@@ -10,6 +10,7 @@ DSH Mobile Mesh é um controle remoto Android não oficial para o [DeepSeek Harn
 - Ver resultados de ferramentas e enviar texto, imagens e arquivos.
 - Gerenciar objetivos, planos, aprovações, perguntas, tarefas, workflows e subagentes.
 - Trocar modelos, presets e skills e executar comandos slash do DeepSeek Harness.
+- Com o plugin **Solicitações de alteração e árvores de trabalho** habilitado no Host, abra a visualização de alterações a partir da lista de arquivos do espaço de trabalho, compare um ramo ou commits, adicione ao campo de mensagem comentários sobre linhas exatas do diff, revise as solicitações de alteração vinculadas e inicie uma sessão em uma nova árvore de trabalho.
 
 ### Conexão Mesh
 

@@ -7,12 +7,16 @@ import dev.dsh.mobile.mesh.core.wire.dto.CommandSubmitAttachment
 import dev.dsh.mobile.mesh.core.wire.dto.EncodedFileUploadRequest
 import dev.dsh.mobile.mesh.core.wire.dto.EncodedImageAttachment
 import dev.dsh.mobile.mesh.core.wire.dto.ImageAttachmentRef
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeLocalScope
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewerRef
+import dev.dsh.mobile.mesh.core.forge.forgeReviewResolveWrite
 import dev.dsh.mobile.mesh.core.wire.dto.SessionAttachmentRequest
 import dev.dsh.mobile.mesh.core.wire.dto.PromptContentPart
 import dev.dsh.mobile.mesh.core.wire.dto.SessionPromptRequest
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentPromptRequest
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceUnarchiveSessionRequest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -662,6 +666,88 @@ class DshApiClientRemoteTest {
         transport.uploadResponder = { throw RpcTransportException(404, "carrier returned HTTP 404") }
         val result = client(transport).uploadFileBinary("session-8", null, 1, ByteArrayInputStream(ByteArray(1)))
         assertEquals("capability-unavailable", (result as RpcResult.Err).error.code)
+    }
+
+    @Test
+    fun `forge local diff sends explicit nulls for the automatic branch scope`() = runTest {
+        // `WireJson` omits Kotlin nulls, but the typert gateway rejects a missing declared key.
+        // The panel's nullable base and commits must therefore be present as JSON null.
+        val transport = RecordingTransport { _, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """{"base":"origin/main","files":[],"omitted":0}""")
+        }
+        val result = client(transport).forgePanelLocalDiff("session-1", ForgeLocalScope.branch())
+
+        assertEquals("/api/forgePanel/localDiff", transport.lastPath)
+        val args = Json.parseToJsonElement(transport.lastBody!!)
+            .jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject
+        assertEquals("session-1", args["sessionId"]!!.jsonPrimitive.content)
+        val scope = args["scope"]!!.jsonObject
+        assertEquals("branch", scope["kind"]!!.jsonPrimitive.content)
+        assertEquals(JsonNull, scope["base"])
+        assertEquals(JsonNull, scope["commits"])
+        assertEquals("origin/main", (result as RpcResult.Ok).value.base)
+    }
+
+    @Test
+    fun `forge worktree request keeps a null head base on the wire`() = runTest {
+        val transport = RecordingTransport { _, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, "{}")
+        }
+        client(transport).forgePanelRequestWorktree("session-1", null)
+
+        assertEquals("/api/forgePanel/requestWorktree", transport.lastPath)
+        val args = Json.parseToJsonElement(transport.lastBody!!)
+            .jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject
+        assertEquals(JsonNull, args["from"])
+    }
+
+    @Test
+    fun `forge review write keeps the write kind and head on the wire`() = runTest {
+        val transport = RecordingTransport { _, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """{"ok":true}""")
+        }
+        val result = client(transport).forgePanelChangeRequestReviewWrite(
+            "session-1",
+            "https://github.com/owner/repo/pull/7",
+            forgeReviewResolveWrite("head-sha", "thread-1", true),
+        )
+
+        assertEquals("/api/forgePanel/changeRequestReviewWrite", transport.lastPath)
+        val args = Json.parseToJsonElement(transport.lastBody!!)
+            .jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject
+        val write = args["write"]!!.jsonObject
+        assertEquals("head-sha", write["headSha"]!!.jsonPrimitive.content)
+        assertEquals("resolve", write["kind"]!!.jsonPrimitive.content)
+        assertEquals("thread-1", write["thread"]!!.jsonPrimitive.content)
+        assertEquals(true, write["resolved"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals(true, (result as RpcResult.Ok).value.ok)
+    }
+
+    @Test
+    fun `forge review request sends reviewers and merge keeps the confirmed head`() = runTest {
+        val transport = RecordingTransport { _, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, "{}")
+        }
+        client(transport).forgePanelRequestReviews(
+            "session-1",
+            "https://github.com/owner/repo/pull/7",
+            listOf(ForgeReviewerRef("user", "alice"), ForgeReviewerRef("team", "org/reviewers")),
+        )
+        var args = Json.parseToJsonElement(transport.lastBody!!)
+            .jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject
+        val reviewers = args["reviewers"]!!.jsonArray
+        assertEquals("alice", reviewers[0].jsonObject["login"]!!.jsonPrimitive.content)
+        assertEquals("team", reviewers[1].jsonObject["kind"]!!.jsonPrimitive.content)
+
+        client(transport).forgePanelMerge("session-1", "https://github.com/owner/repo/pull/7", "squash", "head-sha")
+        args = Json.parseToJsonElement(transport.lastBody!!)
+            .jsonObject["payload"]!!.jsonObject["args"]!!.jsonObject
+        assertEquals("squash", args["method"]!!.jsonPrimitive.content)
+        assertEquals("head-sha", args["headSha"]!!.jsonPrimitive.content)
     }
 
     @Test

@@ -6,6 +6,7 @@ import androidx.compose.ui.platform.LocalContext
 import dev.dsh.mobile.mesh.connection.ConnectionManager
 import dev.dsh.mobile.mesh.connection.HostsStore
 import dev.dsh.mobile.mesh.data.ChatDraftStore
+import dev.dsh.mobile.mesh.data.ForgeStore
 import dev.dsh.mobile.mesh.data.SessionStore
 import dev.dsh.mobile.mesh.data.TerminalInventoryStore
 import dev.dsh.mobile.mesh.data.WorkspaceFilesStore
@@ -30,6 +31,7 @@ interface SessionStoreEntryPoint {
     fun chatDraftStore(): ChatDraftStore
     fun newSessionDraftStore(): NewSessionDraftStore
     fun workspaceFilesStore(): WorkspaceFilesStore
+    fun forgeStore(): ForgeStore
     fun terminalInventoryStore(): TerminalInventoryStore
     fun hostsStore(): HostsStore
     fun connectionManager(): ConnectionManager
@@ -72,6 +74,15 @@ internal fun rememberWorkspaceFilesStore(): WorkspaceFilesStore {
     val context = LocalContext.current.applicationContext
     return remember {
         EntryPointAccessors.fromApplication(context, SessionStoreEntryPoint::class.java).workspaceFilesStore()
+    }
+}
+
+/** Resolves the process-scoped forge-panel store (change requests and worktrees). */
+@Composable
+internal fun rememberForgeStore(): ForgeStore {
+    val context = LocalContext.current.applicationContext
+    return remember {
+        EntryPointAccessors.fromApplication(context, SessionStoreEntryPoint::class.java).forgeStore()
     }
 }
 

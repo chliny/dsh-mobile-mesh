@@ -42,9 +42,11 @@ import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -65,6 +67,7 @@ import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.data.SessionRow
 import dev.dsh.mobile.mesh.data.SessionStore
 import dev.dsh.mobile.mesh.core.wire.dto.DirectoryListing
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeChangeRequestListState
 import dev.dsh.mobile.mesh.data.WorkspaceRow
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
 import dev.dsh.mobile.mesh.ui.components.DsButton
@@ -75,11 +78,13 @@ import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.components.DsMenu
 import dev.dsh.mobile.mesh.ui.components.EmptyHero
+import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import dev.dsh.mobile.mesh.ui.components.MenuItem
 import dev.dsh.mobile.mesh.ui.components.SectionHeader
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.components.relativeTime
+import dev.dsh.mobile.mesh.ui.rememberForgeStore
 import dev.dsh.mobile.mesh.ui.rememberHostsStore
 import dev.dsh.mobile.mesh.ui.rememberSessionStore
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
@@ -211,6 +216,12 @@ fun ChatListDrawer(
     val store = rememberSessionStore()
     val scope = rememberCoroutineScope()
     val hostsStore = rememberHostsStore()
+    val forgeStore = rememberForgeStore()
+    DisposableEffect(forgeStore) {
+        val token = forgeStore.observeChangeRequestStates()
+        onDispose { forgeStore.releaseChangeRequestStates(token) }
+    }
+    val forgeStates by forgeStore.changeRequestStates.collectAsStateWithLifecycle()
 
     val sessions by store.sessions.collectAsStateWithLifecycle()
     val sessionsBaselineLoaded by store.sessionsBaselineLoaded.collectAsStateWithLifecycle()
@@ -480,6 +491,7 @@ fun ChatListDrawer(
                         childCount = childrenByParent[session.sessionId].orEmpty().size,
                         childrenExpanded = isChildExpanded(session.sessionId),
                         onToggleChildren = { toggleChildren(session.sessionId) },
+                        changeRequestStates = forgeStates,
                     )
                 }
             }
@@ -566,6 +578,7 @@ fun ChatListDrawer(
                                 isPinned = session.sessionId in pinnedSet,
                                 pinAvailable = pinAvailable,
                                 onToggleChildren = { toggleChildren(session.sessionId) },
+                                changeRequestStates = forgeStates,
                             )
                         }
                     }
@@ -607,6 +620,7 @@ fun ChatListDrawer(
                             isPinned = session.sessionId in pinnedSet,
                             pinAvailable = pinAvailable,
                             onToggleChildren = { toggleChildren(session.sessionId) },
+                            changeRequestStates = forgeStates,
                         )
                     }
                 }
@@ -623,7 +637,10 @@ fun ChatListDrawer(
                         onToggle = { archivedExpanded = !archivedExpanded },
                     ) {
                         archivedSessions.forEach { session ->
-                            SessionRowItem(session, false, store, scope, onClose, isArchived = true)
+                            SessionRowItem(
+                                session, false, store, scope, onClose,
+                                isArchived = true, changeRequestStates = forgeStates,
+                            )
                         }
                     }
                 }
@@ -889,6 +906,66 @@ private fun WorkspaceMenu(
     }
 }
 
+/** Worktree and most-urgent bound change-request markers in one session row. */
+@Composable
+private fun SessionForgeIcons(session: SessionRow, states: Map<String, ForgeChangeRequestListState>) {
+    val colors = MaterialTheme.colorScheme
+    session.worktreeBranch?.let { branch ->
+        Icon(
+            FeatherIcons.GitBranch,
+            contentDescription = stringResource(R.string.chatlist_worktree, branch),
+            tint = colors.onSurfaceVariant,
+            modifier = Modifier.size(14.dp),
+        )
+    }
+    if (session.boundChangeRequestUrls.isEmpty()) return
+    val changeRequest = session.boundChangeRequestUrls
+        .mapNotNull { states[it] }
+        .minByOrNull(::forgeChangeRequestRank)
+    val tint = when {
+        changeRequest == null -> colors.onSurfaceVariant
+        changeRequest.state == "open" && !changeRequest.draft &&
+            (changeRequest.checksRollup == "failure" ||
+                changeRequest.reviewDecision == "changes-requested" ||
+                changeRequest.mergeability == "conflicting") -> colors.error
+        changeRequest.state == "open" && !changeRequest.draft -> colors.primary
+        changeRequest.state == "merged" -> colors.tertiary
+        else -> colors.onSurfaceVariant
+    }
+    Icon(
+        FeatherIcons.GitPullRequest,
+        contentDescription = if (changeRequest == null) {
+            stringResource(R.string.chatlist_change_request_pending)
+        } else {
+            stringResource(R.string.chatlist_change_request, changeRequest.number, forgeChangeRequestStateLabel(changeRequest))
+        },
+        tint = tint,
+        modifier = Modifier.size(14.dp),
+    )
+}
+
+private fun forgeChangeRequestRank(state: ForgeChangeRequestListState): Int = when {
+    state.state == "open" && !state.draft &&
+        (state.checksRollup == "failure" ||
+            state.reviewDecision == "changes-requested" ||
+            state.mergeability == "conflicting") -> 0
+    state.state == "open" && !state.draft -> 1
+    state.draft && state.state == "open" -> 2
+    state.state == "merged" -> 3
+    state.state == "closed" -> 4
+    else -> 5
+}
+
+@Composable
+private fun forgeChangeRequestStateLabel(state: ForgeChangeRequestListState): String = stringResource(
+    when {
+        state.state == "merged" -> R.string.forge_state_merged
+        state.state == "closed" -> R.string.forge_state_closed
+        state.draft -> R.string.forge_state_draft
+        else -> R.string.forge_state_open
+    },
+)
+
 /**
  * One session row: status, title, relative time, and the session verbs on long-press.
  *
@@ -912,6 +989,7 @@ private fun SessionRowItem(
     isArchived: Boolean = false,
     isPinned: Boolean = false,
     pinAvailable: Boolean = false,
+    changeRequestStates: Map<String, ForgeChangeRequestListState> = emptyMap(),
 ) {
     val colors = DsTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
@@ -994,6 +1072,7 @@ private fun SessionRowItem(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    SessionForgeIcons(session, changeRequestStates)
                     session.cwd?.takeIf { it.isNotBlank() }?.let {
                         Text(
                             basename(it),

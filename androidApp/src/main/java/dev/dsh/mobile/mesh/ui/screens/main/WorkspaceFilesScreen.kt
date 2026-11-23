@@ -5,11 +5,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -35,6 +37,7 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.data.DirectoryLevel
 import dev.dsh.mobile.mesh.data.normalizeWorkspaceFilesRequestPath
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
+import dev.dsh.mobile.mesh.ui.components.DsPill
 import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
@@ -72,6 +75,8 @@ fun WorkspaceFilesScreen(
     rootTitle: String? = null,
     onBack: () -> Unit,
     onOpenFile: (String, String, String) -> Unit,
+    showChangesEntry: Boolean = false,
+    onOpenChanges: (String) -> Unit = {},
 ) {
     val store = rememberWorkspaceFilesStore()
     val state by store.state.collectAsStateWithLifecycle()
@@ -111,7 +116,17 @@ fun WorkspaceFilesScreen(
                     ?: rootTitle?.takeIf { it.isNotBlank() }
                     ?: stringResource(R.string.workspace_files_title),
                 style = DsType.large20,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
+            if (showChangesEntry) {
+                DsPill(
+                    text = stringResource(R.string.forge_changes),
+                    onClick = { onOpenChanges(currentPath) },
+                )
+                Spacer(Modifier.width(8.dp))
+            }
         }
         PullToRefreshBox(
             isRefreshing = refreshing,

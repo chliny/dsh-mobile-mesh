@@ -10,6 +10,7 @@ DSH Mobile Mesh، [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-har
 - Tool نتائج دیکھیں اور text، images اور files بھیجیں۔
 - Goals، plans، approvals، questions، jobs، workflows اور subagents سنبھالیں۔
 - Models، presets اور skills تبدیل کریں اور DeepSeek Harness slash commands چلائیں۔
+- Host پر **تبدیلی کی درخواستیں اور ورک ٹری** پلگ ان فعال ہونے پر، ورک اسپیس فائل فہرست سے تبدیلیوں کا منظر کھولیں، کسی برانچ یا کمٹ کا موازنہ کریں، diff کی مخصوص سطروں پر تبصرہ ان پٹ میں شامل کریں، منسلک تبدیلی کی درخواستیں دیکھیں، اور نئے ورک ٹری میں سیشن شروع کریں۔
 
 ### Mesh کنکشن
 
