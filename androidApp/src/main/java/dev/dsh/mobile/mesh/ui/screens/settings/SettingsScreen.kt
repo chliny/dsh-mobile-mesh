@@ -32,7 +32,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ProvideTextStyle
@@ -923,9 +922,68 @@ private fun ConnectionSection(connectionState: ConnectionUiState, onDisconnect: 
     }
 }
 
+/** One choice in a settings dropdown: its stored value and its display label. */
+private data class SettingOption<T>(val value: T, val label: String)
+
+/**
+ * A labelled dropdown row: name on the left, the current value with a caret on the right.
+ *
+ * Shared by language and appearance so the two pickers read identically, and to match the plain
+ * label-plus-control rows around them — a [ToggleRow] is a label and a switch, this is a label and a
+ * value. The whole row is the tap target and the caret is the only ornament: no pill frame, which is
+ * exactly what set the old language picker apart from every other row on the page.
+ */
+@Composable
+private fun <T> SettingDropdownRow(
+    label: String,
+    currentLabel: String,
+    options: List<SettingOption<T>>,
+    isSelected: (T) -> Boolean,
+    onSelect: (T) -> Unit,
+) {
+    val colors = DsTheme.colors
+    DsMenu(
+        anchor = { onOpen ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(DsShapes.row)
+                    .clickable(onClick = onOpen)
+                    .padding(vertical = DsSpacing.small),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    label,
+                    style = DsType.std14,
+                    color = colors.labelSecondary,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    currentLabel,
+                    style = DsType.small13,
+                    color = colors.labelPrimary,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.width(DsSpacing.tiny))
+                Icon(
+                    Icons.Filled.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = colors.labelTertiary,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        },
+        items = options.map { option ->
+            MenuItem(
+                text = option.label,
+                selected = isSelected(option.value),
+            ) { onSelect(option.value) }
+        },
+    )
+}
+
 @Composable
 private fun LanguageRow(settings: AppSettings, onSelect: (String?) -> Unit) {
-    val colors = DsTheme.colors
     // A dropdown, not a grid of twelve cells. The grid spent four rows of a settings page on a
     // choice that is made once and then never touched, and at three per row the longer endonyms had
     // to be ellipsised to fit — so the control was both the largest thing on the screen and unable
@@ -935,93 +993,28 @@ private fun LanguageRow(settings: AppSettings, onSelect: (String?) -> Unit) {
     }
     val current = LanguageOptions.firstOrNull { it.tag == settings.localeOverride }
         ?: LanguageOptions.first()
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = DsSpacing.small),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            stringResource(R.string.settings_language),
-            style = DsType.std14,
-            color = colors.labelSecondary,
-            modifier = Modifier.weight(1f),
-        )
-        DsMenu(
-            anchor = { onOpen ->
-                Row(
-                    modifier = Modifier
-                        .clickable(onClick = onOpen)
-                        .clip(DsShapes.pillFull)
-                        .background(colors.hoverSolid)
-                        .border(1.dp, colors.borderL2, DsShapes.pillFull)
-                        .padding(horizontal = DsSpacing.compact, vertical = DsSpacing.tiny),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
-                ) {
-                    Text(
-                        labels[current].orEmpty(),
-                        style = DsType.small13,
-                        color = colors.labelPrimary,
-                        maxLines = 1,
-                    )
-                    Icon(
-                        Icons.Filled.KeyboardArrowDown,
-                        contentDescription = null,
-                        tint = colors.labelSecondary,
-                        modifier = Modifier.size(14.dp),
-                    )
-                }
-            },
-            items = LanguageOptions.map { option ->
-                MenuItem(
-                    text = labels[option].orEmpty(),
-                    icon = Icons.Filled.Check.takeIf { option.tag == settings.localeOverride },
-                ) { onSelect(option.tag) }
-            },
-        )
-    }
+    SettingDropdownRow(
+        label = stringResource(R.string.settings_language),
+        currentLabel = labels[current].orEmpty(),
+        options = LanguageOptions.map { SettingOption(it.tag, labels[it].orEmpty()) },
+        isSelected = { tag -> tag == settings.localeOverride },
+        onSelect = onSelect,
+    )
 }
 
 @Composable
 private fun AppearanceRow(settings: AppSettings, onSelect: (String) -> Unit) {
-    val colors = DsTheme.colors
-    Column(modifier = Modifier.padding(vertical = DsSpacing.small)) {
-        Text(
-            stringResource(R.string.settings_appearance),
-            style = DsType.std14,
-            color = colors.labelSecondary,
-        )
-        Spacer(Modifier.height(DsSpacing.small))
-        Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
-            AppearanceChip(
-                stringResource(R.string.settings_appearance_light),
-                settings.themePreference == "light",
-            ) { onSelect("light") }
-            AppearanceChip(
-                stringResource(R.string.settings_appearance_dark),
-                settings.themePreference == "dark",
-            ) { onSelect("dark") }
-            AppearanceChip(
-                stringResource(R.string.settings_appearance_system),
-                settings.themePreference == "system",
-            ) { onSelect("system") }
-        }
-    }
-}
-
-@Composable
-private fun AppearanceChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    val colors = DsTheme.colors
-    Box(
-        modifier = Modifier
-            .clip(DsShapes.cube)
-            .background(if (selected) colors.accentTertiary else colors.bgModulePlatform)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = DsSpacing.small),
-    ) {
-        Text(
-            label,
-            style = DsType.small13,
-            color = if (selected) colors.accent else colors.labelSecondary,
-        )
-    }
+    val options = listOf(
+        SettingOption("light", stringResource(R.string.settings_appearance_light)),
+        SettingOption("dark", stringResource(R.string.settings_appearance_dark)),
+        SettingOption("system", stringResource(R.string.settings_appearance_system)),
+    )
+    SettingDropdownRow(
+        label = stringResource(R.string.settings_appearance),
+        currentLabel = options.firstOrNull { it.value == settings.themePreference }?.label
+            ?: options.last().label,
+        options = options,
+        isSelected = { value -> value == settings.themePreference },
+        onSelect = onSelect,
+    )
 }
