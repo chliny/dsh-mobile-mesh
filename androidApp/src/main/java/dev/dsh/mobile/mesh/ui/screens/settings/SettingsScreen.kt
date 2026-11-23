@@ -32,8 +32,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.AlertDialog
@@ -80,9 +82,7 @@ import dev.dsh.mobile.mesh.ui.components.DsButtonSize
 import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
 import dev.dsh.mobile.mesh.ui.components.DsDialog
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
-import dev.dsh.mobile.mesh.ui.components.DsMenu
 import dev.dsh.mobile.mesh.ui.components.DsToastHost
-import dev.dsh.mobile.mesh.ui.components.MenuItem
 import dev.dsh.mobile.mesh.ui.components.SectionHeader
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
@@ -926,12 +926,11 @@ private fun ConnectionSection(connectionState: ConnectionUiState, onDisconnect: 
 private data class SettingOption<T>(val value: T, val label: String)
 
 /**
- * A labelled dropdown row: name on the left, the current value with a caret on the right.
+ * A labelled dropdown row: name on the left, an outlined value button on the right.
  *
- * Shared by language and appearance so the two pickers read identically, and to match the plain
- * label-plus-control rows around them — a [ToggleRow] is a label and a switch, this is a label and a
- * value. The whole row is the tap target and the caret is the only ornament: no pill frame, which is
- * exactly what set the old language picker apart from every other row on the page.
+ * Matches the pickers on the Harness → Agent settings page (the default permission and agent-preset
+ * rows) so every value picker in Settings looks the same: a [Row] with the label taking one half and
+ * an [OutlinedButton] showing the current value in the other, opening a Material dropdown.
  */
 @Composable
 private fun <T> SettingDropdownRow(
@@ -941,45 +940,27 @@ private fun <T> SettingDropdownRow(
     isSelected: (T) -> Boolean,
     onSelect: (T) -> Unit,
 ) {
-    val colors = DsTheme.colors
-    DsMenu(
-        anchor = { onOpen ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(DsShapes.row)
-                    .clickable(onClick = onOpen)
-                    .padding(vertical = DsSpacing.small),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    label,
-                    style = DsType.std14,
-                    color = colors.labelSecondary,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    currentLabel,
-                    style = DsType.small13,
-                    color = colors.labelPrimary,
-                    maxLines = 1,
-                )
-                Spacer(Modifier.width(DsSpacing.tiny))
-                Icon(
-                    Icons.Filled.KeyboardArrowDown,
-                    contentDescription = null,
-                    tint = colors.labelTertiary,
-                    modifier = Modifier.size(14.dp),
-                )
+    var expanded by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), style = DsType.std14)
+        Box(Modifier.weight(1f, fill = false)) {
+            OutlinedButton(onClick = { expanded = true }) {
+                Text(currentLabel, style = DsType.small13)
             }
-        },
-        items = options.map { option ->
-            MenuItem(
-                text = option.label,
-                selected = isSelected(option.value),
-            ) { onSelect(option.value) }
-        },
-    )
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option.label, style = DsType.std14) },
+                        enabled = !isSelected(option.value),
+                        onClick = {
+                            expanded = false
+                            onSelect(option.value)
+                        },
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
