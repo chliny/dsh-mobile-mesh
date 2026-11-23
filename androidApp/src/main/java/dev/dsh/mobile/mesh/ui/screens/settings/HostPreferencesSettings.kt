@@ -13,11 +13,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.material3.LocalTextStyle
@@ -30,11 +32,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.SettingsNamespaceView
-import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.components.ToggleRow
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -109,7 +109,7 @@ private fun HostPreferenceChoice(label: Int, current: String, writable: Boolean,
         Text(stringResource(label), Modifier.weight(1f).padding(end = DsSpacing.small))
         Box(Modifier.weight(1f, fill = false)) {
             OutlinedButton(onClick = { expanded = true }, enabled = writable) {
-                Text(currentLabel, style = DsType.small13)
+                Text(currentLabel)
             }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 options.forEach { (value, text) ->
@@ -125,16 +125,17 @@ private fun HostPreferenceChoice(label: Int, current: String, writable: Boolean,
 
 @Composable
 internal fun HostSettingsPage(title: String, onClose: () -> Unit, action: @Composable () -> Unit = {}, content: @Composable () -> Unit) {
-    val colors = DsTheme.colors
-    Surface(Modifier.fillMaxSize(), color = colors.bgBase) {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().safeDrawingPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = DsSpacing.comfortable).padding(top = DsSpacing.medium),
                 verticalAlignment = Alignment.CenterVertically) {
-                DsIconButton(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back), onClick = onClose)
-                Text(title, Modifier.weight(1f), style = DsType.large20, color = colors.labelPrimary)
+                IconButton(onClick = onClose) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
+                }
+                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
                 action()
             }
-            CompositionLocalProvider(LocalTextStyle provides DsType.std14) {
+            CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.bodyMedium) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                     .padding(horizontal = DsSpacing.comfortable).padding(top = DsSpacing.comfortable, bottom = DsSpacing.xlarge),
                     verticalArrangement = Arrangement.spacedBy(DsSpacing.comfortable)) { content() }

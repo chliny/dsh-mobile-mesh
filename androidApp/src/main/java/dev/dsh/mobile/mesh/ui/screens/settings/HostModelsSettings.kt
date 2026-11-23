@@ -24,7 +24,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -71,7 +70,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.longOrNull
 import java.util.Locale
 
 @Composable
@@ -102,14 +100,14 @@ internal fun HostModelsSettings(onClose: () -> Unit, viewModel: HostModelsViewMo
         Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
             if (catalog.isNotEmpty()) OutlinedButton(onClick = { catalogOpen = true }, enabled = writable,
                 modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.host_models_add_provider), style = DsType.std14)
+                Text(stringResource(R.string.host_models_add_provider))
             }
             if (custom != null && custom.providerPathIsAddressable(listOf("providers")) &&
                 ModelSettingsSchema(custom.schema).protocols(listOf("providers", "probe")).isNotEmpty()
             ) {
                 OutlinedButton(onClick = { viewModel.clearDiscovery(); creatingAt = custom }, enabled = writable,
                     modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.host_models_custom_provider), style = DsType.std14)
+                    Text(stringResource(R.string.host_models_custom_provider))
                 }
             }
         }
@@ -145,7 +143,7 @@ internal fun HostModelsSettings(onClose: () -> Unit, viewModel: HostModelsViewMo
             verticalArrangement = Arrangement.spacedBy(DsSpacing.tiny)) {
             catalog.forEach { row ->
                 TextButton(onClick = { catalogOpen = false; viewModel.clearDiscovery(); editing = row }, enabled = writable) {
-                    Text(row.entry.displayName, style = DsType.std14)
+                    Text(row.entry.displayName)
                 }
             }
         } }, confirmButton = { TextButton(onClick = { catalogOpen = false }) { Text(stringResource(R.string.common_close)) } })
@@ -308,13 +306,13 @@ private fun ProviderSettingsEditor(namespace: SettingsNamespaceView, row: HostMo
                 )
                 OutlinedButton(onClick = { editIndex = models.size }, enabled = enabled,
                     modifier = Modifier.fillMaxWidth(), contentPadding = ModelActionPadding) {
-                    Text(stringResource(R.string.host_models_add_model), style = DsType.std14)
+                    Text(stringResource(R.string.host_models_add_model))
                 }
                 if (row != null && modelsOverride && (!custom || !defaultModels.isNullOrEmpty())) OutlinedButton(onClick = {
                     models = defaultModels.orEmpty().filterIsInstance<JsonObject>()
                     modelsOverride = false
                 }, enabled = enabled, modifier = Modifier.fillMaxWidth(), contentPadding = ModelActionPadding) {
-                    Text(stringResource(R.string.plugins_native_reset), style = DsType.std14)
+                    Text(stringResource(R.string.plugins_native_reset))
                 }
             }
         } }, confirmButton = {
@@ -522,9 +520,9 @@ private fun LlmDiscoveredModel.toSettings(modalityField: String): JsonObject = J
 private fun ModelTextField(label: Int, value: String, enabled: Boolean, placeholder: String? = null,
     password: Boolean = false, edit: (String) -> Unit,
 ) {
-    OutlinedTextField(value, onValueChange = edit, textStyle = DsType.std14,
-        label = { Text(stringResource(label), style = DsType.std14) },
-        placeholder = placeholder?.let { { Text(it, style = DsType.std14) } }, enabled = enabled, singleLine = true,
+    OutlinedTextField(value, onValueChange = edit,
+        label = { Text(stringResource(label)) },
+        placeholder = placeholder?.let { { Text(it) } }, enabled = enabled, singleLine = true,
         visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         modifier = Modifier.fillMaxWidth())
 }
@@ -535,7 +533,7 @@ private val ModelActionPadding = PaddingValues(horizontal = DsSpacing.comfortabl
 private fun ModelProviderAction(label: Int, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
     OutlinedButton(onClick = onClick, modifier = modifier, enabled = enabled,
         contentPadding = PaddingValues(horizontal = DsSpacing.tiny, vertical = DsSpacing.tiny)) {
-        Text(stringResource(label), style = DsType.small13, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Text(stringResource(label), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
 
@@ -551,7 +549,7 @@ private fun ModelSettingRow(label: Int, value: String, enabled: Boolean, onEdit:
             OutlinedButton(onClick = onEdit, enabled = enabled,
                 modifier = Modifier.semantics { contentDescription = "$editLabel: $fieldLabel" },
                 contentPadding = PaddingValues(horizontal = DsSpacing.small, vertical = DsSpacing.tiny)) {
-                Text(editLabel, style = DsType.small13)
+                Text(editLabel)
             }
         }
     }
@@ -564,7 +562,7 @@ private fun ModelChoice(label: Int, current: String, options: List<String>, enab
         verticalAlignment = Alignment.CenterVertically) {
         Text(stringResource(label) + ":", Modifier.weight(1f), style = DsType.small13)
         androidx.compose.foundation.layout.Box(Modifier.weight(1.5f, fill = false)) {
-            OutlinedButton(onClick = { expanded = true }, enabled = enabled) { Text(current, style = DsType.small13) }
+            OutlinedButton(onClick = { expanded = true }, enabled = enabled) { Text(current) }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 options.forEach { option -> DropdownMenuItem(text = { Text(option) }, onClick = { expanded = false; select(option) }) }
             }

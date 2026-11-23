@@ -9,12 +9,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,19 +31,22 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ProvideTextStyle
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.rememberScrollState
@@ -77,11 +79,6 @@ import dev.dsh.mobile.mesh.core.wire.dto.PluginInventoryEntry
 import dev.dsh.mobile.mesh.core.wire.dto.PluginInventorySnapshot
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
 import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsDialog
-import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.components.DsToastHost
 import dev.dsh.mobile.mesh.ui.components.SectionHeader
 import dev.dsh.mobile.mesh.ui.components.StateDot
@@ -89,7 +86,6 @@ import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.components.ToggleRow
 import dev.dsh.mobile.mesh.ui.components.rememberDsToast
 import dev.dsh.mobile.mesh.ui.rememberSessionStore
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsType
@@ -211,7 +207,7 @@ fun SettingsScreen(
     // restarted with a different composition, and nothing pushes that over the wire.
     LaunchedEffect(Unit) { store.refreshPlugins() }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = colors.bgBase) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Box {
             Column(
                 modifier = Modifier
@@ -222,15 +218,16 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(DsSpacing.comfortable),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    DsIconButton(
-                        icon = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.common_back),
-                        onClick = onClose,
-                    )
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back),
+                        )
+                    }
                     Text(
                         stringResource(R.string.settings_title),
-                        style = DsType.large20,
-                        color = colors.labelPrimary,
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
 
@@ -241,24 +238,18 @@ fun SettingsScreen(
 
                 SettingsCard(stringResource(R.string.settings_connection)) {
                     ConnectionSection(connectionState, onDisconnect = { showDisconnectDialog = true })
-                    DsButton(
-                        text = stringResource(R.string.settings_open_connection),
+                    OutlinedButton(
                         onClick = onOpenConnections,
-                        variant = DsButtonVariant.Outline,
                         modifier = Modifier.fillMaxWidth(),
-                    )
-                    DsButton(
-                        text = stringResource(R.string.settings_connections_export),
+                    ) { Text(stringResource(R.string.settings_open_connection)) }
+                    OutlinedButton(
                         onClick = { exportLauncher.launch("dsh-connections.json") },
-                        variant = DsButtonVariant.Outline,
                         modifier = Modifier.fillMaxWidth(),
-                    )
-                    DsButton(
-                        text = stringResource(R.string.settings_connections_import),
+                    ) { Text(stringResource(R.string.settings_connections_export)) }
+                    OutlinedButton(
                         onClick = { importLauncher.launch(arrayOf("application/json", "text/plain")) },
-                        variant = DsButtonVariant.Outline,
                         modifier = Modifier.fillMaxWidth(),
-                    )
+                    ) { Text(stringResource(R.string.settings_connections_import)) }
                     ToggleRow(
                         stringResource(R.string.connect_auto_last),
                         settings.autoConnectLast,
@@ -312,10 +303,10 @@ fun SettingsScreen(
                 if (connectionState.phase == ConnectionPhase.CONNECTED) {
                     SettingsCard(stringResource(R.string.settings_harness)) {
                         HostSettingsSection.entries.forEach { section ->
-                            DsButton(
-                                text = stringResource(section.title), onClick = { hostSection = section },
-                                variant = DsButtonVariant.Outline, modifier = Modifier.fillMaxWidth(),
-                            )
+                            OutlinedButton(
+                                onClick = { hostSection = section },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(stringResource(section.title)) }
                         }
                     }
                 }
@@ -349,8 +340,7 @@ fun SettingsScreen(
                         persistLogs = enabled
                         AppLogCapture.setEnabled(context, enabled)
                     }
-                    DsButton(
-                        text = stringResource(R.string.settings_logs_export),
+                    OutlinedButton(
                         onClick = {
                             // The dialog displays seconds, so use second-aligned boundaries for
                             // the default range as well as for dates chosen by the operator.
@@ -358,9 +348,8 @@ fun SettingsScreen(
                             logsExportRange = customLogsRange ?: AppLogTimeRange(now - DEFAULT_LOG_WINDOW_MS, now)
                             showLogsRangeDialog = true
                         },
-                        variant = DsButtonVariant.Outline,
                         modifier = Modifier.fillMaxWidth(),
-                    )
+                    ) { Text(stringResource(R.string.settings_logs_export)) }
                 }
 
                 SettingsCard(stringResource(R.string.settings_about)) {
@@ -492,33 +481,26 @@ fun SettingsScreen(
     }
 
     if (showDisconnectDialog) {
-        DsDialog(
-            title = stringResource(R.string.settings_connection_disconnect_confirm),
-            onDismiss = { showDisconnectDialog = false },
-        ) {
-            Text(
-                stringResource(R.string.settings_connection_disconnect_message),
-                style = DsType.std14,
-                color = colors.labelSecondary,
-                modifier = Modifier.padding(bottom = DsSpacing.medium),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
-                DsButton(
-                    text = stringResource(R.string.settings_connection_disconnect),
+        AlertDialog(
+            onDismissRequest = { showDisconnectDialog = false },
+            title = { Text(stringResource(R.string.settings_connection_disconnect_confirm)) },
+            text = { Text(stringResource(R.string.settings_connection_disconnect_message)) },
+            confirmButton = {
+                TextButton(
                     onClick = {
                         viewModel.disconnect()
                         showDisconnectDialog = false
                         onClose()
                     },
-                    variant = DsButtonVariant.Danger,
-                )
-                DsButton(
-                    text = stringResource(R.string.common_cancel),
-                    onClick = { showDisconnectDialog = false },
-                    variant = DsButtonVariant.Ghost,
-                )
-            }
-        }
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text(stringResource(R.string.settings_connection_disconnect)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDisconnectDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
     }
     if (showLogsRangeDialog) {
         LogsExportRangeDialog(
@@ -658,11 +640,19 @@ internal fun SettingsCard(title: String, content: @Composable () -> Unit) {
 
 @Composable
 internal fun SettingsBlock(content: @Composable () -> Unit) {
-    Column(
-        Modifier.fillMaxWidth().clip(DsShapes.block).background(DsTheme.colors.bgLayer1)
-            .padding(horizontal = DsSpacing.medium, vertical = DsSpacing.small),
-        verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall),
-    ) { ProvideTextStyle(DsType.std14, content) }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = DsSpacing.medium, vertical = DsSpacing.small),
+            verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall),
+        ) { ProvideTextStyle(MaterialTheme.typography.bodyMedium, content) }
+    }
 }
 
 /**
@@ -688,43 +678,39 @@ private fun PluginsCard(inventory: PluginInventorySnapshot, onOpenList: () -> Un
             return@SettingsCard
         }
         if (inventory.managementAvailable) {
-            DsButton(
-                text = stringResource(R.string.plugins_native_builtin),
+            OutlinedButton(
                 onClick = { onOpenDirectory(PluginDirectory.BuiltIn) },
-                variant = DsButtonVariant.Outline,
                 modifier = Modifier.fillMaxWidth(),
-            )
-            DsButton(
-                text = stringResource(R.string.plugins_native_experimental),
+            ) { Text(stringResource(R.string.plugins_native_builtin)) }
+            OutlinedButton(
                 onClick = { onOpenDirectory(PluginDirectory.Experimental) },
-                variant = DsButtonVariant.Outline,
                 modifier = Modifier.fillMaxWidth(),
-            )
+            ) { Text(stringResource(R.string.plugins_native_experimental)) }
         }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(DsShapes.row)
+                .clip(MaterialTheme.shapes.small)
                 .clickable(onClick = onOpenList)
                 .padding(vertical = DsSpacing.small),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 stringResource(R.string.settings_plugins_inventory),
-                style = DsType.std14,
-                color = colors.labelSecondary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
             Text(
                 inventory.entries.size.toString(),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
             )
             Spacer(Modifier.width(DsSpacing.xsmall))
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
-                tint = colors.labelTertiary,
+                tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(16.dp),
             )
         }
@@ -761,19 +747,12 @@ private fun PluginsSheet(inventory: PluginInventorySnapshot, onDismiss: () -> Un
         subtitle = inventory.entries.size.toString(),
         onDismiss = onDismiss,
     ) {
-        TextField(
+        OutlinedTextField(
             value = filter,
             onValueChange = { filter = it },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text(stringResource(R.string.plugins_search_hint), style = DsType.std14) },
+            label = { Text(stringResource(R.string.plugins_search_hint)) },
             singleLine = true,
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = colors.bgLayer2,
-                unfocusedContainerColor = colors.bgLayer2,
-                focusedIndicatorColor = colors.accent,
-                unfocusedIndicatorColor = colors.borderL2,
-                cursorColor = colors.accent,
-            ),
         )
         if (matching.isEmpty()) {
             Text(
@@ -890,12 +869,10 @@ private fun ConnectionSection(connectionState: ConnectionUiState, onDisconnect: 
                 )
             }
             Spacer(Modifier.width(DsSpacing.small))
-            DsButton(
-                text = stringResource(R.string.settings_connection_disconnect),
+            OutlinedButton(
                 onClick = onDisconnect,
-                variant = DsButtonVariant.Outline,
-                size = DsButtonSize.Small,
-            )
+                contentPadding = PaddingValues(horizontal = DsSpacing.medium, vertical = DsSpacing.tiny),
+            ) { Text(stringResource(R.string.settings_connection_disconnect)) }
         }
     } else {
         // Not connected: no "connected to" line to carry the state, so show the dot and its label.
@@ -942,15 +919,15 @@ private fun <T> SettingDropdownRow(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f), style = DsType.std14)
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         Box(Modifier.weight(1f, fill = false)) {
             OutlinedButton(onClick = { expanded = true }) {
-                Text(currentLabel, style = DsType.small13)
+                Text(currentLabel)
             }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 options.forEach { option ->
                     DropdownMenuItem(
-                        text = { Text(option.label, style = DsType.std14) },
+                        text = { Text(option.label) },
                         enabled = !isSelected(option.value),
                         onClick = {
                             expanded = false

@@ -165,10 +165,10 @@ internal fun SubagentModelSpecialForm(namespace: SettingsNamespaceView, readOnly
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
         OutlinedButton(onClick = { update(saved + advertised.keys) }, modifier = Modifier.weight(1f),
             enabled = canEdit && !saved.containsAll(advertised.keys)) {
-            Text(stringResource(R.string.host_models_select_all), style = DsType.small13)
+            Text(stringResource(R.string.host_models_select_all))
         }
         OutlinedButton(onClick = { update(emptySet()) }, modifier = Modifier.weight(1f), enabled = canEdit && saved.isNotEmpty()) {
-            Text(stringResource(R.string.host_models_deselect_all), style = DsType.small13)
+            Text(stringResource(R.string.host_models_deselect_all))
         }
     }
     OutlinedTextField(value = search, onValueChange = { search = it }, singleLine = true,

@@ -84,12 +84,12 @@ internal fun HostDefaultsContent(state: HostDefaultsSettingsUiState, viewModel: 
                     val label = state.defaultPermission?.let { value ->
                         defaultPermissionLabel(value, selectedPermission?.name ?: value)
                     } ?: stringResource(R.string.common_none)
-                    Text(label, style = DsType.small13)
+                    Text(label)
                 }
                 DropdownMenu(expanded = permissionMenuOpen && canChoosePermission, onDismissRequest = { permissionMenuOpen = false }) {
                     state.permissionOptions.forEach { preset ->
                         DropdownMenuItem(
-                            text = { Text(defaultPermissionLabel(preset.value, preset.name), style = DsType.std14) },
+                            text = { Text(defaultPermissionLabel(preset.value, preset.name)) },
                             enabled = preset.value != state.defaultPermission,
                             onClick = {
                                 permissionMenuOpen = false
@@ -110,12 +110,12 @@ internal fun HostDefaultsContent(state: HostDefaultsSettingsUiState, viewModel: 
             Text(stringResource(R.string.host_defaults_agent_presets), Modifier.weight(1f), style = DsType.std14)
             if (preset != null) Box(Modifier.weight(1f, fill = false)) {
                 OutlinedButton(onClick = { presetMenuOpen = true }, enabled = !state.loading && !state.busy) {
-                    Text(preset.displayName(), style = DsType.small13)
+                    Text(preset.displayName())
                 }
                 DropdownMenu(expanded = presetMenuOpen && !state.loading && !state.busy,
                     onDismissRequest = { presetMenuOpen = false }) {
                     state.agentPresets.forEach { option ->
-                        DropdownMenuItem(text = { Text(option.displayName(), style = DsType.std14) }, onClick = {
+                        DropdownMenuItem(text = { Text(option.displayName()) }, onClick = {
                             inspectedPresetId = option.id
                             presetMenuOpen = false
                         })

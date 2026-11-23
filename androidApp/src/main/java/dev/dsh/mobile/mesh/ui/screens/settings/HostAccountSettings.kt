@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,9 +33,6 @@ import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.accountGetBalance
 import dev.dsh.mobile.mesh.core.wire.accountGetProfile
 import dev.dsh.mobile.mesh.core.wire.accountGetState
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import dev.dsh.mobile.mesh.ui.theme.DsType
 import java.math.RoundingMode
@@ -145,13 +143,9 @@ fun HostAccountSettings(api: DshApiClient, modifier: Modifier = Modifier) {
                 }
                 else -> Text(stringResource(R.string.account_host_unavailable), style = DsType.caption11)
             }
-            DsButton(
-                text = stringResource(R.string.account_host_refresh),
-                onClick = { refresh++ },
-                enabled = !loading,
-                variant = DsButtonVariant.Outline,
-                size = DsButtonSize.Small,
-            )
+            OutlinedButton(onClick = { refresh++ }, enabled = !loading) {
+                Text(stringResource(R.string.account_host_refresh))
+            }
         }
     }
 }

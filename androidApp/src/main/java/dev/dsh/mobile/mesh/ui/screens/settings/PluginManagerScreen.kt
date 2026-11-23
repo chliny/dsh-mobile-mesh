@@ -17,6 +17,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -48,7 +51,6 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerBundleInfo
 import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerPluginInfo
 import dev.dsh.mobile.mesh.core.wire.dto.SettingsNamespaceView
-import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import dev.dsh.mobile.mesh.ui.theme.DsType
@@ -151,14 +153,16 @@ internal fun PluginManagerScreen(onClose: () -> Unit, initialDirectory: PluginDi
     }
     val colors = DsTheme.colors
     LaunchedEffect(viewModel) { viewModel.refresh() }
-    Surface(Modifier.fillMaxSize(), color = colors.bgBase) {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().safeDrawingPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = DsSpacing.comfortable).padding(top = DsSpacing.medium),
                 verticalAlignment = Alignment.CenterVertically) {
-                DsIconButton(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back), onClick = {
+                IconButton(onClick = {
                     if (directory != null) directory = null else onClose()
-                })
-                Text(stringResource(title), Modifier.weight(1f), style = DsType.large20)
+                }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
+                }
+                Text(stringResource(title), Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium)
                 TextButton(onClick = viewModel::refresh, enabled = !state.busy && !state.loading) {
                     Text(stringResource(R.string.plugins_native_refresh))
                 }
@@ -176,8 +180,7 @@ internal fun PluginManagerScreen(onClose: () -> Unit, initialDirectory: PluginDi
                         null -> searchQuery = it
                     }
                 },
-                label = { Text(stringResource(R.string.plugins_native_search), style = DsType.std14) },
-                textStyle = DsType.std14,
+                label = { Text(stringResource(R.string.plugins_native_search)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = DsSpacing.comfortable, vertical = DsSpacing.small),
             )
@@ -607,7 +610,7 @@ private fun CompactSettingField(
                         label = { Text(if (secret) stringResource(R.string.plugins_native_secret_placeholder) else title) },
                         visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
                         minLines = if (complex) 4 else 1, maxLines = if (complex) 12 else 1,
-                        modifier = Modifier.fillMaxWidth(), textStyle = DsType.std14)
+                        modifier = Modifier.fillMaxWidth())
                     if (parsed == null) Text(stringResource(R.string.plugins_native_invalid_json), color = colors.error)
                 }
             },
@@ -629,7 +632,7 @@ internal fun SettingRowButton(label: Int, field: String, enabled: Boolean, onCli
     OutlinedButton(onClick = onClick, enabled = enabled,
         modifier = Modifier.semantics { contentDescription = "$action: $field" },
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = DsSpacing.small, vertical = DsSpacing.tiny),
-    ) { Text(action, style = DsType.small13) }
+    ) { Text(action) }
 }
 
 private fun settingInputValue(type: String?, value: JsonElement?, secret: Boolean): String = when {
