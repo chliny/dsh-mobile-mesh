@@ -168,6 +168,27 @@ class DshApiClientRemoteTest {
     }
 
     @Test
+    fun `session search uses the same remote and request shape as the web client`() = runTest {
+        // The web sidebar calls `session.search({ query })`; the app must post the same
+        // `session/search` Remote with the `request` parameter, or the two surfaces search
+        // different content.
+        val transport = RecordingTransport { _, body ->
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """{"items":[{"sessionId":"s-1","snippet":"…needle…"}],"hasMore":true}""")
+        }
+
+        val result = client(transport).sessionSearch("needle") as RpcResult.Ok
+
+        assertEquals("/api/session/search", transport.lastPath)
+        val request = Json.parseToJsonElement(transport.lastBody!!).jsonObject["payload"]!!
+            .jsonObject["args"]!!.jsonObject["request"]!!.jsonObject
+        assertEquals("needle", request["query"]!!.jsonPrimitive.content)
+        assertEquals("s-1", result.value.items.single().sessionId)
+        assertEquals("…needle…", result.value.items.single().snippet)
+        assertTrue(result.value.hasMore)
+    }
+
+    @Test
     fun `session projections calls the named request remote`() = runTest {
         val transport = RecordingTransport { path, body ->
             val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content

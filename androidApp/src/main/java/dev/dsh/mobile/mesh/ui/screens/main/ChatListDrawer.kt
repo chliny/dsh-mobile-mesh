@@ -223,6 +223,7 @@ fun ChatListDrawer(
     val pinnedIds by store.pinnedSessionIds.collectAsStateWithLifecycle()
     val pinAvailable by store.pinAvailable.collectAsStateWithLifecycle()
     val searchResults by store.searchResults.collectAsStateWithLifecycle()
+    val searchHasMore by store.searchHasMore.collectAsStateWithLifecycle()
     val contentSearchAvailable by store.contentSearchAvailable.collectAsStateWithLifecycle()
     val currentSessionId by store.currentSessionId.collectAsStateWithLifecycle()
     val hostInfo by store.hostInfo.collectAsStateWithLifecycle()
@@ -257,8 +258,18 @@ fun ChatListDrawer(
                 (session.origin != "subagent" || session.running)
         }
     }
-    val searchHits = remember(sessions, workspaces, searchResults) {
-        mapSearchResults(sessions = sessions, workspaces = workspaces, contentHits = searchResults)
+    // The Host supplies content hits; titles, Workspace names, and Session ids are matched locally
+    // by the same rules as the web sidebar's search index.
+    val searchSet = remember(sessions, workspaces, archivedIds, archivedFilter, query, searchResults, searchHasMore) {
+        deriveSearchResults(
+            sessions = sessions,
+            workspaces = workspaces,
+            archivedIds = archivedIds,
+            archivedFilter = archivedFilter,
+            query = query,
+            contentHits = searchResults,
+            contentHasMore = searchHasMore,
+        )
     }
 
     // Blank sessions are scratch space the harness reuses. Active subagent transcripts remain
@@ -411,8 +422,9 @@ fun ChatListDrawer(
                     singleLine = true,
                     colors = dialogTextFieldColors(),
                 )
-                // Search results come only from the Harness content-search endpoint; deployments
-                // without that optional service return no search results.
+                // The Harness supplies message-content hits; titles, Workspace names, and Session
+                // ids are matched locally like the web sidebar. Without the optional content
+                // service the local half still answers, which is what the note above states.
                 if (!contentSearchAvailable && query.isNotBlank()) {
                     Text(
                         stringResource(R.string.chatlist_search_content_off),
@@ -429,7 +441,7 @@ fun ChatListDrawer(
         LazyColumn(modifier = Modifier.weight(1f)) {
             if (query.isNotBlank()) {
                 item(key = "search-header") { SectionHeader(stringResource(R.string.common_search)) }
-                if (searchHits.isEmpty()) {
+                if (searchSet.items.isEmpty()) {
                     item(key = "search-empty") {
                         Text(
                             stringResource(R.string.chatlist_search_empty),
@@ -439,8 +451,18 @@ fun ChatListDrawer(
                         )
                     }
                 }
-                items(searchHits, key = { it.session.sessionId }) { hit ->
+                items(searchSet.items, key = { it.session.sessionId }) { hit ->
                     SearchResultRow(hit, store, scope, onClose)
+                }
+                if (searchSet.items.isNotEmpty() && searchSet.hasMore) {
+                    item(key = "search-more") {
+                        Text(
+                            stringResource(R.string.chatlist_search_refine),
+                            style = DsType.caption11,
+                            color = colors.labelCaption,
+                            modifier = Modifier.padding(vertical = DsSpacing.xsmall),
+                        )
+                    }
                 }
                 return@LazyColumn
             }

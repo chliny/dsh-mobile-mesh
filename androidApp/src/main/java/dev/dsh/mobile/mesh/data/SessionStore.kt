@@ -487,6 +487,10 @@ class SessionStore @Inject constructor(
     private val _searchResults = MutableStateFlow<List<Pair<String, String>>>(emptyList())
     val searchResults: StateFlow<List<Pair<String, String>>> = _searchResults.asStateFlow()
 
+    /** Whether the Host's last content-search page reported more hits beyond [searchResults]. */
+    private val _searchHasMore = MutableStateFlow(false)
+    val searchHasMore: StateFlow<Boolean> = _searchHasMore.asStateFlow()
+
     private val _contentSearchAvailable = MutableStateFlow(true)
 
     /**
@@ -3806,7 +3810,9 @@ class SessionStore @Inject constructor(
      *
      * This optional server-side search matches message content across visible sessions. Deployments
      * may not mount or enable the query provider; a refusal disables further attempts for this
-     * connection. Results are never synthesized from local session titles or workspace names.
+     * connection. It is only the content half of the drawer's search: the presentation layer also
+     * matches Session titles, Workspace names, and Session ids locally, exactly as the Harness web
+     * sidebar does, because `session/search` never looks at those fields.
      */
     suspend fun search(query: String) {
         val trimmed = query.trim()
@@ -3814,23 +3820,30 @@ class SessionStore @Inject constructor(
         // invalid payload, so never send one — a blank query just clears the result set.
         if (trimmed.isEmpty()) {
             _searchResults.value = emptyList()
+            _searchHasMore.value = false
             return
         }
         if (!_contentSearchAvailable.value) {
             _searchResults.value = emptyList()
+            _searchHasMore.value = false
             return
         }
         val api = apiOrNull() ?: run {
             // Disconnected: stale hits would otherwise sit under a query that never ran.
             _searchResults.value = emptyList()
+            _searchHasMore.value = false
             return
         }
         val bounded = trimmed.take(SESSION_SEARCH_QUERY_MAX_CHARS)
         when (val r = api.sessionSearch(bounded)) {
-            is RpcResult.Ok -> _searchResults.value = r.value.items.map { it.sessionId to it.snippet }
+            is RpcResult.Ok -> {
+                _searchResults.value = r.value.items.map { it.sessionId to it.snippet }
+                _searchHasMore.value = r.value.hasMore
+            }
             is RpcResult.Err -> {
                 _contentSearchAvailable.value = false
                 _searchResults.value = emptyList()
+                _searchHasMore.value = false
             }
         }
     }
