@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.ModelBadge
@@ -91,6 +92,12 @@ internal fun ModelsSheet(
         // what it can, so a downward leftover while the list is still not at the top is exactly the
         // stray gesture the sheet would otherwise steal — swallow it. Only once the list has reached
         // the top is a downward leftover the user genuinely dragging the sheet, and that passes on.
+        //
+        // A fling is the second leak: when it reaches the top mid-flight, the sheet is handed the
+        // leftover downward velocity in onPostFling and settles to hidden. A downward fling on this
+        // list should scroll it, never close the sheet, so swallow that velocity too. A drag that
+        // starts at the top still dismisses — the sheet's own pointer detector owns that gesture, and
+        // it never passes through nested scroll.
         val listScroll = rememberScrollState()
         val sheetBoundary = remember(listScroll) {
             object : NestedScrollConnection {
@@ -102,6 +109,9 @@ internal fun ModelsSheet(
                     } else {
                         Offset.Zero
                     }
+
+                override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+                    if (available.y > 0f) available else Velocity.Zero
             }
         }
         Column(
