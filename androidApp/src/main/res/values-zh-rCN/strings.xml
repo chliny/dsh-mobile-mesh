@@ -959,7 +959,7 @@
     <string name="forge_layer_implementation">实现</string>
     <string name="forge_layer_test">测试</string>
     <string name="forge_hide_tests">隐藏测试文件</string>
-    <string name="forge_viewed_progress">已审查 %1$d / %2$d</string>
+    <string name="forge_viewed_progress">审查 %1$d / %2$d</string>
     <string name="forge_viewed">已审查</string>
     <string name="forge_viewed_dismissed">审查后有变更</string>
     <string name="forge_viewed_mark">标记为已审查</string>

@@ -60,9 +60,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.RpcError
@@ -596,6 +599,36 @@ private fun ForgeCheckoutRow(panel: ForgePanelState) {
     }
 }
 
+private val ForgeAdditionsWidth = 52.dp
+private val ForgeDeletionsWidth = 40.dp
+
+/** Fixed-width diff stat columns shared by the summary and the file rows. */
+@Composable
+private fun ForgeDiffStats(
+    additions: Int,
+    deletions: Int,
+    style: TextStyle = MaterialTheme.typography.labelSmall,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            "+$additions",
+            style = style,
+            color = MaterialTheme.colorScheme.primary,
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            modifier = Modifier.width(ForgeAdditionsWidth),
+        )
+        Text(
+            "-$deletions",
+            style = style,
+            color = MaterialTheme.colorScheme.error,
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            modifier = Modifier.width(ForgeDeletionsWidth),
+        )
+    }
+}
+
 /** Summary line that keeps its columns aligned with the file rows below it. */
 @Composable
 private fun ForgeSummaryHeader(
@@ -605,6 +638,7 @@ private fun ForgeSummaryHeader(
     reviewed: Int,
     selectedCommits: String?,
 ) {
+    val summaryStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp)
     Column(Modifier.fillMaxWidth()) {
         ListItem(
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
@@ -613,13 +647,13 @@ private fun ForgeSummaryHeader(
                 Column {
                     Text(
                         stringResource(R.string.forge_files_count, fileCount),
-                        style = MaterialTheme.typography.labelMedium,
+                        style = summaryStyle,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (selectedCommits != null) {
                         Text(
                             stringResource(R.string.forge_commits_selected, selectedCommits),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = summaryStyle,
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -632,8 +666,7 @@ private fun ForgeSummaryHeader(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text("+$additions", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    Text("-$deletions", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    ForgeDiffStats(additions = additions, deletions = deletions, style = summaryStyle)
                     Spacer(Modifier.width(48.dp))
                 }
             },
@@ -645,7 +678,7 @@ private fun ForgeSummaryHeader(
             ) {
                 Text(
                     stringResource(R.string.forge_viewed_progress, reviewed, fileCount),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = summaryStyle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -694,8 +727,7 @@ internal fun ForgeFileRow(
                 if (file.binary) {
                     StatusBadge(stringResource(R.string.forge_binary))
                 } else {
-                    Text("+${file.additions}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    Text("-${file.deletions}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    ForgeDiffStats(additions = file.additions, deletions = file.deletions)
                 }
                 if (file.status != "modified") {
                     StatusBadge(stringResource(forgeFileStatusLabelKey(file.status)))
