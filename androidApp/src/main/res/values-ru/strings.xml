@@ -7,6 +7,7 @@
     <string name="common_discard">Отбросить</string>
     <string name="common_delete">Удалить</string>
     <string name="common_copy">Копировать</string>
+    <string name="markdown_copy_code">Копировать код</string>
     <string name="common_copied">Успешно скопировано</string>
     <string name="connect_save_success">Подключение сохранено</string>
     <string name="connect_save_failed">Не удалось сохранить подключение: %1$s</string>

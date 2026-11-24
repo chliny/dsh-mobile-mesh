@@ -7,6 +7,7 @@
     <string name="common_discard">বাদ দিন</string>
     <string name="common_delete">মুছুন</string>
     <string name="common_copy">কপি করুন</string>
+    <string name="markdown_copy_code">কোড কপি করুন</string>
     <string name="common_copied">সফলভাবে কপি হয়েছে</string>
     <string name="connect_save_success">সংযোগ সংরক্ষণ করা হয়েছে</string>
     <string name="connect_save_failed">সংযোগ সংরক্ষণ করা যায়নি: %1$s</string>

@@ -7,6 +7,7 @@
     <string name="common_discard">ละทิ้ง</string>
     <string name="common_delete">ลบ</string>
     <string name="common_copy">คัดลอก</string>
+    <string name="markdown_copy_code">คัดลอกโค้ด</string>
     <string name="common_copied">คัดลอกสำเร็จ</string>
     <string name="connect_save_success">บันทึกการเชื่อมต่อแล้ว</string>
     <string name="connect_save_failed">ไม่สามารถบันทึกการเชื่อมต่อได้: %1$s</string>

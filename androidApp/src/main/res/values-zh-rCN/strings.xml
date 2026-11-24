@@ -7,6 +7,7 @@
     <string name="common_discard">放弃</string>
     <string name="common_delete">删除</string>
     <string name="common_copy">复制</string>
+    <string name="markdown_copy_code">复制代码</string>
     <string name="common_copied">复制成功</string>
     <string name="connect_save_success">连接已保存</string>
     <string name="connect_save_failed">无法保存连接：%1$s</string>

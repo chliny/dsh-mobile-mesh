@@ -16,7 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -48,7 +47,6 @@ import com.mikepenz.markdown.model.ReferenceLinkHandler
 import com.mikepenz.markdown.model.ReferenceLinkHandlerImpl
 import com.mikepenz.markdown.model.markdownDimens
 import com.mikepenz.markdown.model.markdownPadding
-import dev.dsh.mobile.mesh.R
 import kotlinx.coroutines.delay
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.ast.ASTNode
@@ -254,17 +252,16 @@ fun MarkdownText(
         ),
         table = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
     )
-    val copyLabel = stringResource(R.string.common_copy)
-    val components = remember(copyLabel) {
+    val components = remember {
         markdownComponents(
             codeFence = { model ->
                 MarkdownCodeFence(model.content, model.node, model.typography.code) { code, language, _ ->
-                    MarkdownCodeCard(code = code, language = language, copyLabel = copyLabel)
+                    MarkdownCodeCard(code = code, language = language)
                 }
             },
             codeBlock = { model ->
                 MarkdownCodeBlock(model.content, model.node, model.typography.code) { code, language, _ ->
-                    MarkdownCodeCard(code = code, language = language, copyLabel = copyLabel)
+                    MarkdownCodeCard(code = code, language = language)
                 }
             },
             image = { model -> MarkdownImageWithCaption(model) },
@@ -388,13 +385,12 @@ private object MarkdownStateCache {
 }
 
 @Composable
-private fun MarkdownCodeCard(code: String, language: String?, copyLabel: String) {
+private fun MarkdownCodeCard(code: String, language: String?) {
     @Suppress("DEPRECATION")
     val clipboard = LocalClipboardManager.current
     MarkdownCodeBlockCard(
         code = code,
         language = language,
-        copyLabel = copyLabel,
         onCopy = { clipboard.setText(AnnotatedString(code)) },
         textMate = rememberTextMateHighlighterForLanguage(language ?: "text"),
     )

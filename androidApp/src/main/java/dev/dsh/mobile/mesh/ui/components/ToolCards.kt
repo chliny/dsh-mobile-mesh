@@ -42,8 +42,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Collapsible harness tool card: a 24dp [DisclosureRow] header plus a r12
- * code-block card body (codeBlockBg, borderL1) rendered when [expanded].
+ * Collapsible harness tool card: a 24dp [DisclosureRow] header plus the expanded
+ * [ToolCardSurface] body rendered when [expanded].
  */
 @Composable
 fun ToolCard(
@@ -157,6 +157,25 @@ internal fun diffStats(diffs: List<DiffHunk>): Triple<Int, Int, Int> {
 }
 
 // ---- Bodies -----------------------------------------------------------------
+
+/** The shared outer surface used by expanded tool cards. */
+@Composable
+internal fun ToolCardSurface(
+    modifier: Modifier = Modifier,
+    contentPadding: androidx.compose.ui.unit.Dp = 12.dp,
+    spacing: androidx.compose.ui.unit.Dp = 8.dp,
+    content: @Composable () -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small)
+            .padding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(spacing),
+    ) { content() }
+}
 
 @Composable
 private fun ToolCardBody(view: ToolCardView, onOpenFile: ((String, String) -> Unit)?) {

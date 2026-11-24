@@ -7,6 +7,7 @@
     <string name="common_discard">छोड़ें</string>
     <string name="common_delete">हटाएं</string>
     <string name="common_copy">कॉपी करें</string>
+    <string name="markdown_copy_code">कोड कॉपी करें</string>
     <string name="common_copied">सफलतापूर्वक कॉपी किया गया</string>
     <string name="connect_save_success">कनेक्शन सहेजा गया</string>
     <string name="connect_save_failed">कनेक्शन सहेजा नहीं जा सका: %1$s</string>

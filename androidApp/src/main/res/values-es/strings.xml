@@ -7,6 +7,7 @@
     <string name="common_discard">Descartar</string>
     <string name="common_delete">Eliminar</string>
     <string name="common_copy">Copiar</string>
+    <string name="markdown_copy_code">Copiar código</string>
     <string name="common_copied">Copiado correctamente</string>
     <string name="connect_save_success">Conexión guardada</string>
     <string name="connect_save_failed">No se pudo guardar la conexión: %1$s</string>

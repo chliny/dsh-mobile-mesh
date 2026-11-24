@@ -7,6 +7,7 @@
     <string name="common_discard">تجاهل</string>
     <string name="common_delete">حذف</string>
     <string name="common_copy">نسخ</string>
+    <string name="markdown_copy_code">نسخ الكود</string>
     <string name="common_copied">تم النسخ بنجاح</string>
     <string name="connect_save_success">تم حفظ الاتصال</string>
     <string name="connect_save_failed">تعذّر حفظ الاتصال: %1$s</string>

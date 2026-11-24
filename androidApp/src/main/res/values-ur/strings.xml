@@ -7,6 +7,7 @@
     <string name="common_discard">ترک کریں</string>
     <string name="common_delete">حذف کریں</string>
     <string name="common_copy">کاپی کریں</string>
+    <string name="markdown_copy_code">کوڈ کاپی کریں</string>
     <string name="common_copied">کامیابی سے کاپی ہو گیا</string>
     <string name="connect_save_success">کنکشن محفوظ ہو گیا</string>
     <string name="connect_save_failed">کنکشن محفوظ نہیں کیا جا سکا: %1$s</string>
