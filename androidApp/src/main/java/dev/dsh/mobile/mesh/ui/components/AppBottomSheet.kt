@@ -32,7 +32,7 @@ import dev.dsh.mobile.mesh.ui.theme.DsSpacing
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DsBottomSheet(
+fun AppBottomSheet(
     title: String?,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,

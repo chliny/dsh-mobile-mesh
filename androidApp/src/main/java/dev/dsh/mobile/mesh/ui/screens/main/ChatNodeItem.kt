@@ -73,7 +73,8 @@ import dev.dsh.mobile.mesh.core.session.WorkflowNode
 import dev.dsh.mobile.mesh.ui.components.AttachmentImage
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
 import dev.dsh.mobile.mesh.ui.components.DisclosureState
-import dev.dsh.mobile.mesh.ui.components.DsPill
+import dev.dsh.mobile.mesh.ui.components.StatusBadge
+import dev.dsh.mobile.mesh.ui.theme.statusColors
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import dev.dsh.mobile.mesh.ui.components.hasThinkingContent
 import dev.dsh.mobile.mesh.ui.components.MarkdownText
@@ -230,7 +231,11 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
 
         is TurnEndNode -> when (node.reasonKind) {
             "completed" -> Unit
-            "aborted", "interrupted" -> DsPill(text = stringResource(R.string.chat_stopped), warn = true)
+            "aborted", "interrupted" -> StatusBadge(
+                stringResource(R.string.chat_stopped),
+                containerColor = statusColors.warningContainer,
+                contentColor = statusColors.warningText,
+            )
             "error" -> Row(verticalAlignment = Alignment.CenterVertically) {
                 StateDot(StateDotState.Error, size = 8.dp)
                 Spacer(Modifier.width(6.dp))
@@ -240,7 +245,11 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
                     color = MaterialTheme.colorScheme.error,
                 )
             }
-            "max-tokens" -> DsPill(text = stringResource(R.string.chat_max_tokens), warn = true)
+            "max-tokens" -> StatusBadge(
+                stringResource(R.string.chat_max_tokens),
+                containerColor = statusColors.warningContainer,
+                contentColor = statusColors.warningText,
+            )
             else -> Unit
         }
 
@@ -254,9 +263,10 @@ internal fun ChatNodeItem(node: ChatNode, context: ChatNodeContext) {
 
         is ChangesNode -> ChangesRow(node, context)
 
-        is PlanModeNode -> DsPill(
-            text = stringResource(if (node.active) R.string.plan_mode_on else R.string.plan_mode_off),
-            warn = true,
+        is PlanModeNode -> StatusBadge(
+            stringResource(if (node.active) R.string.plan_mode_on else R.string.plan_mode_off),
+            containerColor = statusColors.warningContainer,
+            contentColor = statusColors.warningText,
         )
 
         is CompactionNode -> CompactionRow(node, context, onOpenLink)
@@ -563,7 +573,11 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
             }
         }
         if (node.interrupted) {
-            DsPill(text = stringResource(R.string.chat_stopped), warn = true)
+            StatusBadge(
+                stringResource(R.string.chat_stopped),
+                containerColor = statusColors.warningContainer,
+                contentColor = statusColors.warningText,
+            )
         }
         AnimatedVisibility(
             visible = actionsVisible && !streaming,

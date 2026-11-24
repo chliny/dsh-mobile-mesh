@@ -21,7 +21,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeDiffFile
-import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
+import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
 
 internal const val FORGE_LAYER_ALL: String = "all"
 
@@ -53,7 +53,7 @@ internal fun ForgeLensSheet(
 ) {
     val colors = MaterialTheme.colorScheme
     val counts = files.groupingBy { it.layer }.eachCount()
-    DsBottomSheet(title = stringResource(R.string.forge_files_filter_title), onDismiss = onDismiss) {
+    AppBottomSheet(title = stringResource(R.string.forge_files_filter_title), onDismiss = onDismiss) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             (listOf(FORGE_LAYER_ALL) + listOf("interface", "implementation", "test")).forEach { layer ->
                 val count = if (layer == FORGE_LAYER_ALL) files.size else counts[layer] ?: 0

@@ -1,6 +1,9 @@
 package dev.dsh.mobile.mesh.ui.screens.connect
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +18,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -35,13 +41,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.connection.HostConfig
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
-import dev.dsh.mobile.mesh.ui.components.DsIconButton
-import dev.dsh.mobile.mesh.ui.components.DsDialog
+import dev.dsh.mobile.mesh.ui.components.AppDialog
 import dev.dsh.mobile.mesh.ui.components.SectionHeader
 import dev.dsh.mobile.mesh.ui.rememberHostsStore
 import dev.dsh.mobile.mesh.ui.screens.main.SheetRow
@@ -86,22 +88,25 @@ fun ConnectionsScreen(
             verticalArrangement = Arrangement.spacedBy(DsSpacing.medium),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                DsIconButton(
-                    icon = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.common_back),
-                    onClick = onClose,
-                )
+                IconButton(onClick = onClose) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = stringResource(R.string.common_back),
+                modifier = Modifier.size(20.dp),
+            )
+        }
                 Text(
                     stringResource(R.string.connect_connections),
                     style = MaterialTheme.typography.headlineMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
-                DsButton(
-                    text = stringResource(R.string.connect_add_connection),
-                    onClick = onAdd,
-                    variant = DsButtonVariant.Info,
-                )
+                Button(onClick = onAdd) {
+            Text(
+                stringResource(R.string.connect_add_connection),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
             }
             SectionHeader(stringResource(R.string.connect_remembered))
             if (hosts.isEmpty()) {
@@ -187,7 +192,7 @@ fun ConnectionsScreen(
         }
     }
     menuHost?.let { host ->
-        DsDialog(title = host.name, onDismiss = { menuHost = null }) {
+        AppDialog(title = host.name, onDismiss = { menuHost = null }) {
             val disconnectEnabled = canDisconnectConnectionRow(
                 hostId = host.id,
                 connectedHostId = connectedHostId,
@@ -230,7 +235,7 @@ fun ConnectionsScreen(
         )
     }
     deleteHost?.let { host ->
-        DsDialog(
+        AppDialog(
             title = stringResource(R.string.connect_delete_title),
             onDismiss = { deleteHost = null },
         ) {
@@ -240,16 +245,19 @@ fun ConnectionsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                DsButton(
-                    text = stringResource(R.string.common_cancel),
-                    onClick = { deleteHost = null },
-                    variant = DsButtonVariant.Ghost,
-                )
-                DsButton(
-                    text = stringResource(R.string.common_delete),
-                    onClick = { deleteHost = null; onDeleteHost(host) },
-                    variant = DsButtonVariant.Danger,
-                )
+                TextButton(onClick = { deleteHost = null }) {
+            Text(
+                stringResource(R.string.common_cancel),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+                Button(onClick = { deleteHost = null; onDeleteHost(host) },
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)) {
+            Text(
+                stringResource(R.string.common_delete),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
             }
         }
     }

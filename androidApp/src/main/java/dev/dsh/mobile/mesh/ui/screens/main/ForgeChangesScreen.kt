@@ -77,10 +77,10 @@ import dev.dsh.mobile.mesh.core.wire.dto.ForgeLocalScope
 import dev.dsh.mobile.mesh.core.wire.dto.ForgePanelChangeRequest
 import dev.dsh.mobile.mesh.core.wire.dto.ForgePanelState
 import dev.dsh.mobile.mesh.core.wire.dto.latestSnapshot
-import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
+import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
-import dev.dsh.mobile.mesh.ui.components.rememberDsToast
-import dev.dsh.mobile.mesh.ui.components.DsToastHost
+import dev.dsh.mobile.mesh.ui.components.rememberAppToast
+import dev.dsh.mobile.mesh.ui.components.AppToastHost
 import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
 import kotlinx.coroutines.launch
@@ -197,7 +197,7 @@ internal fun ForgeChangesScreen(
     }
     val scopeCoroutine = rememberCoroutineScope()
     val context = LocalContext.current
-    val (toastMessage, showToast) = rememberDsToast()
+    val (toastMessage, showToast) = rememberAppToast()
     val clipboard = LocalClipboardManager.current
     val copiedLabel = stringResource(R.string.common_copied)
     val removedLabel = stringResource(R.string.forge_dismissed)
@@ -508,7 +508,7 @@ internal fun ForgeChangesScreen(
                 }
             }
         }
-        DsToastHost(toastMessage to showToast, modifier = Modifier.fillMaxWidth())
+        AppToastHost(toastMessage to showToast, modifier = Modifier.fillMaxWidth())
     }
 
     if (scopeSheetOpen) {
@@ -841,7 +841,7 @@ private fun forgeChangeStateLabel(snapshot: ForgeChangeRequestSnapshot?): String
 
 @Composable
 private fun ForgeScopeSheet(selected: String, onSelect: (String) -> Unit, onDismiss: () -> Unit) {
-    DsBottomSheet(title = stringResource(R.string.forge_scope), onDismiss = onDismiss) {
+    AppBottomSheet(title = stringResource(R.string.forge_scope), onDismiss = onDismiss) {
         ForgeSheetRow(stringResource(R.string.forge_scope_branch), selected == ForgeLocalScope.BRANCH) { onSelect(ForgeLocalScope.BRANCH) }
         ForgeSheetRow(stringResource(R.string.forge_scope_uncommitted), selected == ForgeLocalScope.UNCOMMITTED) { onSelect(ForgeLocalScope.UNCOMMITTED) }
         ForgeSheetRow(stringResource(R.string.forge_scope_unstaged), selected == ForgeLocalScope.UNSTAGED) { onSelect(ForgeLocalScope.UNSTAGED) }
@@ -873,7 +873,7 @@ private fun ForgeBaseSheet(
         }
         loading = false
     }
-    DsBottomSheet(title = stringResource(R.string.forge_base_title), onDismiss = onDismiss) {
+    AppBottomSheet(title = stringResource(R.string.forge_base_title), onDismiss = onDismiss) {
         androidx.compose.material3.OutlinedTextField(
             value = query,
             onValueChange = { query = it },
@@ -997,18 +997,18 @@ internal fun ForgeCommitSheet(
             -> rangeError = true
         }
     }
-    DsBottomSheet(title = stringResource(R.string.forge_commits_title), onDismiss = onDismiss) {
+    AppBottomSheet(title = stringResource(R.string.forge_commits_title), onDismiss = onDismiss) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.forge_commits_range_mode), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
             androidx.compose.material3.Switch(checked = rangeMode, onCheckedChange = { rangeMode = it; anchor = null; rangeError = false })
         }
         if (loading) {
             Text(stringResource(R.string.forge_commits_loading), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            return@DsBottomSheet
+            return@AppBottomSheet
         }
         error?.let {
             Text(forgeErrorText(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            return@DsBottomSheet
+            return@AppBottomSheet
         }
         if (rangeError) {
             Text(stringResource(R.string.forge_commits_not_linear), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)

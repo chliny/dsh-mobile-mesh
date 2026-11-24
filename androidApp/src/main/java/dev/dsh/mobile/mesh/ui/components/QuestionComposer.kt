@@ -304,13 +304,13 @@ private fun QuestionHeader(
             )
             Spacer(Modifier.width(4.dp))
         }
-        DsIconButton(
-            icon = Icons.Filled.Close,
-            contentDescription = stringResource(R.string.questions_dismiss),
-            onClick = onDismiss,
-            enabled = !busy,
-            iconSize = 18.dp,
-        )
+        IconButton(onClick = onDismiss, enabled = !busy) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = stringResource(R.string.questions_dismiss),
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }
 

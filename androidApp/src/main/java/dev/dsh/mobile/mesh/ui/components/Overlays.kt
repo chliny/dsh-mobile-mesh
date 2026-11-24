@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -57,7 +58,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * with a hairline border. [content] receives a [ColumnScope].
  */
 @Composable
-fun DsDialog(
+fun AppDialog(
     title: String?,
     onDismiss: () -> Unit,
     fullScreen: Boolean = false,
@@ -116,7 +117,7 @@ fun DsDialog(
  * and no longer resizes the window for `adjustResize`, so the configuration keeps reporting the
  * full height while the keyboard is open and subtracting the IME inset does not double-count.
  *
- * Reads as pure measurement, so it stays out of [DsDialog]'s own layout logic.
+ * Reads as pure measurement, so it stays out of [AppDialog]'s own layout logic.
  */
 @Composable
 private fun dialogMaxHeight(): Dp {
@@ -139,10 +140,10 @@ private fun dialogMaxHeight(): Dp {
  * (a capped `TextField`, a scrollable `Column`) stay fully readable however long the text is.
  */
 @Composable
-fun DsDialogBodyMaxHeight(): Dp = dialogBodyMaxHeight(dialogMaxHeight())
+fun AppDialogBodyMaxHeight(): Dp = dialogBodyMaxHeight(dialogMaxHeight())
 
 /**
- * The arithmetic behind [DsDialogBodyMaxHeight], kept free of the composition so it can be
+ * The arithmetic behind [AppDialogBodyMaxHeight], kept free of the composition so it can be
  * asserted directly: whatever height a plate was given, the body it pays for plus the chrome must
  * still fit inside it, and the body must never be squeezed out of existence either.
  */
@@ -159,7 +160,7 @@ private val MAX_DIALOG_BODY_HEIGHT = 320.dp
  * message auto-clears 3s after the last [show] call.
  */
 @Composable
-fun rememberDsToast(): Pair<State<String?>, (String) -> Unit> {
+fun rememberAppToast(): Pair<State<String?>, (String) -> Unit> {
     val flow = remember { MutableStateFlow<String?>(null) }
     val state = flow.collectAsState()
     val message = state.value
@@ -172,9 +173,9 @@ fun rememberDsToast(): Pair<State<String?>, (String) -> Unit> {
     return state to { flow.value = it }
 }
 
-/** Top-center toast plate driven by [rememberDsToast]. */
+/** Top-center toast plate driven by [rememberAppToast]. */
 @Composable
-fun DsToastHost(state: Pair<State<String?>, (String) -> Unit>, modifier: Modifier = Modifier) {
+fun AppToastHost(state: Pair<State<String?>, (String) -> Unit>, modifier: Modifier = Modifier) {
     val message = state.first.value ?: return
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
         Surface(
@@ -193,88 +194,3 @@ fun DsToastHost(state: Pair<State<String?>, (String) -> Unit>, modifier: Modifie
     }
 }
 
-/** One entry in a [DsMenu]. */
-data class MenuItem(
-    val text: String,
-    val icon: ImageVector? = null,
-    val selected: Boolean = false,
-    val danger: Boolean = false,
-    val heading: Boolean = false,
-    val dividerBefore: Boolean = false,
-    val onClick: () -> Unit = {},
-)
-
-/**
- * Dropdown menu anchored to [anchor]; r12 bgLayer3 surface with h40 r10 cells,
- * hover fill, and danger rows in error/dangerHover.
- */
-@Composable
-fun DsMenu(anchor: @Composable (onOpen: () -> Unit) -> Unit, items: List<MenuItem>) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        Box { anchor { expanded = true } }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            shape = MaterialTheme.shapes.small,
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            tonalElevation = 0.dp,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        ) {
-            items.forEach { item ->
-                if (item.dividerBefore) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                if (item.heading) {
-                    Text(
-                        item.text,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                } else DropdownMenuItem(
-                    text = {
-                        Text(
-                            item.text,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (item.danger) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurface,
-                        )
-                    },
-                    trailingIcon = if (item.selected) {
-                        { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                    } else null,
-                    leadingIcon = item.icon?.let { icon ->
-                        {
-                            Icon(
-                                icon,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = if (item.danger) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    },
-                    onClick = {
-                        expanded = false
-                        item.onClick()
-                    },
-                    modifier = Modifier.heightIn(min = 40.dp).clip(MaterialTheme.shapes.small),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                )
-            }
-        }
-    }
-}
-
-@Preview(showBackground = true, widthDp = 360)
-@Composable
-private fun DsMenuPreview() {
-    DshTheme {
-        DsMenu(
-            anchor = { DsButton("Menu", onClick = {}) },
-            items = listOf(
-                MenuItem("Open", icon = Icons.Filled.Edit, onClick = {}),
-                MenuItem("Delete", danger = true, onClick = {}),
-            ),
-        )
-    }
-}

@@ -27,7 +27,7 @@ import dev.dsh.mobile.mesh.core.forge.forgeReviewSubmitPendingWrite
 import dev.dsh.mobile.mesh.core.forge.forgeSubmitReviewRequest
 import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewData
-import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
+import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
 import kotlinx.coroutines.launch
 
@@ -123,7 +123,7 @@ internal fun ForgeSubmitReviewSheet(
         }
     }
 
-    DsBottomSheet(
+    AppBottomSheet(
         title = stringResource(if (pending == null) R.string.forge_review_submit else R.string.forge_review_pending),
         onDismiss = onDismiss,
     ) {

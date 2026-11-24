@@ -322,18 +322,18 @@ private fun ForgeWorktreeBranchSheet(
             is RpcResult.Err -> error = forgeErrorTextValue(context, result.error)
         }
     }
-    dev.dsh.mobile.mesh.ui.components.DsBottomSheet(
+    dev.dsh.mobile.mesh.ui.components.AppBottomSheet(
         title = stringResource(R.string.forge_worktree_base_title),
         onDismiss = onDismiss,
     ) {
         if (error != null) {
             Text(error!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-            return@DsBottomSheet
+            return@AppBottomSheet
         }
         val listing = branches
         if (listing == null) {
             Text(stringResource(R.string.common_loading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            return@DsBottomSheet
+            return@AppBottomSheet
         }
         Column(
             modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),

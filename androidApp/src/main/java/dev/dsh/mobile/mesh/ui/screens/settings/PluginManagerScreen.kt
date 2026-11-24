@@ -52,6 +52,7 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerBundleInfo
 import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerPluginInfo
 import dev.dsh.mobile.mesh.core.wire.dto.SettingsNamespaceView
+import dev.dsh.mobile.mesh.ui.theme.statusColors
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -341,7 +342,7 @@ private fun BundleCard(bundle: PluginManagerBundleInfo, busy: Boolean, onToggle:
         bundle.error?.let { Text(it.diagnostic ?: it.code, color = MaterialTheme.colorScheme.error) }
         operations()
         if (bundle.overrides.isNotEmpty()) {
-            Text(stringResource(R.string.plugins_native_status_overridden), color = MaterialTheme.colorScheme.error)
+            Text(stringResource(R.string.plugins_native_status_overridden), color = statusColors.warningText)
             bundle.overrides.forEach { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         if (open) {

@@ -24,6 +24,9 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -41,9 +44,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.ModelBadge
 import dev.dsh.mobile.mesh.core.wire.dto.ModelCatalogModel
 import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
 import dev.dsh.mobile.mesh.data.SessionStore
-import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
-import dev.dsh.mobile.mesh.ui.components.DsSegment
-import dev.dsh.mobile.mesh.ui.components.DsSegmented
+import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import java.util.Locale
 import kotlinx.coroutines.launch
@@ -68,10 +69,10 @@ internal fun ModelsSheet(
     // The Host localizes badge text itself; this client only picks the reader's language out of
     // the map it was given, falling back to the Host's required `en` when that language is absent.
     val badgeLanguageTags = remember(configuration) { modelBadgeLanguageTags(configuration.locales.get(0)) }
-    DsBottomSheet(title = stringResource(R.string.models_title), onDismiss = onDismiss) {
+    AppBottomSheet(title = stringResource(R.string.models_title), onDismiss = onDismiss) {
         if (models == null) {
             Text(stringResource(R.string.common_loading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            return@DsBottomSheet
+            return@AppBottomSheet
         }
         val current = models.current
         if (!models.routable) {
@@ -116,7 +117,7 @@ internal fun ModelsSheet(
                 .heightIn(max = 420.dp)
                 .nestedScroll(sheetBoundary)
                 .verticalScroll(listScroll),
-            verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall),
+            verticalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
         ) {
             models.groups.forEach { group ->
                 // The provider recedes: it names the shelf, and the models on it are the choice.
@@ -279,20 +280,24 @@ private fun ModelRow(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    val segments = listOf(DsSegment(DEFAULT_REASONING_EFFORT_KEY, stringResource(R.string.presets_default))) +
-                        efforts.map { DsSegment(it.id, it.name) }
-                    // DsSegmented uses weighted children, which collapse when horizontalScroll
-                    // gives its Row an unbounded width. Bound the track inside the scroll area.
+                    val segments = listOf(DEFAULT_REASONING_EFFORT_KEY to stringResource(R.string.presets_default)) +
+                        efforts.map { it.id to it.name }
+                    // Weighted children collapse when horizontalScroll gives their Row an unbounded
+                    // width, so the track is bounded inside the scroll area.
                     BoxWithConstraints(Modifier.fillMaxWidth()) {
                         val trackWidth = maxOf(maxWidth, 84.dp * segments.size)
                         androidx.compose.foundation.layout.Box(Modifier.horizontalScroll(rememberScrollState())) {
-                            DsSegmented(
-                                segments = segments,
-                                selectedKey = selectedEffort ?: DEFAULT_REASONING_EFFORT_KEY,
-                                onSelect = onSelectEffort,
-                                modifier = Modifier.width(trackWidth),
-                                stretch = true,
-                            )
+                            SingleChoiceSegmentedButtonRow(Modifier.width(trackWidth)) {
+                                segments.forEachIndexed { index, (key, label) ->
+                                    SegmentedButton(
+                                        selected = (selectedEffort ?: DEFAULT_REASONING_EFFORT_KEY) == key,
+                                        onClick = { onSelectEffort(key) },
+                                        shape = SegmentedButtonDefaults.itemShape(index, segments.size),
+                                        modifier = Modifier.weight(1f),
+                                        label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    )
+                                }
+                            }
                         }
                     }
                 }

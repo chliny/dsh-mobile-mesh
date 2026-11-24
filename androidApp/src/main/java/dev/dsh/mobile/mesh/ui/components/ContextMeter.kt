@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
+import dev.dsh.mobile.mesh.ui.theme.statusColors
 import dev.dsh.mobile.mesh.core.wire.dto.ContextBreakdownView
 import dev.dsh.mobile.mesh.core.wire.dto.ContextPressureView
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
@@ -57,9 +58,9 @@ fun ContextMeter(
         listOf(1f to MaterialTheme.colorScheme.primary)
     } else {
         listOf(
-            breakdown.systemTokens.toFloat() / total to MaterialTheme.colorScheme.outline,
-            breakdown.toolsTokens.toFloat() / total to MaterialTheme.colorScheme.tertiary,
-            breakdown.messageTokens.toFloat() / total to MaterialTheme.colorScheme.primary,
+            breakdown.systemTokens.toFloat() / total to statusColors.meterSystem,
+            breakdown.toolsTokens.toFloat() / total to statusColors.meterTools,
+            breakdown.messageTokens.toFloat() / total to statusColors.meterMessages,
         )
     }
 
@@ -126,9 +127,9 @@ fun ContextMeterDetail(
         ContextMeter(breakdown, pressure, Modifier.fillMaxWidth(), barWidth = null)
         if (breakdown != null && breakdown.total > 0) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                LegendDot(stringResource(R.string.chat_context_system), MaterialTheme.colorScheme.outline)
-                LegendDot(stringResource(R.string.chat_context_tools), MaterialTheme.colorScheme.tertiary)
-                LegendDot(stringResource(R.string.chat_context_messages), MaterialTheme.colorScheme.primary)
+                LegendDot(stringResource(R.string.chat_context_system), statusColors.meterSystem)
+                LegendDot(stringResource(R.string.chat_context_tools), statusColors.meterTools)
+                LegendDot(stringResource(R.string.chat_context_messages), statusColors.meterMessages)
             }
         }
     }

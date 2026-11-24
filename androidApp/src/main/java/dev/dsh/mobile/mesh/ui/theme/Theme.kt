@@ -238,7 +238,7 @@ fun DshTheme(
     }
     val ds = if (dark) DsThemeTokens.dark else DsThemeTokens.light
     val scheme = if (dark) materialDarkScheme(ds) else materialLightScheme(ds)
-    CompositionLocalProvider(LocalDsColors provides ds) {
+    CompositionLocalProvider(LocalDsColors provides ds, LocalStatusColors provides ds.statusColors()) {
         MaterialTheme(
             colorScheme = scheme,
             typography = DsTypography,

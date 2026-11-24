@@ -30,7 +30,7 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.JobOutputSnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.JobStatus
 import dev.dsh.mobile.mesh.core.wire.dto.JobView
-import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
+import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.formatDurationMs
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
@@ -70,7 +70,7 @@ internal fun JobsSheet(
     LaunchedEffect(jobs, selectedId) {
         if (selectedId != null && selectedJob == null) selectedId = null
     }
-    DsBottomSheet(
+    AppBottomSheet(
         title = stringResource(R.string.jobs_title),
         subtitle = jobs.size.takeIf { it > 0 }?.toString(),
         onDismiss = onDismiss,

@@ -71,11 +71,11 @@ import dev.dsh.mobile.mesh.core.wire.dto.ForgeDiffFile
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeLocalScope
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewData
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewThread
-import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
-import dev.dsh.mobile.mesh.ui.components.DsToastHost
+import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
+import dev.dsh.mobile.mesh.ui.components.AppToastHost
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import dev.dsh.mobile.mesh.ui.components.KodeViewCode
-import dev.dsh.mobile.mesh.ui.components.rememberDsToast
+import dev.dsh.mobile.mesh.ui.components.rememberAppToast
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
 import kotlinx.coroutines.launch
 
@@ -123,7 +123,7 @@ internal fun ForgeDiffScreen(
     }
     val clipboard = LocalClipboardManager.current
     val coroutine = rememberCoroutineScope()
-    val (toastMessage, showToast) = rememberDsToast()
+    val (toastMessage, showToast) = rememberAppToast()
     var file by remember(sessionId, path) { mutableStateOf<ForgeDiffFile?>(null) }
     var headSha by remember(sessionId, path) { mutableStateOf(changeHeadSha) }
     var error by remember(sessionId, path) { mutableStateOf<RpcError?>(null) }
@@ -393,7 +393,7 @@ internal fun ForgeDiffScreen(
                 }
             }
         }
-        DsToastHost(toastMessage to showToast, modifier = Modifier.fillMaxWidth())
+        AppToastHost(toastMessage to showToast, modifier = Modifier.fillMaxWidth())
     }
 
     if (threadsOpen && reviewData != null && changeUrl != null && headSha != null) {
@@ -435,7 +435,7 @@ internal fun ForgeDiffScreen(
                 commits = commits,
             )
         }
-        DsBottomSheet(
+        AppBottomSheet(
             title = stringResource(R.string.forge_comment_title, forgeReviewRange(target)),
             onDismiss = { commentTarget = null },
         ) {

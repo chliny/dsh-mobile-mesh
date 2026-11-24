@@ -48,7 +48,7 @@ import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewComment
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewData
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewThread
-import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
+import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
 import dev.dsh.mobile.mesh.ui.components.MarkdownText
 import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.components.relativeTime
@@ -109,10 +109,10 @@ internal fun ForgeThreadsSheet(
         }
     }
 
-    DsBottomSheet(title = stringResource(R.string.forge_discussions_title), onDismiss = onDismiss) {
+    AppBottomSheet(title = stringResource(R.string.forge_discussions_title), onDismiss = onDismiss) {
         if (data == null) {
             Text(stringResource(R.string.common_loading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            return@DsBottomSheet
+            return@AppBottomSheet
         }
         if (selected != null) {
             Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {

@@ -7,6 +7,7 @@ import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.Canvas
 import androidx.compose.material3.MaterialTheme
+import dev.dsh.mobile.mesh.ui.theme.statusColors
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -37,9 +38,9 @@ fun StateDot(
     // the running state is carried by the chase animation rather than by a second hue.
     val color = when (state) {
         StateDotState.Idle -> MaterialTheme.colorScheme.outline
-        StateDotState.Running -> MaterialTheme.colorScheme.primary
-        StateDotState.Done -> MaterialTheme.colorScheme.primary
-        StateDotState.Warning -> MaterialTheme.colorScheme.tertiary
+        StateDotState.Running -> statusColors.running
+        StateDotState.Done -> statusColors.success
+        StateDotState.Warning -> statusColors.warning
         StateDotState.Error -> MaterialTheme.colorScheme.error
     }
     if (state == StateDotState.Running) {

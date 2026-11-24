@@ -75,13 +75,13 @@ import dev.dsh.mobile.mesh.core.wire.dto.TokenUsageView
 import dev.dsh.mobile.mesh.core.wire.dto.agentTeamView
 import dev.dsh.mobile.mesh.data.SessionRow
 import dev.dsh.mobile.mesh.ui.components.ContextMeterDetail
-import dev.dsh.mobile.mesh.ui.components.DsToastHost
+import dev.dsh.mobile.mesh.ui.components.AppToastHost
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.components.formatDurationMs
 import dev.dsh.mobile.mesh.ui.components.formatTokens
-import dev.dsh.mobile.mesh.ui.components.rememberDsToast
+import dev.dsh.mobile.mesh.ui.components.rememberAppToast
 import dev.dsh.mobile.mesh.ui.rememberConnectionManager
 import dev.dsh.mobile.mesh.ui.rememberSessionStore
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
@@ -122,7 +122,7 @@ internal fun DetailsPanel(
     }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val toast = rememberDsToast()
+    val toast = rememberAppToast()
     val clipboard = LocalClipboardManager.current
 
     val conversation by store.currentConversation.collectAsState()
@@ -292,7 +292,7 @@ internal fun DetailsPanel(
                     HostSection(hostInfo)
                 }
             }
-            DsToastHost(toast, modifier = Modifier.fillMaxWidth())
+            AppToastHost(toast, modifier = Modifier.fillMaxWidth())
         }
     }
 

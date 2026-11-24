@@ -58,11 +58,11 @@ import dev.dsh.mobile.mesh.data.SessionStore
 import dev.dsh.mobile.mesh.ui.screens.main.PendingAttachment
 import dev.dsh.mobile.mesh.ui.components.ApprovalPanel
 import dev.dsh.mobile.mesh.ui.components.ConnectionBanner
-import dev.dsh.mobile.mesh.ui.components.DsToastHost
+import dev.dsh.mobile.mesh.ui.components.AppToastHost
 import dev.dsh.mobile.mesh.ui.components.PlanReviewPanel
 import dev.dsh.mobile.mesh.ui.components.planReviewOf
 import dev.dsh.mobile.mesh.ui.components.QuestionsPanel
-import dev.dsh.mobile.mesh.ui.components.rememberDsToast
+import dev.dsh.mobile.mesh.ui.components.rememberAppToast
 import dev.dsh.mobile.mesh.ui.rememberChatDraftStore
 import dev.dsh.mobile.mesh.ui.rememberNewSessionDraftStore
 import dev.dsh.mobile.mesh.ui.rememberSessionStore
@@ -116,7 +116,7 @@ internal fun ChatScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val toast = rememberDsToast()
+    val toast = rememberAppToast()
     val promptSubmissionGate = remember { PromptSubmissionGate() }
     val queueInsertedLabel = stringResource(R.string.chat_queue_inserted)
 
@@ -856,7 +856,7 @@ internal fun ChatScreen(
             }
             if (!decisionPending) StatsFooter(stats = sessionStats, usage = tokenUsage, disclosureScope = disclosureScope)
         }
-        DsToastHost(toast, modifier = Modifier.fillMaxWidth())
+        AppToastHost(toast, modifier = Modifier.fillMaxWidth())
     }
 
     when (sheet) {

@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.background
@@ -35,9 +37,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dsh.mobile.mesh.BuildConfig
 import dev.dsh.mobile.mesh.R
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsDialog
+import dev.dsh.mobile.mesh.ui.components.AppDialog
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectViewModel
 import dev.dsh.mobile.mesh.ui.screens.connect.ConnectUiState
@@ -405,7 +405,7 @@ private fun ConnectionRecoveryOverlay() {
 @Composable
 private fun UpdateDialog(update: AvailableUpdate, onDismiss: () -> Unit) {
     val uriHandler = LocalUriHandler.current
-    DsDialog(title = stringResource(R.string.update_available_title), onDismiss = onDismiss) {
+    AppDialog(title = stringResource(R.string.update_available_title), onDismiss = onDismiss) {
         Text(
             stringResource(R.string.update_available_body, update.version, BuildConfig.VERSION_NAME),
             style = MaterialTheme.typography.bodyMedium,
@@ -413,19 +413,21 @@ private fun UpdateDialog(update: AvailableUpdate, onDismiss: () -> Unit) {
             modifier = Modifier.padding(bottom = DsSpacing.medium),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
-            DsButton(
-                text = stringResource(R.string.update_open),
-                onClick = {
+            Button(onClick = {
                     runCatching { uriHandler.openUri(update.url) }
                     onDismiss()
-                },
-                variant = DsButtonVariant.Info,
+                }) {
+            Text(
+                stringResource(R.string.update_open),
+                style = MaterialTheme.typography.labelLarge,
             )
-            DsButton(
-                text = stringResource(R.string.update_later),
-                onClick = onDismiss,
-                variant = DsButtonVariant.Ghost,
+        }
+            TextButton(onClick = onDismiss) {
+            Text(
+                stringResource(R.string.update_later),
+                style = MaterialTheme.typography.labelLarge,
             )
+        }
         }
     }
 }

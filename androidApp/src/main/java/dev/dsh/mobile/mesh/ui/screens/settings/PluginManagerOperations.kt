@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.dsh.mobile.mesh.ui.theme.statusColors
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerSpecInspection
 
@@ -60,7 +61,7 @@ internal fun PluginInstallControls(busy: Boolean, activeInstallRequestId: String
             Text(stringResource(R.string.plugins_native_inspect_source, result.registry ?: result.kind.orEmpty()))
             result.host?.let { Text(stringResource(R.string.plugins_native_inspect_host, it)) }
             if (result.name == null || result.version == null) {
-                Text(stringResource(R.string.plugins_native_inspect_unknown), color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.plugins_native_inspect_unknown), color = statusColors.warningText)
             }
             OutlinedButton(onClick = { confirmInstall = true }, enabled = !busy) {
                 Text(stringResource(R.string.plugins_native_install))
@@ -80,7 +81,7 @@ internal fun PluginInstallControls(busy: Boolean, activeInstallRequestId: String
                     Text(name, Modifier.weight(1f))
                 }
             }
-            Text(stringResource(R.string.plugins_native_builds_caution), color = MaterialTheme.colorScheme.error)
+            Text(stringResource(R.string.plugins_native_builds_caution), color = statusColors.warningText)
             OutlinedButton(onClick = { confirmScripts = true }, enabled = !busy && selected.isNotEmpty()) {
                 Text(stringResource(R.string.plugins_native_builds_approve_retry))
             }
@@ -152,11 +153,11 @@ internal fun PluginBundleOperations(name: String, installedVersion: String?, rem
                             }
                             if (!choice.bundle) Text(stringResource(R.string.plugins_native_versions_not_bundle))
                             if (choice.incompatible) {
-                                Text(stringResource(R.string.plugins_native_versions_incompatible), color = MaterialTheme.colorScheme.error)
+                                Text(stringResource(R.string.plugins_native_versions_incompatible), color = statusColors.warningText)
                                 Text("${choice.incompatiblePackageVersion} · DSH ${choice.incompatibleRuntimeVersion}",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            choice.deprecated?.let { Text(stringResource(R.string.plugins_native_versions_deprecated, it), color = MaterialTheme.colorScheme.error) }
+                            choice.deprecated?.let { Text(stringResource(R.string.plugins_native_versions_deprecated, it), color = statusColors.warningText) }
                         }
                     }
                 }
@@ -190,7 +191,7 @@ internal fun PluginExemptionControls(exemptions: Map<String, List<String>>, warn
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(R.string.plugins_native_exemptions))
         if (available && exemptions.isEmpty()) Text(stringResource(R.string.plugins_native_exemptions_empty))
-        warnings.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
+        warnings.forEach { Text(it, color = statusColors.warningText) }
         exemptions.forEach { (pkg, runtimes) -> runtimes.forEach { runtime ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("$pkg · DSH $runtime", Modifier.weight(1f))

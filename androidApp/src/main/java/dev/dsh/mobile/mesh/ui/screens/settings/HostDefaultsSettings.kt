@@ -32,6 +32,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.FULL_ACCESS_PRESET
 import dev.dsh.mobile.mesh.ui.screens.main.displayDescription
 import dev.dsh.mobile.mesh.ui.screens.main.displayName
 import dev.dsh.mobile.mesh.ui.screens.main.permissionPresetLabel
+import dev.dsh.mobile.mesh.ui.theme.statusColors
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 
 private val conventionalPresetName = Regex("[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -130,7 +131,7 @@ internal fun HostDefaultsContent(state: HostDefaultsSettingsUiState, viewModel: 
                 verticalArrangement = Arrangement.spacedBy(DsSpacing.tiny)) {
                 preset.displayDescription()?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 preset.broken?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
-                if (selected) Text(stringResource(R.string.host_defaults_current), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                if (selected) Text(stringResource(R.string.host_defaults_current), style = MaterialTheme.typography.labelSmall, color = statusColors.success)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { viewModel.readAgentPreset(preset.id) }, enabled = !state.busy) {
                         Text(stringResource(R.string.host_defaults_details))

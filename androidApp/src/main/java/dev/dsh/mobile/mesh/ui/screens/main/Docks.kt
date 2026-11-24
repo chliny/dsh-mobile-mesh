@@ -50,7 +50,7 @@ import dev.dsh.mobile.mesh.data.canSteerQueueItem
 import dev.dsh.mobile.mesh.data.queueEditLosesNonText
 import dev.dsh.mobile.mesh.data.queueEditSeedText
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
-import dev.dsh.mobile.mesh.ui.components.DsDialogBodyMaxHeight
+import dev.dsh.mobile.mesh.ui.components.AppDialogBodyMaxHeight
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StatusBadge
@@ -243,7 +243,7 @@ internal fun GoalBar(goal: GoalSnapshot, store: SessionStore, modifier: Modifier
                     onValueChange = { editText = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = DsDialogBodyMaxHeight()),
+                        .heightIn(max = AppDialogBodyMaxHeight()),
                     // Same defect as the queued-turn editor: an unbounded field pushes the OK row
                     // off the screen once the objective is long enough.
                     minLines = 1,
@@ -419,7 +419,7 @@ internal fun QueueDock(
                     onValueChange = { editText = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = DsDialogBodyMaxHeight()),
+                        .heightIn(max = AppDialogBodyMaxHeight()),
                     // A queued turn can be as long as the composer accepts, and this field used to
                     // grow to all of it: the plate ran off the bottom of the screen and took the OK
                     // row with it, so a long message was both unreadable and impossible to save.

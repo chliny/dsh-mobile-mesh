@@ -29,7 +29,7 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.SubagentListEntry
 import dev.dsh.mobile.mesh.data.SessionRow
 import dev.dsh.mobile.mesh.ui.components.StatusBadge
-import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
+import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
 import dev.dsh.mobile.mesh.ui.components.formatDurationMs
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
@@ -56,7 +56,7 @@ internal fun SubagentsSheet(
             kotlinx.coroutines.delay(1_000L)
         }
     }
-    DsBottomSheet(
+    AppBottomSheet(
         title = stringResource(R.string.subagents_title),
         subtitle = entries.size.takeIf { it > 0 }?.toString(),
         onDismiss = onDismiss,

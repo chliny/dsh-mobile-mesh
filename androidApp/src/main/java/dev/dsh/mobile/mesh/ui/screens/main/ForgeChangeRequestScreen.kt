@@ -56,10 +56,10 @@ import dev.dsh.mobile.mesh.core.wire.dto.ForgeChangeRequestDiff
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeCommitRange
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewData
 import dev.dsh.mobile.mesh.core.wire.dto.latestSnapshot
-import dev.dsh.mobile.mesh.ui.components.DsToastHost
+import dev.dsh.mobile.mesh.ui.components.AppToastHost
 import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
-import dev.dsh.mobile.mesh.ui.components.rememberDsToast
+import dev.dsh.mobile.mesh.ui.components.rememberAppToast
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
 import kotlinx.coroutines.launch
 
@@ -89,7 +89,7 @@ internal fun ForgeChangeRequestScreen(
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
     val coroutine = rememberCoroutineScope()
-    val (toastMessage, showToast) = rememberDsToast()
+    val (toastMessage, showToast) = rememberAppToast()
     var diff by remember(sessionId, url) { mutableStateOf<ForgeChangeRequestDiff?>(null) }
     var error by remember(sessionId, url) { mutableStateOf<RpcError?>(null) }
     var loading by remember(sessionId, url) { mutableStateOf(true) }
@@ -312,7 +312,8 @@ internal fun ForgeChangeRequestScreen(
                             }
                             AssistChip(
                                 onClick = { lensSheetOpen = true },
-                                label = { Text(stringResource(R.string.forge_files_filter)) },
+                                label = { Text(stringResource(forgeLayerLabelKey(lens))) },
+                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null) },
                             )
                         }
                         if (viewedMarks != null && visibleFiles.isNotEmpty()) {
@@ -457,7 +458,7 @@ internal fun ForgeChangeRequestScreen(
                 }
             }
         }
-        DsToastHost(toastMessage to showToast, modifier = Modifier.fillMaxWidth())
+        AppToastHost(toastMessage to showToast, modifier = Modifier.fillMaxWidth())
     }
 
     if (discussionsOpen && reviewData != null && loadedHead != null) {

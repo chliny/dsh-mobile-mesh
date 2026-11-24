@@ -40,11 +40,11 @@ class DialogHeightBudgetTest {
     @Test
     fun `the plate cap follows the viewport instead of a constant taller than the screen`() {
         val source = File("src/main/java/dev/dsh/mobile/mesh/ui/components/Overlays.kt").readText()
-        val dialog = source.substringAfter("fun DsDialog(").substringBefore("private fun dialogMaxHeight()")
-        assertTrue("DsDialog must cap on the measured height", dialog.contains("heightIn(max = maxHeight)"))
+        val dialog = source.substringAfter("fun AppDialog(").substringBefore("private fun dialogMaxHeight()")
+        assertTrue("AppDialog must cap on the measured height", dialog.contains("heightIn(max = maxHeight)"))
         assertTrue("the 680.dp cap is taller than a phone screen", !dialog.contains("heightIn(max = 680.dp)"))
 
-        val measure = source.substringAfter("private fun dialogMaxHeight()").substringBefore("@Composable\nfun DsDialogBodyMaxHeight")
+        val measure = source.substringAfter("private fun dialogMaxHeight()").substringBefore("@Composable\nfun AppDialogBodyMaxHeight")
         assertTrue("the cap must account for the keyboard", measure.contains("WindowInsets.ime"))
         assertTrue("the cap must account for the status bar", measure.contains("WindowInsets.systemBars"))
         assertTrue("the cap must be measured against the screen", measure.contains("screenHeightDp"))

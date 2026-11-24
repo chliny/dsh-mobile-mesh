@@ -29,6 +29,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import dev.dsh.mobile.mesh.ui.theme.statusColors
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.session.ChangesNode
 import dev.dsh.mobile.mesh.core.wire.RpcResult
@@ -169,13 +170,13 @@ internal fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessio
                 val plan = remember(value, full) { buildDiffHighlightPlan(value.hunks, if (full) Int.MAX_VALUE else 12) }
                 plan.lines.forEach { line ->
                     val markerColor = when (line.marker) {
-                        '+' -> MaterialTheme.colorScheme.primary
+                        '+' -> statusColors.success
                         '-' -> MaterialTheme.colorScheme.error
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     }
                     val background = when (line.marker) {
-                        '+' -> MaterialTheme.colorScheme.primaryContainer
-                        '-' -> MaterialTheme.colorScheme.onSurface
+                        '+' -> statusColors.successContainer
+                        '-' -> statusColors.dangerContainer
                         else -> MaterialTheme.colorScheme.surfaceVariant
                     }
                     Row(Modifier.fillMaxWidth().padding(start = 24.dp).background(background)) {

@@ -18,14 +18,14 @@ class QueueEditDialogLayoutTest {
 
     @Test
     fun `the queue editor is bounded and scrolls its own text`() {
-        assertTrue(queueDialog.contains("heightIn(max = DsDialogBodyMaxHeight())"))
+        assertTrue(queueDialog.contains("heightIn(max = AppDialogBodyMaxHeight())"))
         assertTrue("the field must stop growing at a line cap", queueDialog.contains("maxLines ="))
         assertTrue("a long message must not shrink the field to one line", queueDialog.contains("minLines ="))
     }
 
     @Test
     fun `the queue editor's actions stay after the bounded field, inside the same plate`() {
-        val field = queueDialog.indexOf("heightIn(max = DsDialogBodyMaxHeight())")
+        val field = queueDialog.indexOf("heightIn(max = AppDialogBodyMaxHeight())")
         val ok = queueDialog.indexOf("store.updateQueue(id, \"edit\", editText)")
         val dismiss = queueDialog.indexOf("editingId = null", ok)
         assertTrue("the field is missing from the edit plate", field >= 0)
@@ -50,7 +50,7 @@ class QueueEditDialogLayoutTest {
         val goalDialog = docks
             .substringAfter("title = { Text(stringResource(R.string.goal_edit)) }")
             .substringBefore("stringResource(R.string.chat_queue_count")
-        assertTrue(goalDialog.contains("heightIn(max = DsDialogBodyMaxHeight())"))
+        assertTrue(goalDialog.contains("heightIn(max = AppDialogBodyMaxHeight())"))
         assertTrue(goalDialog.contains("maxLines ="))
     }
 

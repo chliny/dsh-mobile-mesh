@@ -32,7 +32,7 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.FULL_ACCESS_PRESET
 import dev.dsh.mobile.mesh.core.wire.dto.PermissionSelect
 
-import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
+import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 
 /** The permission-preset picker. `custom` is a derived state, so it is never offered as a target. */
@@ -43,7 +43,7 @@ internal fun PermissionMenu(
     onDismiss: () -> Unit,
     onPick: (String) -> Unit,
 ) {
-    DsBottomSheet(
+    AppBottomSheet(
         title = stringResource(R.string.permission_preset),
         onDismiss = onDismiss,
     ) {

@@ -29,7 +29,7 @@ import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeChangeRequestSnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewerCandidate
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeReviewerRef
-import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
+import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
 import dev.dsh.mobile.mesh.ui.components.StatusBadge
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
 import kotlinx.coroutines.delay
@@ -74,7 +74,7 @@ internal fun ForgeActionsSheet(
         ForgeActionMode.UpdateBranch -> stringResource(R.string.forge_update_branch_title)
         ForgeActionMode.Reviewers -> stringResource(R.string.forge_request_reviews_title)
     }
-    DsBottomSheet(title = title, onDismiss = onDismiss) {
+    AppBottomSheet(title = title, onDismiss = onDismiss) {
         when (mode) {
             ForgeActionMode.Menu -> {
                 val hasMarkReady = snapshot.state == "open" && snapshot.draft

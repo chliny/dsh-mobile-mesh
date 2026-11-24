@@ -1,6 +1,7 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.material3.IconButton
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -39,7 +40,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.data.DirectoryLevel
 import dev.dsh.mobile.mesh.data.normalizeWorkspaceFilesRequestPath
-import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
 
@@ -102,16 +102,17 @@ fun WorkspaceFilesScreen(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            DsIconButton(
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = stringResource(R.string.common_back),
-                onClick = {
+            IconButton(onClick = {
                     if (currentPath == normalizedRootPath) onBack()
                     else currentPath = parentWorkspaceFilesPath(currentPath, normalizedRootPath)
-                },
+                }) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = stringResource(R.string.common_back),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                iconSize = 18.dp,
+                modifier = Modifier.size(18.dp),
             )
+        }
             Text(
                 currentPath.trimEnd('/').takeIf { it.isNotBlank() && it != "." }?.substringAfterLast('/')
                     ?: rootTitle?.takeIf { it.isNotBlank() }

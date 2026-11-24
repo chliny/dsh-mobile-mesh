@@ -80,14 +80,15 @@ import dev.dsh.mobile.mesh.core.wire.dto.PluginFiberPhase
 import dev.dsh.mobile.mesh.core.wire.dto.PluginInventoryEntry
 import dev.dsh.mobile.mesh.core.wire.dto.PluginInventorySnapshot
 import dev.dsh.mobile.mesh.ui.components.DisclosureRow
-import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
-import dev.dsh.mobile.mesh.ui.components.DsToastHost
+import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
+import dev.dsh.mobile.mesh.ui.components.AppToastHost
 import dev.dsh.mobile.mesh.ui.components.SectionHeader
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.components.ToggleRow
-import dev.dsh.mobile.mesh.ui.components.rememberDsToast
+import dev.dsh.mobile.mesh.ui.components.rememberAppToast
 import dev.dsh.mobile.mesh.ui.rememberSessionStore
+import dev.dsh.mobile.mesh.ui.theme.statusColors
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import java.util.Calendar
 import java.util.Date
@@ -115,7 +116,7 @@ fun SettingsScreen(
     val store = rememberSessionStore()
     val plugins by store.plugins.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val toast = rememberDsToast()
+    val toast = rememberAppToast()
     val scope = rememberCoroutineScope()
     var showDisconnectDialog by remember { mutableStateOf(false) }
     var showLogsRangeDialog by remember { mutableStateOf(false) }
@@ -390,7 +391,7 @@ fun SettingsScreen(
 
                 Spacer(Modifier.height(DsSpacing.xlarge))
             }
-            DsToastHost(toast, modifier = Modifier.fillMaxWidth())
+            AppToastHost(toast, modifier = Modifier.fillMaxWidth())
         }
     }
 
@@ -457,7 +458,7 @@ fun SettingsScreen(
                             }
                         }
                     }
-                    importError?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
+                    importError?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = statusColors.warningText) }
                 }
             },
             confirmButton = {
@@ -597,7 +598,7 @@ private fun LogsExportRangeDialog(
                     Text(
                         stringResource(R.string.settings_logs_range_invalid),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
+                        color = statusColors.warningText,
                     )
                 }
             }
@@ -756,7 +757,7 @@ private fun PluginsSheet(inventory: PluginInventorySnapshot, onDismiss: () -> Un
             }
         }
     }
-    DsBottomSheet(
+    AppBottomSheet(
         title = stringResource(R.string.settings_plugins),
         subtitle = inventory.entries.size.toString(),
         onDismiss = onDismiss,
@@ -774,7 +775,7 @@ private fun PluginsSheet(inventory: PluginInventorySnapshot, onDismiss: () -> Un
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            return@DsBottomSheet
+            return@AppBottomSheet
         }
         LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
             items(matching, key = { it.entryId }) { entry -> PluginRow(entry) }
@@ -825,7 +826,7 @@ private fun PluginRow(entry: PluginInventoryEntry) {
                     Text(
                         text = diagnostic,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = statusColors.danger,
                     )
                 }
             }

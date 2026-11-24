@@ -38,7 +38,7 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.CommandDescriptor
 import dev.dsh.mobile.mesh.core.wire.dto.SkillEntry
 import dev.dsh.mobile.mesh.core.wire.dto.PlanStateView
-import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
+import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 
 /**
@@ -74,7 +74,7 @@ internal fun CommandSheet(
     val filteredSkills = remember(skills, query) { skills.filterByQuery(query) { it.name to it.description } }
     val searchable = commands.size + skills.size > 12
 
-    DsBottomSheet(title = stringResource(R.string.chat_composer_commands), onDismiss = onDismiss) {
+    AppBottomSheet(title = stringResource(R.string.chat_composer_commands), onDismiss = onDismiss) {
         // Attach ------------------------------------------------------------
         SheetRow(
             leading = {

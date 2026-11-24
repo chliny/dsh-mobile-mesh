@@ -1,6 +1,9 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
@@ -20,7 +23,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.data.SessionStore
-import dev.dsh.mobile.mesh.ui.components.DsIconButton
 
 @Composable
 internal fun FullChangesDiffScreen(
@@ -37,13 +39,14 @@ internal fun FullChangesDiffScreen(
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp)) {
-            DsIconButton(
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
+            IconButton(onClick = onBack) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = stringResource(R.string.common_back),
-                onClick = onBack,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                iconSize = 18.dp,
+                modifier = Modifier.size(18.dp),
             )
+        }
             Text(title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f).padding(start = 4.dp))
             Text("+$added -$deleted", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp, end = 8.dp))
         }

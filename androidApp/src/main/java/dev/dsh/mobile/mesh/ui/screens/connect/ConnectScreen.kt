@@ -1,5 +1,6 @@
 package dev.dsh.mobile.mesh.ui.screens.connect
 
+import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,10 +15,18 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -52,24 +61,17 @@ import dev.dsh.mobile.mesh.connection.DiscoveredHost
 import dev.dsh.mobile.mesh.connection.HostConfig
 import dev.dsh.mobile.mesh.connection.MeshTransport
 import dev.dsh.mobile.mesh.connection.SshAuthentication
-import dev.dsh.mobile.mesh.ui.components.DsButton
-import dev.dsh.mobile.mesh.ui.components.DsButtonSize
-import dev.dsh.mobile.mesh.ui.components.DsButtonVariant
-import dev.dsh.mobile.mesh.ui.components.DsIconButton
-import dev.dsh.mobile.mesh.ui.components.DsCard
-import dev.dsh.mobile.mesh.ui.components.DsPill
-import dev.dsh.mobile.mesh.ui.components.DsSegment
-import dev.dsh.mobile.mesh.ui.components.DsSegmented
-import dev.dsh.mobile.mesh.ui.components.DsToastHost
-import dev.dsh.mobile.mesh.ui.components.rememberDsToast
+import dev.dsh.mobile.mesh.ui.components.AppToastHost
+import dev.dsh.mobile.mesh.ui.components.rememberAppToast
 import dev.dsh.mobile.mesh.ui.components.ToggleRow
 import dev.dsh.mobile.mesh.ui.components.MeshMark
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import dev.dsh.mobile.mesh.ui.components.SectionHeader
-import dev.dsh.mobile.mesh.ui.components.DsDialog
+import dev.dsh.mobile.mesh.ui.components.AppDialog
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.components.relativeTime
+import dev.dsh.mobile.mesh.ui.theme.statusColors
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -266,7 +268,7 @@ fun ConnectScreen(
         )
     }
     val scope = rememberCoroutineScope()
-    val toast = rememberDsToast()
+    val toast = rememberAppToast()
     val planetPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             viewModel.importZeroTierPlanet(uri).fold(
@@ -290,25 +292,31 @@ fun ConnectScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 onOpenConnections?.let { openConnections ->
-                    DsIconButton(
-                        icon = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.common_back),
-                        onClick = openConnections,
-                    )
+                    IconButton(onClick = openConnections) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = stringResource(R.string.common_back),
+                modifier = Modifier.size(20.dp),
+            )
+        }
                 } ?: onClose?.let { close ->
-                    DsIconButton(
-                        icon = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.common_back),
-                        onClick = close,
-                    )
+                    IconButton(onClick = close) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = stringResource(R.string.common_back),
+                modifier = Modifier.size(20.dp),
+            )
+        }
                 }
                 Spacer(Modifier.weight(1f))
-                DsIconButton(
-                    icon = FeatherIcons.Tool,
-                    contentDescription = stringResource(R.string.settings_title),
-                    onClick = onOpenSettings,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                IconButton(onClick = onOpenSettings) {
+            Icon(
+                imageVector = FeatherIcons.Tool,
+                contentDescription = stringResource(R.string.settings_title),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
             }
 
             ConnectHeader()
@@ -347,19 +355,23 @@ fun ConnectScreen(
                            colors = connectFieldColors(),
                         )
                     }
-                    DsSegmented(
-                        segments = listOf(
-                            DsSegment("direct", stringResource(R.string.connect_transport_direct)),
-                            DsSegment(MeshTransport.ZERO_TIER.storedValue, stringResource(R.string.connect_transport_zerotier)),
-                            DsSegment(MeshTransport.TAILSCALE.storedValue, stringResource(R.string.connect_transport_tailscale)),
-                        ),
-                        selectedKey = meshTransport?.storedValue ?: "direct",
-                        onSelect = { meshTransportKey = it },
-                        enabled = fieldsEnabled,
-                        role = Role.Tab,
-                        stretch = true,
-                        modifier = Modifier.fillMaxWidth(),
+                    val transportChoices = listOf(
+                        "direct" to stringResource(R.string.connect_transport_direct),
+                        MeshTransport.ZERO_TIER.storedValue to stringResource(R.string.connect_transport_zerotier),
+                        MeshTransport.TAILSCALE.storedValue to stringResource(R.string.connect_transport_tailscale),
                     )
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        transportChoices.forEachIndexed { index, (key, label) ->
+                            SegmentedButton(
+                                selected = (meshTransport?.storedValue ?: "direct") == key,
+                                onClick = { meshTransportKey = key },
+                                enabled = fieldsEnabled,
+                                shape = SegmentedButtonDefaults.itemShape(index, transportChoices.size),
+                                modifier = Modifier.weight(1f),
+                                label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            )
+                        }
+                    }
                     when (meshTransport) {
                         MeshTransport.ZERO_TIER -> Column(verticalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
                             TextField(
@@ -371,13 +383,14 @@ fun ConnectScreen(
                                enabled = fieldsEnabled,
                             colors = connectFieldColors(),
                             )
-                             DsButton(
-                                 text = if (zeroTierPlanetId == null) stringResource(R.string.connect_zerotier_planet_import)
+                             Button(onClick = { planetPicker.launch(arrayOf("*/*")) },
+            enabled = fieldsEnabled) {
+            Text(
+                if (zeroTierPlanetId == null) stringResource(R.string.connect_zerotier_planet_import)
                                  else stringResource(R.string.connect_zerotier_planet_replace),
-                                 onClick = { planetPicker.launch(arrayOf("*/*")) },
-                                  enabled = fieldsEnabled,
-                                 variant = DsButtonVariant.Info,
-                             )
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
                             TextField(
                                 value = zeroTierPlanetBase64,
                                 onValueChange = { zeroTierPlanetBase64 = it },
@@ -388,9 +401,7 @@ fun ConnectScreen(
                                enabled = fieldsEnabled,
                             colors = connectFieldColors(),
                             )
-                            DsButton(
-                                text = stringResource(R.string.connect_zerotier_planet_base64_import),
-                                onClick = {
+                            Button(onClick = {
                                     scope.launch {
                                         viewModel.importZeroTierPlanetBase64(zeroTierPlanetBase64).fold(
                                             onSuccess = {
@@ -401,9 +412,12 @@ fun ConnectScreen(
                                         )
                                     }
                                 },
-                                enabled = fieldsEnabled && zeroTierPlanetBase64.isNotBlank(),
-                                variant = DsButtonVariant.Info,
-                            )
+            enabled = fieldsEnabled && zeroTierPlanetBase64.isNotBlank()) {
+            Text(
+                stringResource(R.string.connect_zerotier_planet_base64_import),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
                             zeroTierPlanetId?.let {
                                 Text(
                                     stringResource(R.string.connect_zerotier_planet_id, it.take(12)),
@@ -458,18 +472,22 @@ fun ConnectScreen(
                             colors = connectFieldColors(),
                             )
                         }
-                        DsSegmented(
-                            segments = listOf(
-                                DsSegment("password", stringResource(R.string.connect_ssh_password_auth)),
-                                DsSegment("key", stringResource(R.string.connect_ssh_key_auth)),
-                            ),
-                            selectedKey = sshAuthenticationKey,
-                            onSelect = { if (fieldsEnabled) sshAuthenticationKey = it },
-                             enabled = fieldsEnabled,
-                            role = Role.Tab,
-                            stretch = true,
-                            modifier = Modifier.fillMaxWidth(),
+                        val sshChoices = listOf(
+                            "password" to stringResource(R.string.connect_ssh_password_auth),
+                            "key" to stringResource(R.string.connect_ssh_key_auth),
                         )
+                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                            sshChoices.forEachIndexed { index, (key, label) ->
+                                SegmentedButton(
+                                    selected = sshAuthenticationKey == key,
+                                    onClick = { if (fieldsEnabled) sshAuthenticationKey = key },
+                                    enabled = fieldsEnabled,
+                                    shape = SegmentedButtonDefaults.itemShape(index, sshChoices.size),
+                                    modifier = Modifier.weight(1f),
+                                    label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                )
+                            }
+                        }
                         if (sshAuthentication == SshAuthentication.PASSWORD) {
                             TextField(
                                 value = sshPassword,
@@ -523,17 +541,17 @@ fun ConnectScreen(
                         colors = connectFieldColors(),
                     )
                     if (editingHost != null) {
-                        DsButton(
-                            text = stringResource(R.string.common_delete),
-                            onClick = { confirmDelete = true },
-                            enabled = mutationEnabled,
-                            variant = DsButtonVariant.Danger,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        Button(onClick = { confirmDelete = true },
+            enabled = mutationEnabled,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)) {
+            Text(
+                stringResource(R.string.common_delete),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
                     }
-                    DsButton(
-                        text = stringResource(R.string.connect_save),
-                        onClick = {
+                    OutlinedButton(onClick = {
                             viewModel.saveConnection(
                                 existing = editingHost, name = connectionName, host = host, port = port,
                                 transport = meshTransport, networkId = zeroTierNetworkId,
@@ -554,19 +572,20 @@ fun ConnectScreen(
                                 },
                             )
                         },
-                        variant = DsButtonVariant.Outline,
-                        enabled = shouldEnableConnectionSave(
+            enabled = shouldEnableConnectionSave(
                             editingHost?.id,
                             connectedHostId,
                             editingThisAttempt || editingConnectionActive,
                             if (editingConnectionActive) connectionPhase else dev.dsh.mobile.mesh.connection.ConnectionPhase.DISCONNECTED,
                         ),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    if (editingHost == null) DsButton(
-                        text = stringResource(R.string.connect_button),
-                        onClick = {
-                            if (connectInFlight) return@DsButton
+            modifier = Modifier.fillMaxWidth()) {
+            Text(
+                stringResource(R.string.connect_save),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+                    if (editingHost == null) Button(onClick = {
+                            if (connectInFlight) return@Button
                             connectInFlight = true
                             val transport = meshTransport
                             android.util.Log.d("ConnectScreen", "Connect clicked transport=${transport?.storedValue} host=$host valid=$connectEnabled")
@@ -583,11 +602,13 @@ fun ConnectScreen(
                                 sshDshHost, zeroTierPlanetId, zeroTierPlanetBase64, launchToken,
                             )
                         },
-                        enabled = connectEnabled,
-                        testTag = "connect-action",
-                        variant = DsButtonVariant.Info,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+            enabled = connectEnabled,
+            modifier = Modifier.fillMaxWidth()) {
+            Text(
+                stringResource(R.string.connect_button),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
             }
 
             if (connectInFlight) {
@@ -614,29 +635,32 @@ fun ConnectScreen(
         }
     }
     val pendingDeletion = editingHost
-    DsToastHost(toast, modifier = Modifier.fillMaxWidth())
+    AppToastHost(toast, modifier = Modifier.fillMaxWidth())
     if (confirmDelete && pendingDeletion != null && mutationEnabled) {
-        DsDialog(
+        AppDialog(
             title = stringResource(R.string.connect_delete_title),
             onDismiss = { confirmDelete = false },
         ) {
             Text(stringResource(R.string.connect_delete_message), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                DsButton(
-                    text = stringResource(R.string.common_cancel),
-                    onClick = { confirmDelete = false },
-                    variant = DsButtonVariant.Ghost,
-                )
+                TextButton(onClick = { confirmDelete = false }) {
+            Text(
+                stringResource(R.string.common_cancel),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
                 Spacer(Modifier.width(DsSpacing.small))
-                DsButton(
-                    text = stringResource(R.string.common_delete),
-                    onClick = {
+                Button(onClick = {
                         viewModel.forget(pendingDeletion)
                         confirmDelete = false
                         onOpenConnections?.invoke() ?: onClose?.invoke()
                     },
-                    variant = DsButtonVariant.Danger,
-                )
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)) {
+            Text(
+                stringResource(R.string.common_delete),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
             }
         }
     }
@@ -695,7 +719,18 @@ private fun RecentHarnessCard(
     // attached-session count all came from `host.describe`, which no longer exists.
     val home = reachable?.description?.home ?: host.lastHome
 
-    DsCard(onClick = onConnect) {
+    OutlinedCard(
+        onClick = onConnect,
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(
+                horizontal = DsSpacing.medium,
+                vertical = DsSpacing.small,
+            ),
+            verticalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
+        ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             StateDot(
                 when (probe) {
@@ -745,13 +780,14 @@ private fun RecentHarnessCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            DsButton(
-                text = stringResource(R.string.common_delete),
-                onClick = onForget,
-                variant = DsButtonVariant.Ghost,
-                size = DsButtonSize.Small,
+            TextButton(onClick = onForget) {
+            Text(
+                stringResource(R.string.common_delete),
+                style = MaterialTheme.typography.labelLarge,
             )
         }
+        }
+            }
     }
 }
 
@@ -902,25 +938,25 @@ internal fun ConnectFailureBlock(
                 )
             }
             // With no headline the body has already been shown beside the dot.
-            if (title != null) Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            if (title != null) Text(body, style = MaterialTheme.typography.bodySmall, color = statusColors.warningText)
             // A harness that has not signed this phone in is fixed here rather than on the
             // harness: it wants a launch token, and retrying without one only repeats the 401.
             if (failure is ConnectFailure.Unauthenticated) {
-                DsButton(
-                    text = stringResource(R.string.connect_sign_in),
-                    onClick = onSignIn,
-                    variant = DsButtonVariant.Ghost,
-                    size = DsButtonSize.Small,
-                )
+                TextButton(onClick = onSignIn) {
+            Text(
+                stringResource(R.string.connect_sign_in),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
             }
             // The loop backs off and retries forever; without this there is no way to stop it.
             if (retrying) {
-                DsButton(
-                    text = stringResource(R.string.connect_cancel),
-                    onClick = onCancel,
-                    variant = DsButtonVariant.Ghost,
-                    size = DsButtonSize.Small,
-                )
+                TextButton(onClick = onCancel) {
+            Text(
+                stringResource(R.string.connect_cancel),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
             }
         }
     }
@@ -939,7 +975,7 @@ internal fun ConnectAuthorizationPendingBlock(message: String) {
             horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall),
         ) {
             StateDot(StateDotState.Warning, size = 8.dp)
-            Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            Text(message, style = MaterialTheme.typography.bodySmall, color = statusColors.warningText)
         }
     }
 }
@@ -960,7 +996,7 @@ internal fun LaunchTokenDialog(
     onSubmit: (String) -> Unit,
 ) {
     var input by remember { mutableStateOf("") }
-    DsDialog(title = stringResource(R.string.connect_sign_in_title), onDismiss = onDismiss) {
+    AppDialog(title = stringResource(R.string.connect_sign_in_title), onDismiss = onDismiss) {
         Text(
             stringResource(R.string.connect_sign_in_body),
             style = MaterialTheme.typography.bodySmall,
@@ -982,15 +1018,16 @@ internal fun LaunchTokenDialog(
             null -> null
         }
         if (message != null) {
-            Text(message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+            Text(message, style = MaterialTheme.typography.labelSmall, color = statusColors.warningText)
         }
-        DsButton(
-            text = stringResource(R.string.connect_sign_in),
-            onClick = { onSubmit(input) },
+        Button(onClick = { onSubmit(input) },
             enabled = !signingIn && input.isNotBlank(),
-            variant = DsButtonVariant.Info,
-            modifier = Modifier.fillMaxWidth(),
-        )
+            modifier = Modifier.fillMaxWidth()) {
+            Text(
+                stringResource(R.string.connect_sign_in),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
     }
 }
 
@@ -1004,7 +1041,7 @@ internal fun TailscaleLoginDialog(
     onDismiss: () -> Unit,
 ) {
     BackHandler(enabled = true, onBack = onDismiss)
-    DsDialog(
+    AppDialog(
         title = stringResource(R.string.connect_tailscale_login_title),
         onDismiss = onDismiss,
         // The embedded browser needs a real viewport. A wrap-content dialog can measure the
@@ -1030,12 +1067,12 @@ private fun ScanProgressRow(progress: ScanProgress?, onCancel: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
-            DsButton(
-                text = stringResource(R.string.common_cancel),
-                onClick = onCancel,
-                variant = DsButtonVariant.Ghost,
-                size = DsButtonSize.Small,
+            TextButton(onClick = onCancel) {
+            Text(
+                stringResource(R.string.common_cancel),
+                style = MaterialTheme.typography.labelLarge,
             )
+        }
         }
         if (progress != null && progress.total > 0) {
             LinearProgressIndicator(

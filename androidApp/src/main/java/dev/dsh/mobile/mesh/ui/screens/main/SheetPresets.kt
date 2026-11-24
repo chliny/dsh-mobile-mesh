@@ -26,7 +26,7 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.AgentPresetListValue
 import dev.dsh.mobile.mesh.data.SessionStore
 import dev.dsh.mobile.mesh.ui.components.StatusBadge
-import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
+import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import kotlinx.coroutines.launch
 
@@ -46,7 +46,7 @@ internal fun PresetsSheet(
     onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    DsBottomSheet(
+    AppBottomSheet(
         title = stringResource(R.string.presets_title),
         subtitle = if (sessionBlank) null else stringResource(R.string.presets_locked),
         onDismiss = onDismiss,
@@ -58,7 +58,7 @@ internal fun PresetsSheet(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            return@DsBottomSheet
+            return@AppBottomSheet
         }
         Column(
             modifier = Modifier

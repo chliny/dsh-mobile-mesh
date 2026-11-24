@@ -1,6 +1,9 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.LazyColumn
@@ -37,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.data.PreviewState
-import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.components.KodeViewCode
 import dev.dsh.mobile.mesh.ui.components.TextMateCodeHighlighter
 import dev.dsh.mobile.mesh.ui.components.textMateGrammarAsset
@@ -142,13 +144,14 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
         Row(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp),
         ) {
-            DsIconButton(
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
+            IconButton(onClick = onBack) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = stringResource(R.string.common_back),
-                onClick = onBack,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                iconSize = 18.dp,
+                modifier = Modifier.size(18.dp),
             )
+        }
             Text(title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 4.dp))
         }
         PullToRefreshBox(

@@ -38,7 +38,7 @@ import dev.dsh.mobile.mesh.core.wire.RpcError
 import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeChangeRequestCheck
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeChangeRequestSnapshot
-import dev.dsh.mobile.mesh.ui.components.DsBottomSheet
+import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
 import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.components.StatusBadge
@@ -79,7 +79,7 @@ internal fun ForgeChecksSheet(
 
     val snapshot = full ?: preview
     val checks = snapshot?.checks.orEmpty()
-    DsBottomSheet(
+    AppBottomSheet(
         title = stringResource(R.string.forge_checks_title),
         onDismiss = onDismiss,
         trailing = {
@@ -94,14 +94,14 @@ internal fun ForgeChecksSheet(
     ) {
         if (loading && full == null) {
             Text(stringResource(R.string.forge_checks_loading), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            return@DsBottomSheet
+            return@AppBottomSheet
         }
         error?.let {
             Text(forgeErrorText(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             OutlinedButton(onClick = { reload++ }) {
                 Text(stringResource(R.string.common_retry))
             }
-            return@DsBottomSheet
+            return@AppBottomSheet
         }
         if (checks.isEmpty()) {
             Text(stringResource(R.string.forge_checks_none), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
