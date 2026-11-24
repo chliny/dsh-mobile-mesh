@@ -948,9 +948,7 @@ class SessionStore @Inject constructor(
         followJob?.cancel()
         modsBandJob?.cancel()
         _modsBand.value = null
-        questionWaitJobs.values.forEach(Job::cancel)
-        questionWaitJobs.clear()
-        pendingQuestionsBySession.value = emptyMap()
+        clearGenerationPendingInteractions()
         controlJob?.cancel()
         jobListJob?.cancel()
         jobFollowJobs.values.forEach(Job::cancel)
@@ -1155,9 +1153,7 @@ class SessionStore @Inject constructor(
                     followJob?.cancel()
                     modsBandJob?.cancel()
                     _modsBand.value = null
-                    questionWaitJobs.values.forEach(Job::cancel)
-                    questionWaitJobs.clear()
-                    pendingQuestionsBySession.value = emptyMap()
+                    clearGenerationPendingInteractions()
                     controlJob?.cancel()
                     jobListJob?.cancel()
                     jobFollowJobs.values.forEach(Job::cancel)
@@ -2105,6 +2101,30 @@ class SessionStore @Inject constructor(
             approvalRequests.entries.removeIf { it.value.sessionId == sessionId }
             if (sessionId == currentId) _pendingApproval.value = null
             pendingQuestionsBySession.update { it - sessionId }
+            emitSessionsLocked()
+        }
+    }
+
+    /**
+     * Forget every pending request that belongs to the live generation.
+     *
+     * An answer rides that generation's own `$events` client id, so once the carrier is gone the
+     * request can no longer be answered and its badge must not outlive the panel. That is how a
+     * question answered from another client while the phone was away left the list's pending badge
+     * up with nothing open in the chat page: the panel was dropped with the carrier, the marker was
+     * not. Whatever is genuinely still pending is re-delivered by the Host when the replacement
+     * generation's `$events` stream attaches, so it comes back on its own.
+     */
+    private fun clearGenerationPendingInteractions() {
+        questionWaitJobs.values.forEach(Job::cancel)
+        questionWaitJobs.clear()
+        synchronized(lock) {
+            pendingKinds.clear()
+            approvalRequests.clear()
+            questionEventBySession.clear()
+            questionClientBySession.clear()
+            pendingQuestionsBySession.value = emptyMap()
+            _pendingApproval.value = null
             emitSessionsLocked()
         }
     }
