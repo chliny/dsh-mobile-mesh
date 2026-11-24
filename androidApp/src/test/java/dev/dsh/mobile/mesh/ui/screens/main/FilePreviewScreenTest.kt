@@ -46,6 +46,18 @@ class FilePreviewScreenTest {
     }
 
     @Test
+    fun `selected preview lines cite source line numbers and the exact excerpt`() {
+        val lines = listOf("first", "second", "third")
+        assertEquals("12–14", previewLineRangeLabel(12, 14))
+        assertEquals("12", previewLineRangeLabel(12, 12))
+        val target = previewCommentTarget(lines, lineOffset = 12, range = PreviewLineRange(0, 2))!!
+        assertEquals(12, target.startLine)
+        assertEquals(14, target.endLine)
+        assertEquals("first\nsecond\nthird", target.excerpt)
+        assertEquals(null, previewCommentTarget(lines, lineOffset = 12, range = PreviewLineRange(1, 3)))
+    }
+
+    @Test
     fun `non markdown files use syntax highlighting`() {
         assertFalse(isMarkdownPath("src/Main.kt"))
         assertFalse(isMarkdownPath("config.json"))

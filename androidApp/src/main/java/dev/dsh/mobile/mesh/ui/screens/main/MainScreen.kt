@@ -237,6 +237,13 @@ internal fun MainScreen(
             }
             .distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = false)
+    // Line comments are a composer reference, not a Git operation: they stay available whenever
+    // the plugin is composed, even for a file page outside a checkout.
+    val forgeCommentsAvailable by remember(forgeStore) {
+        forgeStore.state
+            .map { state -> state.available == true }
+            .distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = false)
     val connectionManager = dev.dsh.mobile.mesh.ui.rememberConnectionManager()
     val terminalAvailable by connectionManager.terminalAvailable.collectAsStateWithLifecycle()
     val navigationState = dev.dsh.mobile.mesh.ui.rememberAppNavigationState()
@@ -447,6 +454,9 @@ internal fun MainScreen(
                     path = current.path,
                     title = current.title,
                     line = current.line,
+                    // The Git changes plugin owns the reference format; enable line comments
+                    // whenever the Host composes it.
+                    commentEnabled = forgeCommentsAvailable,
                     onBack = { navigate(current.returnPage) },
                     onOpenFile = { linkedPath, linkedTitle, line ->
                         val safePath = safePreviewPath(linkedPath, currentCwd)

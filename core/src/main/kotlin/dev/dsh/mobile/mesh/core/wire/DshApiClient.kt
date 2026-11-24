@@ -458,23 +458,37 @@ class DshApiClient(
         },
     )
 
-    /** Read the complete file using whichever bounded byte-read API this Host exposes. */
-    suspend fun workspaceFilesReadAll(
-        sessionId: String,
-        path: String,
-        legacyReadAll: Boolean = false,
-    ): RpcResult<WorkspaceFileBytes> = if (legacyReadAll) {
-        call("workspaceFiles/readAll", args {
-            put("workspaceFileScopeId", JsonPrimitive(sessionId))
-            put("path", JsonPrimitive(path))
-        })
-    } else {
-        call("workspaceFiles/readBytes", args {
+    /**
+     * Read the complete file, falling back to the pre-snapshot `readAll` route.
+     *
+     * The Host's session API generation is not a reliable proxy for its workspace-file routes:
+     * a recent Host can still answer the legacy session list, and an older one has no
+     * `readBytes` at all. Probe by shape instead — a 404 is the Host saying the route is absent.
+     */
+    suspend fun workspaceFilesReadAll(sessionId: String, path: String): RpcResult<WorkspaceFileBytes> {
+        val modern: RpcResult<WorkspaceFileBytes> = call("workspaceFiles/readBytes", args {
             put("workspaceFileScopeId", JsonPrimitive(sessionId))
             put("path", JsonPrimitive(path))
             put("options", JsonObject(emptyMap()))
         })
+        return when (modern) {
+            is RpcResult.Ok -> modern
+            is RpcResult.Err ->
+                if (workspaceByteRequestUnsupported(modern.error)) call("workspaceFiles/readAll", args {
+                    put("workspaceFileScopeId", JsonPrimitive(sessionId))
+                    put("path", JsonPrimitive(path))
+                }) else modern
+        }
     }
+
+    /**
+     * A missing unary byte route is a 404 before dispatch; an older `readBytes` descriptor
+     * rejects the current `options` argument with a bad-request before it reads anything.
+     */
+    private fun workspaceByteRequestUnsupported(error: RpcError): Boolean =
+        (error.code == "capability-unavailable" &&
+            (TransportFailures.of(error) == TransportFailure.NOT_FOUND || TransportFailures.statusOf(error) == 404)) ||
+            (error.code == "bad-request" && error.message.contains("options", ignoreCase = true))
 
     /** Read a bounded byte window for binary/document fallback renderers. */
     suspend fun workspaceFilesReadBytes(

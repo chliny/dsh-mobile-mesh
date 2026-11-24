@@ -294,6 +294,47 @@ class DshApiClientRemoteTest {
     }
 
     @Test
+    fun `workspace full read falls back when the modern byte route is absent`() = runTest {
+        val paths = mutableListOf<String>()
+        val transport = RecordingTransport { path, body ->
+            paths += path
+            if (path.endsWith("/workspaceFiles/readBytes")) {
+                throw RpcTransportException(404, "carrier returned HTTP 404")
+            }
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            ok(rpcId, """{"absolutePath":"/work/legacy.txt","version":"v1","offset":0,"data":[214,208,206,196],"eof":true}""")
+        }
+
+        val result = client(transport).workspaceFilesReadAll("session-7", "legacy.txt")
+
+        assertTrue(result is RpcResult.Ok)
+        assertEquals(listOf("/api/workspaceFiles/readBytes", "/api/workspaceFiles/readAll"), paths)
+        assertEquals(4, (result as RpcResult.Ok).value.data.size)
+    }
+
+    @Test
+    fun `an older readBytes descriptor falls back to readAll instead of failing the file`() = runTest {
+        val paths = mutableListOf<String>()
+        val transport = RecordingTransport { path, body ->
+            paths += path
+            val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content
+            if (path.endsWith("/workspaceFiles/readBytes")) {
+                RpcHttpResponse(
+                    200,
+                    """{"type":"server-response","rpcId":"$rpcId","result":{"ok":false,"error":{"code":"bad-request","message":"args fields do not match the descriptor: unexpected \"options\""}}}""",
+                )
+            } else {
+                ok(rpcId, """{"absolutePath":"/work/legacy.txt","version":"v1","offset":0,"data":[214,208,206,196],"eof":true}""")
+            }
+        }
+
+        val result = client(transport).workspaceFilesReadAll("session-7", "legacy.txt")
+
+        assertTrue(result is RpcResult.Ok)
+        assertEquals(listOf("/api/workspaceFiles/readBytes", "/api/workspaceFiles/readAll"), paths)
+    }
+
+    @Test
     fun `workspace files list preserves whitespace-only directory names`() = runTest {
         val transport = RecordingTransport { _, body ->
             val rpcId = Json.parseToJsonElement(body).jsonObject["rpcId"]!!.jsonPrimitive.content

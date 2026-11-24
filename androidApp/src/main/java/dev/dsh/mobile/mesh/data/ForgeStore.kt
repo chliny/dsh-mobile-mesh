@@ -2,9 +2,11 @@ package dev.dsh.mobile.mesh.data
 
 import dev.dsh.mobile.mesh.connection.ConnectionManager
 import dev.dsh.mobile.mesh.connection.missingRemoteEndpoint
+import dev.dsh.mobile.mesh.core.forge.FileLineComment
 import dev.dsh.mobile.mesh.core.forge.ForgeReviewComment
 import dev.dsh.mobile.mesh.core.forge.ForgeReviewSelection
 import dev.dsh.mobile.mesh.core.forge.ForgeReviewSource
+import dev.dsh.mobile.mesh.core.forge.formatFileLineComment
 import dev.dsh.mobile.mesh.core.forge.formatForgeReviewComment
 import dev.dsh.mobile.mesh.core.forge.formatForgeThreadQuote
 import dev.dsh.mobile.mesh.core.wire.HostGeneration
@@ -465,6 +467,34 @@ class ForgeStore @Inject constructor(
         chatDraftStore.appendPending(
             sessionId,
             formatForgeReviewComment(ForgeReviewSelection(source, comment), index),
+        )
+        return index
+    }
+
+    /**
+     * Freeze one file-content line selection into the Session composer.
+     *
+     * It shares the per-Session numbering with diff comments so several references added while
+     * browsing files read as one list.
+     *
+     * @return the one-based reference number assigned
+     */
+    fun addFileCommentReference(
+        sessionId: String,
+        path: String,
+        startLine: Int,
+        endLine: Int,
+        excerpt: String,
+        body: String,
+    ): Int {
+        val index = synchronized(commentSerial) {
+            val next = (commentSerial[sessionId] ?: 0) + 1
+            commentSerial[sessionId] = next
+            next
+        }
+        chatDraftStore.appendPending(
+            sessionId,
+            formatFileLineComment(FileLineComment(path, startLine, endLine, excerpt, body), index),
         )
         return index
     }

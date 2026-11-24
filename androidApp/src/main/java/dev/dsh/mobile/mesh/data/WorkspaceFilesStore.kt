@@ -5,6 +5,7 @@ import dev.dsh.mobile.mesh.connection.HarnessProtocol
 import dev.dsh.mobile.mesh.core.wire.DshApiClient
 import dev.dsh.mobile.mesh.core.wire.RpcError
 import dev.dsh.mobile.mesh.core.wire.RpcResult
+import dev.dsh.mobile.mesh.core.wire.TransportFailures
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryEntry
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceDirectoryListing
 import dev.dsh.mobile.mesh.core.wire.dto.WorkspaceFileBytes
@@ -85,27 +86,38 @@ data class WorkspaceFilesState(
     val sessionReferences: List<SessionReferenceCandidate> = emptyList(),
 )
 
-/** Bound each rendered code item so append-only server pages never retokenize already visible items. */
-internal fun previewCodeChunks(text: String, maxChars: Int = 8_192): List<String> {
-    require(maxChars > 0)
-    if (text.isEmpty()) return listOf("")
-    val chunks = ArrayList<String>()
-    var start = 0
-    while (start < text.length) {
-        var end = (start + maxChars).coerceAtMost(text.length)
-        if (end < text.length) {
-            val lineEnd = text.lastIndexOf('\n', end - 1)
-            if (lineEnd >= start) end = lineEnd + 1
-            // A fixed UTF-16 boundary can fall between the halves of one code point. A
-            // two-unit item is preferable to an empty item when maxChars is only one.
-            if (text[end - 1].isHighSurrogate() && text[end].isLowSurrogate()) {
-                end = if (end - start == 1) end + 1 else end - 1
-            }
-        }
-        chunks.add(text.substring(start, end))
-        start = end
-    }
-    return chunks
+/**
+ * Split one server page into displayed lines.
+ *
+ * The Host joins a page's lines with `\n` and never adds a trailing separator, so an empty
+ * final element is a real blank line. A page holding one blank line has empty text but a
+ * non-zero declared line count; [declaredLines] keeps that line visible. Page boundaries are
+ * handled by [appendWorkspacePageText], not by this function.
+ */
+internal fun previewPageLines(text: String, declaredLines: Int = 0): List<String> {
+    if (text.isEmpty()) return if (declaredLines > 0) List(declaredLines) { "" } else emptyList()
+    return text.replace("\r\n", "\n").replace('\r', '\n').split('\n')
+}
+
+/** Split a whole-file text into logical lines; a trailing newline does not start a new line. */
+internal fun workspaceFileLines(text: String): List<String> {
+    if (text.isEmpty()) return emptyList()
+    val normalized = text.replace("\r\n", "\n").replace('\r', '\n')
+    val lines = normalized.split('\n').toMutableList()
+    if (normalized.endsWith('\n')) lines.removeAt(lines.lastIndex)
+    return lines
+}
+
+/**
+ * Join two server pages without merging their boundary lines.
+ *
+ * Each page carries only internal separators, so a boundary always needs exactly one `\n` even
+ * when the previous page's last line was blank.
+ */
+internal fun appendWorkspacePageText(first: String, second: String): String = when {
+    first.isEmpty() -> second
+    second.isEmpty() -> first
+    else -> "$first\n$second"
 }
 
 /** Publish one server result without losing the other concurrent reference response. */
@@ -145,7 +157,10 @@ internal class RequestGenerationFence {
 
 sealed interface PreviewState {
     data object Loading : PreviewState
-    data class Text(val value: WorkspaceFileText, val chunks: List<String> = previewCodeChunks(value.text)) : PreviewState
+    data class Text(
+        val value: WorkspaceFileText,
+        val displayLines: List<String> = previewPageLines(value.text, value.lines),
+    ) : PreviewState
     data class Bytes(val value: WorkspaceFileBytes) : PreviewState
     data class Failed(val code: String, val message: String) : PreviewState
 }
@@ -274,29 +289,37 @@ class WorkspaceFilesStore @Inject constructor(
                 is RpcResult.Ok -> result
                 is RpcResult.Err -> {
                     // The text endpoint rejects legacy-encoded source; fetch authoritative bytes and
-                    // decode locally only when the server could not provide its normal text page.
-                    if (offset > 1) result else when (val raw = api.workspaceFilesReadAll(
-                        sessionId, safePath,
-                        legacyReadAll = connectionManager.harnessProtocol == HarnessProtocol.LEGACY_SUBAGENTS,
-                    )) {
+                    // decode locally only when the failure is the Host's answer rather than a broken
+                    // carrier. Retrying a timed-out request with another route cannot help.
+                    if (TransportFailures.of(result.error) != null) result
+                    else when (val raw = api.workspaceFilesReadAll(sessionId, safePath)) {
                         is RpcResult.Err -> result
-                        is RpcResult.Ok -> {
-                            val bytes = raw.value.bytesData()
-                            val text = decodeWorkspaceText(bytes)
-                            RpcResult.Ok(WorkspaceFileText(
-                                absolutePath = raw.value.absolutePath,
-                                version = raw.value.version,
-                                bytes = raw.value.bytes,
-                                offset = 1,
-                                text = text,
-                                lines = if (text.isEmpty()) 0 else text.count { it == '\n' } + if (text.endsWith('\n')) 0 else 1,
-                                eof = true,
-                            ))
-                        }
+                        is RpcResult.Ok -> RpcResult.Ok(legacyTextPage(raw.value, offset))
                     }
                 }
             }
         }
+    }
+
+    /**
+     * Rebuild a text page from the complete bytes of a file the UTF-8 text route refused.
+     *
+     * The whole decoded file is in hand, so the page runs to the end and reports EOF. This also
+     * keeps paging away from the UTF-8-only text route, which would reject every next page.
+     */
+    private fun legacyTextPage(raw: WorkspaceFileBytes, offset: Int): WorkspaceFileText {
+        val allLines = workspaceFileLines(decodeWorkspaceText(raw.bytesData()))
+        val start = (offset - 1).coerceIn(0, allLines.size)
+        val pageLines = allLines.subList(start, allLines.size)
+        return WorkspaceFileText(
+            absolutePath = raw.absolutePath,
+            version = raw.version,
+            bytes = raw.bytes,
+            offset = if (pageLines.isEmpty()) 1 else start + 1,
+            text = pageLines.joinToString("\n"),
+            lines = pageLines.size,
+            eof = true,
+        )
     }
 
     fun loadNextPreviewPage(workspaceKey: String, sessionId: String, path: String) {
@@ -320,7 +343,7 @@ class WorkspaceFilesStore @Inject constructor(
 
     fun readBytes(workspaceKey: String, sessionId: String, path: String) {
         val safePath = validWorkspaceFilePath(path) ?: return
-        readPreview(workspaceKey, sessionId, safePath) { api -> api.workspaceFilesReadAll(sessionId, safePath, legacyReadAll = connectionManager.harnessProtocol == HarnessProtocol.LEGACY_SUBAGENTS) }
+        readPreview(workspaceKey, sessionId, safePath) { api -> api.workspaceFilesReadAll(sessionId, safePath) }
     }
 
     private fun <T> readPreview(
@@ -367,12 +390,15 @@ class WorkspaceFilesStore @Inject constructor(
     private fun appendPreview(existing: PreviewState?, next: PreviewState, keepWholeText: Boolean): PreviewState = when {
         existing is PreviewState.Text && next is PreviewState.Text -> PreviewState.Text(
             value = next.value.copy(
+                version = existing.value.version,
                 offset = existing.value.offset,
-                text = if (keepWholeText) existing.value.text + next.value.text else "",
+                // Markdown renders the whole document; code keeps only its line list so a long
+                // file is not stored twice under both forms.
+                text = if (keepWholeText) appendWorkspacePageText(existing.value.text, next.value.text) else "",
                 lines = existing.value.lines + next.value.lines,
                 eof = next.value.eof,
             ),
-            chunks = existing.chunks + next.chunks,
+            displayLines = existing.displayLines + next.displayLines,
         )
         else -> next
     }

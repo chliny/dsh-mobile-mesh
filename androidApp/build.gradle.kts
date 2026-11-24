@@ -142,6 +142,7 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.markdown.renderer.m3)
     implementation(libs.androidsvg)
+    implementation(libs.juniversalchardet)
     testImplementation(libs.junit)
     testDebugImplementation(platform(libs.androidx.compose.bom))
     testDebugImplementation(libs.androidx.compose.ui.test.junit4)
