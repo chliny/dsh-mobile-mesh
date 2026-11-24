@@ -796,6 +796,7 @@
     <string name="forge_worktree_from">Рабочее дерево из %1$s</string>
     <string name="forge_worktree_created_short">Рабочее дерево сеанса</string>
     <string name="forge_summary">%1$d файлов · +%2$d −%3$d</string>
+    <string name="forge_files_count">%1$d файлов</string>
     <string name="forge_files_empty">Нет изменённых файлов.</string>
     <string name="forge_files_omitted">Неотслеживаемых файлов не показано: %1$d</string>
     <string name="forge_file_added">Добавлено</string>

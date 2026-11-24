@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.activity.compose.BackHandler
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,11 +17,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -48,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -202,6 +202,7 @@ internal fun ForgeChangesScreen(
     val copiedLabel = stringResource(R.string.common_copied)
     val removedLabel = stringResource(R.string.forge_dismissed)
     val uriHandler = LocalUriHandler.current
+    val diffCache = remember(sessionId) { mutableStateMapOf<String, ForgeLocalDiff>() }
     var localDiff by remember(sessionId) { mutableStateOf<ForgeLocalDiff?>(null) }
     var diffError by remember(sessionId) { mutableStateOf<RpcError?>(null) }
     var loadingDiff by remember(sessionId) { mutableStateOf(true) }
@@ -214,24 +215,41 @@ internal fun ForgeChangesScreen(
     var dismissing by remember { mutableStateOf<ForgePanelChangeRequest?>(null) }
     var loadedScopeKey by remember(sessionId) { mutableStateOf<String?>(null) }
     val scopeKey = "$scopeKind|${baseRef.orEmpty()}|${commits?.from.orEmpty()}|${commits?.to.orEmpty()}"
-    val panelKey = listOf(
-        panel?.checkout?.checkout?.commit,
-        panel?.local?.base,
-        panel?.local?.files?.joinToString("|") { "${it.path}:${it.additions}:${it.deletions}" },
-    ).joinToString("#")
+    val panelKey = remember(panel) {
+        listOf(
+            panel?.checkout?.checkout?.commit,
+            panel?.local?.base,
+            panel?.local?.files?.joinToString("|") { "${it.path}:${it.additions}:${it.deletions}" },
+        ).joinToString("#")
+    }
+    val localScopeKey = remember(sessionId, scopeKey) { "$sessionId|$scopeKey" }
+    val allFiles = remember(localDiff?.files, lens, hideTests) {
+        filterForgeFiles(localDiff?.files.orEmpty(), lens, hideTests)
+    }
+    val reviewed = remember(allFiles, localScopeKey, viewedRevision) {
+        allFiles.count { file -> store.localViewedDigest(localScopeKey, file.path) == file.digest }
+    }
+    val allAdditions = remember(allFiles) { allFiles.sumOf { it.additions } }
+    val allDeletions = remember(allFiles) { allFiles.sumOf { it.deletions } }
 
     LaunchedEffect(sessionId, scopeKey, scope, refreshNonce, panelKey) {
-        if (loadedScopeKey != scopeKey) {
-            loadedScopeKey = scopeKey
+        val cached = diffCache[scopeKey]
+        if (cached != null) {
+            localDiff = cached
+        } else if (loadedScopeKey != scopeKey) {
             localDiff = null
         }
-        loadingDiff = localDiff == null
+        loadedScopeKey = scopeKey
+        loadingDiff = cached == null
         diffError = null
         when (val result = store.localDiff(sessionId, scope)) {
-            is RpcResult.Ok -> localDiff = result.value
+            is RpcResult.Ok -> {
+                localDiff = result.value
+                diffCache[scopeKey] = result.value
+            }
             is RpcResult.Err -> {
                 diffError = result.error
-                localDiff = null
+                if (cached == null) localDiff = null
             }
         }
         loadingDiff = false
@@ -347,7 +365,7 @@ internal fun ForgeChangesScreen(
                                     ?: stringResource(R.string.forge_base_default)
                                 AssistChip(
                                     onClick = { baseSheetOpen = true },
-                                    label = { Text(stringResource(R.string.forge_base_pill, label)) },
+                                    label = { Text(label) },
                                     trailingIcon = { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null) },
                                 )
                                 AssistChip(
@@ -358,48 +376,17 @@ internal fun ForgeChangesScreen(
                             }
                             AssistChip(
                                 onClick = { lensSheetOpen = true },
-                                label = { Text(stringResource(R.string.forge_files_filter)) },
+                                label = { Text(stringResource(forgeLayerLabelKey(lens))) },
+                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null) },
                             )
                         }
-                        val allFiles = filterForgeFiles(localDiff?.files.orEmpty(), lens, hideTests)
-                        val localScopeKey = "$sessionId|$scopeKey"
-                        // Reading the revision keeps toggling a checkbox from a callback outside this
-                        // composition from leaving the progress text stale.
-                        viewedRevision
-                        val reviewed = allFiles.count { file ->
-                            store.localViewedDigest(localScopeKey, file.path) == file.digest
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                stringResource(
-                                    R.string.forge_summary,
-                                    allFiles.size,
-                                    allFiles.sumOf { it.additions },
-                                    allFiles.sumOf { it.deletions },
-                                ),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            if (commits != null) {
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    stringResource(R.string.forge_commits_selected, commitsLabel(commits)),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                            if (allFiles.isNotEmpty()) {
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    stringResource(R.string.forge_viewed_progress, reviewed, allFiles.size),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
+                        ForgeSummaryHeader(
+                            fileCount = allFiles.size,
+                            additions = allAdditions,
+                            deletions = allDeletions,
+                            reviewed = reviewed,
+                            selectedCommits = commits?.let { commitsLabel(it) },
+                        )
                     }
                 }
 
@@ -412,7 +399,7 @@ internal fun ForgeChangesScreen(
                             }
                         }
                     }
-                } else if (diffError != null) {
+                } else if (diffError != null && localDiff == null) {
                     item(key = "diff-error") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(forgeErrorText(diffError!!), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f))
@@ -425,23 +412,25 @@ internal fun ForgeChangesScreen(
                     item(key = "diff-loading") {
                         Text(stringResource(R.string.common_loading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                } else if (visibleLocalFiles(localDiff?.files, lens, hideTests).isEmpty()) {
+                } else if (allFiles.isEmpty()) {
                     item(key = "diff-empty") {
                         Text(stringResource(R.string.forge_files_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
-                    items(visibleLocalFiles(localDiff?.files, lens, hideTests), key = { "file:${it.path}" }) { file ->
-                        val savedDigest = store.localViewedDigest("$sessionId|$scopeKey", file.path)
-                        val viewed = when {
-                            savedDigest == null -> "unviewed"
-                            savedDigest == file.digest -> "viewed"
-                            else -> "dismissed"
+                    items(allFiles, key = { "file:${it.path}" }) { file ->
+                        val savedDigest = store.localViewedDigest(localScopeKey, file.path)
+                        val viewed = remember(file.digest, savedDigest, viewedRevision) {
+                            when {
+                                savedDigest == null -> "unviewed"
+                                savedDigest == file.digest -> "viewed"
+                                else -> "dismissed"
+                            }
                         }
                         ForgeFileRow(
                             file = file,
                             viewed = viewed,
                             onToggleViewed = {
-                                store.toggleLocalViewed("$sessionId|$scopeKey", file.path, file.digest)
+                                store.toggleLocalViewed(localScopeKey, file.path, file.digest)
                                 viewedRevision++
                             },
                         ) {
@@ -603,6 +592,63 @@ private fun ForgeCheckoutRow(panel: ForgePanelState) {
                 else -> stringResource(R.string.forge_checkout_project)
             }
             Text(kind, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Summary line that keeps its columns aligned with the file rows below it. */
+@Composable
+private fun ForgeSummaryHeader(
+    fileCount: Int,
+    additions: Int,
+    deletions: Int,
+    reviewed: Int,
+    selectedCommits: String?,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        ListItem(
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            leadingContent = { Spacer(Modifier.size(24.dp)) },
+            headlineContent = {
+                Column {
+                    Text(
+                        stringResource(R.string.forge_files_count, fileCount),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (selectedCommits != null) {
+                        Text(
+                            stringResource(R.string.forge_commits_selected, selectedCommits),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            },
+            trailingContent = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("+$additions", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text("-$deletions", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(48.dp))
+                }
+            },
+        )
+        if (fileCount > 0) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                Text(
+                    stringResource(R.string.forge_viewed_progress, reviewed, fileCount),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -1059,10 +1105,3 @@ internal fun ForgeCommitSheet(
         }
     }
 }
-
-/** Visible files for the current lens, shared by the empty state and the list. */
-private fun visibleLocalFiles(
-    files: List<ForgeDiffFile>?,
-    lens: String,
-    hideTests: Boolean,
-): List<ForgeDiffFile> = filterForgeFiles(files.orEmpty(), lens, hideTests)

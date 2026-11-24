@@ -796,6 +796,7 @@
     <string name="forge_worktree_from">شجرة عمل من %1$s</string>
     <string name="forge_worktree_created_short">شجرة عمل الجلسة</string>
     <string name="forge_summary">%1$d ملفات · +%2$d −%3$d</string>
+    <string name="forge_files_count">%1$d ملفات</string>
     <string name="forge_files_empty">لا توجد ملفات متغيرة.</string>
     <string name="forge_files_omitted">%1$d ملفات غير متتبعة غير مدرجة</string>
     <string name="forge_file_added">مضاف</string>

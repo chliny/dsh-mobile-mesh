@@ -788,6 +788,7 @@
     <string name="forge_worktree_from">%1$s থেকে ওয়ার্কট্রি</string>
     <string name="forge_worktree_created_short">সেশন ওয়ার্কট্রি</string>
     <string name="forge_summary">%1$dটি ফাইল · +%2$d −%3$d</string>
+    <string name="forge_files_count">%1$d ফাইল</string>
     <string name="forge_files_empty">কোনো পরিবর্তিত ফাইল নেই।</string>
     <string name="forge_files_omitted">%1$dটি আনট্র্যাক করা ফাইল তালিকাভুক্ত নয়</string>
     <string name="forge_file_added">যোগ করা</string>

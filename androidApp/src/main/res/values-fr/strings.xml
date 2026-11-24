@@ -798,6 +798,7 @@
     <string name="forge_worktree_from">Arbre de travail de %1$s</string>
     <string name="forge_worktree_created_short">Arbre de travail de la session</string>
     <string name="forge_summary">%1$d fichiers · +%2$d −%3$d</string>
+    <string name="forge_files_count">%1$d fichiers</string>
     <string name="forge_files_empty">Aucun fichier modifié.</string>
     <string name="forge_files_omitted">%1$d fichiers non suivis ne sont pas listés</string>
     <string name="forge_file_added">Ajouté</string>

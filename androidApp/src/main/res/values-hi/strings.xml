@@ -788,6 +788,7 @@
     <string name="forge_worktree_from">%1$s से वर्कट्री</string>
     <string name="forge_worktree_created_short">सेशन वर्कट्री</string>
     <string name="forge_summary">%1$d फ़ाइलें · +%2$d −%3$d</string>
+    <string name="forge_files_count">%1$d फ़ाइलें</string>
     <string name="forge_files_empty">कोई बदली हुई फ़ाइल नहीं।</string>
     <string name="forge_files_omitted">%1$d अनट्रैक्ड फ़ाइलें सूचीबद्ध नहीं</string>
     <string name="forge_file_added">जोड़ा गया</string>

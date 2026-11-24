@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.core.session.ConversationSnapshot
 import dev.dsh.mobile.mesh.core.wire.dto.ForgeCommitRange
+import dev.dsh.mobile.mesh.core.wire.dto.ForgeLocalScope
 import dev.dsh.mobile.mesh.data.WORKING_DIRECTORY_PROJECTION
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
 import dev.dsh.mobile.mesh.ui.theme.DsAnimations
@@ -123,7 +124,7 @@ internal data class MainPageRoute(
     val line: Int? = null,
     val sessionId: String? = null,
     val forgeOrigin: String = "",
-    val forgeScope: String = "branch",
+    val forgeScope: String = ForgeLocalScope.UNCOMMITTED,
     val forgeBaseRef: String? = null,
     val forgeBaseName: String? = null,
     val forgeCommitsFrom: String? = null,
@@ -248,7 +249,7 @@ internal fun MainScreen(
         val token = sessionId?.let(forgeStore::observe)
         onDispose { token?.let(forgeStore::release) }
     }
-    var forgeScope by rememberSaveable(sessionId) { mutableStateOf("branch") }
+    var forgeScope by rememberSaveable(sessionId) { mutableStateOf(ForgeLocalScope.UNCOMMITTED) }
     var forgeBaseRef by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     var forgeBaseName by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     var forgeCommitsFrom by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }

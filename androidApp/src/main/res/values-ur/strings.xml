@@ -788,6 +788,7 @@
     <string name="forge_worktree_from">%1$s سے ورک ٹری</string>
     <string name="forge_worktree_created_short">سیشن ورک ٹری</string>
     <string name="forge_summary">%1$d فائلیں · +%2$d −%3$d</string>
+    <string name="forge_files_count">%1$d فائلیں</string>
     <string name="forge_files_empty">کوئی تبدیل شدہ فائل نہیں ہے۔</string>
     <string name="forge_files_omitted">%1$d غیر ٹریک شدہ فائلیں درج نہیں</string>
     <string name="forge_file_added">شامل شدہ</string>

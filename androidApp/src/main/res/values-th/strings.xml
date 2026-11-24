@@ -788,6 +788,7 @@
     <string name="forge_worktree_from">เวิร์กทรีจาก %1$s</string>
     <string name="forge_worktree_created_short">เวิร์กทรีของเซสชัน</string>
     <string name="forge_summary">%1$d ไฟล์ · +%2$d −%3$d</string>
+    <string name="forge_files_count">%1$d ไฟล์</string>
     <string name="forge_files_empty">ไม่มีไฟล์ที่เปลี่ยนแปลง</string>
     <string name="forge_files_omitted">ไม่ได้แสดงไฟล์ที่ไม่ติดตาม %1$d ไฟล์</string>
     <string name="forge_file_added">เพิ่มแล้ว</string>

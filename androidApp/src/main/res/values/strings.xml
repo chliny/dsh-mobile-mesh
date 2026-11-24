@@ -883,6 +883,7 @@
     <string name="forge_worktree_from">Worktree from %1$s</string>
     <string name="forge_worktree_created_short">Session worktree</string>
     <string name="forge_summary">%1$d files · +%2$d −%3$d</string>
+    <string name="forge_files_count">%1$d files</string>
     <string name="forge_files_empty">No changed files.</string>
     <string name="forge_files_omitted">%1$d untracked files not listed</string>
     <string name="forge_file_added">Added</string>
