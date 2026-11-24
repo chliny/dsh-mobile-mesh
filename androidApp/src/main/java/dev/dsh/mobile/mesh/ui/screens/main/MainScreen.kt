@@ -90,7 +90,7 @@ private sealed interface MainPage {
     ) : MainPage
     data class Preview(val path: String, val title: String, val returnPage: MainPage, val line: Int? = null) : MainPage
     data class Diff(val seq: Long, val index: Int, val path: String, val title: String, val added: Int, val deleted: Int) : MainPage
-    data class ForgeChanges(val returnPath: String = ".") : MainPage
+    data object ForgeChanges : MainPage
     data class ForgeChangeRequest(val url: String) : MainPage
     data class ForgeDiff(
         val originKind: String,
@@ -104,7 +104,6 @@ private sealed interface MainPage {
         val path: String,
         val title: String,
         val returnKind: String,
-        val returnPath: String,
         val returnUrl: String?,
     ) : MainPage
 }
@@ -132,7 +131,6 @@ internal data class MainPageRoute(
     val forgeUrl: String? = null,
     val forgeHeadSha: String? = null,
     val forgeReturnKind: String = "",
-    val forgeReturnPath: String = ".",
     val forgeReturnUrl: String? = null,
 ) : java.io.Serializable
 
@@ -146,7 +144,7 @@ private fun MainPage.toRoute(): MainPageRoute = when (this) {
         MainPageRoute("preview", path, title, if (files == null) "chat" else "files", files?.path ?: ".", files?.rootTitle, files?.rootPath ?: ".", line = line)
     }
     is MainPage.Diff -> MainPageRoute("diff", path, title, seq = seq, index = index, added = added, deleted = deleted)
-    is MainPage.ForgeChanges -> MainPageRoute("forge_changes", returnPath)
+    MainPage.ForgeChanges -> MainPageRoute("forge_changes")
     is MainPage.ForgeChangeRequest -> MainPageRoute("forge_change", url, forgeUrl = url)
     is MainPage.ForgeDiff -> MainPageRoute(
         kind = "forge_diff",
@@ -161,7 +159,6 @@ private fun MainPage.toRoute(): MainPageRoute = when (this) {
         forgeUrl = url,
         forgeHeadSha = headSha,
         forgeReturnKind = returnKind,
-        forgeReturnPath = returnPath,
         forgeReturnUrl = returnUrl,
     )
 }
@@ -182,7 +179,7 @@ private fun MainPageRoute.toPage(): MainPage = when (restoredKind()) {
         line,
     )
     "diff" -> MainPage.Diff(seq, index, path, title, added, deleted)
-    "forge_changes" -> MainPage.ForgeChanges(path.ifEmpty { "." })
+    "forge_changes" -> MainPage.ForgeChanges
     "forge_change" -> MainPage.ForgeChangeRequest(forgeUrl ?: path)
     "forge_diff" -> MainPage.ForgeDiff(
         originKind = forgeOrigin,
@@ -196,7 +193,6 @@ private fun MainPageRoute.toPage(): MainPage = when (restoredKind()) {
         path = path,
         title = title,
         returnKind = forgeReturnKind.ifEmpty { "forge_changes" },
-        returnPath = forgeReturnPath,
         returnUrl = forgeReturnUrl,
     )
     else -> MainPage.Chat
@@ -256,7 +252,6 @@ internal fun MainScreen(
     var forgeCommitsTo by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     var forgeChangeCommitsFrom by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     var forgeChangeCommitsTo by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
-    var forgeChangesReturnPath by rememberSaveable(sessionId) { mutableStateOf(".") }
     var forgeLens by rememberSaveable(sessionId) { mutableStateOf(FORGE_LAYER_ALL) }
     var forgeHideTests by rememberSaveable(sessionId) { mutableStateOf(false) }
     fun commitsRange(from: String?, to: String?): ForgeCommitRange? =
@@ -278,13 +273,13 @@ internal fun MainScreen(
     val currentCwd = fileScope?.workingDirectory
     val rootDirectoryName = currentCwd?.let(::basename)?.takeIf { it.isNotBlank() }
     if (page != MainPage.Chat) {
-        if (page is MainPage.ForgeChanges || page is MainPage.ForgeChangeRequest || page is MainPage.ForgeDiff) {
+        if (page == MainPage.ForgeChanges || page is MainPage.ForgeChangeRequest || page is MainPage.ForgeDiff) {
             val sid = sessionId
             if (sid == null || savedPageRoute.sessionId != sid) {
                 navigate(MainPage.Chat)
             } else {
                 when (val current = page) {
-                    is MainPage.ForgeChanges -> ForgeChangesScreen(
+                    MainPage.ForgeChanges -> ForgeChangesScreen(
                         sessionId = sid,
                         scopeKind = forgeScope,
                         baseRef = forgeBaseRef,
@@ -294,7 +289,7 @@ internal fun MainScreen(
                         hideTests = forgeHideTests,
                         onLensChange = { forgeLens = it },
                         onHideTestsChange = { forgeHideTests = it },
-                        onBack = { navigate(MainPage.Files(current.returnPath)) },
+                        onBack = { navigate(MainPage.Chat) },
                         onScopeChange = { kind ->
                             // The Web keeps the chosen base across scope switches; only the
                             // commit range belongs to one branch comparison.
@@ -327,7 +322,6 @@ internal fun MainScreen(
                                         path = target.path,
                                         title = target.title,
                                         returnKind = "forge_changes",
-                                        returnPath = current.returnPath,
                                         returnUrl = null,
                                     ),
                                 )
@@ -344,7 +338,6 @@ internal fun MainScreen(
                                         path = target.path,
                                         title = target.title,
                                         returnKind = "forge_change",
-                                        returnPath = origin.url,
                                         returnUrl = origin.url,
                                     ),
                                 )
@@ -368,7 +361,7 @@ internal fun MainScreen(
                         hideTests = forgeHideTests,
                         onLensChange = { forgeLens = it },
                         onHideTestsChange = { forgeHideTests = it },
-                        onBack = { navigate(MainPage.ForgeChanges(forgeChangesReturnPath)) },
+                        onBack = { navigate(MainPage.ForgeChanges) },
                         onOpenDiff = { target ->
                             val origin = target.origin as? ForgeDiffOrigin.Change
                             if (origin != null) {
@@ -385,7 +378,6 @@ internal fun MainScreen(
                                         path = target.path,
                                         title = target.title,
                                         returnKind = "forge_change",
-                                        returnPath = origin.url,
                                         returnUrl = origin.url,
                                     ),
                                 )
@@ -407,7 +399,7 @@ internal fun MainScreen(
                             if (current.returnKind == "forge_change") {
                                 navigate(MainPage.ForgeChangeRequest(current.returnUrl ?: current.url.orEmpty()))
                             } else {
-                                navigate(MainPage.ForgeChanges(current.returnPath))
+                                navigate(MainPage.ForgeChanges)
                             }
                         },
                     )
@@ -448,11 +440,6 @@ internal fun MainScreen(
                             ))
                         }
                     },
-                    showChangesEntry = forgeChangesEntry,
-                    onOpenChanges = { path ->
-                        forgeChangesReturnPath = path
-                        navigate(MainPage.ForgeChanges(path))
-                    },
                 )
                 is MainPage.Preview -> FilePreviewScreen(
                     workspaceKey = fileScope.cacheKey,
@@ -478,7 +465,7 @@ internal fun MainScreen(
                     onBack = { navigate(MainPage.Chat) },
                 )
                 MainPage.Chat -> Unit
-                is MainPage.ForgeChanges, is MainPage.ForgeChangeRequest, is MainPage.ForgeDiff -> Unit
+                MainPage.ForgeChanges, is MainPage.ForgeChangeRequest, is MainPage.ForgeDiff -> Unit
             }
             // WorkspaceFilesScreen and FilePreviewScreen own the system BackHandler. A parent
             // handler here would consume the same event and collapse the file stack to chat.
@@ -519,6 +506,8 @@ internal fun MainScreen(
                 fileScope = fileScope,
                 onOpenTerminal = { navigate(MainPage.Terminal) },
                 onOpenFiles = { navigate(MainPage.Files()) },
+                onOpenChanges = { navigate(MainPage.ForgeChanges) },
+                changesAvailable = forgeChangesEntry,
                 onOpenFile = { path, title ->
                     safePreviewPath(path, currentCwd)?.let { safePath ->
                         navigate(MainPage.Preview(safePath, title, MainPage.Chat))

@@ -10,7 +10,7 @@ DSH Mobile Mesh est un client Android non officiel pour [DeepSeek Harness](https
 - Consulter les outils et envoyer du texte, des images ou des fichiers.
 - Gérer objectifs, plans, validations, questions, tâches, workflows et sous-agents.
 - Changer de modèle, de preset et de skill, et lancer les commandes slash de DeepSeek Harness.
-- Avec le plugin **Demandes de modification et arbres de travail** activé sur l’hôte, ouvrez la vue des modifications depuis la liste des fichiers de l’espace de travail, comparez une branche ou des commits, ajoutez des commentaires sur les lignes exactes du diff dans la zone de rédaction, consultez les demandes de modification liées et démarrez une session dans un nouvel arbre de travail.
+- Avec le plugin **Demandes de modification et arbres de travail** activé sur l’hôte, ouvrez la vue des modifications depuis l’en-tête de la conversation, comparez une branche ou des commits, ajoutez des commentaires sur les lignes exactes du diff dans la zone de rédaction, consultez les demandes de modification liées et démarrez une session dans un nouvel arbre de travail.
 
 ### Connexion Mesh
 

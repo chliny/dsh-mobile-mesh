@@ -102,6 +102,8 @@ internal fun ChatScreen(
     onReconnect: () -> Unit,
     onOpenFiles: () -> Unit = {},
     onOpenTerminal: () -> Unit = {},
+    onOpenChanges: () -> Unit = {},
+    changesAvailable: Boolean = false,
     terminalAvailable: Boolean = false,
     fileScope: SessionFileScope? = null,
     onOpenFile: (String, String) -> Unit = { _, _ -> },
@@ -577,13 +579,13 @@ internal fun ChatScreen(
         Column(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
             ChatTopBar(
                 title = title,
-                connectionPhase = connectionPhase,
                 agentPresetLabel = currentSession?.agentPreset?.let { agentPresetLabel(it, agentPresets) },
                 subagentCount = subagents.size,
                 jobCount = jobs.size,
                 detailsOpen = detailsOpen,
                 tab = visibleTab,
                 trajectoryAvailable = transcriptPresentation.codeWorkViewEnabled,
+                changesAvailable = changesAvailable,
                 onOpenDrawer = onOpenDrawer,
                 onOpenPresets = {
                     scope.launch { store.refreshAgentPresets() }
@@ -596,6 +598,7 @@ internal fun ChatScreen(
                 onOpenJobs = { sheet = ChatSheet.Jobs },
                 onOpenDetails = onOpenDetails,
                 onOpenFiles = onOpenFiles,
+                onOpenChanges = onOpenChanges,
                 onOpenTerminal = onOpenTerminal,
                 terminalAvailable = terminalAvailable,
                 onTabChange = { tab = it },

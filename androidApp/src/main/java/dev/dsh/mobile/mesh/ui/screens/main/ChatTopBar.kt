@@ -3,15 +3,12 @@ package dev.dsh.mobile.mesh.ui.screens.main
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.filled.Folder
@@ -32,10 +29,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
-import dev.dsh.mobile.mesh.connection.ConnectionPhase
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
-import dev.dsh.mobile.mesh.ui.components.StateDot
-import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 
 /** The two views of a session the harness offers. */
@@ -44,10 +38,11 @@ internal enum class ChatTab { Chat, Trajectory }
 /**
  * The session chrome: a title row plus the Chat / Trajectory switch.
  *
- * The header carries the session title and connection controls; the row below carries the tab
- * switch and the background-job and subagent counts. The title and the preset share a column rather
- * than stacking, and the row disappears entirely when it would be empty: four stacked rows of chrome
- * over a white page ate a third of a phone screen before the first message.
+ * The header carries the session title plus the changes, terminal and file entries — the changes and
+ * terminal buttons appear only when the Host offers them; the row below carries the tab switch and
+ * the background-job and subagent counts. The title and the preset share a column rather than
+ * stacking, and the row disappears entirely when it would be empty: four stacked rows of chrome over
+ * a white page ate a third of a phone screen before the first message.
  *
  * Styled as Material 3: theme typography and colours, icon buttons, an assist chip per counter, and
  * a single-choice segmented button for the tabs.
@@ -55,19 +50,20 @@ internal enum class ChatTab { Chat, Trajectory }
 @Composable
 internal fun ChatTopBar(
     title: String,
-    connectionPhase: ConnectionPhase,
     agentPresetLabel: String?,
     subagentCount: Int,
     jobCount: Int,
     detailsOpen: Boolean,
     tab: ChatTab,
     trajectoryAvailable: Boolean = true,
+    changesAvailable: Boolean = false,
     onOpenDrawer: () -> Unit,
     onOpenPresets: () -> Unit,
     onOpenSubagents: () -> Unit,
     onOpenJobs: () -> Unit,
     onOpenDetails: () -> Unit,
     onOpenFiles: () -> Unit,
+    onOpenChanges: () -> Unit,
     onOpenTerminal: () -> Unit,
     terminalAvailable: Boolean,
     onTabChange: (ChatTab) -> Unit,
@@ -98,11 +94,14 @@ internal fun ChatTopBar(
                 )
                 AgentLabel(agentPresetLabel, onOpenPresets)
             }
-            Box(
-                modifier = Modifier.size(40.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                ConnectionStatusDot(connectionPhase)
+            if (changesAvailable) {
+                IconButton(onClick = onOpenChanges) {
+                    Icon(
+                        FeatherIcons.GitPullRequest,
+                        contentDescription = stringResource(R.string.forge_changes),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (terminalAvailable) {
                 IconButton(onClick = onOpenTerminal) {
@@ -143,17 +142,6 @@ internal fun ChatTopBar(
             )
         }
     }
-}
-
-@Composable
-private fun ConnectionStatusDot(phase: ConnectionPhase) {
-    val state = when (phase) {
-        ConnectionPhase.CONNECTED -> StateDotState.Done
-        ConnectionPhase.RECONNECTING -> StateDotState.Warning
-        ConnectionPhase.CONNECTING -> StateDotState.Running
-        ConnectionPhase.DISCONNECTED -> StateDotState.Error
-    }
-    StateDot(state, size = 8.dp)
 }
 
 /** The preset label under the title: text that opens the preset picker. */
