@@ -14,17 +14,3 @@ data class SessionPassiveState(
     @SerialName("pendingInput") val pendingInput: List<String>,
 )
 
-/** Bounded assistant output returned at the wait's stopping cursor. */
-@Serializable
-data class SessionWaitOutput(
-    @SerialName("records") val records: List<JsonElement>,
-    @SerialName("truncated") val truncated: Boolean,
-)
-
-/** Host wait result; a timeout does not stop the Session. */
-@Serializable
-data class SessionWaitValue(
-    @SerialName("reason") val reason: String,
-    @SerialName("state") val state: SessionPassiveState,
-    @SerialName("output") val output: SessionWaitOutput,
-)

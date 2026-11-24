@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,8 +46,6 @@ import dev.dsh.mobile.mesh.ui.components.SectionHeader
 import dev.dsh.mobile.mesh.ui.rememberHostsStore
 import dev.dsh.mobile.mesh.ui.screens.main.SheetRow
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
 
 @Composable
@@ -71,7 +70,6 @@ fun ConnectionsScreen(
 ) {
     val hostsStore = rememberHostsStore()
     val hosts by hostsStore.hosts.collectAsStateWithLifecycle(initialValue = emptyList())
-    val colors = DsTheme.colors
     var tokenHost by remember { mutableStateOf<HostConfig?>(null) }
     var menuHost by remember { mutableStateOf<HostConfig?>(null) }
     var deleteHost by remember { mutableStateOf<HostConfig?>(null) }
@@ -79,7 +77,7 @@ fun ConnectionsScreen(
     // whether an in-flight attempt may leave the list (only toward the settings page).
     BackHandler(onBack = onClose)
 
-    Surface(modifier = Modifier.fillMaxSize(), color = colors.bgBase) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -95,8 +93,8 @@ fun ConnectionsScreen(
                 )
                 Text(
                     stringResource(R.string.connect_connections),
-                    style = DsType.large20,
-                    color = colors.labelPrimary,
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
                 DsButton(
@@ -109,8 +107,8 @@ fun ConnectionsScreen(
             if (hosts.isEmpty()) {
                 Text(
                     stringResource(R.string.connect_remembered_empty),
-                    style = DsType.std14,
-                    color = colors.labelCaption,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 LazyColumn(
@@ -136,8 +134,8 @@ fun ConnectionsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(host.name, style = DsType.std14Strong, color = colors.labelPrimary)
-                                Text(host.displayAddress, style = DsType.caption11, color = colors.labelTertiary)
+                                Text(host.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                                Text(host.displayAddress, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             if (host.id == connectingHostId) {
                                 CircularProgressIndicator(
@@ -148,18 +146,18 @@ fun ConnectionsScreen(
                             when (connectionRowStatus(host.id, connectedHostId, connectingHostId, connectionPhase, host.isLoopback)) {
                                 ConnectionRowStatus.CONNECTING -> Text(
                                     stringResource(R.string.connect_connecting),
-                                    style = DsType.caption11,
-                                    color = colors.labelCaption,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 ConnectionRowStatus.CONNECTED -> Text(
                                     stringResource(R.string.connect_current),
-                                    style = DsType.caption11,
-                                    color = colors.labelCaption,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 ConnectionRowStatus.SAME_DEVICE -> Text(
                                     stringResource(R.string.connect_same_device),
-                                    style = DsType.caption11,
-                                    color = colors.labelCaption,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 ConnectionRowStatus.NONE -> Unit
                             }
@@ -238,8 +236,8 @@ fun ConnectionsScreen(
         ) {
             Text(
                 stringResource(R.string.connect_delete_message),
-                style = DsType.std14,
-                color = colors.labelSecondary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 DsButton(

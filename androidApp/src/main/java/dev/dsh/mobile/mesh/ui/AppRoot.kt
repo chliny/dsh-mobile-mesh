@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -52,8 +53,6 @@ import dev.dsh.mobile.mesh.ui.screens.main.transcriptReadingPositionsSaver
 import dev.dsh.mobile.mesh.ui.screens.settings.SettingsScreen
 import dev.dsh.mobile.mesh.ui.rememberHostsStore
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import dev.dsh.mobile.mesh.ui.theme.DshTheme
 import dev.dsh.mobile.mesh.ui.theme.ThemePreference
 import dev.dsh.mobile.mesh.update.AvailableUpdate
@@ -405,13 +404,12 @@ private fun ConnectionRecoveryOverlay() {
 /** "There is a newer release" — a link out, not an installer; the app cannot update itself. */
 @Composable
 private fun UpdateDialog(update: AvailableUpdate, onDismiss: () -> Unit) {
-    val colors = DsTheme.colors
     val uriHandler = LocalUriHandler.current
     DsDialog(title = stringResource(R.string.update_available_title), onDismiss = onDismiss) {
         Text(
             stringResource(R.string.update_available_body, update.version, BuildConfig.VERSION_NAME),
-            style = DsType.std14,
-            color = colors.labelSecondary,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = DsSpacing.medium),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.small)) {

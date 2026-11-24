@@ -5,16 +5,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
 /**
  * A labelled on/off row: name (with optional [hint]) on the left, a switch on the right.
@@ -27,19 +25,26 @@ import dev.dsh.mobile.mesh.ui.theme.DsType
  */
 @Composable
 fun ToggleRow(label: String, checked: Boolean, hint: String? = null, enabled: Boolean = true, onChange: () -> Unit) {
-    val colors = DsTheme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(DsShapes.row)
+            .clip(MaterialTheme.shapes.small)
             .clickable(enabled = enabled, onClick = onChange)
             .padding(vertical = DsSpacing.small),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(label, style = DsType.std14, color = colors.labelSecondary)
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
             if (hint != null) {
-                Text(hint, style = DsType.caption11, color = colors.labelCaption)
+                Text(
+                    hint,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         Switch(checked = checked, enabled = enabled, onCheckedChange = { onChange() })

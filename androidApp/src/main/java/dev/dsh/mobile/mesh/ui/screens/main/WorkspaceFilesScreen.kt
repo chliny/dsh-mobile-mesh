@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -41,8 +42,6 @@ import dev.dsh.mobile.mesh.data.normalizeWorkspaceFilesRequestPath
 import dev.dsh.mobile.mesh.ui.components.DsIconButton
 import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
 // Path segments come from the server and can legally contain leading or trailing spaces.
 internal fun normalizeWorkspaceFilesPath(path: String): String = path.ifEmpty { "." }
@@ -110,14 +109,14 @@ fun WorkspaceFilesScreen(
                     if (currentPath == normalizedRootPath) onBack()
                     else currentPath = parentWorkspaceFilesPath(currentPath, normalizedRootPath)
                 },
-                tint = DsTheme.colors.labelSecondary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 iconSize = 18.dp,
             )
             Text(
                 currentPath.trimEnd('/').takeIf { it.isNotBlank() && it != "." }?.substringAfterLast('/')
                     ?: rootTitle?.takeIf { it.isNotBlank() }
                     ?: stringResource(R.string.workspace_files_title),
-                style = DsType.large20,
+                style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -144,7 +143,7 @@ fun WorkspaceFilesScreen(
         ) {
             when (level) {
                 null, DirectoryLevel.Loading -> Text(stringResource(R.string.common_loading), modifier = Modifier.padding(16.dp))
-                is DirectoryLevel.Failed -> Text(level.message, color = DsTheme.colors.labelSecondary, modifier = Modifier.padding(16.dp))
+                is DirectoryLevel.Failed -> Text(level.message, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
                 is DirectoryLevel.Ready -> LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -163,9 +162,9 @@ fun WorkspaceFilesScreen(
                             Icon(
                                 if (entry.type == "directory") Icons.Filled.Folder else Icons.AutoMirrored.Filled.InsertDriveFile,
                                 contentDescription = null,
-                                tint = DsTheme.colors.labelSecondary,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            Text(entry.name, modifier = Modifier.padding(start = 12.dp), style = DsType.std14)
+                            Text(entry.name, modifier = Modifier.padding(start = 12.dp), style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }

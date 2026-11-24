@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
@@ -38,8 +39,6 @@ import dev.dsh.mobile.mesh.ui.components.KodeViewCode
 import dev.dsh.mobile.mesh.ui.components.TextMateCodeHighlighter
 import dev.dsh.mobile.mesh.ui.components.textMateGrammarAsset
 import dev.dsh.mobile.mesh.ui.components.textMateGrammarAssetForScope
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
 internal data class DiffHighlightLine(val marker: Char?, val source: String, val chunkIndex: Int)
 internal data class DiffHighlightPlan(val lines: List<DiffHighlightLine>, val chunks: List<String>, val markers: List<Char>, val resetAt: Set<Int>)
@@ -154,34 +153,34 @@ internal fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessio
             if (!expanded) onContentExpanded?.invoke()
             disclosure?.onToggle?.invoke()
         }) {
-            Text(if (expanded) "▾" else "▸", style = DsType.small13, color = DsTheme.colors.labelTertiary)
+            Text(if (expanded) "▾" else "▸", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Icon(
                 Icons.Outlined.Description,
                 contentDescription = display,
                 modifier = Modifier.padding(start = 4.dp).clickable(enabled = onOpenFile != null) { onOpenFile?.invoke(path, display) },
-                tint = DsTheme.colors.labelSecondary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text(display, modifier = Modifier.weight(1f).padding(start = 8.dp), style = DsType.small13, color = DsTheme.colors.labelPrimary)
-            Text("+$added -$deleted", style = DsType.caption11, color = DsTheme.colors.labelTertiary)
-            if (onOpenDiff != null) Text("完整差异 ↗", modifier = Modifier.padding(start = 8.dp).clickable(onClick = onOpenDiff), style = DsType.caption11, color = DsTheme.colors.labelSecondary)
+            Text(display, modifier = Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+            Text("+$added -$deleted", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (onOpenDiff != null) Text("完整差异 ↗", modifier = Modifier.padding(start = 8.dp).clickable(onClick = onOpenDiff), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (expanded) when (val value = diff) {
             is ChangesDiff.Text -> {
                 val plan = remember(value, full) { buildDiffHighlightPlan(value.hunks, if (full) Int.MAX_VALUE else 12) }
                 plan.lines.forEach { line ->
                     val markerColor = when (line.marker) {
-                        '+' -> DsTheme.colors.success
-                        '-' -> DsTheme.colors.error
-                        else -> DsTheme.colors.labelTertiary
+                        '+' -> MaterialTheme.colorScheme.primary
+                        '-' -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
                     }
                     val background = when (line.marker) {
-                        '+' -> DsTheme.colors.successTertiary
-                        '-' -> DsTheme.colors.errorTertiary
-                        else -> DsTheme.colors.codeBlockBg
+                        '+' -> MaterialTheme.colorScheme.primaryContainer
+                        '-' -> MaterialTheme.colorScheme.onSurface
+                        else -> MaterialTheme.colorScheme.surfaceVariant
                     }
                     Row(Modifier.fillMaxWidth().padding(start = 24.dp).background(background)) {
-                        Text("${line.marker ?: ' '} ", style = DsType.mdCode, color = markerColor)
-                        CompositionLocalProvider(LocalTextStyle provides DsType.mdCode.copy(color = DsTheme.colors.labelPrimary)) {
+                        Text("${line.marker ?: ' '} ", style = MaterialTheme.typography.bodySmall, color = markerColor)
+                        CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface)) {
                             KodeViewCode(
                                 code = line.source,
                                 pathOrLanguage = value.path,
@@ -198,10 +197,10 @@ internal fun ChangedFileRow(store: dev.dsh.mobile.mesh.data.SessionStore, sessio
                     }
                 }
             }
-            is ChangesDiff.Unavailable -> Text(value.kind, style = DsType.caption11, color = DsTheme.colors.labelTertiary, modifier = Modifier.padding(start = 24.dp))
+            is ChangesDiff.Unavailable -> Text(value.kind, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 24.dp))
             null -> if (loading || error != null) Text(
                 error?.let { changesErrorText(it.code, it.message) } ?: stringResource(R.string.chat_changes_loading),
-                style = DsType.caption11,
+                style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(start = 24.dp),
             )
         }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
@@ -38,7 +39,6 @@ import dev.dsh.mobile.mesh.core.wire.accountGetBalance
 import dev.dsh.mobile.mesh.core.wire.accountGetProfile
 import dev.dsh.mobile.mesh.core.wire.accountGetState
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import java.math.RoundingMode
 import java.util.Locale
 import java.util.TimeZone
@@ -50,17 +50,16 @@ import kotlinx.coroutines.CancellationException
  * credential access, local account cache, login, sign-out, or payment action here.
  */
 @Composable
-fun HostAccountSettings(api: DshApiClient, modifier: Modifier = Modifier) {
+fun HostAccountSettings(api: DshApiClient, refreshSignal: Int = 0, modifier: Modifier = Modifier) {
     key(api) {
         val lifecycle = LocalLifecycleOwner.current.lifecycle
-        var refresh by remember { mutableIntStateOf(0) }
         var loading by remember { mutableStateOf(true) }
         var accountStatus by remember { mutableStateOf<String?>(null) }
         var profile by remember { mutableStateOf<HostAccountProfileResult?>(null) }
         var balance by remember { mutableStateOf<HostAccountBalanceResult?>(null) }
         var stateUnavailable by remember { mutableStateOf(false) }
 
-        LaunchedEffect(api, lifecycle, refresh) {
+        LaunchedEffect(api, lifecycle, refreshSignal) {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 loading = true
                 accountStatus = null
@@ -115,11 +114,11 @@ fun HostAccountSettings(api: DshApiClient, modifier: Modifier = Modifier) {
 
         Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
             when {
-                loading -> Text(stringResource(R.string.account_host_loading), style = DsType.caption11)
-                stateUnavailable -> Text(stringResource(R.string.account_host_unavailable), style = DsType.caption11)
-                accountStatus == "signed-out" -> Text(stringResource(R.string.account_host_signed_out), style = DsType.caption11)
+                loading -> Text(stringResource(R.string.account_host_loading), style = MaterialTheme.typography.labelSmall)
+                stateUnavailable -> Text(stringResource(R.string.account_host_unavailable), style = MaterialTheme.typography.labelSmall)
+                accountStatus == "signed-out" -> Text(stringResource(R.string.account_host_signed_out), style = MaterialTheme.typography.labelSmall)
                 accountStatus == "credential-stored" -> {
-                    Text(stringResource(R.string.account_host_status_stored), style = DsType.caption11)
+                    Text(stringResource(R.string.account_host_status_stored), style = MaterialTheme.typography.labelSmall)
                     val unavailable = stringResource(R.string.account_host_unavailable)
                     // Platform already masks the contact. Never render the account id or avatar URL.
                     val readyProfile = profile?.takeIf { it.status == "ready" }?.value
@@ -145,13 +144,7 @@ fun HostAccountSettings(api: DshApiClient, modifier: Modifier = Modifier) {
                         )
                     }
                 }
-                else -> Text(stringResource(R.string.account_host_unavailable), style = DsType.caption11)
-            }
-            IconButton(onClick = { refresh++ }, enabled = !loading) {
-                Icon(
-                    Icons.Filled.Refresh,
-                    contentDescription = stringResource(R.string.account_host_refresh),
-                )
+                else -> Text(stringResource(R.string.account_host_unavailable), style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -169,11 +162,11 @@ private fun AccountInfoRow(label: String, value: String, singleLine: Boolean = f
         horizontalArrangement = Arrangement.spacedBy(DsSpacing.small),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, Modifier.weight(1f), style = DsType.small13)
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
         Text(
             value,
             Modifier.weight(2f),
-            style = DsType.caption11,
+            style = MaterialTheme.typography.labelSmall,
             textAlign = TextAlign.End,
             maxLines = if (singleLine) 1 else Int.MAX_VALUE,
             overflow = if (singleLine) TextOverflow.Ellipsis else TextOverflow.Clip,

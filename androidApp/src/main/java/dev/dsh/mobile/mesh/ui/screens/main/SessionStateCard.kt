@@ -1,16 +1,6 @@
 package dev.dsh.mobile.mesh.ui.screens.main
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -20,10 +10,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -36,9 +23,7 @@ import dev.dsh.mobile.mesh.core.wire.RemoteStreamException
 import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.decodeFromJsonElement
 import dev.dsh.mobile.mesh.core.wire.dto.SessionPassiveState
-import dev.dsh.mobile.mesh.core.wire.dto.SessionWaitValue
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collect
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -48,26 +33,21 @@ import kotlinx.serialization.json.JsonPrimitive
  * as the connection is no longer authoritative, and pass the API bound to [generation].
  */
 @Composable
-internal fun SessionStateCard(sessionId: String, generation: HostGeneration, api: DshApiClient) {
+internal fun SessionStateCard(
+    sessionId: String,
+    generation: HostGeneration,
+    api: DshApiClient,
+    refreshSignal: Int = 0,
+) {
     key(sessionId, generation, api) {
         val lifecycle = LocalLifecycleOwner.current.lifecycle
         val request = remember(sessionId) { JsonObject(mapOf("request" to JsonObject(mapOf("sessionId" to JsonPrimitive(sessionId))))) }
-        val waitRequest = remember(sessionId) {
-            JsonObject(mapOf("request" to JsonObject(mapOf("sessionId" to JsonPrimitive(sessionId), "timeoutMs" to JsonPrimitive(20_000)))))
-        }
-        val waitRequests = remember { Channel<Unit>(Channel.RENDEZVOUS) }
-        var refresh by remember { mutableIntStateOf(0) }
         var state by remember { mutableStateOf<SessionPassiveState?>(null) }
         var unsupported by remember { mutableStateOf(false) }
         var status by remember { mutableStateOf(StateDisplay.Loading) }
         var stateError by remember { mutableStateOf<String?>(null) }
-        var waitActive by remember { mutableStateOf(false) }
-        var waitResult by remember { mutableStateOf<SessionWaitValue?>(null) }
-        var waitError by remember { mutableStateOf<String?>(null) }
-        var waitUnsupported by remember { mutableStateOf(false) }
-        var started by remember { mutableStateOf(false) }
 
-        LaunchedEffect(lifecycle, refresh) {
+        LaunchedEffect(lifecycle, refreshSignal) {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 state = null
                 unsupported = false
@@ -120,74 +100,37 @@ internal fun SessionStateCard(sessionId: String, generation: HostGeneration, api
             }
         }
 
-        LaunchedEffect(lifecycle) {
-            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                started = true
-                try {
-                    for (ignored in waitRequests) {
-                        try {
-                            when (val result = api.call("session/wait", waitRequest, SessionWaitValue.serializer())) {
-                                is RpcResult.Ok -> {
-                                    waitResult = result.value
-                                    waitError = null
-                                }
-                                is RpcResult.Err -> {
-                                    if (missingUnaryRemoteEndpoint(result.error.code, result.error.details, "session/wait")) {
-                                        waitUnsupported = true
-                                    } else waitError = result.error.message
-                                }
-                            }
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (error: Exception) {
-                            waitError = error.message ?: error.javaClass.simpleName
-                        } finally {
-                            waitActive = false
-                        }
-                    }
-                } finally {
-                    started = false
-                    waitActive = false
-                    waitResult = null
-                    waitError = null
-                }
-            }
-        }
-
         if (!unsupported) {
             DetailSection(stringResource(R.string.session_state_title)) {
-                state?.let { current ->
-                    Text(
-                        stringResource(if (current.active) R.string.session_state_active else R.string.session_state_inactive),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
+                val current = state
+                DetailRow(
+                    stringResource(R.string.details_field_status),
+                    stringResource(
+                        when {
+                            current == null -> R.string.session_state_loading
+                            !current.active -> R.string.details_value_inactive
+                            current.running -> R.string.session_state_running
+                            else -> R.string.details_value_idle
+                        },
+                    ),
+                )
+                current?.let {
+                    DetailRow(
+                        stringResource(R.string.details_section_queue),
+                        it.queue?.size?.toString()
+                            ?: stringResource(R.string.session_state_queue_unavailable),
                     )
-                    Text(
-                        stringResource(if (current.running) R.string.session_state_running else R.string.session_state_not_running),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    val queued = current.queue
-                    Text(
-                        if (queued == null) stringResource(R.string.session_state_queue_unavailable)
-                        else stringResource(R.string.session_state_queue_count, queued.size),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    val pending = current.pendingInput.map {
-                        stringResource(when (it) {
+                    val pending = it.pendingInput.map { kind ->
+                        stringResource(when (kind) {
                             "approval" -> R.string.session_state_pending_approval
                             "question" -> R.string.session_state_pending_question
                             else -> R.string.session_state_pending_other
                         })
                     }.joinToString(", ").ifEmpty { stringResource(R.string.session_state_pending_none) }
-                    Text(
-                        stringResource(R.string.session_state_pending_sample, pending),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    DetailRow(stringResource(R.string.details_field_pending_input), pending)
                 }
-                Text(
+                DetailRow(
+                    stringResource(R.string.details_field_source),
                     stringResource(when (status) {
                         StateDisplay.Loading -> R.string.session_state_loading
                         StateDisplay.Live -> R.string.session_state_live
@@ -195,71 +138,12 @@ internal fun SessionStateCard(sessionId: String, generation: HostGeneration, api
                         StateDisplay.Stale -> R.string.session_state_stale
                         StateDisplay.Error -> R.string.session_state_error
                     }),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    valueColor = if (status == StateDisplay.Error) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 stateError?.let {
                     Text(
                         it,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = { refresh++ }) {
-                        Icon(
-                            Icons.Filled.Refresh,
-                            contentDescription = stringResource(R.string.session_state_refresh),
-                        )
-                    }
-                    if (state != null && !waitUnsupported) {
-                        DetailActionButton(
-                            text = stringResource(
-                                if (waitActive) R.string.session_wait_waiting else R.string.session_wait_action,
-                            ),
-                            enabled = started && !waitActive,
-                            onClick = {
-                                waitResult = null
-                                waitError = null
-                                waitActive = true
-                                if (waitRequests.trySend(Unit).isFailure) waitActive = false
-                            },
-                        )
-                    }
-                }
-                if (waitUnsupported) {
-                    Text(
-                        stringResource(R.string.session_wait_unsupported),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                waitResult?.let { result ->
-                    Text(
-                        stringResource(when (result.reason) {
-                            "idle" -> R.string.session_wait_idle
-                            "input-required" -> R.string.session_wait_input_required
-                            "timeout" -> R.string.session_wait_timeout
-                            else -> R.string.session_wait_unknown
-                        }),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (result.output.truncated) {
-                        Text(
-                            stringResource(R.string.session_wait_truncated),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                waitError?.let {
-                    Text(
-                        stringResource(R.string.session_wait_error, it),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.error,
                     )

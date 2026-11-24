@@ -12,7 +12,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,8 +25,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import dev.dsh.mobile.mesh.ui.theme.DshTheme
 
 /**
@@ -39,7 +40,6 @@ fun EmptyHero(
     chips: List<String> = emptyList(),
     onChipClick: (String) -> Unit = {},
 ) {
-    val colors = DsTheme.colors
     Column(
         modifier = Modifier.fillMaxWidth().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -48,25 +48,25 @@ fun EmptyHero(
         MeshMark(Modifier.size(64.dp))
         Text(
             headline,
-            style = DsType.hero26,
-            color = colors.labelPrimary,
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
         )
         subtitle?.let {
             Text(
                 it,
-                style = DsType.base16,
-                color = colors.labelSecondary,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
         }
         Text(
             previewLabel,
-            style = DsType.xsmall12.copy(fontFamily = DsType.codeFont, color = colors.accent),
-            color = colors.accent,
+            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+            color = MaterialTheme.colorScheme.primary,
             modifier = Modifier
                 .clip(RoundedCornerShape(24.dp))
-                .background(colors.accentTertiary)
+                .background(MaterialTheme.colorScheme.primaryContainer)
                 .padding(horizontal = 10.dp, vertical = 4.dp),
         )
         if (chips.isNotEmpty()) {
@@ -76,7 +76,7 @@ fun EmptyHero(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 chips.forEach { chip ->
-                    DsPill(text = chip, onClick = { onChipClick(chip) })
+                    SuggestionChip(onClick = { onChipClick(chip) }, label = { Text(chip) })
                 }
             }
         }
@@ -86,8 +86,10 @@ fun EmptyHero(
 /** The product mark on a tinted disc. Shared so a screen can use it without the whole hero. */
 @Composable
 internal fun MeshMark(modifier: Modifier = Modifier) {
-    val colors = DsTheme.colors
-    Box(modifier.clip(CircleShape).background(colors.accentTertiary), contentAlignment = Alignment.Center) {
+    Box(
+        modifier.clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
         // The launcher vector keeps the mark inside the adaptive-icon safe zone
         // (~46% of the 108dp canvas), so oversize the image to fill the disc.
         Image(

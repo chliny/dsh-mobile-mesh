@@ -26,6 +26,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -48,9 +48,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import dev.dsh.mobile.mesh.ui.theme.DshTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,7 +63,6 @@ fun DsDialog(
     fullScreen: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val colors = DsTheme.colors
     val maxHeight = dialogMaxHeight()
     Dialog(
         onDismissRequest = onDismiss,
@@ -82,9 +78,9 @@ fun DsDialog(
                     .widthIn(min = 280.dp, max = 420.dp)
                     .heightIn(max = maxHeight)
             },
-            shape = DsShapes.dialog,
-            color = colors.bgLayer2,
-            border = BorderStroke(1.dp, colors.borderL1),
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             shadowElevation = 8.dp,
         ) {
             Column(
@@ -94,7 +90,11 @@ fun DsDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 title?.let {
-                    Text(it, style = DsType.large20, color = colors.labelPrimary)
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                 }
                 content()
             }
@@ -178,15 +178,15 @@ fun DsToastHost(state: Pair<State<String?>, (String) -> Unit>, modifier: Modifie
     val message = state.first.value ?: return
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
         Surface(
-            shape = DsShapes.toast,
-            color = DsTheme.colors.toastBg,
+            shape = MaterialTheme.shapes.small,
+            color = MaterialTheme.colorScheme.inverseSurface,
             shadowElevation = 4.dp,
             modifier = Modifier.padding(top = 16.dp),
         ) {
             Text(
                 message,
-                style = DsType.small13,
-                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.inverseOnSurface,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             )
         }
@@ -210,33 +210,33 @@ data class MenuItem(
  */
 @Composable
 fun DsMenu(anchor: @Composable (onOpen: () -> Unit) -> Unit, items: List<MenuItem>) {
-    val colors = DsTheme.colors
     var expanded by remember { mutableStateOf(false) }
     Box {
         Box { anchor { expanded = true } }
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            shape = DsShapes.menu,
-            containerColor = colors.bgLayer3,
+            shape = MaterialTheme.shapes.small,
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
             tonalElevation = 0.dp,
-            border = BorderStroke(1.dp, colors.borderL1),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         ) {
             items.forEach { item ->
-                if (item.dividerBefore) HorizontalDivider(color = colors.borderL1)
+                if (item.dividerBefore) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 if (item.heading) {
                     Text(
                         item.text,
-                        style = DsType.caption11,
-                        color = colors.labelTertiary,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 } else DropdownMenuItem(
                     text = {
                         Text(
                             item.text,
-                            style = DsType.std14,
-                            color = if (item.danger) colors.error else colors.labelPrimary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (item.danger) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurface,
                         )
                     },
                     trailingIcon = if (item.selected) {
@@ -248,7 +248,8 @@ fun DsMenu(anchor: @Composable (onOpen: () -> Unit) -> Unit, items: List<MenuIte
                                 icon,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
-                                tint = if (item.danger) colors.error else colors.labelSecondary,
+                                tint = if (item.danger) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     },
@@ -256,7 +257,7 @@ fun DsMenu(anchor: @Composable (onOpen: () -> Unit) -> Unit, items: List<MenuIte
                         expanded = false
                         item.onClick()
                     },
-                    modifier = Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(10.dp)),
+                    modifier = Modifier.heightIn(min = 40.dp).clip(MaterialTheme.shapes.small),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 )
             }

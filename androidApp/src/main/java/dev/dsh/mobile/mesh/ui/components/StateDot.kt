@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.Canvas
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -21,8 +22,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import dev.dsh.mobile.mesh.ui.theme.Ds
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DshTheme
 
 /** Harness tool run states. */
@@ -34,12 +33,14 @@ fun StateDot(
     state: StateDotState,
     size: Dp = 8.dp,
 ) {
+    // Material has no success/running roles; the dot takes the scheme's own semantic colours and
+    // the running state is carried by the chase animation rather than by a second hue.
     val color = when (state) {
-        StateDotState.Idle -> DsTheme.colors.labelCaption
-        StateDotState.Running -> Ds.Deepseek450
-        StateDotState.Done -> DsTheme.colors.success
-        StateDotState.Warning -> DsTheme.colors.warn
-        StateDotState.Error -> DsTheme.colors.error
+        StateDotState.Idle -> MaterialTheme.colorScheme.outline
+        StateDotState.Running -> MaterialTheme.colorScheme.primary
+        StateDotState.Done -> MaterialTheme.colorScheme.primary
+        StateDotState.Warning -> MaterialTheme.colorScheme.tertiary
+        StateDotState.Error -> MaterialTheme.colorScheme.error
     }
     if (state == StateDotState.Running) {
         val transition = rememberInfiniteTransition(label = "stateDot")

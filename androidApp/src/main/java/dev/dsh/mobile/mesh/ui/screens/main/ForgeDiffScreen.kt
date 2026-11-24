@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
@@ -76,7 +77,6 @@ import dev.dsh.mobile.mesh.ui.components.FeatherIcons
 import dev.dsh.mobile.mesh.ui.components.KodeViewCode
 import dev.dsh.mobile.mesh.ui.components.rememberDsToast
 import dev.dsh.mobile.mesh.ui.rememberForgeStore
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.launch
 
 /** One same-side, same-hunk line range the reader is building. */
@@ -447,7 +447,7 @@ internal fun ForgeDiffScreen(
             ) {
                 Text(
                     target.hunk,
-                    style = DsType.mdCode,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.verticalScroll(rememberScrollState()).padding(8.dp),
                 )
@@ -666,7 +666,7 @@ private fun ForgeDiffBody(
                     val hunk = file.hunks[entry.hunkIndex]
                     Text(
                         forgeHunkText(hunk).substringBefore('\n'),
-                        style = DsType.mdCode,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(horizontal = 8.dp, vertical = 5.dp),
                         maxLines = 1,
@@ -751,11 +751,11 @@ private fun ForgeDiffLineRow(
         )
         Text(
             row.marker.takeIf { it != '\\' }?.toString() ?: " ",
-            style = DsType.mdCode,
+            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
             color = markerColor,
             modifier = Modifier.width(12.dp),
         )
-        CompositionLocalProvider(LocalTextStyle provides DsType.mdCode.copy(color = MaterialTheme.colorScheme.onSurface)) {
+        CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface)) {
             KodeViewCode(
                 code = code,
                 pathOrLanguage = path,

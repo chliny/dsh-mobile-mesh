@@ -1,27 +1,22 @@
 package dev.dsh.mobile.mesh.ui.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.unit.dp
-import dev.dsh.mobile.mesh.ui.theme.DsShapes
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
 
 /**
- * A grouped surface: rounded, filled, hairline-bordered.
+ * A grouped surface: a Material outlined card.
  *
- * The border is not decoration. In the light theme `bgBase` and `bgLayer1` are both pure white, so
- * a card drawn with fill alone is invisible — the only thing separating it from the page is its
- * edge.
+ * The outline is not decoration. In the light theme the page and its cards are both pure white, so
+ * a card drawn with fill alone is invisible — the border is the only thing separating it from the
+ * page. [MaterialTheme.shapes.medium] matches the other cards in the app.
  */
 @Composable
 fun DsCard(
@@ -30,14 +25,32 @@ fun DsCard(
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(DsSpacing.tiny),
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val colors = DsTheme.colors
+    if (onClick != null) {
+        OutlinedCard(
+            onClick = onClick,
+            modifier = modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.medium,
+        ) {
+            CardBody(verticalArrangement, content)
+        }
+    } else {
+        OutlinedCard(
+            modifier = modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.medium,
+        ) {
+            CardBody(verticalArrangement, content)
+        }
+    }
+}
+
+@Composable
+private fun CardBody(
+    verticalArrangement: Arrangement.Vertical,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Column(
-        modifier = modifier
+        Modifier
             .fillMaxWidth()
-            .clip(DsShapes.block)
-            .background(colors.bgLayer1)
-            .border(1.dp, colors.borderL2, DsShapes.block)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = DsSpacing.medium, vertical = DsSpacing.small),
         verticalArrangement = verticalArrangement,
         content = content,

@@ -39,7 +39,7 @@ DeepSeek Harness 可以在主机上执行命令和读写文件。请优先使用
 
 `v0.2.2-rc.1` 保留了 App 已调用的全部路由，但改动了三处请求/流形状。`session/attachment` 改为接收完整 `ImageAttachmentRef`，不再接受单独的 `attachmentId`；Android 同时发送两个字段，新旧 Host 都会丢弃自己未声明的请求字段，因此图片读取不需要额外能力探测。`session/follow` 只有请求显式设置 `activate` 才会恢复 prepared 的普通会话；Android 始终请求激活，使新 Host 恢复 0.2.2 之前的后台提升行为，旧 Host 会忽略该字段，而子代理 transcript 保持被动。`session/control` 的投影帧可在一个已提交事件中携带多个键变更；App 会把旧版单键帧归一化，两种形状都接受。收窄后的 `session/list` 投影摘要不再重复 `imageLimits` 这类全 Host 共用的值；App 改从 `session/projections` 与控制基线读取，且绝不会把摘要键缺失当作能力缺失。Host 提供的子代理 catalog `name` 会与现有 `label` 一起展示；旧 Host 未提供时维持原有显示。catalog 中的模型 badge 会显示在模型名旁；当前阅读语言缺失时使用 Host 提供的英文文本。启动失败的插件条目会显示 Host 上报的诊断原文。当前会话 `agentTeam` 投影中的 Agent Team 任务板会在详情面板按 Host 顺序展示，包含 Host 计算的就绪状态、写入范围警告，以及更新被拒绝后仅剩最后有效状态时的显著提示；旧 Host 没有该投影时不显示任务板。
 
-详情面板还通过只读 `session/state` 与 `session/observeState` 流展示 Host 的会话被动状态：active/running 标志、待处理队列是否可读及其条数，以及最近一次状态读取时采样到的待处理输入类别。用户主动点击“最多等待 20 秒”时只调用一次 `session/wait`，展示 Host 返回的 `idle`、`input-required` 或 `timeout` 原因，并提示助手输出是否被截断；等待结束不会停止会话，传输层失败按失败展示，绝不会冒充 Host 超时。只有 Host 对相应接口返回结构化缺路由响应时才隐藏对应界面；权限或其他无关错误按错误显示，不会当作旧 Host。
+详情面板还通过只读 `session/state` 与 `session/observeState` 流展示 Host 的会话被动状态：active/running 标志、待处理队列是否可读及其条数，以及最近一次状态读取时采样到的待处理输入类别。页面右上角的刷新会重新读取会话与该被动状态，其余内容由会话自身的流实时更新。只有 Host 对相应接口返回结构化缺路由响应时才隐藏对应界面；权限或其他无关错误按错误显示，不会当作旧 Host。
 
 App 读取历史分页和子代理预览时优先使用只读 `session/events`；只有确认该接口本身不存在的证据才回退——流式路由由网关返回缺端点错误，一元调用则由共享处理器返回 HTTP 404：分页使用 `session/page`，子代理预览使用 `session/follow` 的首帧。超时和权限错误不会触发回退。由于语义不同，`session/follow` 和 `session/control` 继续用于主会话快照与实时状态。
 

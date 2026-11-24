@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -25,7 +26,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerSpecInspection
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
 
 /** Only a confirmed dialog invokes a mutation; no installation implicitly approves scripts. */
 @Composable
@@ -51,16 +51,16 @@ internal fun PluginInstallControls(busy: Boolean, activeInstallRequestId: String
             Text(stringResource(R.string.plugins_native_inspect))
         }
         refused?.let { Text(stringResource(R.string.plugins_native_inspect_refused, it.reason ?: it.problem.orEmpty()),
-            color = DsTheme.colors.error) }
+            color = MaterialTheme.colorScheme.error) }
         if (notBundle != null) Text(stringResource(R.string.plugins_native_versions_not_bundle),
-            color = DsTheme.colors.error)
+            color = MaterialTheme.colorScheme.error)
         accepted?.let { result ->
             result.name?.let { Text(stringResource(R.string.plugins_native_inspect_name, it)) }
             result.version?.let { Text(stringResource(R.string.plugins_native_inspect_version, it)) }
             Text(stringResource(R.string.plugins_native_inspect_source, result.registry ?: result.kind.orEmpty()))
             result.host?.let { Text(stringResource(R.string.plugins_native_inspect_host, it)) }
             if (result.name == null || result.version == null) {
-                Text(stringResource(R.string.plugins_native_inspect_unknown), color = DsTheme.colors.warnLabel)
+                Text(stringResource(R.string.plugins_native_inspect_unknown), color = MaterialTheme.colorScheme.error)
             }
             OutlinedButton(onClick = { confirmInstall = true }, enabled = !busy) {
                 Text(stringResource(R.string.plugins_native_install))
@@ -80,7 +80,7 @@ internal fun PluginInstallControls(busy: Boolean, activeInstallRequestId: String
                     Text(name, Modifier.weight(1f))
                 }
             }
-            Text(stringResource(R.string.plugins_native_builds_caution), color = DsTheme.colors.warnLabel)
+            Text(stringResource(R.string.plugins_native_builds_caution), color = MaterialTheme.colorScheme.error)
             OutlinedButton(onClick = { confirmScripts = true }, enabled = !busy && selected.isNotEmpty()) {
                 Text(stringResource(R.string.plugins_native_builds_approve_retry))
             }
@@ -142,7 +142,7 @@ internal fun PluginBundleOperations(name: String, installedVersion: String?, rem
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 when {
                     versionsLoading || versions == null && versionsProblem == null -> Text(stringResource(R.string.plugins_native_versions_loading))
-                    versionsProblem != null -> Text(stringResource(R.string.plugins_native_versions_refused, versionsProblem), color = DsTheme.colors.error)
+                    versionsProblem != null -> Text(stringResource(R.string.plugins_native_versions_refused, versionsProblem), color = MaterialTheme.colorScheme.error)
                     versions.isNullOrEmpty() -> Text(stringResource(R.string.plugins_native_versions_empty))
                     else -> versions.forEach { choice ->
                         Column {
@@ -152,11 +152,11 @@ internal fun PluginBundleOperations(name: String, installedVersion: String?, rem
                             }
                             if (!choice.bundle) Text(stringResource(R.string.plugins_native_versions_not_bundle))
                             if (choice.incompatible) {
-                                Text(stringResource(R.string.plugins_native_versions_incompatible), color = DsTheme.colors.warnLabel)
+                                Text(stringResource(R.string.plugins_native_versions_incompatible), color = MaterialTheme.colorScheme.error)
                                 Text("${choice.incompatiblePackageVersion} · DSH ${choice.incompatibleRuntimeVersion}",
-                                    color = DsTheme.colors.labelSecondary)
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            choice.deprecated?.let { Text(stringResource(R.string.plugins_native_versions_deprecated, it), color = DsTheme.colors.warnLabel) }
+                            choice.deprecated?.let { Text(stringResource(R.string.plugins_native_versions_deprecated, it), color = MaterialTheme.colorScheme.error) }
                         }
                     }
                 }
@@ -190,7 +190,7 @@ internal fun PluginExemptionControls(exemptions: Map<String, List<String>>, warn
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(R.string.plugins_native_exemptions))
         if (available && exemptions.isEmpty()) Text(stringResource(R.string.plugins_native_exemptions_empty))
-        warnings.forEach { Text(it, color = DsTheme.colors.warnLabel) }
+        warnings.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
         exemptions.forEach { (pkg, runtimes) -> runtimes.forEach { runtime ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("$pkg · DSH $runtime", Modifier.weight(1f))

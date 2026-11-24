@@ -19,6 +19,7 @@ import androidx.compose.foundation.selection.triStateToggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Checkbox
@@ -64,9 +65,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.LlmDiscoveredModel
 import dev.dsh.mobile.mesh.core.wire.dto.SettingsNamespaceView
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -101,7 +100,7 @@ internal fun HostModelsSettings(onClose: () -> Unit, viewModel: HostModelsViewMo
         }
     }) {
         if (!enabled) Text(stringResource(R.string.common_loading))
-        state.failure?.let { Text(it, color = DsTheme.colors.error) }
+        state.failure?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (state.settings?.writable == false) Text(stringResource(R.string.plugins_native_read_only))
         if (state.settings != null && available.isEmpty()) Text(stringResource(R.string.common_none))
         Row(horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
@@ -120,13 +119,13 @@ internal fun HostModelsSettings(onClose: () -> Unit, viewModel: HostModelsViewMo
         }
         available.forEach { row ->
             SettingsBlock {
-                Text(row.entry.displayName, style = DsType.std14Strong)
-                Text(row.entry.provider, style = DsType.caption11, color = DsTheme.colors.labelSecondary)
-                row.entry.error?.let { Text(it, style = DsType.caption11, color = DsTheme.colors.error) }
+                Text(row.entry.displayName, style = MaterialTheme.typography.titleSmall)
+                Text(row.entry.provider, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                row.entry.error?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
                 row.credential?.let {
                     Text(stringResource(R.string.plugins_native_web_key_status) + ": " + stringResource(
                         if (it.configured) R.string.plugins_native_web_key_configured else R.string.plugins_native_web_key_missing,
-                    ), style = DsType.caption11, color = DsTheme.colors.labelSecondary)
+                    ), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (row.editable || row.removable || row.clearableCredential) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
@@ -275,7 +274,7 @@ private fun ProviderSettingsEditor(namespace: SettingsNamespaceView, row: HostMo
                         ).heightIn(min = DsSpacing.touchTarget), verticalAlignment = Alignment.CenterVertically) {
                             TriStateCheckbox(state = checkState, onClick = null, enabled = enabled)
                             Text(stringResource(if (allSelected) R.string.host_models_deselect_all else R.string.host_models_select_all),
-                                Modifier.padding(start = DsSpacing.tiny), style = DsType.small13)
+                                Modifier.padding(start = DsSpacing.tiny), style = MaterialTheme.typography.bodySmall)
                         }
                         ModelTextField(R.string.common_search, search, enabled) { search = it }
                         Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
@@ -293,7 +292,7 @@ private fun ProviderSettingsEditor(namespace: SettingsNamespaceView, row: HostMo
                                         }
                                         .heightIn(min = DsSpacing.touchTarget), verticalAlignment = Alignment.CenterVertically) {
                                         Checkbox(checked = selected, onCheckedChange = null, enabled = enabled)
-                                        Text(model.name ?: model.id, style = DsType.std14)
+                                        Text(model.name ?: model.id, style = MaterialTheme.typography.bodyMedium)
                                     }
                                 }
                         }
@@ -425,15 +424,15 @@ private fun ReorderableModelCatalog(
             Box(Modifier.fillMaxWidth().zIndex(if (active != null) 1f else 0f).then(modifier)) {
                 Column(Modifier.fillMaxWidth().graphicsLayer {
                     translationY = if (active != null) deltaY + scroll.value - active.scrollStart else 0f
-                }.then(if (active != null) Modifier.background(DsTheme.colors.bgLayer1) else Modifier)
+                }.then(if (active != null) Modifier.background(MaterialTheme.colorScheme.surface) else Modifier)
                     .padding(vertical = DsSpacing.tiny)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(model.modelString("name") ?: model.modelString("id").orEmpty(), style = DsType.std14Strong)
-                            Text(model.modelString("id").orEmpty(), style = DsType.caption11, color = DsTheme.colors.labelSecondary)
+                            Text(model.modelString("name") ?: model.modelString("id").orEmpty(), style = MaterialTheme.typography.titleSmall)
+                            Text(model.modelString("id").orEmpty(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (canReorder) Icon(Icons.Default.DragHandle, contentDescription = null,
-                            modifier = Modifier.size(DsSpacing.large), tint = DsTheme.colors.labelSecondary)
+                            modifier = Modifier.size(DsSpacing.large), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DsSpacing.tiny)) {
                         ModelProviderAction(R.string.common_edit, writable, Modifier.weight(1f)) { onEdit(index) }
@@ -549,8 +548,8 @@ private fun ModelSettingRow(label: Int, value: String, enabled: Boolean, onEdit:
     val fieldLabel = stringResource(label)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
         verticalAlignment = Alignment.CenterVertically) {
-        Text("$fieldLabel:", Modifier.weight(0.8f), style = DsType.small13)
-        Text(value, Modifier.weight(1.2f), style = DsType.small13, color = DsTheme.colors.labelSecondary)
+        Text("$fieldLabel:", Modifier.weight(0.8f), style = MaterialTheme.typography.bodySmall)
+        Text(value, Modifier.weight(1.2f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (onEdit != null) {
             val editLabel = stringResource(R.string.common_edit)
             OutlinedButton(onClick = onEdit, enabled = enabled,
@@ -567,7 +566,7 @@ private fun ModelChoice(label: Int, current: String, options: List<String>, enab
     var expanded by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DsSpacing.small),
         verticalAlignment = Alignment.CenterVertically) {
-        Text(stringResource(label) + ":", Modifier.weight(1f), style = DsType.small13)
+        Text(stringResource(label) + ":", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
         androidx.compose.foundation.layout.Box(Modifier.weight(1.5f, fill = false)) {
             OutlinedButton(onClick = { expanded = true }, enabled = enabled) { Text(current) }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {

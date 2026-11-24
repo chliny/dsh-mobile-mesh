@@ -52,9 +52,7 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerBundleInfo
 import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerPluginInfo
 import dev.dsh.mobile.mesh.core.wire.dto.SettingsNamespaceView
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonArray
@@ -94,12 +92,19 @@ internal fun PluginManagerScreen(onClose: () -> Unit, initialDirectory: PluginDi
     val state by viewModel.state.collectAsStateWithLifecycle()
     var tab by remember { mutableIntStateOf(0) }
     var directory by remember { mutableStateOf(initialDirectory) }
+    // Where this screen was entered from: a directory opened straight from Settings has Settings as
+    // its parent, while a directory opened from the plugin list has the list as its parent.
+    val entryDirectory = remember(initialDirectory) { initialDirectory }
+    fun goBack() {
+        if (directory != null && entryDirectory == null) directory = null else onClose()
+    }
     val experimentalOpen = directory == PluginDirectory.Experimental
     val builtInOpen = directory == PluginDirectory.BuiltIn
     var searchQuery by remember { mutableStateOf("") }
     var experimentalQuery by remember { mutableStateOf("") }
     var builtInQuery by remember { mutableStateOf("") }
-    BackHandler(enabled = directory != null) { directory = null }
+    // Always consumed: the plugin list's parent is the Settings page, not whatever is behind it.
+    BackHandler { goBack() }
     val activeQuery = when (directory) {
         PluginDirectory.Experimental -> experimentalQuery
         PluginDirectory.BuiltIn -> builtInQuery
@@ -152,15 +157,12 @@ internal fun PluginManagerScreen(onClose: () -> Unit, initialDirectory: PluginDi
     LaunchedEffect(suggestedInstall) {
         if (suggestedInstall != null) listState.animateScrollToItem(0)
     }
-    val colors = DsTheme.colors
     LaunchedEffect(viewModel) { viewModel.refresh() }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().safeDrawingPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = DsSpacing.comfortable).padding(top = DsSpacing.medium),
                 verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = {
-                    if (directory != null) directory = null else onClose()
-                }) {
+                IconButton(onClick = { goBack() }) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                 }
                 Text(stringResource(title), Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium)
@@ -196,7 +198,7 @@ internal fun PluginManagerScreen(onClose: () -> Unit, initialDirectory: PluginDi
                 Text(message, Modifier.weight(1f))
                 TextButton(onClick = viewModel::clearMessage) { Text(stringResource(R.string.plugins_native_dismiss)) }
             } }
-            state.error?.let { Text(it, Modifier.padding(12.dp), color = colors.error) }
+            state.error?.let { Text(it, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error) }
             LazyColumn(Modifier.fillMaxSize(), state = activeListState,
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     start = DsSpacing.comfortable, end = DsSpacing.comfortable,
@@ -206,7 +208,7 @@ internal fun PluginManagerScreen(onClose: () -> Unit, initialDirectory: PluginDi
                 if (builtInOpen) {
                     if (builtInCards.isEmpty() && !state.loading) item {
                         Text(stringResource(if (search.isEmpty()) R.string.plugins_native_empty_builtin else R.string.plugins_native_search_empty),
-                            color = colors.labelSecondary)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     items(builtInCards, key = { it.kind.name }) { card ->
                         BuiltInPluginCard(card, state.busy || state.loading, state.settings?.writable == true,
@@ -216,7 +218,7 @@ internal fun PluginManagerScreen(onClose: () -> Unit, initialDirectory: PluginDi
                     if (!experimentalOpen) item {
                         SettingsCard(stringResource(R.string.plugins_native_install_section)) {
                             Text(stringResource(R.string.plugins_native_install_section_hint),
-                                style = DsType.small13, color = colors.labelSecondary)
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             PluginInstallControls(state.busy || state.loading, state.activeInstallRequestId, suggestedInstall,
                                 state.pendingBuilds, state.pendingInstallSpec,
                                 state.inspection, state.inspectionSpec, viewModel::inspectBundle,
@@ -228,7 +230,7 @@ internal fun PluginManagerScreen(onClose: () -> Unit, initialDirectory: PluginDi
                             search.isNotEmpty() -> R.string.plugins_native_search_empty
                             experimentalOpen -> R.string.plugins_native_empty_experimental
                             else -> R.string.plugins_native_empty_bundles
-                        }), color = colors.labelSecondary)
+                        }), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     items(shownBundles, key = { it.name }) { bundle ->
                         val rowEntries = bundle.rows.mapNotNull { it.entryId }.toSet()
@@ -278,7 +280,7 @@ internal fun PluginManagerScreen(onClose: () -> Unit, initialDirectory: PluginDi
                 } else {
                     if (shownPlugins.isEmpty() && !state.loading) item {
                         Text(stringResource(if (search.isEmpty()) R.string.plugins_native_empty_plugins
-                            else R.string.plugins_native_search_empty), color = colors.labelSecondary)
+                            else R.string.plugins_native_search_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     items(shownPlugins, key = { it.entryId }) { plugin ->
                         PluginCard(plugin, plugin.meta.localizedMetaText("title", locale) ?: plugin.moduleName,
@@ -318,12 +320,11 @@ private fun BundleCard(bundle: PluginManagerBundleInfo, busy: Boolean, onToggle:
     description: String?,
     operations: @Composable () -> Unit,
 ) {
-    val colors = DsTheme.colors
     var open by remember(bundle.name) { mutableStateOf(false) }
     SettingsBlock {
         Row(verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(DsSpacing.small)) {
-            Text(title, Modifier.weight(1f), style = DsType.std14Strong)
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
             // The Host's authoritative action for the package stays next to its name; opening it
             // reveals the contained plugins, each with its own switch, then the package settings.
             OutlinedButton(onClick = { open = !open }) { Text(stringResource(R.string.plugins_native_settings)) }
@@ -332,16 +333,16 @@ private fun BundleCard(bundle: PluginManagerBundleInfo, busy: Boolean, onToggle:
                 enabled = !busy && bundle.readOnlyReason == null &&
                     (bundle.enabled || (bundle.availability != "missing" && bundle.error == null)))
         }
-        description?.let { Text(it, color = colors.labelSecondary) }
+        description?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         Text(stringResource(if (bundle.installed || bundle.availability == "installation") R.string.plugins_native_installed
-            else R.string.plugins_native_not_installed), color = colors.labelSecondary)
-        bundle.version?.let { Text(it, color = colors.labelSecondary) }
-        bundle.readOnlyReason?.let { Text(it, color = colors.labelSecondary) }
-        bundle.error?.let { Text(it.diagnostic ?: it.code, color = colors.error) }
+            else R.string.plugins_native_not_installed), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        bundle.version?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        bundle.readOnlyReason?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        bundle.error?.let { Text(it.diagnostic ?: it.code, color = MaterialTheme.colorScheme.error) }
         operations()
         if (bundle.overrides.isNotEmpty()) {
-            Text(stringResource(R.string.plugins_native_status_overridden), color = colors.warnLabel)
-            bundle.overrides.forEach { Text(it, color = colors.labelSecondary) }
+            Text(stringResource(R.string.plugins_native_status_overridden), color = MaterialTheme.colorScheme.error)
+            bundle.overrides.forEach { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         if (open) {
             plugins.forEach { plugin ->
@@ -349,9 +350,9 @@ private fun BundleCard(bundle: PluginManagerBundleInfo, busy: Boolean, onToggle:
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DsSpacing.small),
                     verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(pluginTitle, style = DsType.std14)
-                        plugin.readOnlyReason?.let { Text(it, style = DsType.caption11, color = colors.labelSecondary) }
-                        plugin.diagnostic?.let { Text(it, style = DsType.caption11, color = colors.error) }
+                        Text(pluginTitle, style = MaterialTheme.typography.bodyMedium)
+                        plugin.readOnlyReason?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        plugin.diagnostic?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
                     }
                     Switch(checked = plugin.enabled, onCheckedChange = { onTogglePlugin(plugin) },
                         modifier = Modifier.semantics { contentDescription = pluginTitle },
@@ -359,7 +360,7 @@ private fun BundleCard(bundle: PluginManagerBundleInfo, busy: Boolean, onToggle:
                 }
             }
             namespaces.forEach { namespace ->
-                Text(namespace.ns, color = colors.labelSecondary)
+                Text(namespace.ns, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 SchemaFields(namespace, busy || !writable, onUpdate, onReset)
             }
         }
@@ -372,21 +373,20 @@ private fun PluginCard(plugin: PluginManagerPluginInfo, title: String, namespace
     onUpdate: (SettingsNamespaceView, List<String>, JsonElement) -> Unit,
     onReset: (SettingsNamespaceView, List<String>) -> Unit,
 ) {
-    val colors = DsTheme.colors
     var open by remember(plugin.entryId) { mutableStateOf(false) }
     SettingsBlock {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(title, style = DsType.std14Strong)
-                Text(plugin.entryId, style = DsType.caption11, color = colors.labelSecondary)
+                Text(title, style = MaterialTheme.typography.titleSmall)
+                Text(plugin.entryId, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Switch(checked = plugin.enabled, onCheckedChange = { onToggle() },
                 modifier = Modifier.semantics { contentDescription = title },
                 enabled = !busy && plugin.patchId != null && plugin.readOnlyReason == null)
         }
-        plugin.readOnlyReason?.let { Text(it, color = colors.labelSecondary) }
-        plugin.fiberPhase?.let { Text(it.name, color = colors.labelSecondary) }
-        plugin.diagnostic?.let { Text(it, color = colors.error) }
+        plugin.readOnlyReason?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        plugin.fiberPhase?.let { Text(it.name, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        plugin.diagnostic?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (namespace != null) {
             OutlinedButton(onClick = { open = !open }) { Text(stringResource(R.string.plugins_native_settings)) }
             if (open) SchemaFields(namespace, busy || !writable, onUpdate, onReset)
@@ -443,7 +443,7 @@ internal fun SchemaFields(namespace: SettingsNamespaceView, busy: Boolean,
                     titleOverride = labels[key]?.let { stringResource(it) })
             }
         }
-    } else Text(stringResource(R.string.plugins_native_no_settings), color = DsTheme.colors.labelSecondary)
+    } else Text(stringResource(R.string.plugins_native_no_settings), color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 @Composable
@@ -458,7 +458,6 @@ private fun SettingField(namespace: SettingsNamespaceView, path: List<String>, s
     val node = schema.resolve(field) ?: return
     // Host schema references may be recursive, including where there is no configured value.
     if (path.size > 32) return
-    val colors = DsTheme.colors
     val type = (node["type"] as? JsonPrimitive)?.contentOrNull
     val meta = node["meta"] as? JsonObject
     val title = titleOverride ?: (node["title"] as? JsonPrimitive)?.contentOrNull ?: path.last()
@@ -525,7 +524,7 @@ private fun SettingField(namespace: SettingsNamespaceView, path: List<String>, s
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         HorizontalDivider()
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, Modifier.weight(1f), style = DsType.small13Strong)
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
             if (isDictionary || isArray) {
                 SettingRowButton(R.string.plugins_native_modify, title, enabled = !busy) { adding = true }
             }
@@ -533,7 +532,7 @@ private fun SettingField(namespace: SettingsNamespaceView, path: List<String>, s
                 onReset(namespace, path)
             }
         }
-        description?.let { Text(it, color = colors.labelSecondary) }
+        description?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (childFields != null) {
             childFields.forEach { (key, child) ->
                 SettingField(namespace, path + key, schema, child, (value as? JsonObject)?.get(key), busy, onUpdate, onReset)
@@ -573,7 +572,6 @@ private fun CompactSettingField(
     var input by remember(namespace.ns, path, namespace.revision) { mutableStateOf("") }
     val toggle = type == "boolean" && !secret && sensitiveValue == null
     val parsed = if (editing) remember(input, type, secret) { parseSettingInput(input, type, secret) } else null
-    val colors = DsTheme.colors
     fun dismiss() { editing = false; input = "" }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(DsSpacing.tiny)) {
         HorizontalDivider()
@@ -581,10 +579,10 @@ private fun CompactSettingField(
             verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
                 verticalAlignment = Alignment.CenterVertically) {
-                Text("$title:", Modifier.weight(1f), style = DsType.small13)
+                Text("$title:", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 if (!toggle) {
                     val display = sensitiveValue ?: (value as? JsonPrimitive)?.contentOrNull ?: value?.toString() ?: "—"
-                    Text(display, Modifier.weight(1.3f), style = DsType.small13, color = colors.labelSecondary)
+                    Text(display, Modifier.weight(1.3f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             if (toggle) Switch(
@@ -604,7 +602,7 @@ private fun CompactSettingField(
             }
             if (canReset) SettingRowButton(resetLabel, title, enabled = !busy) { dismiss(); onReset() }
         }
-        description?.let { Text(it, style = DsType.caption11, color = colors.labelSecondary) }
+        description?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (editing) AlertDialog(
             onDismissRequest = ::dismiss,
             title = { Text(title) },
@@ -615,7 +613,7 @@ private fun CompactSettingField(
                         visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
                         minLines = if (complex) 4 else 1, maxLines = if (complex) 12 else 1,
                         modifier = Modifier.fillMaxWidth())
-                    if (parsed == null) Text(stringResource(R.string.plugins_native_invalid_json), color = colors.error)
+                    if (parsed == null) Text(stringResource(R.string.plugins_native_invalid_json), color = MaterialTheme.colorScheme.error)
                 }
             },
             confirmButton = {
@@ -679,7 +677,7 @@ private fun SettingEditor(namespace: SettingsNamespaceView, path: List<String>, 
                 visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
                 minLines = if (complex && !secret) 4 else 1,
                 maxLines = if (complex && !secret) 12 else 1, modifier = Modifier.fillMaxWidth())
-            if (parsed == null) Text(stringResource(R.string.plugins_native_invalid_json), color = DsTheme.colors.error)
+            if (parsed == null) Text(stringResource(R.string.plugins_native_invalid_json), color = MaterialTheme.colorScheme.error)
         }
     }, confirmButton = {
         Button(onClick = { parsed?.let { onSave(key, it) } }, enabled = parsed != null && keyValid) {

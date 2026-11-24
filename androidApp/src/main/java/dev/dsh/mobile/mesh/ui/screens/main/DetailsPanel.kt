@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -150,6 +151,9 @@ internal fun DetailsPanel(
     // This page owns its own sheets rather than reaching back into ChatScreen's: it is reachable on
     // its own, where the chat surface is not even composed behind it.
     var sheet by remember { mutableStateOf<DetailsSheet?>(null) }
+    // One page refresh re-reads what this page owns: the session rows and the Host's passive state.
+    // Everything below (jobs, subagents, usage, goal) arrives on the session's own streams.
+    var refresh by remember { mutableStateOf(0) }
 
     val savedLabel = stringResource(R.string.chat_export_saved)
     val failedLabel = stringResource(R.string.chat_export_failed)
@@ -183,6 +187,19 @@ internal fun DetailsPanel(
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.common_back),
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            refresh++
+                            scope.launch { store.refreshSessions() }
+                        },
+                    ) {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = stringResource(R.string.common_refresh),
                         )
                     }
                 },
@@ -252,7 +269,7 @@ internal fun DetailsPanel(
                     manager.connectedApi === stateApi && currentAddress is SessionAddress.Session &&
                     currentSessionId == (currentAddress as SessionAddress.Session).sessionId
                 ) {
-                    SessionStateCard(currentSessionId!!, generation, stateApi)
+                    SessionStateCard(currentSessionId!!, generation, stateApi, refreshSignal = refresh)
                 }
 
                 val conv = conversation
@@ -319,7 +336,7 @@ private fun SessionSection(
         DetailRow(
             stringResource(R.string.details_field_status),
             stringResource(
-                if (session.running) R.string.session_state_running else R.string.session_state_not_running,
+                if (session.running) R.string.session_state_running else R.string.details_value_idle,
             ),
         )
     }

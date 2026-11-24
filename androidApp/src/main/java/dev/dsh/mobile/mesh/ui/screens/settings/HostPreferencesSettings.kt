@@ -34,7 +34,6 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.SettingsNamespaceView
 import dev.dsh.mobile.mesh.ui.components.ToggleRow
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -46,12 +45,12 @@ internal fun HostPreferencesContent(state: HostPreferencesState, viewModel: Host
     val workView = settings.namespace("ui-settings")
     val writable = settings?.writable == true && !state.busy && !state.loading
     Column(verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
-        if (state.loading) Text(stringResource(R.string.common_loading), color = DsTheme.colors.labelSecondary)
-        state.error?.let { Text(it, color = DsTheme.colors.error) }
+        if (state.loading) Text(stringResource(R.string.common_loading), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (!state.loading && state.error == null && transcript == null && workView == null) {
-            Text(stringResource(R.string.host_preferences_unavailable), color = DsTheme.colors.labelSecondary)
+            Text(stringResource(R.string.host_preferences_unavailable), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (settings?.writable == false) Text(stringResource(R.string.plugins_native_read_only), color = DsTheme.colors.labelSecondary)
+        if (settings?.writable == false) Text(stringResource(R.string.plugins_native_read_only), color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (transcript != null) {
             val display = when (val value = transcript.stringValue("transcriptView")) {
                 null, "normal", "expanded" -> "detailed"

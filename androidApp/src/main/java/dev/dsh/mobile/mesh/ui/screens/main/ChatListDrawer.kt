@@ -917,8 +917,8 @@ private fun WorkspaceHeader(
 
     Box {
         Column {
-            // A rule plus a tinted band is what makes one workspace read as a group with edges;
-            // with the rows at 48dp a run of names alone was a single undifferentiated wall.
+            // A rule alone separates the workspaces: it is enough at 48dp rows, and a tinted band
+            // on top of it made the list look heavier than the sessions it groups.
             HorizontalDivider(
                 modifier = Modifier.padding(horizontal = DsSpacing.small, vertical = 2.dp),
                 color = MaterialTheme.colorScheme.outlineVariant,
@@ -928,7 +928,6 @@ private fun WorkspaceHeader(
                     .fillMaxWidth()
                     .padding(start = (depth * 12).dp)
                     .clip(MaterialTheme.shapes.small)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
                     .combinedClickable(onClick = onToggle, onLongClick = { menuOpen = true })
                     .padding(start = 6.dp, end = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,

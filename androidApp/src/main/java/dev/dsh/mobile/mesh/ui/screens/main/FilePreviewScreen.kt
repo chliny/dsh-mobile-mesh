@@ -14,6 +14,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -46,8 +47,6 @@ import kotlinx.coroutines.withContext
 import dev.dsh.mobile.mesh.ui.components.MarkdownText
 import dev.dsh.mobile.mesh.ui.components.markdownImagePath
 import dev.dsh.mobile.mesh.ui.rememberWorkspaceFilesStore
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
 internal fun svgDataUrl(bytes: ByteArray): String =
     "data:image/svg+xml;base64,${java.util.Base64.getEncoder().encodeToString(bytes)}"
@@ -147,10 +146,10 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = stringResource(R.string.common_back),
                 onClick = onBack,
-                tint = DsTheme.colors.labelSecondary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 iconSize = 18.dp,
             )
-            Text(title, style = DsType.large20, modifier = Modifier.padding(start = 4.dp))
+            Text(title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 4.dp))
         }
         PullToRefreshBox(
             isRefreshing = refreshing || preview is PreviewState.Loading,
@@ -198,12 +197,12 @@ fun FilePreviewScreen(workspaceKey: String, sessionId: String, path: String, tit
                     }
                     state.previewPageError?.let { message ->
                         item(key = "preview-page-error") {
-                            Text(message, color = DsTheme.colors.labelSecondary, modifier = Modifier.padding(vertical = 12.dp))
+                            Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
                         }
                     }
                 }
-                is PreviewState.Bytes -> Text(stringResource(R.string.workspace_files_binary), color = DsTheme.colors.labelSecondary)
-                is PreviewState.Failed -> Text(preview.message, color = DsTheme.colors.labelSecondary)
+                is PreviewState.Bytes -> Text(stringResource(R.string.workspace_files_binary), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                is PreviewState.Failed -> Text(preview.message, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

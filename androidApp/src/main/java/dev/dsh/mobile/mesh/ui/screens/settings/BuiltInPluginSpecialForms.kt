@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -30,8 +31,6 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.SettingsNamespaceView
 import dev.dsh.mobile.mesh.ui.components.ToggleRow
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -52,7 +51,7 @@ internal fun WebSearchSpecialForm(sections: List<SettingsNamespaceView>, readOnl
         }
     }
     Text(stringResource(if (apiMode) R.string.plugins_native_web_search_api_mode else R.string.plugins_native_web_messages_mode),
-        color = DsTheme.colors.labelSecondary)
+        color = MaterialTheme.colorScheme.onSurfaceVariant)
     if (active != null) {
         // Hide the credential reference and inactive provider's settings; only this mode's
         // endpoint and request limit belong on the built-in Web search form.
@@ -75,7 +74,7 @@ internal fun WebSearchSpecialForm(sections: List<SettingsNamespaceView>, readOnl
                 info == null -> R.string.plugins_native_loading
                 info.configured -> R.string.plugins_native_web_key_configured
                 else -> R.string.plugins_native_web_key_missing
-            }), Modifier.weight(1f), style = DsType.small13)
+            }), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             SettingRowButton(if (lease == null) R.string.plugins_native_modify else R.string.plugins_native_save, label,
                 enabled = canEdit && (lease == null || input.isNotBlank())) {
                 val current = lease
@@ -88,7 +87,7 @@ internal fun WebSearchSpecialForm(sections: List<SettingsNamespaceView>, readOnl
             }
         }
         if (info?.writable == false) Text(stringResource(R.string.plugins_native_web_key_readonly),
-            color = DsTheme.colors.labelSecondary)
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (lease != null) {
             OutlinedTextField(value = input, onValueChange = { input = it },
                 label = { Text(stringResource(R.string.plugins_native_web_key_input)) },
@@ -141,7 +140,7 @@ internal fun SubagentModelSpecialForm(namespace: SettingsNamespaceView, readOnly
         viewModel.setSubagentModels(namespace, next)
     }
 
-    Text(stringResource(R.string.plugins_native_subagent_models), style = DsType.std14Strong)
+    Text(stringResource(R.string.plugins_native_subagent_models), style = MaterialTheme.typography.titleSmall)
     val catalog = snapshot.modelCatalog
     val status = when {
         !validSelection -> R.string.plugins_native_builtin_subagent_models_invalid
@@ -150,7 +149,7 @@ internal fun SubagentModelSpecialForm(namespace: SettingsNamespaceView, readOnly
         catalog.failures.isNotEmpty() -> R.string.plugins_native_subagent_models_partial
         else -> null
     }
-    status?.let { Text(stringResource(it), color = DsTheme.colors.labelSecondary) }
+    status?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.onSurfaceVariant) }
     val advertised = catalog?.groups.orEmpty().flatMap { group ->
         group.models.map { model -> (group.id to model.id) to "${group.name} / ${model.name} (${model.id})" }
     }.toMap()
@@ -158,7 +157,7 @@ internal fun SubagentModelSpecialForm(namespace: SettingsNamespaceView, readOnly
     val candidates = advertised + unavailable.associateWith { (provider, model) -> "$provider / $model" }
     var search by remember(snapshot.target, namespace.ns) { mutableStateOf("") }
     if (candidates.isEmpty()) {
-        if (status == null) Text(stringResource(R.string.common_none), color = DsTheme.colors.labelSecondary)
+        if (status == null) Text(stringResource(R.string.common_none), color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
     val unknownModelHint = stringResource(R.string.plugins_native_subagent_unknown_model)
@@ -183,8 +182,8 @@ internal fun SubagentModelSpecialForm(namespace: SettingsNamespaceView, readOnly
             }.heightIn(min = DsSpacing.touchTarget).padding(horizontal = DsSpacing.tiny), verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = checked, onCheckedChange = null, enabled = canEdit)
                 Column(Modifier.padding(start = DsSpacing.small)) {
-                    Text(title, style = DsType.small13)
-                    if (route in unavailable) Text(unknownModelHint, style = DsType.caption11, color = DsTheme.colors.labelSecondary)
+                    Text(title, style = MaterialTheme.typography.bodySmall)
+                    if (route in unavailable) Text(unknownModelHint, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

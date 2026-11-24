@@ -31,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -53,6 +54,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -87,8 +89,6 @@ import dev.dsh.mobile.mesh.ui.components.ToggleRow
 import dev.dsh.mobile.mesh.ui.components.rememberDsToast
 import dev.dsh.mobile.mesh.ui.rememberSessionStore
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import java.util.Calendar
 import java.util.Date
 import java.text.DateFormat as JavaDateFormat
@@ -114,7 +114,6 @@ fun SettingsScreen(
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
     val store = rememberSessionStore()
     val plugins by store.plugins.collectAsStateWithLifecycle()
-    val colors = DsTheme.colors
     val context = LocalContext.current
     val toast = rememberDsToast()
     val scope = rememberCoroutineScope()
@@ -188,6 +187,7 @@ fun SettingsScreen(
             }.onFailure { toast.second(context.getString(R.string.settings_connections_transfer_failed)) }
         }
     }
+    var accountRefresh by remember { mutableIntStateOf(0) }
     var pluginsOpen by remember { mutableStateOf(false) }
     var pluginManagerOpen by remember { mutableStateOf(false) }
     var pluginDirectory by remember { mutableStateOf<PluginDirectory?>(null) }
@@ -315,8 +315,20 @@ fun SettingsScreen(
                     !pluginManagerOpen && !pluginsOpen) {
                     val accountConnection by viewModel.accountConnection.collectAsStateWithLifecycle()
                     accountConnection?.let { connected ->
-                        SettingsCard(stringResource(R.string.account_host_title)) {
-                            key(connected.generation) { HostAccountSettings(connected.api) }
+                        SettingsCard(
+                            stringResource(R.string.account_host_title),
+                            trailing = {
+                                IconButton(onClick = { accountRefresh++ }) {
+                                    Icon(
+                                        Icons.Filled.Refresh,
+                                        contentDescription = stringResource(R.string.account_host_refresh),
+                                    )
+                                }
+                            },
+                        ) {
+                            key(connected.generation) {
+                                HostAccountSettings(connected.api, refreshSignal = accountRefresh)
+                            }
                         }
                     }
                 }
@@ -366,13 +378,13 @@ fun SettingsScreen(
                             BuildConfig.VERSION_NAME,
                             DshCore.PROTOCOL_BASELINE,
                         ),
-                        style = DsType.small13,
-                        color = colors.labelTertiary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
                         stringResource(R.string.settings_api_compatibility),
-                        style = DsType.small13,
-                        color = colors.labelTertiary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 
@@ -411,8 +423,8 @@ fun SettingsScreen(
                 ) {
                     Text(
                         stringResource(R.string.settings_connections_import_conflicts_body),
-                        style = DsType.std14,
-                        color = colors.labelSecondary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     importConflicts.forEach { conflict ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -424,7 +436,7 @@ fun SettingsScreen(
                                 },
                             )
                             Column(Modifier.weight(1f)) {
-                                Text(conflict.imported.name, style = DsType.std14, color = colors.labelPrimary)
+                                Text(conflict.imported.name, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                                 val transportLabel = when (conflict.imported.meshTransport?.storedValue) {
                                     "zerotier" -> stringResource(R.string.connect_transport_zerotier)
                                     "tailscale" -> stringResource(R.string.connect_transport_tailscale)
@@ -439,13 +451,13 @@ fun SettingsScreen(
                                 )
                                 Text(
                                     "${conflict.imported.displayAddress} · $transportLabel · $sshLabel",
-                                    style = DsType.caption11,
-                                    color = colors.labelTertiary,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
                     }
-                    importError?.let { Text(it, style = DsType.caption11, color = colors.warnLabel) }
+                    importError?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
                 }
             },
             confirmButton = {
@@ -584,8 +596,8 @@ private fun LogsExportRangeDialog(
                 if (!valid) {
                     Text(
                         stringResource(R.string.settings_logs_range_invalid),
-                        style = DsType.caption11,
-                        color = DsTheme.colors.warnLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
                     )
                 }
             }
@@ -631,9 +643,13 @@ private fun showDateTimePicker(context: Context, currentEpochMs: Long, onSelecte
 
 /** One settings group as a raised card, so groups read as blocks rather than a running list. */
 @Composable
-internal fun SettingsCard(title: String, content: @Composable () -> Unit) {
+internal fun SettingsCard(
+    title: String,
+    trailing: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
     Column(Modifier.fillMaxWidth().animateContentSize()) {
-        SectionHeader(title)
+        SectionHeader(title, trailing = trailing)
         SettingsBlock(content)
     }
 }
@@ -667,13 +683,12 @@ internal fun SettingsBlock(content: @Composable () -> Unit) {
  */
 @Composable
 private fun PluginsCard(inventory: PluginInventorySnapshot, onOpenList: () -> Unit, onOpenDirectory: (PluginDirectory) -> Unit) {
-    val colors = DsTheme.colors
     SettingsCard(stringResource(R.string.settings_plugins)) {
         if (inventory.entries.isEmpty() && !inventory.managementAvailable) {
             Text(
                 stringResource(R.string.plugins_empty),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             return@SettingsCard
         }
@@ -729,7 +744,6 @@ private fun PluginsCard(inventory: PluginInventorySnapshot, onOpenList: () -> Un
  */
 @Composable
 private fun PluginsSheet(inventory: PluginInventorySnapshot, onDismiss: () -> Unit) {
-    val colors = DsTheme.colors
     var filter by remember { mutableStateOf("") }
     val matching = remember(inventory, filter) {
         val q = filter.trim().lowercase(Locale.ROOT)
@@ -757,8 +771,8 @@ private fun PluginsSheet(inventory: PluginInventorySnapshot, onDismiss: () -> Un
         if (matching.isEmpty()) {
             Text(
                 stringResource(R.string.plugins_empty),
-                style = DsType.caption11,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             return@DsBottomSheet
         }
@@ -770,7 +784,6 @@ private fun PluginsSheet(inventory: PluginInventorySnapshot, onDismiss: () -> Un
 
 @Composable
 private fun PluginRow(entry: PluginInventoryEntry) {
-    val colors = DsTheme.colors
     var expanded by remember(entry.entryId) { mutableStateOf(false) }
     DisclosureRow(
         title = moduleShortName(entry.moduleName),
@@ -784,8 +797,8 @@ private fun PluginRow(entry: PluginInventoryEntry) {
             modifier = Modifier.padding(start = DsSpacing.xlarge, bottom = DsSpacing.xsmall),
             verticalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
         ) {
-            Text(entry.entryId, style = DsType.caption11, color = colors.labelCaption)
-            Text(entry.moduleName, style = DsType.caption11, color = colors.labelCaption)
+            Text(entry.entryId, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(entry.moduleName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             // The mount phase only means anything for a plugin the composition asked for.
             if (entry.enabled) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -800,8 +813,8 @@ private fun PluginRow(entry: PluginInventoryEntry) {
                     Spacer(Modifier.width(DsSpacing.xsmall))
                     Text(
                         stringResource(pluginPhaseLabel(entry.fiberPhase)),
-                        style = DsType.caption11,
-                        color = colors.labelTertiary,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 // A failed fiber's cause exists only on the Host that ran it, so show that message
@@ -811,8 +824,8 @@ private fun PluginRow(entry: PluginInventoryEntry) {
                 if (entry.fiberPhase == PluginFiberPhase.FAILED && diagnostic != null) {
                     Text(
                         text = diagnostic,
-                        style = DsType.caption11,
-                        color = colors.errorSecondary,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }
@@ -845,7 +858,6 @@ private fun moduleShortName(moduleName: String): String {
 
 @Composable
 private fun ConnectionSection(connectionState: ConnectionUiState, onDisconnect: () -> Unit) {
-    val colors = DsTheme.colors
     val isConnected = connectionState.phase == ConnectionPhase.CONNECTED ||
         connectionState.phase == ConnectionPhase.RECONNECTING
 
@@ -857,13 +869,13 @@ private fun ConnectionSection(connectionState: ConnectionUiState, onDisconnect: 
             Column(Modifier.weight(1f)) {
                 Text(
                     stringResource(R.string.settings_connection_host),
-                    style = DsType.caption11,
-                    color = colors.labelTertiary,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
                     connectionState.host.authority,
-                    style = DsType.std14,
-                    color = colors.labelPrimary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -892,8 +904,8 @@ private fun ConnectionSection(connectionState: ConnectionUiState, onDisconnect: 
                     ConnectionPhase.CONNECTING -> stringResource(R.string.common_loading)
                     else -> stringResource(R.string.common_offline)
                 },
-                style = DsType.small13,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

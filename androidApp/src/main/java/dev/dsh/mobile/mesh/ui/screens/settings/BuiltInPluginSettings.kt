@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -21,8 +22,6 @@ import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.PluginManagerPluginInfo
 import dev.dsh.mobile.mesh.core.wire.dto.SettingsNamespaceView
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import java.util.Locale
 
 internal const val WEB_SETTINGS = "web"
@@ -71,7 +70,6 @@ internal fun builtInPluginCards(namespaces: List<SettingsNamespaceView>, query: 
 internal fun BuiltInPluginCard(card: BuiltInPluginSettings, busy: Boolean, settingsWritable: Boolean,
     viewModel: PluginManagerViewModel, plugins: List<PluginManagerPluginInfo>, locale: Locale,
 ) {
-    val colors = DsTheme.colors
     var open by remember(card.kind) { mutableStateOf(false) }
     val readOnly = busy || !settingsWritable
     SettingsBlock {
@@ -80,7 +78,7 @@ internal fun BuiltInPluginCard(card: BuiltInPluginSettings, busy: Boolean, setti
             horizontalArrangement = Arrangement.spacedBy(DsSpacing.small),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(card.title, modifier = Modifier.weight(1f), style = DsType.std14Strong)
+            Text(card.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
             OutlinedButton(onClick = { open = !open }) { Text(stringResource(R.string.plugins_native_settings)) }
         }
         // The contained plugins are configuration, not a summary: they stay hidden until the
@@ -95,9 +93,9 @@ internal fun BuiltInPluginCard(card: BuiltInPluginSettings, busy: Boolean, setti
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(title, style = DsType.std14)
-                    plugin.readOnlyReason?.let { Text(it, style = DsType.caption11, color = colors.labelSecondary) }
-                    plugin.diagnostic?.let { Text(it, style = DsType.caption11, color = colors.error) }
+                    Text(title, style = MaterialTheme.typography.bodyMedium)
+                    plugin.readOnlyReason?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    plugin.diagnostic?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
                 }
                 Switch(
                     checked = plugin.enabled,
@@ -110,7 +108,7 @@ internal fun BuiltInPluginCard(card: BuiltInPluginSettings, busy: Boolean, setti
         when (card.kind) {
             BuiltInPlugin.WebSearch -> WebSearchSpecialForm(card.sections, readOnly, viewModel)
             else -> card.sections.forEach { section ->
-                if (card.sections.size > 1) Text(section.ns, color = colors.labelSecondary)
+                if (card.sections.size > 1) Text(section.ns, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (section.ns == SUBAGENT_MODEL_SETTINGS) {
                     SubagentModelSpecialForm(section, readOnly, viewModel)
                 } else {

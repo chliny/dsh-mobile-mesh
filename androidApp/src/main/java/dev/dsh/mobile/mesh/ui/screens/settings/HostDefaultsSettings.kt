@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.AlertDialog
@@ -32,8 +33,6 @@ import dev.dsh.mobile.mesh.ui.screens.main.displayDescription
 import dev.dsh.mobile.mesh.ui.screens.main.displayName
 import dev.dsh.mobile.mesh.ui.screens.main.permissionPresetLabel
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 
 private val conventionalPresetName = Regex("[a-z0-9]+(?:-[a-z0-9]+)*")
 
@@ -56,7 +55,6 @@ private fun defaultPermissionLabel(value: String, name: String): String {
 /** Host-wide defaults are authoritative settings, never session-specific permission options. */
 @Composable
 internal fun HostDefaultsContent(state: HostDefaultsSettingsUiState, viewModel: HostDefaultsSettingsViewModel) {
-    val colors = DsTheme.colors
     val permissionKey = state.permissionConfirmationKey
     var confirmFullAccess by remember(permissionKey) { mutableStateOf(false) }
     var acknowledged by remember(permissionKey, confirmFullAccess) { mutableStateOf(false) }
@@ -74,11 +72,11 @@ internal fun HostDefaultsContent(state: HostDefaultsSettingsUiState, viewModel: 
                 TextButton(onClick = viewModel::clearMessage) { Text(stringResource(R.string.host_defaults_dismiss)) }
             }
         }
-        state.error?.let { Text(it, Modifier.padding(12.dp), color = colors.error) }
+        state.error?.let { Text(it, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error) }
         val selectedPermission = state.permissionOptions.firstOrNull { it.value == state.defaultPermission }
         val canChoosePermission = state.permissionWritable && !state.loading && !state.busy
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.host_defaults_permission), Modifier.weight(1f), style = DsType.std14)
+            Text(stringResource(R.string.host_defaults_permission), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
             if (state.permissionOptions.isNotEmpty()) Box(Modifier.weight(1f, fill = false)) {
                 OutlinedButton(onClick = { permissionMenuOpen = true }, enabled = canChoosePermission) {
                     val label = state.defaultPermission?.let { value ->
@@ -102,12 +100,12 @@ internal fun HostDefaultsContent(state: HostDefaultsSettingsUiState, viewModel: 
             }
         }
         if (state.permissionOptions.isEmpty() && !state.loading) {
-            Text(stringResource(R.string.host_defaults_no_permissions), style = DsType.caption11, color = colors.labelSecondary)
+            Text(stringResource(R.string.host_defaults_no_permissions), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         val preset = state.agentPresets.firstOrNull { it.id == (inspectedPresetId ?: state.selectedAgentPreset) }
             ?: state.agentPresets.firstOrNull()
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.host_defaults_agent_presets), Modifier.weight(1f), style = DsType.std14)
+            Text(stringResource(R.string.host_defaults_agent_presets), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
             if (preset != null) Box(Modifier.weight(1f, fill = false)) {
                 OutlinedButton(onClick = { presetMenuOpen = true }, enabled = !state.loading && !state.busy) {
                     Text(preset.displayName())
@@ -124,15 +122,15 @@ internal fun HostDefaultsContent(state: HostDefaultsSettingsUiState, viewModel: 
             }
         }
         if (preset == null && !state.loading) {
-            Text(stringResource(R.string.host_defaults_no_agents), color = colors.labelSecondary)
+            Text(stringResource(R.string.host_defaults_no_agents), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (preset != null) {
             val selected = preset.id == state.selectedAgentPreset
             Column(Modifier.fillMaxWidth().padding(vertical = DsSpacing.tiny),
                 verticalArrangement = Arrangement.spacedBy(DsSpacing.tiny)) {
-                preset.displayDescription()?.let { Text(it, style = DsType.caption11, color = colors.labelSecondary) }
-                preset.broken?.let { Text(it, style = DsType.caption11, color = colors.error) }
-                if (selected) Text(stringResource(R.string.host_defaults_current), style = DsType.caption11, color = colors.success)
+                preset.displayDescription()?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                preset.broken?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
+                if (selected) Text(stringResource(R.string.host_defaults_current), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { viewModel.readAgentPreset(preset.id) }, enabled = !state.busy) {
                         Text(stringResource(R.string.host_defaults_details))

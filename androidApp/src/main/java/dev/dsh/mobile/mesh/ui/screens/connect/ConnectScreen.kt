@@ -71,8 +71,6 @@ import dev.dsh.mobile.mesh.ui.components.StateDot
 import dev.dsh.mobile.mesh.ui.components.StateDotState
 import dev.dsh.mobile.mesh.ui.components.relativeTime
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
-import dev.dsh.mobile.mesh.ui.theme.DsTheme
-import dev.dsh.mobile.mesh.ui.theme.DsType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -107,7 +105,6 @@ fun ConnectScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val persistedDraft by viewModel.draft.collectAsStateWithLifecycle(initialValue = null)
-    val colors = DsTheme.colors
     val context = LocalContext.current
     // Saveable: a rotation mid-connect used to wipe a hand-typed address.
     var connectionName by rememberSaveable { mutableStateOf("") }
@@ -279,7 +276,7 @@ fun ConnectScreen(
         }
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = colors.bgBase) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -310,7 +307,7 @@ fun ConnectScreen(
                     icon = FeatherIcons.Tool,
                     contentDescription = stringResource(R.string.settings_title),
                     onClick = onOpenSettings,
-                    tint = colors.labelTertiary,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
@@ -321,7 +318,7 @@ fun ConnectScreen(
                         value = connectionName,
                         onValueChange = { connectionName = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text(stringResource(R.string.connect_name_hint), style = DsType.std14) },
+                        placeholder = { Text(stringResource(R.string.connect_name_hint), style = MaterialTheme.typography.bodyMedium) },
                         singleLine = true,
                         label = { Text(stringResource(R.string.connect_name_label)) },
                         colors = connectFieldColors(),
@@ -332,7 +329,7 @@ fun ConnectScreen(
                             onValueChange = { host = it },
                             modifier = Modifier.weight(1f),
                             placeholder = {
-                                Text(stringResource(R.string.connect_host_hint), style = DsType.std14)
+                                Text(stringResource(R.string.connect_host_hint), style = MaterialTheme.typography.bodyMedium)
                             },
                             singleLine = true,
                             label = { Text(stringResource(R.string.connect_host_label)) },
@@ -410,12 +407,12 @@ fun ConnectScreen(
                             zeroTierPlanetId?.let {
                                 Text(
                                     stringResource(R.string.connect_zerotier_planet_id, it.take(12)),
-                                    style = DsType.small13,
-                                    color = colors.labelCaption,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             zeroTierPlanetError?.let {
-                                Text(it, style = DsType.small13, color = MaterialTheme.colorScheme.error)
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             }
                         }
                         MeshTransport.TAILSCALE -> TextField(
@@ -431,8 +428,8 @@ fun ConnectScreen(
                     }
                     if (meshTransport != null) Text(
                         stringResource(R.string.connect_mesh_hint),
-                        style = DsType.small13,
-                        color = colors.labelCaption,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     ToggleRow(
                         label = stringResource(R.string.connect_ssh_enabled),
@@ -623,7 +620,7 @@ fun ConnectScreen(
             title = stringResource(R.string.connect_delete_title),
             onDismiss = { confirmDelete = false },
         ) {
-            Text(stringResource(R.string.connect_delete_message), style = DsType.std14, color = colors.labelSecondary)
+            Text(stringResource(R.string.connect_delete_message), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 DsButton(
                     text = stringResource(R.string.common_cancel),
@@ -654,7 +651,6 @@ fun ConnectScreen(
  */
 @Composable
 private fun ConnectHeader() {
-    val colors = DsTheme.colors
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -664,13 +660,13 @@ private fun ConnectHeader() {
         Column(Modifier.weight(1f)) {
             Text(
                 stringResource(R.string.app_long_name),
-                style = DsType.large20,
-                color = colors.labelPrimary,
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
                 stringResource(R.string.connect_subtitle),
-                style = DsType.small13,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -679,11 +675,11 @@ private fun ConnectHeader() {
 
 @Composable
 private fun connectFieldColors() = TextFieldDefaults.colors(
-    focusedContainerColor = DsTheme.colors.bgLayer1,
-    unfocusedContainerColor = DsTheme.colors.bgLayer1,
-    focusedIndicatorColor = DsTheme.colors.accent,
-    unfocusedIndicatorColor = DsTheme.colors.borderL2,
-    cursorColor = DsTheme.colors.accent,
+    focusedContainerColor = MaterialTheme.colorScheme.surface,
+    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+    focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+    unfocusedIndicatorColor = MaterialTheme.colorScheme.outline,
+    cursorColor = MaterialTheme.colorScheme.primary,
 )
 
 @Composable
@@ -693,7 +689,6 @@ private fun RecentHarnessCard(
     onConnect: () -> Unit,
     onForget: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     val reachable = probe as? HostProbe.Reachable
     val title = if (host.isLoopback) stringResource(R.string.connect_same_device) else host.name
     // 0.1.2 publishes only the host home. The harness version, its working directory and its
@@ -714,8 +709,8 @@ private fun RecentHarnessCard(
             Spacer(Modifier.width(DsSpacing.compact))
             Text(
                 title,
-                style = DsType.std14Strong,
-                color = colors.labelPrimary,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -726,8 +721,8 @@ private fun RecentHarnessCard(
                 } else {
                     stringResource(R.string.connect_never)
                 },
-                style = DsType.caption11,
-                color = colors.labelCaption,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
         }
@@ -736,16 +731,16 @@ private fun RecentHarnessCard(
                 host.displayAddress,
                 home?.let { basename(it) },
             ).joinToString(" · "),
-            style = DsType.caption11,
-            color = colors.labelTertiary,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 statusLine(probe, home),
-                style = DsType.caption11,
-                color = if (probe is HostProbe.Unreachable) colors.labelCaption else colors.labelTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (probe is HostProbe.Unreachable) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
@@ -785,7 +780,6 @@ private fun statusLine(probe: HostProbe?, home: String?): String = when {
  */
 @Composable
 internal fun ConnectProgressRow(stage: ConnectStage, attempted: String?) {
-    val colors = DsTheme.colors
     val label = when (stage) {
         ConnectStage.Validating -> stringResource(R.string.connect_stage_validating)
         ConnectStage.Reaching -> stringResource(R.string.connect_stage_reaching, attempted.orEmpty())
@@ -805,7 +799,7 @@ internal fun ConnectProgressRow(stage: ConnectStage, attempted: String?) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = colors.bgLayer2,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         Column(
             modifier = Modifier.padding(DsSpacing.medium),
@@ -814,14 +808,14 @@ internal fun ConnectProgressRow(stage: ConnectStage, attempted: String?) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StateDot(StateDotState.Running, size = 8.dp)
                 Spacer(Modifier.width(DsSpacing.xsmall))
-                Text(label, style = DsType.std14, color = colors.labelPrimary)
+                Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
             }
-            Text(detail, style = DsType.caption11, color = colors.labelTertiary)
+            Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             LinearProgressIndicator(
                 progress = { stage.ordinal / (ConnectStage.entries.size - 1).toFloat() },
                 modifier = Modifier.fillMaxWidth(),
-                color = colors.accent,
-                trackColor = colors.hoverSolid,
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
             )
         }
     }
@@ -844,7 +838,6 @@ internal fun ConnectFailureBlock(
     onCancel: () -> Unit,
     onSignIn: () -> Unit,
 ) {
-    val colors = DsTheme.colors
     val authority = failureDisplayAuthority(
         attempted,
         sshEnabled = sshEnabled,
@@ -893,7 +886,7 @@ internal fun ConnectFailureBlock(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = colors.warnTertiary,
+        color = MaterialTheme.colorScheme.tertiaryContainer,
     ) {
         Column(
             modifier = Modifier.padding(DsSpacing.medium),
@@ -904,12 +897,12 @@ internal fun ConnectFailureBlock(
                 Spacer(Modifier.width(DsSpacing.xsmall))
                 Text(
                     title ?: body,
-                    style = DsType.std14,
-                    color = colors.warnLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
             // With no headline the body has already been shown beside the dot.
-            if (title != null) Text(body, style = DsType.small13, color = colors.warnLabel)
+            if (title != null) Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             // A harness that has not signed this phone in is fixed here rather than on the
             // harness: it wants a launch token, and retrying without one only repeats the 401.
             if (failure is ConnectFailure.Unauthenticated) {
@@ -935,11 +928,10 @@ internal fun ConnectFailureBlock(
 
 @Composable
 internal fun ConnectAuthorizationPendingBlock(message: String) {
-    val colors = DsTheme.colors
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = colors.warnTertiary,
+        color = MaterialTheme.colorScheme.tertiaryContainer,
     ) {
         Row(
             modifier = Modifier.padding(DsSpacing.medium),
@@ -947,7 +939,7 @@ internal fun ConnectAuthorizationPendingBlock(message: String) {
             horizontalArrangement = Arrangement.spacedBy(DsSpacing.xsmall),
         ) {
             StateDot(StateDotState.Warning, size = 8.dp)
-            Text(message, style = DsType.small13, color = colors.warnLabel)
+            Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
     }
 }
@@ -967,13 +959,12 @@ internal fun LaunchTokenDialog(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
 ) {
-    val colors = DsTheme.colors
     var input by remember { mutableStateOf("") }
     DsDialog(title = stringResource(R.string.connect_sign_in_title), onDismiss = onDismiss) {
         Text(
             stringResource(R.string.connect_sign_in_body),
-            style = DsType.small13,
-            color = colors.labelSecondary,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         TextField(
             value = input,
@@ -991,7 +982,7 @@ internal fun LaunchTokenDialog(
             null -> null
         }
         if (message != null) {
-            Text(message, style = DsType.caption11, color = colors.warnLabel)
+            Text(message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
         }
         DsButton(
             text = stringResource(R.string.connect_sign_in),
@@ -1027,7 +1018,6 @@ internal fun TailscaleLoginDialog(
 /** Determinate sweep feedback: a /24 takes long enough that a static label reads as a hang. */
 @Composable
 private fun ScanProgressRow(progress: ScanProgress?, onCancel: () -> Unit) {
-    val colors = DsTheme.colors
     Column(verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -1036,8 +1026,8 @@ private fun ScanProgressRow(progress: ScanProgress?, onCancel: () -> Unit) {
                 } else {
                     stringResource(R.string.connect_scan_progress, progress.probed, progress.total)
                 },
-                style = DsType.std14,
-                color = colors.labelTertiary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
             DsButton(
@@ -1051,8 +1041,8 @@ private fun ScanProgressRow(progress: ScanProgress?, onCancel: () -> Unit) {
             LinearProgressIndicator(
                 progress = { progress.probed.toFloat() / progress.total },
                 modifier = Modifier.fillMaxWidth(),
-                color = colors.accent,
-                trackColor = colors.hoverSolid,
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
             )
         } else {
             Box(Modifier.fillMaxWidth().height(4.dp))

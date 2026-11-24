@@ -116,7 +116,7 @@ internal fun ModelsSheet(
                 .heightIn(max = 420.dp)
                 .nestedScroll(sheetBoundary)
                 .verticalScroll(listScroll),
-            verticalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
+            verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall),
         ) {
             models.groups.forEach { group ->
                 // The provider recedes: it names the shelf, and the models on it are the choice.
@@ -203,7 +203,11 @@ private fun ModelRow(
         // offers nothing to press: a phone has no hover to discover it with, so the row has to look
         // like a control while it is at rest. `bgModulePlatform` is the one surface that steps off
         // the sheet in both themes — the three `bgLayer` tokens are all pure white in light mode.
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+        // `surfaceVariant` is the one Material role that steps off the sheet in both themes — the
+        // container roles are all pure white in light mode, which left the rows separated by air
+        // alone. No extra border or shadow: the fill plus the spacing is the separation.
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer
+        else MaterialTheme.colorScheme.surfaceVariant,
         border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
     ) {
         Column {
