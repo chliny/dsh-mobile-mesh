@@ -31,7 +31,11 @@ https://github.com/posit-dev/positron/blob/main/extensions/positron-r/syntaxes/L
 The Scala grammar is MIT-licensed by its upstream authors; see
 https://github.com/scala/vscode-scala-syntax/blob/main/LICENSE.md.
 
-The remaining added grammar JSON files are redistributed by tm-grammars 1.32.17
-from Microsoft VS Code's MIT-licensed grammar sources; see
-https://github.com/microsoft/vscode/blob/main/LICENSE.txt and
+The remaining MIT-licensed grammar JSON files are redistributed by tm-grammars 1.32.17
+from Microsoft VS Code's MIT-licensed grammar sources and from other MIT-licensed grammar
+projects; see https://github.com/microsoft/vscode/blob/main/LICENSE.txt and
 https://cdn.jsdelivr.net/npm/tm-grammars@1.32.17/README.md for per-grammar source metadata.
+
+Grammars whose upstream license is not MIT (Apache-2.0, BSD-3-Clause, MPL-2.0) are listed with
+their copyright holders in TEXTMATE-NOTICES.md and their license texts in
+THIRD-PARTY-GRAMMAR-LICENSES.txt.

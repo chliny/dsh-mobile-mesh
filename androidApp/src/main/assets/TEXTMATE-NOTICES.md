@@ -74,6 +74,50 @@ See `VSCODE-GRAMMARS-LICENSE.txt` in this app's assets for the MIT license notic
 | `textmate-yaml.tmLanguage.json` | YAML | [Red Hat vscode-yaml](https://github.com/redhat-developer/vscode-yaml/blob/main/syntaxes/yaml.tmLanguage.json), MIT, © Red Hat Inc. and others |
 | `textmate-toml.tmLanguage.json` | TOML | [Taplo VS Code grammar](https://github.com/tamasfe/taplo/blob/master/editors/vscode/toml.tmLanguage.json), MIT, © Taplo contributors |
 
+
+### Broader language coverage
+
+These additional grammars extend code-block and file-preview highlighting beyond the mainstream
+web/JVM set. All are redistributed unmodified from tm-grammars 1.32.17. MIT-licensed files are
+covered by the MIT text in `VSCODE-GRAMMARS-LICENSE.txt`; the Apache-2.0, BSD-3-Clause, and MPL-2.0
+grammars are covered by `THIRD-PARTY-GRAMMAR-LICENSES.txt`.
+
+| Asset | Language | Upstream source | License |
+|---|---|---|---|
+| `textmate-elixir.tmLanguage.json` | Elixir | [elixir-editors/elixir-tmbundle](https://github.com/elixir-editors/elixir-tmbundle) | Apache-2.0 |
+| `textmate-erlang.tmLanguage.json` | Erlang | [erlang-ls/grammar](https://github.com/erlang-ls/grammar) | Apache-2.0 |
+| `textmate-haskell.tmLanguage.json` | Haskell | [octref/language-haskell](https://github.com/octref/language-haskell) | BSD-3-Clause |
+| `textmate-clojure.tmLanguage.json` | Clojure | [microsoft/vscode](https://github.com/microsoft/vscode/blob/main/extensions/clojure/syntaxes/clojure.tmLanguage.json) | MIT |
+| `textmate-ocaml.tmLanguage.json` | OCaml | [reasonml-editor/vscode-reasonml](https://github.com/reasonml-editor/vscode-reasonml) | Apache-2.0 |
+| `textmate-fsharp.tmLanguage.json` | F# | [microsoft/vscode](https://github.com/microsoft/vscode/blob/main/extensions/fsharp/syntaxes/fsharp.tmLanguage.json) | MIT |
+| `textmate-zig.tmLanguage.json` | Zig | [ziglang/vscode-zig](https://github.com/ziglang/vscode-zig) | MIT |
+| `textmate-hcl.tmLanguage.json` | HCL | [hashicorp/syntax](https://github.com/hashicorp/syntax) | MPL-2.0 |
+| `textmate-terraform.tmLanguage.json` | Terraform | [hashicorp/syntax](https://github.com/hashicorp/syntax) | MPL-2.0 |
+| `textmate-graphql.tmLanguage.json` | GraphQL | [prisma-labs/vscode-graphql](https://github.com/prisma-labs/vscode-graphql) | MIT |
+| `textmate-proto.tmLanguage.json` | Protocol Buffers | [zxh0/vscode-proto3](https://github.com/zxh0/vscode-proto3) | MIT |
+| `textmate-cmake.tmLanguage.json` | CMake | [twxs/vs.language.cmake](https://github.com/twxs/vs.language.cmake) | MIT |
+| `textmate-nix.tmLanguage.json` | Nix | [nix-community/vscode-nix-ide](https://github.com/nix-community/vscode-nix-ide) | MIT |
+| `textmate-julia.tmLanguage.json` | Julia | [microsoft/vscode](https://github.com/microsoft/vscode/blob/main/extensions/julia/syntaxes/julia.tmLanguage.json) | MIT |
+| `textmate-asm.tmLanguage.json` | Assembly | [13xforever/x86_64-assembly-vscode](https://github.com/13xforever/x86_64-assembly-vscode) | MIT |
+| `textmate-bat.tmLanguage.json` | Batch | [microsoft/vscode](https://github.com/microsoft/vscode/blob/main/extensions/bat/syntaxes/batchfile.tmLanguage.json) | MIT |
+| `textmate-vb.tmLanguage.json` | VB.NET | [microsoft/vscode](https://github.com/microsoft/vscode/blob/main/extensions/vb/syntaxes/asp-vb-net.tmLanguage.json) | MIT |
+| `textmate-pascal.tmLanguage.json` | Pascal | [alefragnani/vscode-language-pascal](https://github.com/alefragnani/vscode-language-pascal) | MIT |
+| `textmate-solidity.tmLanguage.json` | Solidity | [juanfranblanco/vscode-solidity](https://github.com/juanfranblanco/vscode-solidity) | MIT |
+| `textmate-verilog.tmLanguage.json` | Verilog | [mshr-h/vscode-verilog-hdl-support](https://github.com/mshr-h/vscode-verilog-hdl-support) | MIT |
+| `textmate-vhdl.tmLanguage.json` | VHDL | [jonasjj/awesome-vhdl](https://github.com/jonasjj/awesome-vhdl) | MIT |
+| `textmate-latex.tmLanguage.json` | LaTeX | [microsoft/vscode](https://github.com/microsoft/vscode/blob/main/extensions/latex/syntaxes/LaTeX.tmLanguage.json) | MIT |
+| `textmate-markdown.tmLanguage.json` | Markdown | [microsoft/vscode](https://github.com/microsoft/vscode/blob/main/extensions/markdown-basics/syntaxes/markdown.tmLanguage.json) | MIT |
+| `textmate-mdx.tmLanguage.json` | MDX | [wooorm/markdown-tm-language](https://github.com/wooorm/markdown-tm-language) | MIT |
+| `textmate-vue.tmLanguage.json` | Vue | [vuejs/language-tools](https://github.com/vuejs/language-tools) | MIT |
+| `textmate-svelte.tmLanguage.json` | Svelte | [sveltejs/language-tools](https://github.com/sveltejs/language-tools) | MIT |
+| `textmate-astro.tmLanguage.json` | Astro | [withastro/language-tools](https://github.com/withastro/language-tools) | MIT |
+| `textmate-awk.tmLanguage.json` | AWK | [luggage66/vscode-awk](https://github.com/luggage66/vscode-awk) | MIT |
+| `textmate-diff.tmLanguage.json` | Diff | [microsoft/vscode](https://github.com/microsoft/vscode/blob/main/extensions/diff/syntaxes/diff.tmLanguage.json) | MIT |
+| `textmate-dotenv.tmLanguage.json` | dotenv | [dotenv-org/dotenv-vscode](https://github.com/dotenv-org/dotenv-vscode) | MIT |
+| `textmate-http.tmLanguage.json` | HTTP | [Huachao/vscode-restclient](https://github.com/Huachao/vscode-restclient) | MIT |
+| `textmate-jsonl.tmLanguage.json` | JSON Lines | [microsoft/vscode](https://github.com/microsoft/vscode/blob/main/extensions/json/syntaxes/JSONL.tmLanguage.json) | MIT |
+| `textmate-coffee.tmLanguage.json` | CoffeeScript | [microsoft/vscode](https://github.com/microsoft/vscode/blob/main/extensions/coffeescript/syntaxes/coffeescript.tmLanguage.json) | MIT |
+
 The grammar JSON files are adapted/redistributed by [tm-grammars 1.32.17](https://cdn.jsdelivr.net/npm/tm-grammars@1.32.17/README.md).
 
 ## Bundled themes (`shared-assets/themes/`)
@@ -82,7 +126,11 @@ VS Code default color themes, redistributed with JSONC trailing commas stripped.
 Sourced from [microsoft/vscode](https://github.com/microsoft/vscode) (`extensions/theme-defaults/themes/`),
 MIT-licensed, © Microsoft Corporation.
 
-- `dark_vs.json`, `dark_plus.json`, `light_vs.json`, `light_plus.json`
+- `textmate-light.json` — `light_vs.json` + `light_plus.json` (the Light+ rules flattened into one file)
+- `textmate-dark.json` — `dark_vs.json` + `dark_plus.json` (the Dark+ rules flattened into one file)
+
+The `*_plus` layer is what colors function names, types, variables, parameters, and object keys;
+without it a TextMate-only renderer shows little more than keywords, strings, comments, and numbers.
 
 ## Benchmark corpus (`shared-assets/benchmark/`)
 

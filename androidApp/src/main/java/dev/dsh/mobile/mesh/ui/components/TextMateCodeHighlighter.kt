@@ -28,50 +28,111 @@ internal fun highlightFencedCode(
 
 /** Grammar assets are opened only for files using that grammar. */
 internal fun textMateGrammarAsset(path: String?): String? {
-    val extension = path?.substringAfterLast('.', "")?.lowercase()
-    val filename = path?.substringAfterLast('/')?.lowercase()
-    return when {
-        filename == "dockerfile" || filename?.startsWith("dockerfile.") == true -> "textmate-docker.tmLanguage.json"
-        filename == "makefile" || filename?.startsWith("makefile.") == true -> "textmate-make.tmLanguage.json"
-        extension in setOf("dockerfile") -> "textmate-docker.tmLanguage.json"
-        extension in setOf("mk", "make") -> "textmate-make.tmLanguage.json"
-        extension == "gradle" || extension == "groovy" -> "textmate-groovy.tmLanguage.json"
-        extension in setOf("kt", "kts") -> "kotlin.tmLanguage.json"
-        extension in setOf("js", "jsx", "mjs", "cjs") -> "JavaScript.tmLanguage.json"
-        extension == "json" -> "JSON.tmLanguage.json"
-        extension == "jsonc" -> "textmate-jsonc.tmLanguage.json"
-        extension == "json5" -> "textmate-json5.tmLanguage.json"
-        extension in setOf("ini", "properties", "cfg") -> "textmate-ini.tmLanguage.json"
-        extension in setOf("yaml", "yml") -> "textmate-yaml.tmLanguage.json"
-        extension == "toml" -> "textmate-toml.tmLanguage.json"
-        extension in setOf("c", "h") -> "textmate-c.tmLanguage.json"
-        extension in setOf("cc", "cpp", "cxx", "hpp", "hh", "hxx") -> "textmate-cpp.tmLanguage.json"
-        extension in setOf("cs") -> "textmate-csharp.tmLanguage.json"
-        extension == "css" -> "textmate-css.tmLanguage.json"
-        extension == "scss" -> "textmate-scss.tmLanguage.json"
-        extension == "less" -> "textmate-less.tmLanguage.json"
-        extension in setOf("dart") -> "textmate-dart.tmLanguage.json"
-        extension in setOf("go") -> "textmate-go.tmLanguage.json"
-        extension in setOf("lua") -> "textmate-lua.tmLanguage.json"
-        extension in setOf("m", "mm") -> "textmate-objective-c.tmLanguage.json"
-        extension in setOf("pl", "pm") -> "textmate-perl.tmLanguage.json"
-        extension in setOf("ps1", "psm1", "psd1") -> "textmate-powershell.tmLanguage.json"
-        extension == "r" -> "textmate-r.tmLanguage.json"
-        extension in setOf("scala", "sc") -> "textmate-scala.tmLanguage.json"
-        extension in setOf("htm", "html") -> "textmate-html.tmLanguage.json"
-        extension in setOf("java") -> "textmate-java.tmLanguage.json"
-        extension in setOf("php", "phtml") -> "textmate-php.tmLanguage.json"
-        extension in setOf("py", "pyw", "pyi") -> "textmate-python.tmLanguage.json"
-        extension in setOf("rb", "rake", "gemspec") -> "textmate-ruby.tmLanguage.json"
-        extension in setOf("rs") -> "textmate-rust.tmLanguage.json"
-        extension in setOf("sh", "bash", "zsh", "fish") -> "textmate-shellscript.tmLanguage.json"
-        extension in setOf("sql") -> "textmate-sql.tmLanguage.json"
-        extension in setOf("swift") -> "textmate-swift.tmLanguage.json"
-        extension in setOf("ts", "mts", "cts") -> "textmate-typescript.tmLanguage.json"
-        extension in setOf("tsx") -> "textmate-tsx.tmLanguage.json"
-        extension in setOf("xml", "xsl", "xslt", "svg") -> "textmate-xml.tmLanguage.json"
-        else -> null
-    }
+    val filename = path?.replace('\\', '/')?.substringAfterLast('/')?.lowercase()
+    extensionGrammarAsset(filename?.substringAfterLast('.', ""))?.let { return it }
+    return filenameGrammarAsset(filename)
+}
+
+/**
+ * Well-known filenames whose extension says nothing about the language.
+ *
+ * These are checked after the extension so that a real extension always wins; only names that
+ * conventionally carry no meaningful suffix (`Dockerfile`, `Gemfile`, `Cargo.lock`) land here.
+ */
+private fun filenameGrammarAsset(filename: String?): String? = when {
+    filename == null -> null
+    filename == "dockerfile" || filename.startsWith("dockerfile.") -> "textmate-docker.tmLanguage.json"
+    filename == "containerfile" -> "textmate-docker.tmLanguage.json"
+    filename == "makefile" || filename.startsWith("makefile.") || filename == "gnumakefile" -> "textmate-make.tmLanguage.json"
+    filename == "cmakelists.txt" -> "textmate-cmake.tmLanguage.json"
+    filename == "cargo.lock" -> "textmate-toml.tmLanguage.json"
+    filename == "yarn.lock" -> "textmate-yaml.tmLanguage.json"
+    filename == "jenkinsfile" -> "textmate-groovy.tmLanguage.json"
+    filename == ".env" || filename.startsWith(".env.") -> "textmate-dotenv.tmLanguage.json"
+    filename in setOf("gemfile", "rakefile", "vagrantfile", "podfile", "fastfile", "brewfile", "guardfile") ->
+        "textmate-ruby.tmLanguage.json"
+    filename in setOf("gradlew", "mvnw") -> "textmate-shellscript.tmLanguage.json"
+    filename in setOf(".bashrc", ".bash_profile", ".zshrc", ".zprofile", ".profile", ".bash_aliases") ->
+        "textmate-shellscript.tmLanguage.json"
+    filename in setOf(".editorconfig", ".gitconfig", ".gitmodules", ".gitattributes") -> "textmate-ini.tmLanguage.json"
+    else -> null
+}
+
+private fun extensionGrammarAsset(extension: String?): String? = when (extension) {
+    "dockerfile" -> "textmate-docker.tmLanguage.json"
+    "mk", "make" -> "textmate-make.tmLanguage.json"
+    "gradle", "groovy", "jenkinsfile" -> "textmate-groovy.tmLanguage.json"
+    "kt", "kts" -> "kotlin.tmLanguage.json"
+    "js", "jsx", "mjs", "cjs" -> "JavaScript.tmLanguage.json"
+    "json" -> "JSON.tmLanguage.json"
+    "jsonc" -> "textmate-jsonc.tmLanguage.json"
+    "json5" -> "textmate-json5.tmLanguage.json"
+    "jsonl", "ndjson" -> "textmate-jsonl.tmLanguage.json"
+    "ipynb" -> "JSON.tmLanguage.json"
+    "ini", "properties", "cfg", "conf" -> "textmate-ini.tmLanguage.json"
+    "yaml", "yml" -> "textmate-yaml.tmLanguage.json"
+    "env" -> "textmate-dotenv.tmLanguage.json"
+    "toml" -> "textmate-toml.tmLanguage.json"
+    "c", "h" -> "textmate-c.tmLanguage.json"
+    "cc", "cpp", "cxx", "hpp", "hh", "hxx" -> "textmate-cpp.tmLanguage.json"
+    "cs" -> "textmate-csharp.tmLanguage.json"
+    "css" -> "textmate-css.tmLanguage.json"
+    "scss" -> "textmate-scss.tmLanguage.json"
+    "less" -> "textmate-less.tmLanguage.json"
+    "dart" -> "textmate-dart.tmLanguage.json"
+    "go" -> "textmate-go.tmLanguage.json"
+    "lua" -> "textmate-lua.tmLanguage.json"
+    "m", "mm" -> "textmate-objective-c.tmLanguage.json"
+    "pl", "pm" -> "textmate-perl.tmLanguage.json"
+    "ps1", "psm1", "psd1" -> "textmate-powershell.tmLanguage.json"
+    "r" -> "textmate-r.tmLanguage.json"
+    "rmd" -> "textmate-markdown.tmLanguage.json"
+    "scala", "sc", "sbt" -> "textmate-scala.tmLanguage.json"
+    "htm", "html" -> "textmate-html.tmLanguage.json"
+    "java" -> "textmate-java.tmLanguage.json"
+    "php", "phtml" -> "textmate-php.tmLanguage.json"
+    "py", "pyw", "pyi" -> "textmate-python.tmLanguage.json"
+    "rb", "rake", "gemspec" -> "textmate-ruby.tmLanguage.json"
+    "rs" -> "textmate-rust.tmLanguage.json"
+    "sh", "bash", "zsh", "fish" -> "textmate-shellscript.tmLanguage.json"
+    "sql" -> "textmate-sql.tmLanguage.json"
+    "swift" -> "textmate-swift.tmLanguage.json"
+    "ts", "mts", "cts" -> "textmate-typescript.tmLanguage.json"
+    "tsx" -> "textmate-tsx.tmLanguage.json"
+    "xml", "xsl", "xslt", "svg" -> "textmate-xml.tmLanguage.json"
+    // Languages added for coverage beyond the mainstream web/JVM set.
+    "ex", "exs" -> "textmate-elixir.tmLanguage.json"
+    "erl", "hrl", "escript" -> "textmate-erlang.tmLanguage.json"
+    "hs", "hsig", "lhs" -> "textmate-haskell.tmLanguage.json"
+    "clj", "cljs", "cljc", "edn" -> "textmate-clojure.tmLanguage.json"
+    "ml", "mli" -> "textmate-ocaml.tmLanguage.json"
+    "fs", "fsi", "fsx" -> "textmate-fsharp.tmLanguage.json"
+    "zig", "zon" -> "textmate-zig.tmLanguage.json"
+    "hcl" -> "textmate-hcl.tmLanguage.json"
+    "tf", "tfvars" -> "textmate-terraform.tmLanguage.json"
+    "graphql", "graphqls", "gql" -> "textmate-graphql.tmLanguage.json"
+    "proto", "proto3" -> "textmate-proto.tmLanguage.json"
+    "cmake" -> "textmate-cmake.tmLanguage.json"
+    "nix" -> "textmate-nix.tmLanguage.json"
+    "jl" -> "textmate-julia.tmLanguage.json"
+    "asm", "nasm", "s" -> "textmate-asm.tmLanguage.json"
+    "bat", "cmd" -> "textmate-bat.tmLanguage.json"
+    "vb", "vbs" -> "textmate-vb.tmLanguage.json"
+    "pas", "pp", "dpr", "lfm", "lpr" -> "textmate-pascal.tmLanguage.json"
+    "sol" -> "textmate-solidity.tmLanguage.json"
+    "v", "vh", "sv", "svh" -> "textmate-verilog.tmLanguage.json"
+    "vhd", "vhdl" -> "textmate-vhdl.tmLanguage.json"
+    "tex", "latex", "sty", "cls" -> "textmate-latex.tmLanguage.json"
+    "md", "markdown", "mdown", "mkd" -> "textmate-markdown.tmLanguage.json"
+    "mdx" -> "textmate-mdx.tmLanguage.json"
+    "vue" -> "textmate-vue.tmLanguage.json"
+    "svelte" -> "textmate-svelte.tmLanguage.json"
+    "astro" -> "textmate-astro.tmLanguage.json"
+    "awk" -> "textmate-awk.tmLanguage.json"
+    "diff", "patch" -> "textmate-diff.tmLanguage.json"
+    "coffee" -> "textmate-coffee.tmLanguage.json"
+    "http", "rest" -> "textmate-http.tmLanguage.json"
+    else -> null
 }
 
 /**
@@ -86,36 +147,63 @@ private val textMateGrammarExtensionByLanguage = mapOf(
     // Plain text and shell-like output.
     "text" to "sh", "plaintext" to "sh", "txt" to "sh", "console" to "sh", "shellsession" to "sh",
     "shell" to "sh", "shellscript" to "sh", "bash" to "sh", "zsh" to "sh", "fish" to "sh", "sh" to "sh",
+    "dotenv" to "env", "env" to "env",
     // JVM / JavaScript / TypeScript.
     "kotlin" to "kt", "kts" to "kt", "kt" to "kt",
     "javascript" to "js", "node" to "js", "js" to "js", "mjs" to "js", "cjs" to "js",
     "typescript" to "ts", "ts" to "ts", "mts" to "ts", "cts" to "ts",
-    "tsx" to "tsx", "jsx" to "jsx", "java" to "java", "scala" to "scala", "groovy" to "groovy",
-    "gradle" to "gradle",
+    "tsx" to "tsx", "jsx" to "jsx", "java" to "java", "scala" to "scala", "sc" to "scala", "sbt" to "sbt",
+    "groovy" to "groovy", "gradle" to "gradle",
     // Scripting and other common fence languages.
     "python" to "py", "python3" to "py", "py" to "py", "pyw" to "py", "pyi" to "py",
     "ruby" to "rb", "rb" to "rb", "rake" to "rb", "gemspec" to "rb",
     "rust" to "rs", "rs" to "rs", "php" to "php", "phtml" to "php",
-    "lua" to "lua", "dart" to "dart", "swift" to "swift", "go" to "go",
+    "lua" to "lua", "dart" to "dart", "swift" to "swift", "go" to "go", "golang" to "go",
     "powershell" to "ps1", "ps1" to "ps1", "psm1" to "ps1", "psd1" to "ps1",
+    "coffee" to "coffee", "coffeescript" to "coffee",
+    "elixir" to "ex", "ex" to "ex", "exs" to "exs",
+    "erlang" to "erl", "erl" to "erl",
+    "haskell" to "hs", "hs" to "hs",
+    "clojure" to "clj", "clj" to "clj", "cljs" to "cljs", "cljc" to "cljc",
+    "ocaml" to "ml", "ml" to "ml",
+    "fsharp" to "fs", "f#" to "fs", "fs" to "fs",
+    "zig" to "zig", "zon" to "zon",
+    "julia" to "jl", "jl" to "jl",
+    "awk" to "awk", "solidity" to "sol", "sol" to "sol",
+    "pascal" to "pas", "delphi" to "pas", "objectpascal" to "pas",
+    "vb" to "vb", "vbnet" to "vb", "visual-basic" to "vb",
+    "bat" to "bat", "batch" to "bat", "cmd" to "bat",
+    "asm" to "asm", "nasm" to "asm", "assembly" to "asm", "x86asm" to "asm",
+    "verilog" to "v", "systemverilog" to "sv", "v" to "v",
+    "vhdl" to "vhdl", "vhd" to "vhd",
     // C family.
     "c" to "c", "h" to "c",
     "cpp" to "cpp", "c++" to "cpp", "cc" to "cpp", "cxx" to "cpp", "hpp" to "cpp", "hh" to "cpp", "hxx" to "cpp",
-    "cs" to "cs", "c#" to "cs", "objc" to "m", "objective-c" to "m", "objectivec" to "m",
+    "cs" to "cs", "c#" to "cs", "csharp" to "cs", "dotnet" to "cs",
+    "objc" to "m", "objective-c" to "m", "objectivec" to "m",
     // Markup, data and build files.
-    // Vue/Svelte/Astro and template dialects are HTML-shaped in a fenced snippet; the HTML grammar
-    // colors tags, attributes, and embedded script/style blocks, which is the useful fallback when
-    // no dedicated grammar is bundled. Add a dedicated asset only if such code becomes common.
+    // Vue/Svelte/Astro and template dialects have dedicated grammars when bundled; the HTML-shaped
+    // fallbacks that remain (handlebars, jinja, twig) still color tags, attributes and embedded
+    // script/style blocks through the HTML grammar's includes.
     "html" to "html", "htm" to "html", "xml" to "xml", "svg" to "xml", "css" to "css",
-    "scss" to "scss", "less" to "less", "json" to "json", "jsonc" to "jsonc", "json5" to "json5",
+    "scss" to "scss", "sass" to "scss", "less" to "less",
+    "json" to "json", "jsonc" to "jsonc", "json5" to "json5", "jsonl" to "jsonl", "ndjson" to "jsonl",
     "yaml" to "yaml", "yml" to "yaml", "compose" to "yaml", "docker-compose" to "yaml",
     "toml" to "toml", "ini" to "ini", "properties" to "ini",
-    "dockerfile" to "dockerfile", "make" to "make", "makefile" to "make", "mk" to "make",
-    "sql" to "sql", "r" to "r", "perl" to "pl", "pl" to "pl", "pm" to "pl",
-    "vue" to "html", "svelte" to "html", "astro" to "html",
+    "dockerfile" to "dockerfile", "docker" to "dockerfile",
+    "make" to "make", "makefile" to "make", "mk" to "make",
+    "cmake" to "cmake", "hcl" to "hcl", "terraform" to "tf", "tf" to "tf",
+    "graphql" to "graphql", "gql" to "graphql",
+    "protobuf" to "proto", "proto" to "proto", "proto3" to "proto3",
+    "nix" to "nix", "latex" to "tex", "tex" to "tex",
+    "markdown" to "md", "md" to "md", "gfm" to "md", "mdx" to "mdx",
+    "vue" to "vue", "svelte" to "svelte", "astro" to "astro",
+    "diff" to "diff", "patch" to "diff", "udiff" to "diff",
+    "http" to "http", "rest" to "http",
+    "sql" to "sql", "r" to "r", "rmd" to "rmd",
+    "perl" to "pl", "pl" to "pl", "pm" to "pl",
     "handlebars" to "html", "hbs" to "html", "mustache" to "html",
-    "jinja" to "html", "jinja2" to "html", "django" to "html", "jsp" to "html",
-    "env" to "sh", "dotenv" to "sh",
+    "jinja" to "html", "jinja2" to "html", "django" to "html", "twig" to "html", "jsp" to "html",
 )
 
 internal fun textMateGrammarAssetForLanguage(info: String?): String? {
@@ -124,28 +212,39 @@ internal fun textMateGrammarAssetForLanguage(info: String?): String? {
     return textMateGrammarAsset("code.$extension")
 }
 
-/** Resolve bundled embedded grammars only when an include actually needs one. */
-internal fun textMateGrammarAssetForScope(scope: String): String? = when (scope) {
+/**
+ * Resolve bundled embedded grammars only when an include actually needs one.
+ *
+ * An include may carry a rule name (`source.ts#type`); the grammar it belongs to is still the base
+ * scope, so the rule suffix is dropped before lookup. Without that, every Vue/Svelte/astro block
+ * type that includes a named rule would silently render without syntax colors.
+ */
+internal fun textMateGrammarAssetForScope(scope: String): String? = when (scope.substringBefore('#')) {
     "source.kotlin" -> "kotlin.tmLanguage.json"
-    "source.js" -> "JavaScript.tmLanguage.json"
+    "source.js", "source.js.jsx" -> "JavaScript.tmLanguage.json"
     "source.json" -> "JSON.tmLanguage.json"
     "source.json.comments" -> "textmate-jsonc.tmLanguage.json"
     "source.json5" -> "textmate-json5.tmLanguage.json"
+    "source.json.lines" -> "textmate-jsonl.tmLanguage.json"
     "source.dockerfile" -> "textmate-docker.tmLanguage.json"
     "source.makefile" -> "textmate-make.tmLanguage.json"
     "source.ini" -> "textmate-ini.tmLanguage.json"
     "source.yaml" -> "textmate-yaml.tmLanguage.json"
     "source.toml" -> "textmate-toml.tmLanguage.json"
+    "source.dotenv" -> "textmate-dotenv.tmLanguage.json"
+    "source.css" -> "textmate-css.tmLanguage.json"
     "source.css.scss" -> "textmate-scss.tmLanguage.json"
     "source.css.less" -> "textmate-less.tmLanguage.json"
+    "source.css.postcss", "source.postcss" -> "textmate-css.tmLanguage.json"
+    "source.sass" -> "textmate-scss.tmLanguage.json"
+    "source.stylus" -> "textmate-css.tmLanguage.json"
     "source.c" -> "textmate-c.tmLanguage.json"
     "source.cpp" -> "textmate-cpp.tmLanguage.json"
     "source.cs" -> "textmate-csharp.tmLanguage.json"
-    "source.css" -> "textmate-css.tmLanguage.json"
     "source.dart" -> "textmate-dart.tmLanguage.json"
     "source.go" -> "textmate-go.tmLanguage.json"
     "source.groovy" -> "textmate-groovy.tmLanguage.json"
-    "text.html.basic" -> "textmate-html.tmLanguage.json"
+    "text.html.basic", "text.html.derivative", "text.html.handlebars", "text.pug" -> "textmate-html.tmLanguage.json"
     "source.java" -> "textmate-java.tmLanguage.json"
     "source.lua" -> "textmate-lua.tmLanguage.json"
     "source.objc" -> "textmate-objective-c.tmLanguage.json"
@@ -162,7 +261,37 @@ internal fun textMateGrammarAssetForScope(scope: String): String? = when (scope)
     "source.swift" -> "textmate-swift.tmLanguage.json"
     "source.ts" -> "textmate-typescript.tmLanguage.json"
     "source.tsx" -> "textmate-tsx.tmLanguage.json"
-    "text.xml" -> "textmate-xml.tmLanguage.json"
+    "text.xml", "text.xml.xsl" -> "textmate-xml.tmLanguage.json"
+    "source.elixir", "text.elixir" -> "textmate-elixir.tmLanguage.json"
+    "source.erlang" -> "textmate-erlang.tmLanguage.json"
+    "source.haskell" -> "textmate-haskell.tmLanguage.json"
+    "source.clojure" -> "textmate-clojure.tmLanguage.json"
+    "source.ocaml" -> "textmate-ocaml.tmLanguage.json"
+    "source.fsharp" -> "textmate-fsharp.tmLanguage.json"
+    "source.zig" -> "textmate-zig.tmLanguage.json"
+    "source.hcl", "source.hcl.terraform" -> "textmate-hcl.tmLanguage.json"
+    "source.graphql" -> "textmate-graphql.tmLanguage.json"
+    "source.proto" -> "textmate-proto.tmLanguage.json"
+    "source.cmake" -> "textmate-cmake.tmLanguage.json"
+    "source.nix" -> "textmate-nix.tmLanguage.json"
+    "source.julia" -> "textmate-julia.tmLanguage.json"
+    "source.asm", "source.asm.x86_64" -> "textmate-asm.tmLanguage.json"
+    "source.batchfile" -> "textmate-bat.tmLanguage.json"
+    "source.asp.vb.net" -> "textmate-vb.tmLanguage.json"
+    "source.pascal" -> "textmate-pascal.tmLanguage.json"
+    "source.solidity" -> "textmate-solidity.tmLanguage.json"
+    "source.verilog", "source.systemverilog" -> "textmate-verilog.tmLanguage.json"
+    "source.vhdl" -> "textmate-vhdl.tmLanguage.json"
+    "text.tex", "text.tex.latex" -> "textmate-latex.tmLanguage.json"
+    "text.html.markdown" -> "textmate-markdown.tmLanguage.json"
+    "source.mdx" -> "textmate-mdx.tmLanguage.json"
+    "text.html.vue" -> "textmate-vue.tmLanguage.json"
+    "source.svelte" -> "textmate-svelte.tmLanguage.json"
+    "source.astro" -> "textmate-astro.tmLanguage.json"
+    "source.awk" -> "textmate-awk.tmLanguage.json"
+    "source.diff" -> "textmate-diff.tmLanguage.json"
+    "source.http" -> "textmate-http.tmLanguage.json"
+    "source.coffee" -> "textmate-coffee.tmLanguage.json"
     else -> null
 }
 
