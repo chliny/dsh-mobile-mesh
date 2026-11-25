@@ -87,6 +87,17 @@ class MeshTransportManager @Inject constructor(
         tailscale.cancelStart()
     }
 
+    /**
+     * Android replaced its default network.
+     *
+     * The userspace node outlives a background suspension, so the direct paths it learned on the
+     * previous underlay are still cached and preferred until ZeroTier expires them minutes later.
+     * The next retained-node dial resets them instead of black-holing TCP SYNs into that network.
+     */
+    fun noteDefaultNetworkChanged() {
+        zeroTier.noteDefaultNetworkChanged()
+    }
+
     suspend fun stop() {
         val connector = active ?: return
         active = null

@@ -21,6 +21,7 @@
 #include <algorithm>
 
 #include "NodeService.hpp"
+#include <thread>
 #include "TcpConnectionContext.hpp"
 
 #include "Events.hpp"
@@ -423,6 +424,20 @@ NodeService::ReasonForTermination NodeService::run()
 
             // Generate callback messages for user application
             generateSyntheticEvents();
+
+            // Apply a path reset requested by a non-service thread. Core path mutation sends packets
+            // while holding path locks, which must not race this thread's receive path.
+            if (_resetPeerPathsRequested.exchange(false)) {
+                unsigned int resetPeers = 0;
+                {
+                    Mutex::Lock nodeLock(_diagnosticNodeMutex);
+                    if (_node) {
+                        resetPeers = _node->resetPeerPaths((void*)0, now);
+                    }
+                }
+                _resetPeerPathsPeerCount.store((int)resetPeers);
+                _resetPeerPathsCompleted.store(true);
+            }
 
             // Run background task processor in core if it's time to do so
             int64_t dl = _nextBackgroundTaskDeadline;
@@ -1313,6 +1328,26 @@ int NodeService::leave(uint64_t net_id)
     }
     _node->leave(net_id, NULL, NULL);
     return ZTS_ERR_OK;
+}
+
+int NodeService::resetPeerPaths()
+{
+    {
+        Mutex::Lock nodeLock(_diagnosticNodeMutex);
+        if (! _node) {
+            return ZTS_ERR_SERVICE;
+        }
+    }
+    _resetPeerPathsPeerCount.store(0);
+    _resetPeerPathsCompleted.store(false);
+    _resetPeerPathsRequested.store(true);
+    // The service loop polls every 100ms at most; wait so the caller's next dial already sees the
+    // reset paths. A timeout leaves the request queued and the reset still happens.
+    const int64_t deadline = OSUtils::now() + 500;
+    while (! _resetPeerPathsCompleted.load() && OSUtils::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return _resetPeerPathsPeerCount.load();
 }
 
 void NodeService::obtainLock() const

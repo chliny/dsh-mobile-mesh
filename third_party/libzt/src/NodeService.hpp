@@ -156,6 +156,12 @@ class NodeService {
     Node* _node;
     // Protects join/leave against node initialization and teardown.
     mutable Mutex _diagnosticNodeMutex;
+    // A path reset is requested from a non-service thread (JNI) and performed by the service loop,
+    // where core path mutation and packet sends cannot race the receive path. The caller waits for
+    // _resetPeerPathsCompleted so its next dial already sees the reset paths.
+    std::atomic<bool> _resetPeerPathsRequested{false};
+    std::atomic<bool> _resetPeerPathsCompleted{false};
+    std::atomic<int> _resetPeerPathsPeerCount{0};
     // Only anonymous values cross from the service thread to diagnostic callers.
     mutable Mutex _peerDiagnosticsMutex;
     int64_t _peerDiagnostics[6] = { 0, 0, 0, 0, -1, -1 };
@@ -332,6 +338,16 @@ class NodeService {
 
     /** Leave a network */
     int leave(uint64_t net_id);
+
+    /**
+     * Deactivate all direct leaf-peer paths so traffic falls back to relays immediately.
+     *
+     * Executed on the service thread: the request is queued here because core path mutation and
+     * packet sends must not race that thread's receive path. Waits briefly for completion.
+     *
+     * @return Number of leaf peers whose paths were reset, or a negative ZTS error code
+     */
+    int resetPeerPaths();
 
     /** Return whether the network is ready for transport services */
     bool networkIsReady(uint64_t net_id) const;

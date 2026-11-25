@@ -98,6 +98,25 @@ public:
 	void freeQueryResult(void *qr);
 	int addLocalInterfaceAddress(const struct sockaddr_storage *addr);
 	void clearLocalInterfaceAddresses();
+
+	/**
+	 * Deactivate every direct path to each leaf peer so that traffic falls back to relays.
+	 *
+	 * A device whose underlay network changed (Wi-Fi/cellular handover) keeps the direct paths it
+	 * learned on the previous network. ZeroTier still treats them as alive until
+	 * ZT_PEER_PATH_EXPIRATION and keeps sending traffic into them, so a resumed connection can stay
+	 * down for minutes on paths that no longer carry anything. This applies the same reset that
+	 * SelfAwareness performs on an external-address change: each path in a usable scope gets an
+	 * ECHO and is not used again unless it speaks.
+	 *
+	 * Roots (planets/moons) are deliberately left alone: their paths carry relayed traffic, so
+	 * deactivating them could drop the fallback this reset depends on.
+	 *
+	 * @param tptr Thread pointer
+	 * @param now Current time
+	 * @return Number of leaf peers whose paths were reset
+	 */
+	unsigned int resetPeerPaths(void *tptr,int64_t now);
 	int sendUserMessage(void *tptr,uint64_t dest,uint64_t typeId,const void *data,unsigned int len);
 	void setNetconfMaster(void *networkControllerInstance);
 

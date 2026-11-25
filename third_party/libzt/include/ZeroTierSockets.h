@@ -3070,6 +3070,24 @@ ZTS_API int ZTCALL zts_core_query_path_count(uint64_t peer_id);
 ZTS_API int ZTCALL zts_peer_path_diagnostics(uint64_t peer_id, int64_t* values, unsigned int count);
 
 /**
+ * @brief Deactivate every known direct path to each leaf peer so traffic falls back to relays.
+ *
+ * A device that changed underlay networks keeps the direct paths it learned on the previous one.
+ * ZeroTier treats those paths as alive until ZT_PEER_PATH_EXPIRATION (minutes) and keeps sending
+ * TCP SYNs into them, so a resumed connection can stay down long after a new network is usable.
+ * This applies the same reset the core performs when it detects a changed external address: each
+ * path gets an ECHO and stops being used until it speaks again, which restores relay reachability
+ * at once and lets direct paths be re-learned on the new network. Only leaf peers are reset; root
+ * paths stay untouched so the relay fallback cannot be lost. Call it when a handover has just
+ * happened or a dial attempt has already failed; it is not a liveness probe and returns no path
+ * identity.
+ *
+ * @return The number of leaf peers whose paths were reset. A negative ZTS error code when the
+ *     core service is unavailable.
+ */
+ZTS_API int ZTCALL zts_core_reset_paths();
+
+/**
  * @brief Lock the core service so that queries about addresses, routes, paths, etc. can be
  * performed.
  *

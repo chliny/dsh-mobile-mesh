@@ -60,6 +60,10 @@ class ZeroTierConnector @Inject constructor(
     private val generation = ZeroTierGeneration()
     /** Consecutive retryable mesh-not-ready results; a patient wait follows a few of them. */
     private val consecutiveNotReady = java.util.concurrent.atomic.AtomicInteger(0)
+    /** Android replaced its default network; the retained node's direct paths may now be stale. */
+    private val defaultNetworkChanged = AtomicBoolean(false)
+    /** One direct-path reset per recovery run, so a real outage cannot churn paths every attempt. */
+    private val peerPathsResetForRun = AtomicBoolean(false)
 
     private fun signal(state: ZeroTierReadiness, id: Long, eventCode: Int) {
         when (eventCode) {
@@ -151,6 +155,7 @@ class ZeroTierConnector @Inject constructor(
         } else {
             zeroTierReadinessTimeoutMs(reusedNode = false)
         }
+        if (reused) resetStalePeerPathsIfNeeded(notReadyStreak)
         recordMeshAttempt("start", reused, networkId, targetConnectTimeoutMs, readinessTimeoutMs)
         // A new node cannot reach a network target before joining that network and obtaining an
         // address. Retained nodes with an address pass through immediately, preserving recovery.
@@ -246,6 +251,7 @@ class ZeroTierConnector @Inject constructor(
         val notReadyStreak = consecutiveNotReady.get()
         val targetConnectTimeoutMs = zeroTierRecoveryTargetConnectTimeoutMs(notReadyStreak)
         val readinessTimeoutMs = zeroTierRecoveryReadinessTimeoutMs(notReadyStreak)
+        resetStalePeerPathsIfNeeded(notReadyStreak)
         recordMeshAttempt("renew-relay", reused = true, networkId = networkId, targetConnectTimeoutMs, readinessTimeoutMs)
         // Renewal can also resume a previously pending authorization, where no address exists yet.
         ensureNetworkAddress(current, state, networkId, token, timing, readinessTimeoutMs)
@@ -330,6 +336,43 @@ class ZeroTierConnector @Inject constructor(
 
     private fun markMeshReady() {
         consecutiveNotReady.set(0)
+        peerPathsResetForRun.set(false)
+        defaultNetworkChanged.set(false)
+    }
+
+    /**
+     * Android replaced its default network. The native node outlives the suspension, so the direct
+     * paths it learned on the previous underlay are still cached and preferred until they expire.
+     */
+    fun noteDefaultNetworkChanged() {
+        defaultNetworkChanged.set(true)
+        // A fresh handover earns its own reset; without this a second switch inside one failed
+        // recovery run would keep dialing paths cached on the network before it.
+        peerPathsResetForRun.set(false)
+    }
+
+    /**
+     * Drop the retained node's cached direct paths to leaf peers before this dial.
+     *
+     * ZeroTier only expires a path four ping periods after it stops carrying traffic, and keeps
+     * preferring it while it appears alive, so a Wi-Fi/cellular handover otherwise leaves every TCP
+     * SYN black-holed for minutes on the network the handset just left. The core reset sends one
+     * ECHO per leaf path and stops using it until it speaks again, which restores relay
+     * reachability at once; direct paths are re-learned in the background. Root paths (relay
+     * backbone) are never touched, so a working connection keeps its fallback.
+     */
+    private fun resetStalePeerPathsIfNeeded(notReadyStreak: Int) {
+        val networkChanged = defaultNetworkChanged.getAndSet(false)
+        if (!zeroTierShouldResetPeerPaths(networkChanged, notReadyStreak, peerPathsResetForRun.get())) return
+        if (!peerPathsResetForRun.compareAndSet(false, true)) return
+        // Non-negative: leaf peers whose paths were reset. Negative: ZTS error code.
+        val result = runCatching { ZeroTierNative.zts_core_reset_paths() }
+            .fold({ "peers=$it" }, { "error=${it.javaClass.simpleName}" })
+        Log.d(TAG, "reset-stale-paths networkChanged=$networkChanged streak=$notReadyStreak $result")
+        recordZeroTierDiagnostic(
+            "zt-path-reset",
+            "trigger=${if (networkChanged) "network-change" else "not-ready"} streak=$notReadyStreak $result",
+        )
     }
 
     /** Join and acquire a local address before probing the remote target. */

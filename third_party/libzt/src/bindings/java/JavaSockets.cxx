@@ -1163,6 +1163,12 @@ Java_com_zerotier_sockets_ZeroTierNative_zts_1core_1query_1path_1count(JNIEnv* j
     return zts_core_query_path_count(peer_id);
 }
 
+JNIEXPORT jint JNICALL
+Java_com_zerotier_sockets_ZeroTierNative_zts_1core_1reset_1paths(JNIEnv* jenv, jclass clazz)
+{
+    return zts_core_reset_paths();
+}
+
 JNIEXPORT jint JNICALL Java_com_zerotier_sockets_ZeroTierNative_zts_1core_1query_1path(
     JNIEnv* jenv,
     jclass clazz,

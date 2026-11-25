@@ -434,6 +434,12 @@ int zts_peer_path_diagnostics(uint64_t peer_id, int64_t* values, unsigned int co
     return zts_service->peerPathDiagnostics(peer_id, values, count);
 }
 
+int zts_core_reset_paths()
+{
+    ACQUIRE_SERVICE(ZTS_ERR_SERVICE);
+    return zts_service->resetPeerPaths();
+}
+
 int zts_core_query_path(uint64_t peer_id, unsigned int idx, char* path, unsigned int len)
 {
     ACQUIRE_SERVICE(ZTS_ERR_SERVICE);

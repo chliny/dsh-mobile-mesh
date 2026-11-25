@@ -179,6 +179,11 @@ class ConnectionManager @Inject constructor(
                     " gatePending=${networkRecoveryGate.isPending()} active=${connectivity.activeNetwork}" +
                     " operationInFlight=$operationInFlight phase=${_state.value.phase}",
             )
+            if (previous != network) {
+                // A retained userspace mesh keeps the direct paths it learned on the previous
+                // underlay; ZeroTier prefers them for minutes and black-holes every dial meanwhile.
+                meshTransport.noteDefaultNetworkChanged()
+            }
             if (shouldRecoverOnNetworkEvent(appInForeground, keepConnectedInBackground, activeHost != null) && networkRecoveryGate.isPending()) {
                 markCarrierRecoveryNeeded()
                 trace("handover-recovery-arm", describeNetwork(network))

@@ -83,6 +83,20 @@ internal const val ZERO_TIER_PATIENT_AFTER_FAILURES = 2
 internal fun zeroTierPatientRecovery(consecutiveNotReady: Int): Boolean =
     consecutiveNotReady >= ZERO_TIER_PATIENT_AFTER_FAILURES
 
+// ZeroTier keeps a direct path for ZT_PEER_PATH_EXPIRATION (four 60s ping periods plus 3s) after it
+// stops carrying traffic, and prefers it while it still looks alive. A handset that moved from one
+// Wi-Fi network to another therefore keeps dialing the previous underlay: every TCP SYN is
+// black-holed until that path finally expires, which a device trace showed as ~2m45s of full-budget
+// dial timeouts. The core already knows how to invalidate such paths (SelfAwareness does it when a
+// trusted peer reports a changed external address), so a retained node resets its leaf paths before
+// its next dial. One reset per recovery run keeps a genuine host outage from churning paths every
+// attempt, and root paths are never reset so the relay fallback always survives.
+internal fun zeroTierShouldResetPeerPaths(
+    defaultNetworkChanged: Boolean,
+    consecutiveNotReady: Int,
+    alreadyResetThisRun: Boolean,
+): Boolean = !alreadyResetThisRun && (defaultNetworkChanged || consecutiveNotReady > 0)
+
 /** Readiness window for one recovery attempt against a retained node. */
 internal fun zeroTierRecoveryReadinessTimeoutMs(consecutiveNotReady: Int): Long =
     if (zeroTierPatientRecovery(consecutiveNotReady)) ZERO_TIER_INITIAL_READINESS_TIMEOUT_MS

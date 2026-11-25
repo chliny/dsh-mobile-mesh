@@ -27,6 +27,7 @@
 #include "Switch.hpp"
 #include "Multicaster.hpp"
 #include "Topology.hpp"
+#include "Peer.hpp"
 #include "Buffer.hpp"
 #include "Packet.hpp"
 #include "Address.hpp"
@@ -669,6 +670,53 @@ void Node::clearLocalInterfaceAddresses()
 {
 	Mutex::Lock _l(_directPaths_m);
 	_directPaths.clear();
+}
+
+namespace {
+
+/**
+ * Send one ECHO on every usable direct path of one peer and stop using each path until it speaks.
+ *
+ * Scopes must be enumerated because Peer::resetWithinScope() matches one scope and address family
+ * at a time, and the underlay a handset just left can be a LAN (private), a carrier NAT (global) or
+ * an IPv6 link-local path.
+ */
+void resetPeerPathsInAllScopes(const SharedPtr<Peer> &p,void *tptr,int64_t now)
+{
+	p->resetWithinScope(tptr,InetAddress::IP_SCOPE_PRIVATE,AF_INET,now);
+	p->resetWithinScope(tptr,InetAddress::IP_SCOPE_PSEUDOPRIVATE,AF_INET,now);
+	p->resetWithinScope(tptr,InetAddress::IP_SCOPE_GLOBAL,AF_INET,now);
+	p->resetWithinScope(tptr,InetAddress::IP_SCOPE_LINK_LOCAL,AF_INET,now);
+	p->resetWithinScope(tptr,InetAddress::IP_SCOPE_PRIVATE,AF_INET6,now);
+	p->resetWithinScope(tptr,InetAddress::IP_SCOPE_PSEUDOPRIVATE,AF_INET6,now);
+	p->resetWithinScope(tptr,InetAddress::IP_SCOPE_GLOBAL,AF_INET6,now);
+	p->resetWithinScope(tptr,InetAddress::IP_SCOPE_LINK_LOCAL,AF_INET6,now);
+}
+
+} // anonymous namespace
+
+unsigned int Node::resetPeerPaths(void *tptr,int64_t now)
+{
+	// Leaf peers only. Root/planet paths carry relayed traffic, so deactivating them would drop the
+	// very fallback this reset depends on; the peer that has to be dialed after a handover is a leaf.
+	ZT_PeerList *pl = peers();
+	if (!pl) {
+		return 0;
+	}
+	unsigned int resetPeers = 0;
+	for (unsigned long i = 0; i < pl->peerCount; ++i) {
+		if (pl->peers[i].role != ZT_PEER_ROLE_LEAF) {
+			continue;
+		}
+		SharedPtr<Peer> p = _RR.topology->getPeerNoCache(Address(pl->peers[i].address));
+		if (!p) {
+			continue;
+		}
+		++resetPeers;
+		resetPeerPathsInAllScopes(p,tptr,now);
+	}
+	freeQueryResult(pl);
+	return resetPeers;
 }
 
 int Node::sendUserMessage(void *tptr,uint64_t dest,uint64_t typeId,const void *data,unsigned int len)

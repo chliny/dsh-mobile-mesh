@@ -452,6 +452,15 @@ public class ZeroTierNative {
      * off-thread. Snapshot age uses a monotonic clock, which may exclude device suspend time.
      */
     public static native long[] zts_peer_path_diagnostics(long peerId);
+    /**
+     * Deactivate every known direct path to each leaf peer so traffic falls back to relays.
+     *
+     * Used after an Android network handover: paths learned on the previous underlay keep being
+     * preferred for minutes and black-hole TCP SYNs until they expire. Roots are not reset, so the
+     * relay fallback stays available. Returns the number of leaf peers reset, or a negative ZTS
+     * error code.
+     */
+    public static native int zts_core_reset_paths();
     public static native long zts_net_get_mac(long net_id);
     public static native String zts_net_get_mac_str(long net_id);
     public static native int zts_net_get_broadcast(long net_id);

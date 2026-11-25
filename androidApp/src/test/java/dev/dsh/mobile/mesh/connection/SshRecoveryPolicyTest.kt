@@ -1,6 +1,7 @@
 package dev.dsh.mobile.mesh.connection
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -45,9 +46,9 @@ class SshRecoveryPolicyTest {
     @Test
     fun `escalated recovery attempt outlasts the join that short dials timed out on`() {
         // A Wi-Fi/cellular switch or a long background expires the retained node's NAT bindings and
-        // peer paths. Device traces show every 5-second recovery dial timing out for minutes while a
-        // fresh node connected on a 14.4-second dial, so the fast windows must eventually give one
-        // attempt the whole budget a rejoin needs.
+        // peer paths. Stale direct paths are now dropped before the first dial of a changed network
+        // (see the handover test below); what remains is a genuinely slow rejoin, which must get one
+        // attempt long enough to span it instead of failing on the same short deadline forever.
         assertEquals(5_000, zeroTierRecoveryTargetConnectTimeoutMs(0))
         assertEquals(8_000L, zeroTierRecoveryReadinessTimeoutMs(0))
         // One fast retry is tolerated; the attempt after it may span the rejoin.
@@ -60,5 +61,45 @@ class SshRecoveryPolicyTest {
         // Both staggered dials can finish inside the wait that owns them.
         assertTrue(patientWaitMs > patientDialMs + 1_200)
         assertTrue("an unresolved outage keeps the patient budget", zeroTierPatientRecovery(7))
+    }
+
+    @Test
+    fun `a handover resets cached direct paths before the first retained-node dial`() {
+        // Device trace (12:14:52-12:17:37): after a Wi-Fi -> cellular -> Wi-Fi handover the retained
+        // node kept dialing the underlay it had left, every 5s/15s dial timed out for 2m45s, and the
+        // same node reached the host in 329ms once those stale direct paths had expired and traffic
+        // went over the relay. A reset must therefore precede the first dial of a changed network.
+        assertTrue(
+            "a default-network change must reset before the first dial",
+            zeroTierShouldResetPeerPaths(
+                defaultNetworkChanged = true,
+                consecutiveNotReady = 0,
+                alreadyResetThisRun = false,
+            ),
+        )
+        assertTrue(
+            "a failed dial without an observed handover must still reset",
+            zeroTierShouldResetPeerPaths(
+                defaultNetworkChanged = false,
+                consecutiveNotReady = 1,
+                alreadyResetThisRun = false,
+            ),
+        )
+        assertFalse(
+            "a healthy dial on an unchanged network must not touch paths",
+            zeroTierShouldResetPeerPaths(
+                defaultNetworkChanged = false,
+                consecutiveNotReady = 0,
+                alreadyResetThisRun = false,
+            ),
+        )
+        assertFalse(
+            "an ongoing outage must not churn paths on every attempt",
+            zeroTierShouldResetPeerPaths(
+                defaultNetworkChanged = true,
+                consecutiveNotReady = 4,
+                alreadyResetThisRun = true,
+            ),
+        )
     }
 }
