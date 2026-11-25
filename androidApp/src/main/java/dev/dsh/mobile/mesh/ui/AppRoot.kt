@@ -144,7 +144,16 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         val showStartupConnections = shouldShowStartupConnections(sessionPagesAvailable, editingHost != null) &&
             !showSettings && !showConnectPage
         val showingConnectionList = showConnections || showStartupConnections
-        // One value decides both what renders and what identity the recovery scrim blocks Back on;
+        // Back during the recovery scrim opens the connection list, which suppresses the scrim while
+        // the attempt keeps running. This value is what keeps Back swallowed on that list until the
+        // recovery settles: every page behind it is one the scrim would cover again, so leaving only
+        // traps the user in a bounce between the two.
+        val connectionRecoveryInFlight = connection.hasConnected && isConnectionRecoveryInFlight(
+            phase = connection.phase,
+            foregroundCheckPending = connection.foregroundCheckPending,
+            recoveryOverlayVisible = connection.recoveryOverlayVisible,
+        )
+        // One value decides both what renders and what identity owns the scrim's Back gesture;
         // an unconnected app cannot resolve to a session page here no matter which flags survived
         // process death.
         val rootPage = resolveAppRootPage(
@@ -207,7 +216,12 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
                     // A connect attempt owns the list, but the settings page is a safe place to
                     // wait: the attempt keeps running in the background and the recovery scrim
                     // (not this list) is what prevents walking on into the session pages.
-                    if (shouldAllowConnectionListBack(connectUiState.connecting, connectionListOrigin)) {
+                    if (shouldAllowConnectionListBack(
+                            connecting = connectUiState.connecting,
+                            origin = connectionListOrigin,
+                            recoveryInFlight = connectionRecoveryInFlight,
+                        )
+                    ) {
                         showConnections = false
                         showConnectPage = false
                         editingHostId = null
@@ -360,8 +374,15 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
         )
         ConnectionRecoveryScrim(
             visible = recoveryOverlayVisible,
-            // Re-registers the Back blocker when the page behind the scrim changes; see the scrim.
+            // Re-registers the Back handler when the page behind the scrim changes; see the scrim.
             pageIdentity = rootPage,
+            onBack = {
+                // Back during recovery is a request for the connection list, not a dismissal of the
+                // attempt: the reconnect keeps retrying, and the list is where another remembered
+                // host can be chosen or the attempt stopped outright. The scrim disappears on its
+                // own because the list suppresses it; its Back stays swallowed there meanwhile.
+                showConnections = true
+            },
         )
     }
 }
@@ -369,19 +390,23 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
 /**
  * The global blocking scrim shown while an established connection is verified or rebuilt.
  *
- * The system Back blocker is registered *inside* the scrim, after whatever page is behind it.
+ * The scrim owns the system Back gesture and turns it into a request for the connection list
+ * ([onBack]): the recovery keeps running, and the list — which suppresses this scrim — is where
+ * the user can pick another remembered host or stop the attempt.
+ *
+ * The handler is registered *inside* the scrim, after whatever page is behind it.
  * `OnBackPressedDispatcher` dispatches the most recently added callback first, and pages that enter
  * composition after the root's first pass (settings, the connect form, the session content page,
  * …) add their callback later than an eager root-level handler would — so an always-present root
  * blocker loses to them, and Back used to navigate behind the scrim. [pageIdentity] re-registers
- * the blocker whenever the page behind the scrim changes, so a page opened during recovery cannot
+ * the handler whenever the page behind the scrim changes, so a page opened during recovery cannot
  * steal the gesture either.
  */
 @Composable
-internal fun ConnectionRecoveryScrim(visible: Boolean, pageIdentity: Any?) {
+internal fun ConnectionRecoveryScrim(visible: Boolean, pageIdentity: Any?, onBack: () -> Unit) {
     if (!visible) return
     key(pageIdentity) {
-        BackHandler(enabled = true) { }
+        BackHandler(enabled = true, onBack = onBack)
     }
     ConnectionRecoveryOverlay()
 }

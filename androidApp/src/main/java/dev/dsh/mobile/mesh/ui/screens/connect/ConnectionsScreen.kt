@@ -76,7 +76,8 @@ fun ConnectionsScreen(
     var menuHost by remember { mutableStateOf<HostConfig?>(null) }
     var deleteHost by remember { mutableStateOf<HostConfig?>(null) }
     // Both the system Back gesture and the app-bar arrow close through `onClose`; the root decides
-    // whether an in-flight attempt may leave the list (only toward the settings page).
+    // whether an in-flight attempt may leave the list (toward settings while an explicit attempt
+    // runs, never while an established connection is still being recovered).
     BackHandler(onBack = onClose)
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {

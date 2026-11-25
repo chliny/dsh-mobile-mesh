@@ -19,12 +19,16 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Regression for the global recovery scrim's system-Back blocker.
+ * Regression for the global recovery scrim's system-Back handling.
  *
- * A page registers its BackHandler when it enters composition, which for settings, the connect form
- * or a session's transcript is long after the application root first composed. An always-present
- * root-level callback therefore loses the gesture to those pages (`OnBackPressedDispatcher`
- * dispatches the most recently added enabled callback first), and Back navigated behind the scrim.
+ * The scrim must intercept Back wherever it is shown: a page registers its BackHandler when it
+ * enters composition, which for settings, the connect form or a session's transcript is long after
+ * the application root first composed. An always-present root-level callback therefore loses the
+ * gesture to those pages (`OnBackPressedDispatcher` dispatches the most recently added enabled
+ * callback first), and Back navigated behind the scrim.
+ *
+ * The intercepted gesture is not a dismissal of the recovery: it asks the root for the connection
+ * list, where the attempt keeps running and another host can be chosen or the attempt stopped.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
@@ -35,6 +39,7 @@ class ConnectionRecoveryScrimTest {
     private var pagePresent by mutableStateOf(false)
     private var pageInstance by mutableIntStateOf(0)
     private var pageBackPresses = 0
+    private var scrimBackPresses = 0
     private lateinit var backDispatcher: OnBackPressedDispatcher
 
     private fun render() {
@@ -54,6 +59,7 @@ class ConnectionRecoveryScrimTest {
             ConnectionRecoveryScrim(
                 visible = scrimVisible,
                 pageIdentity = pageInstance to pagePresent,
+                onBack = { scrimBackPresses++ },
             )
         }
     }
@@ -70,7 +76,8 @@ class ConnectionRecoveryScrimTest {
         compose.runOnIdle { pagePresent = true }
         compose.runOnIdle { scrimVisible = true }
         pressBack()
-        assertEquals("Back must be swallowed by the scrim, not by the page under it", 0, pageBackPresses)
+        assertEquals("Back must be handled by the scrim, not by the page under it", 0, pageBackPresses)
+        assertEquals("The scrim must ask for the connection list instead of swallowing Back", 1, scrimBackPresses)
     }
 
     @Test
@@ -82,22 +89,26 @@ class ConnectionRecoveryScrimTest {
         }
         pressBack()
         assertEquals(0, pageBackPresses)
+        assertEquals(1, scrimBackPresses)
         compose.runOnIdle { pageInstance++ }
         pressBack()
         assertEquals("The scrim must re-register after the page behind it changes", 0, pageBackPresses)
+        assertEquals(2, scrimBackPresses)
     }
 
     @Test
-    fun backReachesThePageAgainOnceTheScrimIsGone() {
+    fun anAutoRecoveredScrimLeavesBackToThePageItWasCovering() {
         render()
         compose.runOnIdle {
             pagePresent = true
             scrimVisible = true
         }
-        pressBack()
-        assertEquals(0, pageBackPresses)
+        // The recovery completes without the user touching Back. The scrim must disappear on its
+        // own — never dismissing itself into the connection list — and the page it covered must be
+        // exactly what it was, so Back is still that page's own normal Back to the previous page.
         compose.runOnIdle { scrimVisible = false }
         pressBack()
         assertEquals(1, pageBackPresses)
+        assertEquals(0, scrimBackPresses)
     }
 }
