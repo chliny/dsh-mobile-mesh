@@ -109,6 +109,8 @@ class ModelsSheetGestureTest {
         assertEquals("The list must be at the top before dragging again", 0f, scrollPosition(), 0.01f)
         compose.runOnIdle { assertFalse("Returning to the top dismissed the sheet", dismissed) }
         list.performTouchInput { swipeDown() }
-        compose.runOnIdle { assertTrue("Dragging down at the top did not dismiss the sheet", dismissed) }
+        // The model list never dismisses the sheet by a drag, at the top or anywhere else: a swipe
+        // down is always a scroll gesture here, and closing is the scrim's or the back gesture's job.
+        compose.runOnIdle { assertFalse("Dragging down at the top dismissed the sheet", dismissed) }
     }
 }

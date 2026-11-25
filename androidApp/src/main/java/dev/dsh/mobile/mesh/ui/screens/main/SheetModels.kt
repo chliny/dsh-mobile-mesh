@@ -16,10 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -37,7 +33,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.dto.ModelBadge
@@ -69,7 +64,13 @@ internal fun ModelsSheet(
     // The Host localizes badge text itself; this client only picks the reader's language out of
     // the map it was given, falling back to the Host's required `en` when that language is absent.
     val badgeLanguageTags = remember(configuration) { modelBadgeLanguageTags(configuration.locales.get(0)) }
-    AppBottomSheet(title = stringResource(R.string.models_title), onDismiss = onDismiss) {
+    // A downward swipe over this list must always scroll it; the sheet itself is closed from the
+    // scrim or the system back gesture (see AppBottomSheet).
+    AppBottomSheet(
+        title = stringResource(R.string.models_title),
+        onDismiss = onDismiss,
+        dragToDismiss = false,
+    ) {
         if (models == null) {
             Text(stringResource(R.string.common_loading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@AppBottomSheet
@@ -82,40 +83,10 @@ internal fun ModelsSheet(
                 color = MaterialTheme.colorScheme.error,
             )
         }
-        // The sheet's own drag handle competes with the list's scroll for downward drags. Material3
-        // hands a downward drag to the sheet whenever the inner scroll does not consume it, even when
-        // the list is not yet at the top (a fling tail or a gesture the scrollable declined). That is
-        // what turns a mid-list downward swipe into the sheet dragging/dismissing instead of scrolling
-        // the models. Gate the leftover in onPostScroll: it runs after the list has already scrolled
-        // what it can, so a downward leftover while the list is still not at the top is exactly the
-        // stray gesture the sheet would otherwise steal — swallow it. Only once the list has reached
-        // the top is a downward leftover the user genuinely dragging the sheet, and that passes on.
-        //
-        // A fling is the second leak: when it reaches the top mid-flight, the sheet is handed the
-        // leftover downward velocity in onPostFling and settles to hidden. A downward fling on this
-        // list should scroll it, never close the sheet, so swallow that velocity too. A drag that
-        // starts at the top still dismisses — the sheet's own pointer detector owns that gesture, and
-        // it never passes through nested scroll.
         val listScroll = rememberScrollState()
-        val sheetBoundary = remember(listScroll) {
-            object : NestedScrollConnection {
-                override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
-                    if (source == NestedScrollSource.UserInput && available.y > 0 && listScroll.canScrollBackward) {
-                        // List not at the top: the inner scroll left downward distance unclaimed, which
-                        // the sheet would read as a dismiss drag. Take it instead of letting it through.
-                        Offset(0f, available.y)
-                    } else {
-                        Offset.Zero
-                    }
-
-                override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
-                    if (available.y > 0f) available else Velocity.Zero
-            }
-        }
         Column(
             modifier = Modifier
                 .heightIn(max = 420.dp)
-                .nestedScroll(sheetBoundary)
                 .verticalScroll(listScroll),
             verticalArrangement = Arrangement.spacedBy(DsSpacing.tiny),
         ) {
