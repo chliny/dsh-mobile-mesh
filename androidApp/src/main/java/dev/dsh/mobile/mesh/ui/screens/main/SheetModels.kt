@@ -40,6 +40,7 @@ import dev.dsh.mobile.mesh.core.wire.dto.ModelCatalogModel
 import dev.dsh.mobile.mesh.core.wire.dto.SessionModelsValue
 import dev.dsh.mobile.mesh.data.SessionStore
 import dev.dsh.mobile.mesh.ui.components.AppBottomSheet
+import dev.dsh.mobile.mesh.ui.components.SheetDragDismiss
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import java.util.Locale
 import kotlinx.coroutines.launch
@@ -64,12 +65,13 @@ internal fun ModelsSheet(
     // The Host localizes badge text itself; this client only picks the reader's language out of
     // the map it was given, falling back to the Host's required `en` when that language is absent.
     val badgeLanguageTags = remember(configuration) { modelBadgeLanguageTags(configuration.locales.get(0)) }
-    // A downward swipe over this list must always scroll it; the sheet itself is closed from the
-    // scrim or the system back gesture (see AppBottomSheet).
+    // A downward swipe scrolls the list; only when the list is already at its top does the same
+    // gesture pull the sheet down, so "scroll back up" can never close it by accident.
+    val listScroll = rememberScrollState()
     AppBottomSheet(
         title = stringResource(R.string.models_title),
         onDismiss = onDismiss,
-        dragToDismiss = false,
+        dragDismiss = SheetDragDismiss.FromTop { !listScroll.canScrollBackward },
     ) {
         if (models == null) {
             Text(stringResource(R.string.common_loading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -83,7 +85,6 @@ internal fun ModelsSheet(
                 color = MaterialTheme.colorScheme.error,
             )
         }
-        val listScroll = rememberScrollState()
         Column(
             modifier = Modifier
                 .heightIn(max = 420.dp)

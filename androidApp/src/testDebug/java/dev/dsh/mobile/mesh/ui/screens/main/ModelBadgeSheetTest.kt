@@ -4,7 +4,10 @@ import android.app.Application
 import android.content.res.Configuration
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -50,13 +53,15 @@ class ModelBadgeSheetTest {
         compose.onNodeWithText("Alpha").assertIsDisplayed()
         // A tone this build does not know keeps the label visible at the neutral emphasis.
         compose.onNodeWithText("Beta").assertIsDisplayed()
-        // A model the Host published without a badge is unaffected.
-        compose.onNodeWithText("DeepSeek Legacy").assertIsDisplayed()
-
         compose.onNodeWithText("DeepSeek Preview").performClick()
         val (provider, model) = awaitSelection(store)
         assertEquals("deepseek", provider)
         assertEquals("deepseek-preview", model)
+
+        // A model the Host published without a badge is unaffected. On a short screen the sheet's
+        // list viewport ends before this last row, so scroll it into view first.
+        compose.onNode(hasScrollAction()).performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 1_000f) }
+        compose.onNodeWithText("DeepSeek Legacy").assertIsDisplayed()
     }
 
     @Test

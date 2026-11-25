@@ -104,13 +104,23 @@ class ModelsSheetGestureTest {
         assertTrue("The downward drag did not scroll the list toward the top", afterDownwardDrag < scrolledPosition)
         assertTrue("The list reached the top before the dismissal check", afterDownwardDrag > 0f)
 
+        // A fast flick from mid-list is momentum, not a dismiss: it must not reach the sheet.
+        list.performTouchInput {
+            swipe(
+                start = Offset(centerX, height * 0.45f),
+                end = Offset(centerX, height * 0.55f),
+                durationMillis = 30,
+            )
+        }
+        compose.runOnIdle { assertFalse("A fast mid-list flick dismissed the sheet", dismissed) }
+
         // Return to the top separately, then exercise a new downward user gesture.
         list.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -100_000f) }
         assertEquals("The list must be at the top before dragging again", 0f, scrollPosition(), 0.01f)
         compose.runOnIdle { assertFalse("Returning to the top dismissed the sheet", dismissed) }
         list.performTouchInput { swipeDown() }
-        // The model list never dismisses the sheet by a drag, at the top or anywhere else: a swipe
-        // down is always a scroll gesture here, and closing is the scrim's or the back gesture's job.
-        compose.runOnIdle { assertFalse("Dragging down at the top dismissed the sheet", dismissed) }
+        // Past the drag threshold the sheet closes after its exit animation, hence the clock nudge.
+        compose.mainClock.advanceTimeBy(400)
+        compose.runOnIdle { assertTrue("Dragging down at the top did not dismiss the sheet", dismissed) }
     }
 }
