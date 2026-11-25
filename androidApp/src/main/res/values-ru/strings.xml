@@ -20,6 +20,8 @@
     <string name="common_error">Что-то пошло не так</string>
     <string name="common_close">Закрыть</string>
     <string name="common_back">Назад</string>
+    <string name="terminal_new">Новый терминал</string>
+    <string name="terminal_close">Закрыть терминал</string>
     <string name="common_edit">Изменить</string>
     <string name="common_rename">Переименовать</string>
     <string name="common_archive">Архивировать</string>

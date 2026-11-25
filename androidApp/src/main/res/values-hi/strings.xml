@@ -20,6 +20,8 @@
     <string name="common_error">कुछ गलत हो गया</string>
     <string name="common_close">बंद करें</string>
     <string name="common_back">वापस</string>
+    <string name="terminal_new">नया टर्मिनल</string>
+    <string name="terminal_close">टर्मिनल बंद करें</string>
     <string name="common_edit">संपादित करें</string>
     <string name="common_rename">नाम बदलें</string>
     <string name="common_archive">संग्रहित करें</string>

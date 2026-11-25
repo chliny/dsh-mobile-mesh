@@ -20,6 +20,8 @@
     <string name="common_error">کچھ غلط ہو گیا</string>
     <string name="common_close">بند کریں</string>
     <string name="common_back">واپس</string>
+    <string name="terminal_new">نیا ٹرمینل</string>
+    <string name="terminal_close">ٹرمینل بند کریں</string>
     <string name="common_edit">ترمیم کریں</string>
     <string name="common_rename">نام تبدیل کریں</string>
     <string name="common_archive">آرکائیو کریں</string>

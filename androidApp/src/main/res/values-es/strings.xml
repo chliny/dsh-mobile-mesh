@@ -20,6 +20,8 @@
     <string name="common_error">Algo salió mal</string>
     <string name="common_close">Cerrar</string>
     <string name="common_back">Atrás</string>
+    <string name="terminal_new">Nueva terminal</string>
+    <string name="terminal_close">Cerrar terminal</string>
     <string name="common_edit">Editar</string>
     <string name="common_rename">Renombrar</string>
     <string name="common_archive">Archivar</string>

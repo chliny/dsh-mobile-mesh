@@ -11,10 +11,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -29,8 +38,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
+import androidx.core.view.SoftwareKeyboardControllerCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.WireJson
@@ -85,6 +98,28 @@ internal class InitialTerminalCreation {
     }
 
     fun manual() { pending = false }
+}
+
+/**
+ * Android WebView only opens the IME for a focus that follows a real tap. Focusing xterm through
+ * `evaluateJavascript` is gesture-less, so the view must claim focus and ask for the keyboard.
+ * The request waits for the JS focus to finish, otherwise the WebView has no editable state yet.
+ */
+private fun openTerminalKeyboard(webView: WebView) {
+    webView.requestFocus()
+    webView.evaluateJavascript("terminalFocus()") {
+        webView.post { SoftwareKeyboardControllerCompat(webView).show() }
+    }
+}
+
+/**
+ * The same button opens and closes the keyboard. xterm keeps DOM focus while the IME is hidden, so
+ * the visibility of the IME itself — not focus — decides which direction the tap goes.
+ */
+private fun toggleTerminalKeyboard(webView: WebView) {
+    val shown = ViewCompat.getRootWindowInsets(webView)
+        ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+    if (shown) SoftwareKeyboardControllerCompat(webView).hide() else openTerminalKeyboard(webView)
 }
 
 /** One session-owned Host PTY. Navigating away detaches it without terminating the shell. */
@@ -392,24 +427,48 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
         }
     }
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-        Row(Modifier.fillMaxWidth()) {
-            TextButton(onClick = onBack) { Text(stringResource(R.string.common_back)) }
-            Text(stringResource(R.string.terminal_title), modifier = Modifier.weight(1f).padding(top = 12.dp))
-            TextButton(onClick = {
-                // An explicit request wins over an in-flight initial list; never auto-create a second PTY.
-                initialCreation.manual()
-                scope.launch { createTerminal { refresh() } }
-            }, enabled = !creating && (!initialCreation.pending || status.isNotEmpty())) { Text("+") }
-            TextButton(onClick = {
-                val id = selected ?: return@TextButton
-                scope.launch {
-                    when (val result = manager.connectedApi?.terminalClose(sessionId, id)) {
-                        is RpcResult.Ok -> { inventory.remove(id); selected = null; refresh() }
-                        is RpcResult.Err -> status = result.error.message
-                        null -> status = context.getString(R.string.terminal_offline)
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.common_back),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                stringResource(R.string.terminal_title),
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f).padding(start = 4.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            IconButton(
+                onClick = {
+                    // An explicit request wins over an in-flight initial list; never auto-create a second PTY.
+                    initialCreation.manual()
+                    scope.launch { createTerminal { refresh() } }
+                },
+                enabled = !creating && (!initialCreation.pending || status.isNotEmpty()),
+                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+            ) { Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.terminal_new)) }
+            IconButton(
+                onClick = {
+                    val id = selected ?: return@IconButton
+                    scope.launch {
+                        when (val result = manager.connectedApi?.terminalClose(sessionId, id)) {
+                            is RpcResult.Ok -> { inventory.remove(id); selected = null; refresh() }
+                            is RpcResult.Err -> status = result.error.message
+                            null -> status = context.getString(R.string.terminal_offline)
+                        }
                     }
-                }
-            }, enabled = selected != null) { Text("×") }
+                },
+                enabled = selected != null,
+                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+            ) { Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.terminal_close)) }
         }
         if (terminals.size > 1) Row(Modifier.horizontalScroll(rememberScrollState())) {
             terminals.forEach { terminal ->
@@ -469,7 +528,7 @@ internal fun TerminalScreen(sessionId: String, onBack: () -> Unit) {
             },
         )
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            TextButton(onClick = { screen?.evaluateJavascript("terminalFocus()", null) }) { Text("⌨") }
+            TextButton(onClick = { screen?.let(::toggleTerminalKeyboard) }) { Text("⌨") }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = ctrl, onCheckedChange = { ctrl = it }); Text("Ctrl")
             }

@@ -20,6 +20,8 @@
     <string name="common_error">حدث خطأ ما</string>
     <string name="common_close">إغلاق</string>
     <string name="common_back">رجوع</string>
+    <string name="terminal_new">محطة طرفية جديدة</string>
+    <string name="terminal_close">إغلاق المحطة الطرفية</string>
     <string name="common_edit">تعديل</string>
     <string name="common_rename">إعادة تسمية</string>
     <string name="common_archive">أرشفة</string>

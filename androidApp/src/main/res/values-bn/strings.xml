@@ -20,6 +20,8 @@
     <string name="common_error">কিছু একটা ভুল হয়েছে</string>
     <string name="common_close">বন্ধ করুন</string>
     <string name="common_back">পিছনে</string>
+    <string name="terminal_new">নতুন টার্মিনাল</string>
+    <string name="terminal_close">টার্মিনাল বন্ধ করুন</string>
     <string name="common_edit">সম্পাদনা</string>
     <string name="common_rename">নাম পরিবর্তন</string>
     <string name="common_archive">আর্কাইভ</string>
