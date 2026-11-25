@@ -503,8 +503,9 @@ private fun AssistantMessage(node: AssistantMessageNode, context: ChatNodeContex
     val workspaceFiles = rememberWorkspaceFilesStore()
     val connectionPhase by rememberConnectionManager().state.collectAsStateWithLifecycle()
     val imageResolver: suspend (String) -> String? = remember(workspaceFiles, context.sessionId, context.cwd, connectionPhase.phase) {
-        // The Host resolves relative transcript images against this Session's file root.
-        { source -> context.sessionId?.let { resolveMarkdownImage(source, null, workspaceFiles, it) } }
+        // The Host resolves relative transcript images against this Session's file root; the
+        // absolute form lets its `/api/file` route serve them the way the web client does.
+        { source -> context.sessionId?.let { resolveMarkdownImage(source, null, workspaceFiles, it, workspaceRoot = context.cwd) } }
     }
     // Relative image paths mean different bytes in different workspaces; keep their caches apart.
     val imageCacheScope = remember(context.sessionId, context.cwd) { "${context.sessionId}:${context.cwd}" }

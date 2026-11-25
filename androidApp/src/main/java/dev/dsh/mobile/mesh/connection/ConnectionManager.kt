@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat
 import dev.dsh.mobile.mesh.core.wire.ConnectionLoop
 import dev.dsh.mobile.mesh.core.wire.ConnectionState
 import dev.dsh.mobile.mesh.core.wire.DshApiClient
+import dev.dsh.mobile.mesh.core.wire.HarnessFileApi
 import dev.dsh.mobile.mesh.core.wire.RpcResult
 import dev.dsh.mobile.mesh.core.wire.dto.HostDescription
 import dev.dsh.mobile.mesh.core.wire.LoopConfig
@@ -232,6 +233,8 @@ class ConnectionManager @Inject constructor(
     private val eventApis = java.util.concurrent.ConcurrentHashMap<String, DshApiClient>()
     private var activeHost: HostConfig? = null
     private var activeBaseUrl: String? = null
+    /** The current generation's `/api/file` route; images must not outlive the connection that served them. */
+    @Volatile private var activeFileApi: HarnessFileApi? = null
     private var pendingTransportReady: (suspend (String) -> Unit)? = null
     private val authorizationResumeMutex = Mutex()
     /** Serializes every mutation of the singleton mesh/SSH resource stack. */
@@ -649,6 +652,18 @@ class ConnectionManager @Inject constructor(
             )
         }
 
+    /**
+     * Read one image through the Host's `/api/file` route, or null when the route is unavailable
+     * (an older Host, a refused session, a non-image answer) so the caller can fall back to the
+     * workspace RPC.
+     */
+    suspend fun readWorkspaceImage(absolutePath: String): ByteArray? {
+        val api = activeFileApi ?: return null
+        return runCatching { api.readImage(absolutePath) }
+            .onFailure { Log.w("ConnectionManager", "Host file route failed path=$absolutePath", it) }
+            .getOrNull()
+    }
+
     fun apiForEvent(clientId: String): DshApiClient? = eventApis[clientId]
 
     /** Effective origin for pairing while the active mesh/SSH relay is alive. */
@@ -987,6 +1002,7 @@ class ConnectionManager @Inject constructor(
                     " transport=${TransportFailures.classify(error)}",
             )
             activeBaseUrl = null
+            activeFileApi = null
             api = null
             _state.value = ConnectionUiState(
                 phase = if (willRetry) ConnectionPhase.RECONNECTING else ConnectionPhase.DISCONNECTED,
@@ -1039,6 +1055,9 @@ class ConnectionManager @Inject constructor(
                 carrierRecoverySucceededPendingHandover = true
             }
             activeBaseUrl = baseUrl
+            activeFileApi = runCatching { clientFactory.fileApiFor(config, baseUrl) }
+                .onFailure { Log.w("ConnectionManager", "Failed to build the Host file route client", it) }
+                .getOrNull()
             Log.d("ConnectionManager", "Transport ready callback about to run baseUrl=$baseUrl reconnect=$reconnect")
             _state.value = _state.value.copy(authorizationPending = null, tailscaleLoginUrl = null)
             if (shouldRunTransportReadyCallback(reconnect, preservePendingIdentity)) {
@@ -1296,6 +1315,7 @@ class ConnectionManager @Inject constructor(
             loop = null
             api = null
             activeBaseUrl = null
+            activeFileApi = null
             synchronized(lifecycleTransitionLock) {
                 publishedGenerationNeedsProbe = false
                 lastPublishedGeneration = null

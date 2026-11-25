@@ -71,7 +71,19 @@ import kotlinx.coroutines.withContext
 internal fun svgDataUrl(bytes: ByteArray): String =
     "data:image/svg+xml;base64,${java.util.Base64.getEncoder().encodeToString(bytes)}"
 
-internal suspend fun resolveMarkdownImage(source: String, baseDirectory: String?, store: dev.dsh.mobile.mesh.data.WorkspaceFilesStore, sessionId: String): String? {
+internal fun absoluteWorkspacePath(path: String, workspaceRoot: String?): String? = when {
+    path.startsWith('/') || path.matches(Regex("^[A-Za-z]:[/\\\\].*")) -> path
+    workspaceRoot.isNullOrBlank() -> null
+    else -> workspaceRoot.trimEnd('/', '\\') + "/" + path.trimStart('/', '\\')
+}
+
+internal suspend fun resolveMarkdownImage(
+    source: String,
+    baseDirectory: String?,
+    store: dev.dsh.mobile.mesh.data.WorkspaceFilesStore,
+    sessionId: String,
+    workspaceRoot: String? = null,
+): String? {
     val cleanSource = markdownImagePath(source) ?: return null
     if (cleanSource.startsWith("http://", ignoreCase = true) || cleanSource.startsWith("https://", ignoreCase = true) ||
         cleanSource.startsWith("data:", ignoreCase = true)) return cleanSource
@@ -90,7 +102,10 @@ internal suspend fun resolveMarkdownImage(source: String, baseDirectory: String?
         "ico" -> "image/x-icon"
         else -> return null
     }
-    val bytes = store.readImageBytes(sessionId, imagePath) ?: return null
+    // The Host's file route needs the absolute path the Session's root resolves; the workspace RPC
+    // accepts either form, so this only widens what can be read.
+    val absolutePath = absoluteWorkspacePath(imagePath, workspaceRoot)
+    val bytes = store.readImageBytes(sessionId, imagePath, absolutePath) ?: return null
     return if (mime == "image/svg+xml") svgDataUrl(bytes)
         else "data:$mime;base64,${java.util.Base64.getEncoder().encodeToString(bytes)}"
 }

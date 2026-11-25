@@ -1,6 +1,7 @@
 package dev.dsh.mobile.mesh.connection
 
 import dev.dsh.mobile.mesh.core.wire.DshApiClient
+import dev.dsh.mobile.mesh.core.wire.HarnessFileApi
 import dev.dsh.mobile.mesh.core.wire.OkHttpRpcTransport
 import dev.dsh.mobile.mesh.core.wire.RemoteStreamMux
 import dev.dsh.mobile.mesh.core.wire.WsChannel
@@ -51,6 +52,15 @@ class HarnessClientFactory @Inject constructor(
             ),
         )
     }
+
+    /**
+     * The Host's `/api/file` route for one connection generation.
+     *
+     * Same cookie, authority and HTTP client as the unary transport: the route is part of the same
+     * authenticated `/api` surface, and the web client renders workspace images through it.
+     */
+    suspend fun fileApiFor(config: HostConfig, baseUrl: String = config.baseUrl): HarnessFileApi =
+        HarnessFileApi(baseUrl, cookieFor(config), config.harnessAuthority, okHttpClient)
 
     /**
      * The mux carrying every stream of one connection generation.

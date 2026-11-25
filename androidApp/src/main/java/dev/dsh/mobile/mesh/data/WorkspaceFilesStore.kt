@@ -267,18 +267,53 @@ class WorkspaceFilesStore @Inject constructor(
         }
     }
 
-    /** Bound image reads before encoding their bytes into a WebView data URL. */
-    suspend fun readImageBytes(sessionId: String, path: String): ByteArray? {
+    /**
+     * Read one image, preferring the Host's `/api/file` route and falling back to the workspace RPC.
+     *
+     * The route is the same one the web client renders workspace images with: it needs an absolute
+     * path (the Session's file root joined to a transcript-relative destination) and answers the
+     * bytes with their MIME type. An older Host, or a destination whose absolute path is unknown,
+     * takes the byte-window RPC instead, bounded by [MAX_MARKDOWN_IMAGE_BYTES].
+     */
+    suspend fun readImageBytes(sessionId: String, path: String, absolutePath: String? = null): ByteArray? {
         val safePath = validWorkspaceFilePath(path) ?: return null
+        if (absolutePath != null) {
+            // The route enforces the Host's own image limit; the RPC window below is its fallback.
+            connectionManager.readWorkspaceImage(absolutePath)?.let { return it }
+        }
         val api = connectionManager.connectedApi ?: return null
         // The legacy readAll endpoint has no byte-range cap; never fetch an unbounded image.
         if (connectionManager.harnessProtocol == HarnessProtocol.LEGACY_SUBAGENTS) return null
-        return when (val result = api.workspaceFilesReadBytes(sessionId, safePath, length = MAX_MARKDOWN_IMAGE_BYTES)) {
-            is RpcResult.Ok -> result.value.data.takeIf {
-                result.value.offset == 0 && result.value.eof && it.size <= MAX_MARKDOWN_IMAGE_BYTES
-            }
-            is RpcResult.Err -> null
+        val bytes = readByteWindow(api, sessionId, safePath)
+        if (bytes == null) {
+            android.util.Log.w(
+                "WorkspaceFilesStore",
+                "Image read failed session=$sessionId path=$safePath absolute=$absolutePath",
+            )
         }
+        return bytes
+    }
+
+    /** The byte-window read, retrying the older argument shape and then the full-file route. */
+    private suspend fun readByteWindow(api: DshApiClient, sessionId: String, path: String): ByteArray? {
+        val attempts = listOf<suspend () -> RpcResult<WorkspaceFileBytes>>(
+            { api.workspaceFilesReadBytes(sessionId, path, length = MAX_MARKDOWN_IMAGE_BYTES) },
+            { api.workspaceFilesReadBytes(sessionId, path, length = MAX_MARKDOWN_IMAGE_BYTES, legacyRange = true) },
+            { api.workspaceFilesReadAll(sessionId, path) },
+        )
+        for (attempt in attempts) {
+            when (val result = attempt()) {
+                is RpcResult.Ok -> {
+                    val value = result.value
+                    if (value.offset == 0 && value.eof && value.data.size <= MAX_MARKDOWN_IMAGE_BYTES) {
+                        return value.data.takeIf { it.isNotEmpty() }
+                    }
+                }
+                // A path the Host does not have will not answer differently for another argument shape.
+                is RpcResult.Err -> if (result.error.code == "workspace-file/not-found") return null
+            }
+        }
+        return null
     }
 
     fun readText(workspaceKey: String, sessionId: String, path: String, offset: Int = 1, limit: Int = PREVIEW_PAGE_LINES) {

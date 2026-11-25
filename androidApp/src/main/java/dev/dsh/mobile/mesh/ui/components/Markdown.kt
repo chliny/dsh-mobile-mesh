@@ -202,6 +202,9 @@ fun MarkdownText(
     // An inline image that cannot be read must fall back to its caption instead of reserving a
     // blank image slot; the annotator below swaps in the alt text once the load reports failure.
     val unavailableImages = remember { mutableStateMapOf<String, Boolean>() }
+    // A failed read is usually a connection that was not ready yet; a new resolver means a new
+    // connection phase, and those images deserve another attempt instead of a permanent caption.
+    LaunchedEffect(imageResolver) { unavailableImages.clear() }
     val imageTransformer = remember(imageResolver, imageCacheScope, unavailableImages) {
         MarkdownImageTransformer(imageResolver, imageCacheScope) { source ->
             if (source !in unavailableImages) unavailableImages[source] = true
