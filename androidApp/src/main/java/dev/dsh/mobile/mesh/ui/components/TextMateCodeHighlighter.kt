@@ -166,7 +166,15 @@ internal fun textMateGrammarAssetForScope(scope: String): String? = when (scope)
     else -> null
 }
 
-/** A single-file TextMate tokenizer: incremental line state, bounded styled-result cache. */
+/**
+ * A TextMate tokenizer: incremental line state and a bounded styled-result cache.
+ *
+ * One instance can be shared by several documents — a tool card parses one grammar for its command
+ * and every output block — so all caches and parse states are kept per document. They cannot be
+ * keyed by line index alone: the command and its output start at the same index, and a shared cache
+ * would make the output's first line render the command's first line instead (and vice versa).
+ * Documents are identified by the [chunks] list instance the caller passes.
+ */
 internal class TextMateCodeHighlighter(
     grammarStream: InputStream,
     themeStream: InputStream,
@@ -185,43 +193,66 @@ internal class TextMateCodeHighlighter(
             }
         }
     }
-    private val endStates = ArrayList<StateStack?>()
-    private val diffOldStates = ArrayList<StateStack?>()
-    private val diffNewStates = ArrayList<StateStack?>()
-    private val diffStyled = object : LinkedHashMap<Int, AnnotatedString>(32, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, AnnotatedString>): Boolean = size > 24
+
+    /** One document's parse state and styled-line cache. */
+    private class DocumentState {
+        val endStates = ArrayList<StateStack?>()
+        val diffOldStates = ArrayList<StateStack?>()
+        val diffNewStates = ArrayList<StateStack?>()
+        val diffStyled = object : LinkedHashMap<Int, AnnotatedString>(32, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, AnnotatedString>): Boolean = size > 24
+        }
+        val styled = object : LinkedHashMap<Int, AnnotatedString>(32, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, AnnotatedString>): Boolean = size > 24
+        }
     }
-    private val styled = object : LinkedHashMap<Int, AnnotatedString>(32, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, AnnotatedString>): Boolean = size > 24
+
+    /**
+     * Identity key for a document. Content equality must not merge two blocks: equal command and
+     * output lines would then share a parse state, which is exactly the confusion the per-document
+     * state exists to prevent. It also avoids hashing a potentially large line list on every call.
+     */
+    private class DocumentKey(private val chunks: List<String>) {
+        override fun hashCode(): Int = System.identityHashCode(chunks)
+        override fun equals(other: Any?): Boolean = other is DocumentKey && other.chunks === chunks
     }
+
+    /** A card usually has a command plus a few output blocks; older documents only cost a reparse. */
+    private val documents = object : LinkedHashMap<DocumentKey, DocumentState>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<DocumentKey, DocumentState>): Boolean = size > 8
+    }
+
+    private fun document(chunks: List<String>): DocumentState =
+        documents.getOrPut(DocumentKey(chunks)) { DocumentState() }
 
     /** Tokenizes only through the requested chunk; skipped chunks update state without retaining text styles. */
     @Synchronized
     fun highlight(chunks: List<String>, index: Int, resetAt: Set<Int> = emptySet()): AnnotatedString {
         require(index in chunks.indices)
         if (chunks[index].length > 16_384) return AnnotatedString(chunks[index])
-        styled[index]?.let { return it }
-        var next = endStates.size
+        val document = document(chunks)
+        document.styled[index]?.let { return it }
+        var next = document.endStates.size
         while (next <= index) {
             if (chunks[next].length > 16_384) {
-                endStates.add(null) // Unknown state: resume with a fresh grammar stack after this block.
+                document.endStates.add(null) // Unknown state: resume with a fresh grammar stack after this block.
                 if (next == index) return AnnotatedString(chunks[index])
                 next++
                 continue
             }
-            val state = if (next in resetAt) null else endStates.lastOrNull()
+            val state = if (next in resetAt) null else document.endStates.lastOrNull()
             val (rendered, endState) = tokenize(chunks[next], state, next == index)
-            endStates.add(endState)
+            document.endStates.add(endState)
             if (next == index) {
-                styled[index] = rendered
+                document.styled[index] = rendered
                 return rendered
             }
             next++
         }
         // A visible row whose styled result was evicted starts from the checkpoint before it.
-        val previous = if (index in resetAt) null else endStates.getOrNull(index - 1)
+        val previous = if (index in resetAt) null else document.endStates.getOrNull(index - 1)
         val rendered = tokenize(chunks[index], previous, true).first
-        styled[index] = rendered
+        document.styled[index] = rendered
         return rendered
     }
 
@@ -230,24 +261,25 @@ internal class TextMateCodeHighlighter(
     fun highlightDiff(chunks: List<String>, markers: List<Char>, index: Int, resetAt: Set<Int> = emptySet()): AnnotatedString {
         require(chunks.size == markers.size && index in chunks.indices)
         if (chunks[index].length > 16_384) return AnnotatedString(chunks[index])
-        diffStyled[index]?.let { return it }
-        var next = diffOldStates.size
+        val document = document(chunks)
+        document.diffStyled[index]?.let { return it }
+        var next = document.diffOldStates.size
         while (next <= index) {
-            val old = if (next in resetAt) null else diffOldStates.lastOrNull()
-            val new = if (next in resetAt) null else diffNewStates.lastOrNull()
+            val old = if (next in resetAt) null else document.diffOldStates.lastOrNull()
+            val new = if (next in resetAt) null else document.diffNewStates.lastOrNull()
             val (rendered, oldEnd, newEnd) = tokenizeDiffLine(chunks[next], markers[next], old, new, next == index)
-            diffOldStates += oldEnd
-            diffNewStates += newEnd
+            document.diffOldStates += oldEnd
+            document.diffNewStates += newEnd
             if (next == index) {
-                if (chunks[next].length <= 16_384) diffStyled[index] = rendered
+                if (chunks[next].length <= 16_384) document.diffStyled[index] = rendered
                 return rendered
             }
             next++
         }
-        val old = if (index in resetAt) null else diffOldStates.getOrNull(index - 1)
-        val new = if (index in resetAt) null else diffNewStates.getOrNull(index - 1)
+        val old = if (index in resetAt) null else document.diffOldStates.getOrNull(index - 1)
+        val new = if (index in resetAt) null else document.diffNewStates.getOrNull(index - 1)
         val rendered = tokenizeDiffLine(chunks[index], markers[index], old, new, true).first
-        diffStyled[index] = rendered
+        document.diffStyled[index] = rendered
         return rendered
     }
 

@@ -168,6 +168,33 @@ class TextMateCodeHighlighterTest {
         assertTrue("Unrelated grammar loaded", "source.ruby" !in loaded)
     }
 
+    @Test fun `one highlighter keeps a shared card's command and output apart`() {
+        // A terminal card parses one grammar for its command box and every output block. The two
+        // documents start their line indices at zero, so a cache keyed by index alone made the
+        // output repeat the command's lines (and the command borrow output lines).
+        val tokenizer = highlighter("textmate-shellscript.tmLanguage.json")
+        val command = listOf(
+            "echo \"=== address ===\"; hostname -I",
+            "echo",
+            "echo \"=== listener ===\"",
+        )
+        val output = listOf(
+            "=== address ===",
+            "192.0.2.10",
+            "=== listener ===",
+        )
+
+        command.indices.forEach { index ->
+            assertEquals("command line $index", command[index], tokenizer.highlight(command, index).text)
+        }
+        output.indices.forEach { index ->
+            assertEquals("output line $index", output[index], tokenizer.highlight(output, index).text)
+        }
+        command.indices.forEach { index ->
+            assertEquals("command line $index after output", command[index], tokenizer.highlight(command, index).text)
+        }
+    }
+
     @Test fun `colors Kotlin keywords while retaining multiline string state across chunks`() {
         val chunks = listOf("val a = \"\"\"sealed\n", "interface\"\"\"\nsealed interface Result\n")
         val rendered = highlighter().highlight(chunks, 1)
