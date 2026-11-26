@@ -6,10 +6,10 @@ html,body{height:100%;width:100%;margin:0;background:#10141d;overflow:hidden}
 /* Let Android WebView hit-test xterm's DOM mirror as real text for native long-press selection. */
 .xterm .xterm-accessibility:not(.debug){pointer-events:auto}
 .xterm .xterm-accessibility-tree:not(.debug),.xterm .xterm-accessibility-tree:not(.debug) *{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
-.xterm .xterm-accessibility-tree:not(.debug) *::selection{color:#fff;background:#3569a8}
+.xterm .xterm-accessibility-tree:not(.debug) *::selection{color:transparent;background:transparent}
 </style></head><body><div id="terminal"></div><script src="xterm.js"></script><script src="addon-fit.js"></script><script src="touch-scroll.js"></script><script src="ime-bridge.js"></script><script>
 'use strict';
-const term = new Terminal({cursorBlink:true,screenReaderMode:true,allowTransparency:false,scrollback:1000,convertEol:false,fontFamily:'monospace, "Noto Color Emoji"',fontSize:14,theme:{background:'#10141d',foreground:'#e6eaf1',cursor:'#f8f8f2'}});
+const term = new Terminal({cursorBlink:true,screenReaderMode:true,allowTransparency:false,scrollback:1000,convertEol:false,fontFamily:'monospace, "Noto Color Emoji"',fontSize:14,theme:{background:'#10141d',foreground:'#e6eaf1',cursor:'#f8f8f2',selectionBackground:'#3569a8',selectionInactiveBackground:'#3569a8'}});
 const fitAddon=new FitAddon.FitAddon();term.loadAddon(fitAddon);
 term.open(document.getElementById('terminal'));
 // xterm handles contextmenu by focusing its hidden input, which clears WebView's DOM range.
