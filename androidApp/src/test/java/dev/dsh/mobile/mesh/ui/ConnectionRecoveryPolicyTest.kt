@@ -1,6 +1,7 @@
 package dev.dsh.mobile.mesh.ui
 
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
+import dev.dsh.mobile.mesh.ui.screens.connect.ConnectFailure
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -103,5 +104,25 @@ class ConnectionRecoveryPolicyTest {
         assertTrue(shouldRearmConnectionRecoveryOverlay(hasConnected = true, recoveryInFlight = true))
         assertFalse(shouldRearmConnectionRecoveryOverlay(hasConnected = false, recoveryInFlight = true))
         assertTrue(shouldShowConnectionRecoveryOverlay(true, ConnectionPhase.RECONNECTING, true))
+    }
+
+    @Test
+    fun `an expired login during recovery hands the screen to the connection list`() {
+        // The scrim consumes input and owns neither the failure block nor the token prompt, so a
+        // 401 during recovery would leave the retry loop spinning with no way to sign in again.
+        assertTrue(shouldShowConnectionListForRecoveryLogin(
+            recoveryOverlayVisible = true,
+            failure = ConnectFailure.Unauthenticated,
+        ))
+        // Failures that the list cannot fix either must not yank the user off the covered page.
+        assertFalse(shouldShowConnectionListForRecoveryLogin(
+            recoveryOverlayVisible = true,
+            failure = ConnectFailure.Timeout,
+        ))
+        // Without the scrim there is no dead end to escape.
+        assertFalse(shouldShowConnectionListForRecoveryLogin(
+            recoveryOverlayVisible = false,
+            failure = ConnectFailure.Unauthenticated,
+        ))
     }
 }

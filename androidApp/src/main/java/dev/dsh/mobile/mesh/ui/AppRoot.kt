@@ -372,6 +372,17 @@ fun AppRoot(viewModel: AppViewModel = hiltViewModel()) {
             recoveryOverlayVisible = connection.recoveryOverlayVisible,
             showingConnectionList = showingConnectionList,
         )
+        // An expired harness session surfaces as a 401 during recovery, but the failure block that
+        // offers "Sign in" and the launch-token prompt live on the connection list alone. Behind the
+        // scrim there is no way to enter a token while the loop keeps retrying, so hand the screen
+        // to the list exactly as Back does; the attempt stays owned by the list.
+        val recoveryNeedsSignIn = shouldShowConnectionListForRecoveryLogin(
+            recoveryOverlayVisible = recoveryOverlayVisible,
+            failure = connectUiState.failure,
+        )
+        LaunchedEffect(recoveryNeedsSignIn) {
+            if (recoveryNeedsSignIn) showConnections = true
+        }
         ConnectionRecoveryScrim(
             visible = recoveryOverlayVisible,
             // Re-registers the Back handler when the page behind the scrim changes; see the scrim.

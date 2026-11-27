@@ -1,6 +1,7 @@
 package dev.dsh.mobile.mesh.ui
 
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
+import dev.dsh.mobile.mesh.ui.screens.connect.ConnectFailure
 
 internal fun shouldShowConnectionRecoveryOverlay(
     hasConnected: Boolean,
@@ -34,3 +35,19 @@ internal fun isConnectionRecoveryInFlight(
     phase == ConnectionPhase.RECONNECTING ||
     foregroundCheckPending ||
     recoveryOverlayVisible
+
+/**
+ * Whether a recovery attempt has to hand the screen to the connection list because it needs a
+ * login the scrim cannot offer.
+ *
+ * A cookie that expires mid-recovery makes the readiness handshake answer 401, which the manager
+ * reports as [ConnectFailure.Unauthenticated]. Both things that can resolve it — the failure block
+ * with its Sign in action and the launch-token prompt — are owned by the connection list, while the
+ * scrim covers every other page and consumes input. The retry loop keeps retrying on its own, so
+ * without this the app would spin behind an opaque spinner with no way to enter a token. This is
+ * the same navigation as Back during the scrim; the attempt stays owned by the list.
+ */
+internal fun shouldShowConnectionListForRecoveryLogin(
+    recoveryOverlayVisible: Boolean,
+    failure: ConnectFailure?,
+): Boolean = recoveryOverlayVisible && failure is ConnectFailure.Unauthenticated
