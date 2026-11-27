@@ -1,6 +1,8 @@
 package dev.dsh.mobile.mesh.core.wire
 
 import java.io.IOException
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -9,8 +11,14 @@ import okhttp3.Request
 
 /** What a launch-token exchange produced, or why it did not. */
 sealed class SessionExchange {
-    /** The `Cookie` header value to send on every later request to this authority. */
-    data class Granted(val cookie: String) : SessionExchange()
+    /**
+     * The `Cookie` header value to send on every later request to this authority.
+     *
+     * [expiresAtMillis] is the absolute expiry the harness declared on the same response. Hosts
+     * issue the cookie with an absolute lifetime and never roll it on later API traffic, so this
+     * is the only moment the client learns when it must exchange the launch token again.
+     */
+    data class Granted(val cookie: String, val expiresAtMillis: Long? = null) : SessionExchange()
 
     /**
      * The harness answered but issued no session.
@@ -34,8 +42,10 @@ sealed class SessionExchange {
  * `Authorization` header, so there is no alternative to this exchange and no way to fold it into
  * an ordinary call.
  *
- * Nothing here retries. A refusal means the token is not current, and asking again with the same
- * one produces the same answer.
+ * The same token can be exchanged again for as long as its harness process runs, which is what
+ * makes a silent renewal possible: a second exchange mints a new cookie with a fresh absolute
+ * lifetime. Nothing here retries. A refusal means the token is not current, and asking again with
+ * the same one produces the same answer.
  */
 object HarnessSession {
 
@@ -68,16 +78,56 @@ object HarnessSession {
         }.build()
         try {
             exchanger.newCall(request).execute().use { response ->
-                val cookie = response.headers("Set-Cookie")
-                    .firstOrNull { it.startsWith(COOKIE_PREFIX) }
+                // A minting response can also carry deletion cookies for other authorities; only
+                // the header naming a value is the granted session.
+                val granted = response.headers("Set-Cookie").firstOrNull { header ->
+                    header.startsWith(COOKIE_PREFIX) &&
+                        header.substringBefore(';').substringAfter('=', "").isNotEmpty()
+                }
+                if (granted == null) return@use SessionExchange.Refused(response.code)
+                val now = System.currentTimeMillis()
+                SessionExchange.Granted(
                     // Only the name=value pair travels back; `Path`, `HttpOnly` and `SameSite`
                     // are instructions to a browser, and repeating them on a request would be
                     // sending the server its own directives.
-                    ?.substringBefore(';')
-                if (cookie != null) SessionExchange.Granted(cookie) else SessionExchange.Refused(response.code)
+                    cookie = granted.substringBefore(';'),
+                    expiresAtMillis = sessionCookieExpiryMillis(granted, now),
+                )
             }
         } catch (e: IOException) {
             SessionExchange.Unreachable(TransportFailures.classify(e), e.message)
+        }
+    }
+
+    /**
+     * Absolute expiry declared by one granted `Set-Cookie`, or null when it declares none.
+     *
+     * `Max-Age` wins over `Expires`: it is the harness's own countdown and needs no date parsing.
+     * Older hosts may declare only `Expires`; a host that declares neither still works, it just
+     * cannot be refreshed proactively.
+     */
+    internal fun sessionCookieExpiryMillis(setCookie: String, nowMillis: Long): Long? {
+        var maxAgeSeconds: Long? = null
+        var expires: String? = null
+        for (attribute in setCookie.split(';').drop(1)) {
+            val at = attribute.indexOf('=')
+            if (at < 0) continue
+            val name = attribute.substring(0, at).trim()
+            val value = attribute.substring(at + 1).trim()
+            when {
+                name.equals("Max-Age", ignoreCase = true) -> maxAgeSeconds = value.toLongOrNull()
+                name.equals("Expires", ignoreCase = true) -> expires = value
+            }
+        }
+        maxAgeSeconds?.let { seconds ->
+            if (seconds <= 0L) return nowMillis
+            val bounded = seconds.coerceAtMost(Long.MAX_VALUE / 1000L) * 1000L
+            return if (bounded > Long.MAX_VALUE - nowMillis) null else nowMillis + bounded
+        }
+        return expires?.let { date ->
+            runCatching {
+                ZonedDateTime.parse(date, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli()
+            }.getOrNull()
         }
     }
 

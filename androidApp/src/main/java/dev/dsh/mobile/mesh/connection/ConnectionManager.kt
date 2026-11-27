@@ -23,6 +23,7 @@ import dev.dsh.mobile.mesh.ui.shouldRearmConnectionRecoveryOverlay
 import dev.dsh.mobile.mesh.core.wire.HostGeneration
 import dev.dsh.mobile.mesh.core.wire.RemoteStreamMux
 import dev.dsh.mobile.mesh.core.wire.dto.RemoteEventFrame
+import dev.dsh.mobile.mesh.core.wire.SessionExchange
 import dev.dsh.mobile.mesh.core.wire.TransportFailure
 import dev.dsh.mobile.mesh.core.wire.TransportFailures
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -43,6 +44,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -110,6 +112,7 @@ class ConnectionManager @Inject constructor(
     private val hostsStore: HostsStore,
     private val meshTransport: MeshTransportManager,
     private val sshTunnel: SshTunnelManager,
+    private val sessions: HarnessSessionStore,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
@@ -337,6 +340,23 @@ class ConnectionManager @Inject constructor(
     private var suspendedTransportReady: (suspend (String) -> Unit)? = null
     @Volatile private var suspendedForBackground = false
     private val backgroundSuspendInProgress = AtomicBoolean(false)
+    /** One silent launch-token exchange per recovery episode; a repeated 401 means it did not help. */
+    private val silentSessionRenewalClaimed = AtomicBoolean(false)
+    /** Every 401 while this is set belongs to the exchange already running; do not publish it. */
+    @Volatile private var silentSessionRenewalInFlight = false
+    /** Serializes silent exchanges so a foreground refresh and a recovery repair cannot race. */
+    private val sessionRenewalMutex = Mutex()
+    @Volatile private var sessionRefreshJob: Job? = null
+    /** Host whose stored launch token the last proactive exchange refused; retrying it is pointless. */
+    @Volatile private var sessionRefreshBlockedHostId: String? = null
+    private val _sessionTokenStale = MutableStateFlow(false)
+    /**
+     * The active connection still works, but the harness refused its stored launch token.
+     *
+     * The cookie will expire eventually and only a new token can renew it, so the connection list
+     * offers the token prompt while the user still has time to replace it.
+     */
+    val sessionTokenStale: StateFlow<Boolean> = _sessionTokenStale.asStateFlow()
 
     init {
         // SSHJ only exposes a forwarder's terminal event by returning from listen(). Turn that into
@@ -354,6 +374,15 @@ class ConnectionManager @Inject constructor(
         // self-describing snapshot so the next export says what was still pending and on which
         // network, instead of only that the spinner was up.
         scope.launch { recoveryWatchdog() }
+        scope.launch {
+            // A published connection ends the recovery episode; the next outage may renew again.
+            var connected = false
+            _state.collect { state ->
+                val nowConnected = state.phase == ConnectionPhase.CONNECTED
+                if (nowConnected && !connected) silentSessionRenewalClaimed.set(false)
+                connected = nowConnected
+            }
+        }
         scope.launch {
             hostsStore.settings.collect { settings ->
                 keepConnectedInBackground = settings.keepConnectedInBackground
@@ -620,8 +649,15 @@ class ConnectionManager @Inject constructor(
                     " foreground=$appInForeground retained=$keepConnectedInBackground" +
                     " recoveryInFlight=${synchronized(recoveryLock) { transportRecoveryInFlight }}",
             )
+            val diagnosed = ConnectFailure.from(failure)
+            // A 401 from an established host is almost always its absolute cookie lifetime running
+            // out. Exchange the stored launch token once, silently, so the next generation carries
+            // a fresh cookie instead of sending the user to the connection list for a token they
+            // already supplied. The failure stays off the screen unless that exchange also fails,
+            // and while it is in flight: the loop keeps reporting 401s until the cookie is renewed.
+            val deferred = deferFailureForSilentSessionRenewal(diagnosed)
             _state.value = _state.value.copy(
-                failure = ConnectFailure.from(failure),
+                failure = if (deferred) _state.value.failure else diagnosed,
                 attempts = attempt,
             )
             // A loop-level mux retry cannot revive a stale ZeroTier/SSH relay. Renew the physical
@@ -675,6 +711,206 @@ class ConnectionManager @Inject constructor(
     fun pairingBaseUrl(config: HostConfig): String =
         activeBaseUrl.takeIf { activeHost?.id == config.id } ?: config.baseUrl
 
+    private fun markSessionTokenStale(stale: Boolean) {
+        if (_sessionTokenStale.value != stale) _sessionTokenStale.value = stale
+    }
+
+    /**
+     * Start the one silent exchange a recovery episode gets, when it can actually help.
+     *
+     * Returns true for every 401 that renewal covers: the exchange needs an established connection
+     * (an initial connect owns its own prompt), a stored launch token, and the live transport's
+     * base URL — an SSH or private-network host is only reachable through that relay, never
+     * through the configured public address.
+     */
+    private fun deferFailureForSilentSessionRenewal(failure: ConnectFailure): Boolean {
+        if (failure !is ConnectFailure.Unauthenticated) return false
+        if (silentSessionRenewalInFlight) return true
+        val host = activeHost ?: return false
+        if (!_state.value.hasConnected) return false
+        if (host.launchToken.isBlank()) return false
+        if (activeBaseUrl == null) return false
+        if (!silentSessionRenewalClaimed.compareAndSet(false, true)) return false
+        silentSessionRenewalInFlight = true
+        scope.launch {
+            try {
+                renewRecoverySessionSilently(host, failure)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                // A failed rebuild must not take the process down; the next 401 publishes the
+                // failure once the claim is spent and the connection list owns the prompt.
+                Log.w("ConnectionManager", "Silent harness session renewal could not complete", error)
+            } finally {
+                silentSessionRenewalInFlight = false
+            }
+        }
+        return true
+    }
+
+    /**
+     * Re-mint the browser session from the stored launch token and rebuild the recovery around it.
+     *
+     * A granted exchange replaces the stored cookie and starts a fresh operation, so its mux, unary
+     * client and file route are all rebuilt against the new credential. A refusal or timeout
+     * publishes the original failure, which is what owns the connection list's token prompt.
+     */
+    private suspend fun renewRecoverySessionSilently(host: HostConfig, failure: ConnectFailure) {
+        val baseUrl = activeBaseUrl
+        val outcome = if (baseUrl == null) {
+            SessionExchange.Unreachable(TransportFailure.OTHER, "transport retired")
+        } else {
+            sessionRenewalMutex.withLock {
+                sessions.pair(host, baseUrl, host.launchToken, host.harnessAuthority)
+            }
+        }
+        if (outcome is SessionExchange.Granted) {
+            markSessionTokenStale(false)
+            Log.i("ConnectionManager", "Renewed harness session from the stored launch token; rebuilding the operation")
+            restartOperationAfterSessionRenewal(host)
+            return
+        }
+        Log.w("ConnectionManager", "Silent harness session renewal did not succeed: $outcome")
+        synchronized(lifecycleTransitionLock) {
+            val current = _state.value
+            if (current.host?.id == host.id && current.hasConnected &&
+                current.phase != ConnectionPhase.CONNECTED
+            ) {
+                _state.value = current.copy(failure = failure)
+            }
+        }
+    }
+
+    /**
+     * Rebuild the operation around the cookie just renewed.
+     *
+     * A generation's mux reads the cookie per attempt, but the operation's unary client and file
+     * route captured the expired one when its transport came up. Only a fresh operation rebuilds
+     * every one of them, so the recovery cannot publish a connection whose API surface still
+     * answers 401. Mirrors the recovery entry point without its "operation in flight" refusal:
+     * the operation that just answered 401 is exactly the one this replacement must retire.
+     */
+    private fun restartOperationAfterSessionRenewal(host: HostConfig) {
+        synchronized(operationLock) {
+            // A user switch mid-exchange owns the next operation; renewing does not give this
+            // attempt the right to replace it.
+            if (activeHost?.id != host.id) {
+                trace("session-renewal-restart-skipped", "reason=host-changed host=${host.id}")
+                return
+            }
+            val target = synchronized(recoveryLock) {
+                if (transportRecoveryInFlight) {
+                    null
+                } else {
+                    lifecycle.retryToken()?.also { transportRecoveryInFlight = true }
+                }
+            } ?: return
+            trace("session-renewal-restart", "target=${target.token} network=${connectivity.activeNetwork}")
+            try {
+                replaceOperation(target, reconnect = true, recoveryOperation = true)
+            } catch (error: Throwable) {
+                synchronized(recoveryLock) { transportRecoveryInFlight = false }
+                throw error
+            }
+        }
+    }
+
+    /**
+     * Keep a foreground connection's cookie fresh ahead of its absolute expiry.
+     *
+     * The harness never rolls the cookie on ordinary API traffic, so its `Max-Age` is the whole
+     * lifetime: once it passes, every call 401s until the launch token is exchanged again. The
+     * deadline is stored at 75% of that lifetime, leaving a quarter for a failed refresh to be
+     * retried — or for the reactive 401 repair — without an outage. Runs only while the app is in
+     * the foreground, the way the connection itself is kept alive there.
+     */
+    private fun ensureSessionRefreshLoop() {
+        if (sessionRefreshJob?.isActive == true) return
+        sessionRefreshJob = scope.launch {
+            while (isActive) {
+                refreshSessionIfDue()
+                delay(SESSION_REFRESH_POLL_MS)
+            }
+        }
+    }
+
+    /**
+     * Renew the cookie before a reconnect builds its clients, when the stored deadline is due.
+     *
+     * This is the path that removes the "resume and the cookie just expired" window: the recovery
+     * that starts on resume exchanges the token first, so its mux, unary client and file route are
+     * all built with a fresh credential instead of answering 401.
+     */
+    private suspend fun renewSessionBeforeHandshakeIfDue(config: HostConfig, baseUrl: String) {
+        if (config.launchToken.isBlank()) return
+        if (sessionRefreshBlockedHostId == config.id) return
+        val deadline = sessions.refreshAt(config) ?: return
+        if (System.currentTimeMillis() < deadline) return
+        when (val outcome = sessionRenewalMutex.withLock {
+            sessions.pair(config, baseUrl, config.launchToken, config.harnessAuthority)
+        }) {
+            is SessionExchange.Granted -> {
+                markSessionTokenStale(false)
+                Log.i("ConnectionManager", "Renewed harness session before the reconnect handshake")
+            }
+            is SessionExchange.Refused -> {
+                // Only the host's own 401 says the launch token rotated. A proxy error page or a
+                // restarting listener answers without a cookie too, and must not be mistaken for a
+                // replacement prompt or stop later attempts.
+                if (outcome.status == 401) {
+                    // A stale launch token cannot be fixed here; the existing cookie may still be
+                    // valid, so keep the connection and let the list offer the replacement prompt.
+                    sessionRefreshBlockedHostId = config.id
+                    markSessionTokenStale(true)
+                    Log.w("ConnectionManager", "Harness session renewal refused before the handshake")
+                } else {
+                    Log.w(
+                        "ConnectionManager",
+                        "Harness session renewal answered ${outcome.status} before the handshake; keeping the stored token",
+                    )
+                }
+            }
+            is SessionExchange.Unreachable ->
+                Log.w("ConnectionManager", "Harness session renewal unreachable before the handshake: ${outcome.message}")
+        }
+    }
+
+    private suspend fun refreshSessionIfDue() {
+        if (!appInForeground) return
+        val host = activeHost ?: return
+        if (_state.value.phase != ConnectionPhase.CONNECTED) return
+        if (host.launchToken.isBlank()) return
+        if (sessionRefreshBlockedHostId == host.id) return
+        val deadline = sessions.refreshAt(host) ?: return
+        if (System.currentTimeMillis() < deadline) return
+        val baseUrl = activeBaseUrl ?: return
+        when (val outcome = sessionRenewalMutex.withLock {
+            sessions.pair(host, baseUrl, host.launchToken, host.harnessAuthority)
+        }) {
+            is SessionExchange.Granted -> {
+                markSessionTokenStale(false)
+                Log.i("ConnectionManager", "Refreshed harness session before expiry")
+            }
+            is SessionExchange.Refused -> {
+                if (outcome.status == 401) {
+                    // The launch token rotates with its harness process. Only a new token the user
+                    // supplies can renew this host, so stop burning exchanges until one arrives,
+                    // and surface the prompt while the current cookie still works.
+                    sessionRefreshBlockedHostId = host.id
+                    markSessionTokenStale(true)
+                    Log.w("ConnectionManager", "Harness session refresh refused; waiting for a new launch token")
+                } else {
+                    Log.w(
+                        "ConnectionManager",
+                        "Harness session refresh answered ${outcome.status}; keeping the stored token",
+                    )
+                }
+            }
+            is SessionExchange.Unreachable ->
+                Log.w("ConnectionManager", "Harness session refresh unreachable: ${outcome.message}")
+        }
+    }
+
     /**
      * Start driving [config]. Progress and failure arrive through [state], not a callback.
      *
@@ -691,6 +927,11 @@ class ConnectionManager @Inject constructor(
         // Callers may still hold the HostConfig from before the last successful probe.
         // Start each new intent with the latest persisted result for this exact endpoint.
         val currentConfig = config.copy(lastProtocol = hostsStore.protocolFor(config))
+        // A fresh intent is a new recovery episode, and a user-supplied token must be allowed to
+        // unblock a host whose previous token the proactive exchange refused.
+        silentSessionRenewalClaimed.set(false)
+        sessionRefreshBlockedHostId = null
+        markSessionTokenStale(false)
         trace("connect-requested", "host=${currentConfig.host}:${currentConfig.port} scheme=${currentConfig.meshTransport}")
         synchronized(operationLock) {
             activeProtocol.value = null
@@ -1060,6 +1301,13 @@ class ConnectionManager @Inject constructor(
                 carrierRecoverySucceededPendingHandover = true
             }
             activeBaseUrl = baseUrl
+            // The operation's unary client and file route capture the cookie as they are built, and
+            // the readiness handshake needs the same one. Renew ahead of both when the absolute
+            // lifetime is nearly spent; the callback below owns pairing for explicit attempts, so
+            // leave that path untouched.
+            if (!shouldRunTransportReadyCallback(reconnect, preservePendingIdentity)) {
+                renewSessionBeforeHandshakeIfDue(config, baseUrl)
+            }
             activeFileApi = runCatching { clientFactory.fileApiFor(config, baseUrl) }
                 .onFailure { Log.w("ConnectionManager", "Failed to build the Host file route client", it) }
                 .getOrNull()
@@ -1275,6 +1523,8 @@ class ConnectionManager @Inject constructor(
     }
 
     fun disconnect() {
+        silentSessionRenewalClaimed.set(false)
+        markSessionTokenStale(false)
         trace(
             "disconnect-requested",
             "host=${activeHost?.host}:${activeHost?.port} phase=${_state.value.phase} generation=${generation?.clientId}",
@@ -1725,6 +1975,9 @@ class ConnectionManager @Inject constructor(
      * immediately rebuild the stale relay path. The cooldown absorbs duplicate activity resumes.
      */
     fun recoverForForeground(forceCheck: Boolean = false) {
+        // A refresh that was due while backgrounded runs on this resume, using the transport the
+        // resume is about to verify (or retain).
+        ensureSessionRefreshLoop()
         trace(
             "foreground-resume-requested",
             "forceCheck=$forceCheck foreground=$appInForeground retained=$keepConnectedInBackground" +
@@ -2266,6 +2519,8 @@ class ConnectionManager @Inject constructor(
 
     /** Mark carrier callbacks as backgrounded; foreground recovery is resumed explicitly on resume. */
     fun onAppBackgrounded() {
+        sessionRefreshJob?.cancel()
+        sessionRefreshJob = null
         trace(
             "background-requested",
             "foreground=$appInForeground retained=$keepConnectedInBackground phase=${_state.value.phase}" +
@@ -2564,6 +2819,8 @@ class ConnectionManager @Inject constructor(
         const val FOREGROUND_RECOVERY_TRANSPORT_TIMEOUT_MS = 10_000L
         /** An operation older than this cannot be explained by its own bounded waits. */
         const val OPERATION_STALL_SUSPECT_MS = 60_000L
+        /** A due cookie refresh is checked by this foreground poll; the deadline itself is exact. */
+        const val SESSION_REFRESH_POLL_MS = 10 * 60 * 1000L
         const val AUTHORIZATION_RESUME_TIMEOUT_MS = ConnectionTimeoutPolicy.authorizationResumeMs
         const val TRANSPORT_READY_CALLBACK_TIMEOUT_MS = ConnectionTimeoutPolicy.transportReadyCallbackMs
     }

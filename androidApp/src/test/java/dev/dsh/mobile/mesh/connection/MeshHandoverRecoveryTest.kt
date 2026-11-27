@@ -97,12 +97,14 @@ class MeshHandoverRecoveryTest {
         Mockito.doAnswer { relay() }.`when`(zeroTier).renewRelay(Mockito.any(HostConfig::class.java) ?: matchConfig)
 
         val callbacksBefore = shadowConnectivity.networkCallbacks.toSet()
+        val sessions = HarnessSessionStore(prefs, http)
         val manager = ConnectionManager(
             context,
-            HarnessClientFactory(http, HarnessSessionStore(prefs, http)),
+            HarnessClientFactory(http, sessions),
             hosts,
             MeshTransportManager(zeroTier, tailscale),
             SshTunnelManager(context, Mockito.mock(SshSecretStore::class.java)),
+            sessions,
         )
         val managerCallbacks = shadowConnectivity.networkCallbacks - callbacksBefore
         val callback = managerCallbacks.single()

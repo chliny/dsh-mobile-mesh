@@ -389,13 +389,14 @@ class ConnectionManagerBackgroundRecoveryTest {
         hosts.setSetting { it.copy(keepConnectedInBackground = true) }
         onStoreReady(prefs)
         val http = OkHttpClient()
-        val clientFactory = HarnessClientFactory(http, HarnessSessionStore(prefs, http))
+        val sessions = HarnessSessionStore(prefs, http)
+        val clientFactory = HarnessClientFactory(http, sessions)
         val zeroTier = Mockito.mock(ZeroTierConnector::class.java)
         val tailscale = Mockito.mock(TailscaleConnector::class.java)
         val mesh = MeshTransportManager(zeroTier, tailscale)
         val ssh = SshTunnelManager(context, Mockito.mock(SshSecretStore::class.java))
         val callbacksBefore = shadowConnectivity.networkCallbacks.toSet()
-        val manager = ConnectionManager(context, clientFactory, hosts, mesh, ssh)
+        val manager = ConnectionManager(context, clientFactory, hosts, mesh, ssh, sessions)
         val managerCallbacks = shadowConnectivity.networkCallbacks - callbacksBefore
         onManagerCallbacks(managerCallbacks)
         val harness = MockHarness()

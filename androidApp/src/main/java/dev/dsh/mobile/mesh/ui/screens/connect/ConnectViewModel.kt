@@ -93,6 +93,13 @@ data class ConnectUiState(
     val attempted: String? = null,
     /** The loop is still retrying in the background, so a cancel is worth offering. */
     val retrying: Boolean = false,
+    /**
+     * The active connection still works, but the harness refused its stored launch token.
+     *
+     * The browser session will expire and only a new token can renew it, so the connection list
+     * offers the token prompt while there is still time to replace it.
+     */
+    val sessionTokenStale: Boolean = false,
     /** The launch-token prompt is showing. */
     val signInOpen: Boolean = false,
     /** Remembered host currently requesting a token update, never inferred from a mutable address. */
@@ -293,6 +300,11 @@ class ConnectViewModel @Inject constructor(
                     tokenPairingJob?.isActive != true) {
                     pairLaunchToken(host, token!!)
                 }
+            }
+        }
+        viewModelScope.launch {
+            connectionManager.sessionTokenStale.collect { stale ->
+                _state.update { it.copy(sessionTokenStale = stale) }
             }
         }
     }

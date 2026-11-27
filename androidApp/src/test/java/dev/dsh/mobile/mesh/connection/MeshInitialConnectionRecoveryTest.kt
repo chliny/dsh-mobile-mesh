@@ -61,12 +61,14 @@ class MeshInitialConnectionRecoveryTest {
         val attempts = AtomicInteger()
         val zeroTier = Mockito.mock(ZeroTierConnector::class.java)
         val tailscale = Mockito.mock(TailscaleConnector::class.java)
+        val sessions = HarnessSessionStore(prefs, http)
         val manager = ConnectionManager(
             context,
-            HarnessClientFactory(http, HarnessSessionStore(prefs, http)),
+            HarnessClientFactory(http, sessions),
             hosts,
             MeshTransportManager(zeroTier, tailscale),
             SshTunnelManager(context, Mockito.mock(SshSecretStore::class.java)),
+            sessions,
         )
         try {
             Mockito.doAnswer {

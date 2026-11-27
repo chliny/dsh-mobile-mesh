@@ -174,6 +174,15 @@ fun ConnectionsScreen(
             // Connection progress is shown on the selected row. Keeping a second, page-level
             // progress panel here makes every connection look globally busy and duplicates the
             // spinner that identifies which host is actually being connected.
+            val activeConnectedHost = hosts.firstOrNull { it.id == connectedHostId }
+            if (connectionState.sessionTokenStale &&
+                connectionPhase == ConnectionPhase.CONNECTED &&
+                activeConnectedHost != null
+            ) {
+                // The cookie still works, but the harness rotated the token that renews it. Offer
+                // the replacement now rather than at the 401 that would otherwise sign the user out.
+                ConnectSessionTokenStaleBlock(onUpdateToken = { onUpdateToken(activeConnectedHost) })
+            }
             connectionState.authorizationPending?.let { message -> ConnectAuthorizationPendingBlock(message) }
             connectionState.failure?.let { failure ->
                 ConnectFailureBlock(

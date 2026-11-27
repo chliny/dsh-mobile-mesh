@@ -962,6 +962,43 @@ internal fun ConnectFailureBlock(
     }
 }
 
+/**
+ * The connection works, but its stored launch token is no longer the harness's current one.
+ *
+ * Renewing the session needs that token, so the cookie will expire without a replacement. The notice
+ * is shown while the connection is still up, so the user can replace the token now instead of being
+ * signed out when the session finally needs renewing.
+ */
+@Composable
+internal fun ConnectSessionTokenStaleBlock(onUpdateToken: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(DsSpacing.medium),
+            verticalArrangement = Arrangement.spacedBy(DsSpacing.xsmall),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StateDot(StateDotState.Warning, size = 8.dp)
+                Spacer(Modifier.width(DsSpacing.xsmall))
+                Text(
+                    stringResource(R.string.connect_session_token_stale),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = statusColors.warningText,
+                )
+            }
+            TextButton(onClick = onUpdateToken) {
+                Text(
+                    stringResource(R.string.connect_update_token),
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 internal fun ConnectAuthorizationPendingBlock(message: String) {
     Surface(

@@ -81,7 +81,7 @@
     <string name="connect_stage_verifying">正在验证 harness…</string>
     <string name="connect_stage_connected">已连接</string>
     <string name="connect_cancel">取消</string>
-    <string name="connect_update_token">更新 DSH Web Token</string>
+    <string name="connect_session_token_stale">harness 已重启，启动令牌已更换。请在当前会话到期前更新令牌。</string><string name="connect_update_token">更新 DSH Web Token</string>
     <string name="connect_fail_invalid">请输入电脑的 IP 地址，以及 1 到 65535 之间的端口。</string>
     <string name="connect_fail_subnet">%1$s 不在本机所在的网络上。本机在 %2$s — 请将两台设备连到同一路由器网络。访客 Wi-Fi 通常是隔离的，而扫描网络只会搜索 %2$s。</string>
     <string name="connect_fail_timeout">%1$s 没有任何响应。通常是电脑的防火墙拦截了端口 %2$d 的入站连接 — 允许后重试。部分路由器也会阻止 Wi-Fi 设备访问有线设备。</string>
