@@ -51,10 +51,14 @@ import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.ui.theme.DsSpacing
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -257,7 +261,14 @@ private fun GuardedDragBottomSheet(
                     shape = MaterialTheme.shapes.extraLarge,
                     color = MaterialTheme.colorScheme.surfaceContainerLow,
                 ) {
-                    SheetBody(title, subtitle, trailing, grabber = true, content = content)
+                    SheetBody(
+                        title,
+                        subtitle,
+                        trailing,
+                        grabber = true,
+                        onGrabberClick = currentClose.value,
+                        content = content,
+                    )
                 }
             }
         }
@@ -270,6 +281,7 @@ private fun SheetBody(
     subtitle: String?,
     trailing: (@Composable () -> Unit)?,
     grabber: Boolean,
+    onGrabberClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
@@ -281,7 +293,24 @@ private fun SheetBody(
         // A short grabber stands in for the platform drag handle so a draggable sheet still reads
         // as such without the default's heavy vertical padding.
         if (grabber) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            // The handle is also the sheet's close affordance: a tap on it must work even while the
+            // body is scrolled, when a downward drag deliberately belongs to the list instead.
+            val grabberActions = onGrabberClick?.let { close ->
+                // A tap target needs the extra height; a purely visual handle keeps the sheet tight.
+                Modifier
+                    .heightIn(min = 32.dp)
+                    .testTag("sheet_grabber")
+                    .clickable(
+                        onClickLabel = stringResource(R.string.common_close),
+                        role = Role.Button,
+                        onClick = close,
+                    )
+            } ?: Modifier
+            Row(
+                modifier = Modifier.fillMaxWidth().then(grabberActions),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Spacer(
                     Modifier
                         .fillMaxWidth(0.12f)

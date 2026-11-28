@@ -11,7 +11,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -122,5 +124,46 @@ class ModelsSheetGestureTest {
         // Past the drag threshold the sheet closes after its exit animation, hence the clock nudge.
         compose.mainClock.advanceTimeBy(400)
         compose.runOnIdle { assertTrue("Dragging down at the top did not dismiss the sheet", dismissed) }
+    }
+
+    @Test
+    fun tappingTheGrabberClosesTheSheetEvenWhenTheListIsScrolled() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val store = EntryPointAccessors.fromApplication(context, SessionStoreEntryPoint::class.java).sessionStore()
+        val models = SessionModelsValue(
+            current = ModelSelection(provider = "provider", model = "model-0"),
+            routable = true,
+            groups = listOf(
+                ModelProviderGroup(
+                    id = "provider",
+                    name = "Provider",
+                    models = (0 until 40).map { ModelCatalogModel(id = "model-$it", name = "Model $it") },
+                ),
+            ),
+        )
+        var dismissed = false
+        compose.setContent {
+            var open by androidx.compose.runtime.remember { mutableStateOf(true) }
+            DshTheme {
+                if (open) ModelsSheet(models, store) { dismissed = true; open = false }
+            }
+        }
+        val list = compose.onNode(hasScrollAction(), useUnmergedTree = true)
+        repeat(3) {
+            list.performTouchInput {
+                swipe(
+                    start = Offset(centerX, height * 0.8f),
+                    end = Offset(centerX, height * 0.2f),
+                    durationMillis = 600,
+                )
+            }
+        }
+        compose.runOnIdle { assertFalse("Scrolling dismissed the sheet", dismissed) }
+
+        // The handle is the sheet's tap-to-close affordance, and it must work while the list is
+        // scrolled away from its top (where a downward drag deliberately belongs to the list).
+        compose.onNodeWithTag("sheet_grabber").performClick()
+        compose.mainClock.advanceTimeBy(400)
+        compose.runOnIdle { assertTrue("Tapping the grabber did not close the sheet", dismissed) }
     }
 }
