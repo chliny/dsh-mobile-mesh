@@ -6,6 +6,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,12 +32,11 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PushPin
@@ -69,20 +70,30 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dsh.mobile.mesh.R
 import dev.dsh.mobile.mesh.connection.ConnectionPhase
@@ -188,13 +199,6 @@ internal fun workspaceTreeRows(
     return result
 }
 
-/** Anchor for moving one registry row by one position; null means append on the Host. */
-internal fun workspaceMoveAnchor(ids: List<String>, id: String, down: Boolean): String? {
-    val index = ids.indexOf(id)
-    if (index < 0 || (down && index == ids.lastIndex) || (!down && index == 0)) return null
-    return if (down) ids.getOrNull(index + 2) else ids[index - 1]
-}
-
 internal enum class SessionListEmptyState { LOADING, FAILED, EMPTY, NOT_EMPTY }
 
 internal fun sessionListEmptyState(
@@ -268,6 +272,9 @@ fun ChatListDrawer(
     var archivedFilter by remember { mutableStateOf(ArchivedSessionFilter.HIDE) }
     var newSessionOpen by remember { mutableStateOf(false) }
     var newWorkspaceOpen by remember { mutableStateOf(false) }
+    // Dragging workspace rows is a temporary mode with its own screen, not a persisted preference:
+    // leaving the drawer or tapping Done restores the ordinary grouped list untouched.
+    var workspaceSortMode by remember { mutableStateOf(false) }
     val workspaceOverrides = remember { mutableStateMapOf<String, Boolean>() }
     val childCollapsed = remember { mutableStateMapOf<String, Boolean>() }
     var workspaceMovePending by remember { mutableStateOf(false) }
@@ -321,7 +328,6 @@ fun ChatListDrawer(
     val pinnedSet = pinnedIds.toSet()
     // Empty workspaces remain actionable in the list (notably their New session shortcut).
     // Their order must also be movable before the first session is created.
-    val visibleWorkspaceIds = workspaces.map(WorkspaceRow::workspaceId)
     val pinnedRoots = pinnedRootIds(pinnedIds, listable.mapTo(HashSet()) { it.sessionId }, nestedIds)
         .mapNotNull(sessionsById::get)
     // Every session between the open one and the root, so a subtree holding it opens by default.
@@ -355,6 +361,37 @@ fun ChatListDrawer(
         return out
     }
 
+    /** The root sessions a workspace header counts and lists: no subagents, no pinned duplicates. */
+    fun rootsOf(workspace: WorkspaceRow): List<SessionRow> = workspace.sessionIds
+        .mapNotNull { id -> listable.firstOrNull { it.sessionId == id } }
+        .filterNot { it.sessionId in nestedIds || it.sessionId in pinnedSet }
+
+    val workspaceRootCounts = remember(workspaces, listable, nestedIds, pinnedSet) {
+        workspaces.associate { it.workspaceId to rootsOf(it).size }
+    }
+
+    /**
+     * Persist one drag result as a single `workspace/insertBefore`.
+     *
+     * Dropping in the last slot means append, which the wire expresses by omitting the anchor.
+     * The registry order is the only order dragging edits, so the rows are the registry rows.
+     */
+    fun moveWorkspace(from: Int, to: Int) {
+        if (workspaceMovePending) return
+        val ids = workspaces.map { it.workspaceId }
+        if (from !in ids.indices || to !in ids.indices || from == to) return
+        val moved = ids[from]
+        val next = ids.toMutableList().apply { add(to, removeAt(from)) }
+        workspaceMovePending = true
+        scope.launch {
+            try {
+                store.reorderWorkspace(moved, next.getOrNull(to + 1))
+            } finally {
+                workspaceMovePending = false
+            }
+        }
+    }
+
     if (schedulesOpen) {
         ScheduleScreen(
             onBack = { schedulesOpen = false },
@@ -380,7 +417,10 @@ fun ChatListDrawer(
                 title = {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            stringResource(R.string.chatlist_title),
+                            stringResource(
+                                if (workspaceSortMode) R.string.chatlist_sort_workspaces
+                                else R.string.chatlist_title,
+                            ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false),
@@ -390,50 +430,63 @@ fun ChatListDrawer(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = {
-                            searchOpen = !searchOpen
-                            if (!searchOpen) query = ""
-                        },
-                        // The tint is the only thing saying the field is open, so it doubles as the
-                        // state: accent while searching, neutral while closed.
-                        colors = IconButtonDefaults.iconButtonColors(
-                            contentColor = if (searchOpen) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
-                    ) {
-                        Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.common_search))
-                    }
-                    IconButton(onClick = { schedulesOpen = true }) {
-                        Icon(Icons.Filled.Schedule, contentDescription = stringResource(R.string.schedule_title))
-                    }
-                    Box {
-                        IconButton(onClick = { optionsMenuOpen = true }) {
-                            Icon(Icons.Filled.Tune, contentDescription = stringResource(R.string.chatlist_view_options))
+                    if (workspaceSortMode) {
+                        IconButton(onClick = { workspaceSortMode = false }) {
+                            Icon(Icons.Filled.Check, contentDescription = stringResource(R.string.common_done))
                         }
-                        ViewOptionsMenu(
-                            expanded = optionsMenuOpen,
-                            onDismiss = { optionsMenuOpen = false },
-                            grouping = grouping,
-                            byRecency = sortByRecency,
-                            archivedFilter = archivedFilter,
-                            onGroupingPick = { grouping = it },
-                            onSortPick = { next ->
-                                scope.launch { hostsStore.setSessionSort(if (next) SORT_UPDATED else SORT_MANUAL) }
+                    } else {
+                        IconButton(
+                            onClick = {
+                                searchOpen = !searchOpen
+                                if (!searchOpen) query = ""
                             },
-                            onArchivedPick = {
-                                archivedFilter = it
-                                if (query.isNotBlank()) {
-                                    query = ""
+                            // The tint is the only thing saying the field is open, so it doubles as the
+                            // state: accent while searching, neutral while closed.
+                            colors = IconButtonDefaults.iconButtonColors(
+                                contentColor = if (searchOpen) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        ) {
+                            Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.common_search))
+                        }
+                        IconButton(onClick = { schedulesOpen = true }) {
+                            Icon(Icons.Filled.Schedule, contentDescription = stringResource(R.string.schedule_title))
+                        }
+                        Box {
+                            IconButton(onClick = { optionsMenuOpen = true }) {
+                                Icon(Icons.Filled.Tune, contentDescription = stringResource(R.string.chatlist_view_options))
+                            }
+                            ViewOptionsMenu(
+                                expanded = optionsMenuOpen,
+                                onDismiss = { optionsMenuOpen = false },
+                                grouping = grouping,
+                                byRecency = sortByRecency,
+                                archivedFilter = archivedFilter,
+                                onGroupingPick = { grouping = it },
+                                onSortPick = { next ->
+                                    scope.launch { hostsStore.setSessionSort(if (next) SORT_UPDATED else SORT_MANUAL) }
+                                },
+                                onArchivedPick = {
+                                    archivedFilter = it
+                                    if (query.isNotBlank()) {
+                                        query = ""
+                                        searchOpen = false
+                                    }
+                                },
+                                onNewSession = { newSessionOpen = true },
+                                onNewWorkspace = { newWorkspaceOpen = true },
+                                onSortWorkspaces = {
+                                    // Sorting workspaces is its own focused screen; a search field
+                                    // there would be inert, so close it before switching.
                                     searchOpen = false
-                                }
-                            },
-                            onNewSession = { newSessionOpen = true },
-                            onNewWorkspace = { newWorkspaceOpen = true },
-                        )
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.settings_title))
+                                    query = ""
+                                    workspaceSortMode = true
+                                },
+                            )
+                        }
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.settings_title))
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -446,6 +499,19 @@ fun ChatListDrawer(
         },
     ) { innerPadding ->
         Column(Modifier.fillMaxSize().padding(innerPadding)) {
+            if (workspaceSortMode) {
+                WorkspaceSortList(
+                    workspaces = workspaces,
+                    loaded = workspacesLoaded,
+                    sessionCounts = workspaceRootCounts,
+                    store = store,
+                    scope = scope,
+                    pending = workspaceMovePending,
+                    onMove = { from, to -> moveWorkspace(from, to) },
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
+                return@Column
+            }
             // The search field folds away rather than permanently occupying a row of a phone-height
             // drawer, which is otherwise pure overhead for the common case.
             AnimatedVisibility(visible = searchOpen) {
@@ -527,9 +593,6 @@ fun ChatListDrawer(
                 val displayedWorkspaces = if (treeMode) {
                     workspaceTreeRows(workspaces, ::isExpanded)
                 } else workspaces.map { it to 0 }
-                fun rootsOf(workspace: WorkspaceRow) = workspace.sessionIds
-                    .mapNotNull { id -> listable.firstOrNull { it.sessionId == id } }
-                    .filterNot { it.sessionId in nestedIds || it.sessionId in pinnedSet }
                 for ((workspace, workspaceDepth) in displayedWorkspaces) {
                     if (!showWorkspaceHeader(grouping, archivedFilter)) continue
                     val roots = rootsOf(workspace)
@@ -561,27 +624,6 @@ fun ChatListDrawer(
                             },
                             store = store,
                             scope = scope,
-                            canMoveUp = !workspaceMovePending && visibleWorkspaceIds.indexOf(workspace.workspaceId) > 0,
-                            canMoveDown = !workspaceMovePending && visibleWorkspaceIds.indexOf(workspace.workspaceId) < visibleWorkspaceIds.lastIndex,
-                            onMove = { down ->
-                                if (!workspaceMovePending) {
-                                    val ids = visibleWorkspaceIds
-                                    val index = ids.indexOf(workspace.workspaceId)
-                                    if (index >= 0 && (if (down) index < ids.lastIndex else index > 0)) {
-                                        workspaceMovePending = true
-                                        scope.launch {
-                                            try {
-                                                store.reorderWorkspace(
-                                                    workspace.workspaceId,
-                                                    workspaceMoveAnchor(ids, workspace.workspaceId, down),
-                                                )
-                                            } finally {
-                                                workspaceMovePending = false
-                                            }
-                                        }
-                                    }
-                                }
-                            },
                             onNewSession = {
                                 scope.launch {
                                     store.createSession(workspaceId = workspace.workspaceId)
@@ -831,6 +873,7 @@ private fun ViewOptionsMenu(
     onArchivedPick: (ArchivedSessionFilter) -> Unit,
     onNewSession: () -> Unit,
     onNewWorkspace: () -> Unit,
+    onSortWorkspaces: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         ChatListMenuHeading(stringResource(R.string.chatlist_group_title))
@@ -877,12 +920,170 @@ private fun ViewOptionsMenu(
         ChatListMenuItem(
             stringResource(R.string.chatlist_new_workspace), Icons.Filled.CreateNewFolder,
         ) { onDismiss(); onNewWorkspace() }
+        ChatListMenuItem(
+            stringResource(R.string.chatlist_sort_workspaces), Icons.Filled.DragHandle,
+        ) { onDismiss(); onSortWorkspaces() }
     }
 }
 
 // ---------------------------------------------------------------------------
 // Rows
 // ---------------------------------------------------------------------------
+
+/** One in-flight registry drag: where it started and how far its finger has moved. */
+private data class WorkspaceSortDrag(
+    val index: Int,
+    val scrollStart: Int,
+    val pointerStartY: Float,
+)
+
+/**
+ * Every registered workspace in registry order, each row carrying a drag handle.
+ *
+ * The grouped list is deliberately not reused here: a drop has to map to exactly one
+ * `workspace/insertBefore` anchor, so the rows must be the flat registry order rather than a
+ * filtered or tree-derived view of it.
+ */
+@Composable
+private fun WorkspaceSortList(
+    workspaces: List<WorkspaceRow>,
+    loaded: Boolean,
+    sessionCounts: Map<String, Int>,
+    store: SessionStore,
+    scope: CoroutineScope,
+    pending: Boolean,
+    onMove: (from: Int, to: Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (workspaces.isEmpty()) {
+        Text(
+            stringResource(
+                if (loaded) R.string.chatlist_sort_workspaces_empty else R.string.common_loading,
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = modifier.padding(horizontal = DsSpacing.comfortable, vertical = DsSpacing.medium),
+        )
+        return
+    }
+    val rowPositions = remember { mutableMapOf<String, LayoutCoordinates>() }
+    val handlePositions = remember { mutableMapOf<String, LayoutCoordinates>() }
+    val scroll = rememberScrollState()
+    var viewport by remember { mutableStateOf(Rect.Zero) }
+    // A registry change mid-drag rebuilds the rows under the finger, so the drag is dropped rather
+    // than continuing against a list that no longer matches where it started. Session churn inside
+    // a workspace leaves the ids untouched and therefore does not interrupt the drag.
+    var drag by remember(workspaces.map { it.workspaceId }) { mutableStateOf<WorkspaceSortDrag?>(null) }
+    var deltaY by remember { mutableFloatStateOf(0f) }
+    val edge = with(LocalDensity.current) { DsSpacing.touchTarget.toPx() }
+    val step = with(LocalDensity.current) { DsSpacing.small.toPx() }
+    val scrollDirection = drag?.let {
+        val pointerY = it.pointerStartY + deltaY
+        when {
+            viewport.height <= 0f -> 0
+            pointerY < viewport.top + edge && deltaY < 0f -> -1
+            pointerY > viewport.bottom - edge && deltaY > 0f -> 1
+            else -> 0
+        }
+    } ?: 0
+    LaunchedEffect(drag?.index, scrollDirection) {
+        if (scrollDirection != 0) {
+            while (true) {
+                withFrameNanos { }
+                if (scroll.scrollBy(scrollDirection * step) == 0f) break
+            }
+        }
+    }
+
+    Box(modifier.onGloballyPositioned { viewport = it.boundsInRoot() }) {
+        Column(Modifier.fillMaxWidth().verticalScroll(scroll)) {
+            workspaces.forEachIndexed { index, workspace ->
+                val active = drag?.takeIf { it.index == index }
+                val handleModifier = Modifier
+                    .onGloballyPositioned { handlePositions[workspace.workspaceId] = it }
+                    .pointerInput(workspace.workspaceId, index, pending) {
+                        detectDragGestures(
+                            onDragStart = { start ->
+                                if (!pending) {
+                                    val handle = handlePositions[workspace.workspaceId]?.takeIf { it.isAttached }
+                                    if (handle != null) {
+                                        deltaY = 0f
+                                        drag = WorkspaceSortDrag(
+                                            index = index,
+                                            scrollStart = scroll.value,
+                                            pointerStartY = handle.localToRoot(start).y,
+                                        )
+                                    }
+                                }
+                            },
+                            onDrag = { change, amount ->
+                                if (drag?.index == index) {
+                                    change.consume()
+                                    deltaY += amount.y
+                                }
+                            },
+                            onDragCancel = { drag = null },
+                            onDragEnd = {
+                                val current = drag
+                                drag = null
+                                val row = rowPositions[workspace.workspaceId]?.takeIf { it.isAttached }
+                                if (current?.index == index && row != null) {
+                                    // Compare content coordinates: rows keep their position in the
+                                    // column while the viewport scrolls under the finger.
+                                    val center = row.positionInParent().y + row.size.height / 2f +
+                                        deltaY + scroll.value - current.scrollStart
+                                    val target = workspaces.indices.count { other ->
+                                        val otherRow = rowPositions[workspaces[other].workspaceId]
+                                        other != index && otherRow != null && otherRow.isAttached &&
+                                            otherRow.positionInParent().y + otherRow.size.height / 2f < center
+                                    }
+                                    if (target != index) onMove(index, target)
+                                }
+                            },
+                        )
+                    }
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .onGloballyPositioned { rowPositions[workspace.workspaceId] = it }
+                        .zIndex(if (active != null) 1f else 0f)
+                        .then(
+                            if (active != null) Modifier.background(MaterialTheme.colorScheme.surface)
+                            else Modifier,
+                        )
+                        .graphicsLayer {
+                            translationY = if (active != null) deltaY + scroll.value - active.scrollStart else 0f
+                        },
+                ) {
+                    WorkspaceHeader(
+                        workspace = workspace,
+                        depth = 0,
+                        collapsed = false,
+                        sessionCount = sessionCounts[workspace.workspaceId] ?: 0,
+                        onToggle = {},
+                        store = store,
+                        scope = scope,
+                        onNewSession = {},
+                        sorting = true,
+                        sortHandleContent = {
+                            Box(
+                                modifier = Modifier.fillMaxSize().then(handleModifier),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Filled.DragHandle,
+                                    contentDescription = stringResource(R.string.chatlist_sort_workspaces),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
 
 /**
  * A workspace header that collapses its group and carries the workspace verbs.
@@ -900,10 +1101,9 @@ private fun WorkspaceHeader(
     onToggle: () -> Unit,
     store: SessionStore,
     scope: CoroutineScope,
-    canMoveUp: Boolean,
-    canMoveDown: Boolean,
-    onMove: (down: Boolean) -> Unit,
     onNewSession: () -> Unit,
+    sorting: Boolean = false,
+    sortHandleContent: @Composable () -> Unit = {},
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
@@ -928,17 +1128,32 @@ private fun WorkspaceHeader(
                     .fillMaxWidth()
                     .padding(start = (depth * 12).dp)
                     .clip(MaterialTheme.shapes.small)
-                    .combinedClickable(onClick = onToggle, onLongClick = { menuOpen = true })
+                    .then(
+                        // While sorting, a row is a drag surface, not a disclosure control:
+                        // collapsing it here would hide the very rows being arranged.
+                        if (sorting) Modifier
+                        else Modifier.combinedClickable(onClick = onToggle, onLongClick = { menuOpen = true }),
+                    )
                     .padding(start = 6.dp, end = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = rotation },
-                )
-                Spacer(Modifier.width(6.dp))
+                if (sorting) {
+                    Icon(
+                        Icons.Filled.Folder,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                } else {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = rotation },
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
                 Text(
                     label,
                     style = MaterialTheme.typography.titleSmall,
@@ -952,25 +1167,28 @@ private fun WorkspaceHeader(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                IconButton(onClick = onNewSession, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Filled.Add,
-                        contentDescription = stringResource(R.string.chatlist_workspace_new_session),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
+                if (sorting) {
+                    // Takes the exact slot the New session shortcut occupied, so the row keeps its
+                    // width and the handle lands under the thumb that opened this mode. The caller
+                    // owns the handle's contents because only it knows the drag gesture.
+                    Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+                        sortHandleContent()
+                    }
+                } else {
+                    IconButton(onClick = onNewSession, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            Icons.Filled.Add,
+                            contentDescription = stringResource(R.string.chatlist_workspace_new_session),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             }
         }
         WorkspaceMenu(
             expanded = menuOpen,
             onDismiss = { menuOpen = false },
-            canMoveUp = canMoveUp,
-            canMoveDown = canMoveDown,
-            onMove = { down ->
-                menuOpen = false
-                onMove(down)
-            },
             onNewSession = {
                 menuOpen = false
                 onNewSession()
@@ -1015,9 +1233,6 @@ private fun WorkspaceHeader(
 private fun WorkspaceMenu(
     expanded: Boolean,
     onDismiss: () -> Unit,
-    canMoveUp: Boolean,
-    canMoveDown: Boolean,
-    onMove: (down: Boolean) -> Unit,
     onNewSession: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
@@ -1026,18 +1241,6 @@ private fun WorkspaceMenu(
         ChatListMenuItem(stringResource(R.string.chatlist_workspace_new_session), Icons.Filled.Add) {
             onDismiss()
             onNewSession()
-        }
-        if (canMoveUp) {
-            ChatListMenuItem(stringResource(R.string.chatlist_workspace_move_up), Icons.Filled.ArrowUpward) {
-                onDismiss()
-                onMove(false)
-            }
-        }
-        if (canMoveDown) {
-            ChatListMenuItem(stringResource(R.string.chatlist_workspace_move_down), Icons.Filled.ArrowDownward) {
-                onDismiss()
-                onMove(true)
-            }
         }
         ChatListMenuItem(stringResource(R.string.chatlist_workspace_rename), Icons.Filled.Edit) {
             onDismiss()
